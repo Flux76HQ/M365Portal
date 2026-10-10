@@ -87,7 +87,9 @@ hervatbaar en toont per stap status/rollback-hint**:
    Exchange `Get-OrganizationConfig` / `Get-DistributionGroup -ResultSize 1`) en
    duidelijke foutmeldingen met oplossing (propagatievertraging van rollen
    afhandelen met retry/backoff).
-5. Eerste beheerder instellen, taal kiezen, wizard vergrendelen (`setup_completed`).
+5. **Branding:** organisatienaam, logo en accentkleur instellen (met live preview;
+   overslaan mag). Eerste beheerder instellen, taal kiezen, wizard vergrendelen
+   (`setup_completed`).
    Een "Herstel verbinding"-actie in Instellingen draait de relevante stappen opnieuw.
 
 ### 4. Functionaliteit (fase 1)
@@ -114,11 +116,24 @@ en exporteerbaar (CSV); dashboard met tellers; nette foutafhandeling met
 throttling (429/`Retry-After`) en caching met korte TTL.
 
 ### 5. Design en gebruikerservaring (professioneel niveau)
-Het resultaat moet eruitzien als een commercieel product (denk aan Linear,
-Vercel en het Microsoft Entra-admincenter), niet als een standaard admin-template.
+Het resultaat moet eruitzien als een commercieel product, niet als een standaard
+admin-template. **Stijlrichting: strak zakelijk in de Microsoft Fluent 2-taal
+(Entra- en Microsoft 365-admincenter) met een vleugje Apple.**
+- **Fluent-kenmerken:** heldere, rustige vlakken met subtiele lagen (Mica/Acrylic-achtige
+  zijbalk en header, spaarzaam gebruikt), duidelijke hiërarchie, compacte maar
+  luchtige tabellen, 4 px-raster, radius 4-8 px, Fluent-achtige focusringen en
+  componentgedrag (commandbar boven lijsten, details-paneel aan de zijkant, Persona
+  met initialen voor gebruikers).
+- **Apple-vleugje:** zachte, fijne schaduwen, royale witruimte, vloeiende spring-
+  animaties, glasachtige blur op overlays en dialogen, afgeronde segmented controls
+  en scherpe, kalme typografie. Niet overdrijven: zakelijk blijft leidend.
+- **Typografie:** Segoe UI Variable-gevoel zonder licentieproblemen: gebruik zelf
+  gehost Inter (of Geist) met Fluent-achtige maten en gewichten; systeem-UI-fonts als
+  fallback.
 - **Design system:** eigen tokens (kleur, spacing, radius, schaduw, typografie) met
-  een rustig, modern palet, variabele lettertype (Inter of Geist, zelf gehost) en
-  consistente componenten: tabellen, formulieren, dialogen, toasts, command palette.
+  een neutraal grijs-blauw palet; de accentkleur komt uit de huisstijl (zie
+  Branding) en alle contrasten blijven WCAG-conform. Consistente componenten:
+  tabellen, formulieren, dialogen, toasts, command palette.
 - **Licht, donker en systeemthema**, soepel schakelen; `prefers-reduced-motion`
   gerespecteerd; subtiele, snelle micro-interacties (≤200 ms).
 - **Navigatie:** inklapbare zijbalk, brodkruimels, globale zoekbalk en command
@@ -136,6 +151,26 @@ Vercel en het Microsoft Entra-admincenter), niet als een standaard admin-templat
   LCP < 2,0 s, kritieke CSS inline, lazy loading, geen layout shift.
 - Lever bij oplevering schermafbeeldingen (licht/donker) en een korte demo-GIF in
   de README.
+
+### 5a. Branding en white-label
+Het panel is voor elke organisatie (bedrijf, vereniging, stichting) aan te passen,
+zonder code te wijzigen. Instelbaar in de wizard en later onder *Instellingen →
+Weergave*:
+- **Organisatienaam:** getoond in zijbalk, browsertitel, aanmeldscherm, e-mails en
+  het audit log-rapport. Standaard de tenantnaam, daarna vrij aan te passen.
+- **Logo uploaden:** PNG, JPG of SVG (max. 2 MB), apart voor licht en donker thema
+  (of automatische weergave als er één is), ook een compacte variant voor de
+  ingeklapte zijbalk en een favicon/PWA-icoon dat uit het logo wordt afgeleid.
+- **Accentkleur:** keuzehulp met live voorbeeld; de app berekent zelf toegankelijke
+  tinten voor hover, actief en tekstkleur.
+- **Veilige verwerking van uploads:** valideer op inhoud (magic bytes), niet op
+  extensie; **sanitize SVG** (verwijder scripts, event handlers en externe
+  verwijzingen) of render naar PNG; herschaal en verwijder metadata; sla op in
+  `/data/branding` met een hash-naam; lever uit met `Content-Type`, `nosniff` en
+  een strikte CSP; alleen beheerders mogen uploaden; schrijf elke wijziging naar het
+  audit log.
+- Zonder logo valt de app terug op een nette monogram-tegel met de initialen.
+- Branding wordt in de database bewaard en is exporteerbaar/importeerbaar.
 
 ### 6. Beveiliging (security by design)
 - Voer vooraf een korte **threat model** (STRIDE) uit en leg die vast in
@@ -189,7 +224,10 @@ Vercel en het Microsoft Entra-admincenter), niet als een standaard admin-templat
 7. Lighthouse ≥ 95 op alle hoofdpagina's; axe-core meldt geen ernstige problemen.
 8. Security-headers scoren A+ (securityheaders.com / Mozilla Observatory);
    de image is gesigneerd en heeft SBOM en provenance.
-9. Licht/donker thema en mobiele weergave zijn visueel gecontroleerd.
+9. Licht/donker thema en mobiele weergave zijn visueel gecontroleerd en passen bij
+   de Fluent-achtige look met Apple-accenten.
+10. Organisatienaam, logo (incl. kwaadaardig SVG-testbestand dat wordt geweigerd of
+    opgeschoond) en accentkleur zijn aan te passen en overleven een herstart.
 
 ### 9. Opleveren
 Lever per fase een kleine, reviewbare commit-reeks, werk README/docs bij, en
