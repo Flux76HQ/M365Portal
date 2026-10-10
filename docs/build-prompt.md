@@ -95,13 +95,21 @@ mag in het panel alleen wat het panel hem toestaat; wie in Entra geen rechten he
 maar in het panel een rol krijgt, kan alleen via het panel precies die acties doen.
 - **Rechtenmodel:** fijnmazige permissies in de vorm `resource:actie`, bijvoorbeeld
   `users:read`, `groups:read`, `groups:members:write`, `distributionlists:read`,
-  `distributionlists:members:write`, `contacts:read`, `contacts:write`,
-  `contacts:delete`, `audit:read`, `audit:export`, `settings:branding`,
+  `distributionlists:members:write`, `distributionlists:export`,
+  `contacts:read`, `contacts:create`, `contacts:update`, `contacts:delete`, `audit:read`, `audit:export`, `settings:branding`,
   `settings:connection`, `rbac:manage`. Een rol is een set permissies.
 - **Ingebouwde rollen** (niet te wijzigen): *Eigenaar* (alles, inclusief RBAC en
   verbinding), *Beheerder*, *Operator* (leden en contacten beheren, geen instellingen),
   *Helpdesk* (alleen lezen plus leden toevoegen/verwijderen binnen scope) en
-  *Lezer* (alleen lezen). Daarnaast **eigen rollen** aan te maken en te klonen.
+  *Lezer* (alleen lezen). Daarnaast **eigen rollen** aan te maken en te klonen, met een paar
+  **sjablonen** om mee te beginnen, waaronder *Bestuur*.
+- **Voorbeeld-sjabloon *Bestuur*:** mag alleen (a) mailcontacten **aanmaken**
+  (`contacts:create`), (b) mensen **toevoegen aan en verwijderen uit** de
+  distributiegroep(en) binnen de toegewezen scope (`distributionlists:members:write`),
+  plus de minimale leesrechten om dat te kunnen doen (`contacts:read`,
+  `distributionlists:read`, `users:read` beperkt tot naam en e-mail). Contacten
+  bewerken of verwijderen, groepen, instellingen, audit en RBAC zijn **niet**
+  toegestaan; de UI toont alleen de schermen en knoppen die bij deze rol horen.
 - **Toewijzing** aan individuele gebruikers én aan **Entra-groepen** (groepslidmaatschap
   wordt bij elke login opnieuw bepaald via Graph, ook bij groups-overage). Een
   gebruiker krijgt de som van zijn rollen. **Standaard geen toegang:** wie geen rol
@@ -183,6 +191,24 @@ Graph ondersteunt dit **niet**; gebruik Exchange.
 `Set-MailContact`, `Remove-MailContact`): volledige CRUD met validatie
 (extern e-mailadres uniek, weergavenaam, alias), bevestigingsdialoog bij
 verwijderen, en zichtbaar maken van lidmaatschap in DL's.
+
+**CSV-export van distributielijsten** (voor bijvoorbeeld Laposta of een andere
+nieuwsbriefdienst): knop *Exporteer als CSV* op de lijst, met permissie
+`distributionlists:export` en binnen de RBAC-scope.
+- Kolommen kiesbaar met live voorbeeld; standaard: `email`, `voornaam`,
+  `achternaam`, `weergavenaam`, `type` (gebruiker/contact). Een vooraf ingestelde
+  **Laposta-preset** (e-mail plus voor- en achternaam) en een generieke preset; houd
+  het kolomformaat configureerbaar en controleer het actuele importformaat van
+  Laposta in hun documentatie voordat je de preset vastlegt.
+- Opties: scheidingsteken (`;` voor Nederlandse Excel, of `,`), UTF-8 met of zonder
+  BOM, geneste groepen uitvouwen, dubbele e-mailadressen ontdubbelen, leden zonder
+  e-mailadres overslaan (met melding hoeveel).
+- Streaming voor grote lijsten, bestandsnaam met lijstnaam en datum.
+- **Veiligheid en privacy:** bescherm tegen CSV/formule-injectie (waarden die met
+  `=`, `+`, `-`, `@`, tab of CR beginnen veilig maken), schrijf elke export (wie, welke
+  lijst, aantal rijen) naar het audit log, vraag eventueel step-up bevestiging en
+  toon een korte AVG-waarschuwing. Het exportbestand wordt niet op de server bewaard.
+- Later (fase 2, niet nu): rechtstreekse synchronisatie met de Laposta-API.
 
 **Overig:** audit log van alle schrijfacties (wie, wat, wanneer, resultaat) in de UI
 en exporteerbaar (CSV); dashboard met tellers; nette foutafhandeling met
@@ -310,6 +336,15 @@ Weergave*:
     gebruiker zonder rol kan niet inloggen, ook al is hij Global Admin in Entra. De
     laatste Eigenaar is niet te verwijderen, en rechten uitdelen die je zelf niet
     hebt wordt geweigerd. Dit is gedekt door geautomatiseerde tests.
+
+12. Een gebruiker met het sjabloon *Bestuur* kan een mailcontact aanmaken en mensen aan
+    de toegewezen distributiegroep toevoegen en eruit verwijderen, maar een contact
+    bewerken of verwijderen, andere lijsten wijzigen, exporteren (zonder die
+    permissie), instellingen en RBAC openen wordt server-side geweigerd.
+13. De CSV-export van een distributielijst opent correct in Excel en is te importeren
+    in Laposta (preset); ontdubbeld en met werkende scheidingsteken- en BOM-opties;
+    een testlid met naam `=HYPERLINK(...)` wordt veilig geëxporteerd; de export staat
+    in het audit log en kan alleen met de exportpermissie.
 
 ### 9. Opleveren
 Lever per fase een kleine, reviewbare commit-reeks, werk README/docs bij, en
