@@ -28,10 +28,10 @@ onduidelijk is; kies anders zelf verstandige standaardwaarden en noteer ze als
 aannames in de spec. Bouw daarna in vier fasen, elk met werkende, geteste code en
 een eigen commit-reeks:
 - **Fase A:** monorepo, Docker-image, CI, design system en app-shell, branding.
-- **Fase B:** onboarding wizard en authenticatie.
+- **Fase B:** onboarding wizard, authenticatie en RBAC-fundament (policy-laag).
 - **Fase C:** gebruikers en groepen (Graph).
-- **Fase D:** distributielijsten en mailcontacten (Exchange), audit log en
-  beveiligings-hardening, e2e-tests en documentatie.
+- **Fase D:** distributielijsten en mailcontacten (Exchange), RBAC-beheer-UI met
+  scopes, audit log en beveiligings-hardening, e2e-tests en documentatie.
 
 Verzin geen API's of cmdlet-parameters: controleer ze in de officiële Microsoft
 Learn-documentatie en markeer wat je niet kon verifiëren in `docs/open-points.md`.
@@ -77,8 +77,8 @@ Learn-documentatie en markeer wat je niet kon verifiëren in `docs/open-points.m
 
 ### 2. Authenticatie
 - **Aanmelden bij het panel:** OpenID Connect (auth code + PKCE) tegen Entra ID.
-  Alleen gebruikers in een in de wizard gekozen beheerdersgroep (of met een app role)
-  krijgen toegang. Server-side sessies, CSRF-tokens, strikte cookies, rate limiting.
+  Wie mag inloggen en wat iemand daarna mag, bepaalt uitsluitend het eigen
+  RBAC-model van het panel (zie 2a), niet de Entra- of M365-rollen van de gebruiker. Server-side sessies, CSRF-tokens, strikte cookies, rate limiting.
 - **Eén app-registratie** (confidential client met certificaat) dient voor zowel
   de panel-login (OIDC) als de app-only toegang; de wizard vraagt de publieke
   basis-URL van het panel (ook `http://localhost` is toegestaan) en registreert
@@ -87,6 +87,47 @@ Learn-documentatie en markeer wat je niet kon verifiëren in `docs/open-points.m
   **certificaat** (client assertion, geen client secret). Privésleutel versleuteld at rest in `/data`
   (sleutel uit env `APP_KEY` of Docker secret).
 - Least privilege; elke permissie gedocumenteerd.
+
+### 2a. Rollen en rechten (RBAC in het panel)
+Omdat het panel met één krachtige app-identiteit werkt, is het panel zelf de enige
+plek waar rechten worden afgedwongen. Een gebruiker die in Entra/M365 beheerder is,
+mag in het panel alleen wat het panel hem toestaat; wie in Entra geen rechten heeft
+maar in het panel een rol krijgt, kan alleen via het panel precies die acties doen.
+- **Rechtenmodel:** fijnmazige permissies in de vorm `resource:actie`, bijvoorbeeld
+  `users:read`, `groups:read`, `groups:members:write`, `distributionlists:read`,
+  `distributionlists:members:write`, `contacts:read`, `contacts:write`,
+  `contacts:delete`, `audit:read`, `audit:export`, `settings:branding`,
+  `settings:connection`, `rbac:manage`. Een rol is een set permissies.
+- **Ingebouwde rollen** (niet te wijzigen): *Eigenaar* (alles, inclusief RBAC en
+  verbinding), *Beheerder*, *Operator* (leden en contacten beheren, geen instellingen),
+  *Helpdesk* (alleen lezen plus leden toevoegen/verwijderen binnen scope) en
+  *Lezer* (alleen lezen). Daarnaast **eigen rollen** aan te maken en te klonen.
+- **Toewijzing** aan individuele gebruikers én aan **Entra-groepen** (groepslidmaatschap
+  wordt bij elke login opnieuw bepaald via Graph, ook bij groups-overage). Een
+  gebruiker krijgt de som van zijn rollen. **Standaard geen toegang:** wie geen rol
+  heeft kan niet inloggen en ziet een nette "geen toegang"-pagina.
+- **Scope (beperking tot objecten):** een roltoewijzing kan beperkt worden tot
+  specifieke groepen, distributielijsten, mailcontacten of een filter (bijvoorbeeld
+  alle objecten met een bepaald voorvoegsel of afdeling). Voorbeeld: "mag alleen leden
+  van de groepen *Sales* en *Marketing* beheren". Buiten scope zijn objecten onzichtbaar
+  of alleen-lezen, afhankelijk van de permissies.
+- **Afdwingen op de server:** elke API-route controleert permissie én scope in één
+  centrale policy-laag (deny by default); de UI verbergt of disabelt alleen wat niet
+  mag, ter bevestiging, nooit als beveiliging. Ook bulk-acties, exports, zoeken en
+  de command palette respecteren de scope. Dit is onderdeel van de tests.
+- **Bescherming tegen misbruik:** niemand kan rechten toekennen die hij zelf niet
+  heeft (geen privilege escalation); de laatste Eigenaar kan zichzelf niet verwijderen
+  of degraderen; het eerste account uit de wizard wordt Eigenaar. Optioneel een
+  **break-glass**-account via env var dat alleen RBAC kan herstellen en dat elke
+  login luid in het audit log zet.
+- **Beheer-UI:** *Instellingen → Rollen en toegang* met overzicht per rol en per
+  gebruiker, "effectieve rechten" per gebruiker, een voorbeeld ("bekijk als
+  gebruiker X") en een veilige wijzigingsflow met bevestiging. Roltoewijzingen kunnen
+  optioneel een **vervaldatum** hebben (tijdelijke toegang).
+- **Audit:** elke wijziging aan rollen en toewijzingen, en elke geweigerde actie
+  (403), komt in het audit log.
+- **Datamodel:** tabellen voor rollen, permissies, toewijzingen (gebruiker/groep, rol,
+  scope, vervaldatum) en een cache van groepslidmaatschappen met korte TTL.
 
 ### 3. Onboarding wizard (eerste start)
 Bij een lege `/data` start automatisch `/setup`. De wizard is **idempotent,
@@ -119,7 +160,8 @@ hervatbaar en toont per stap status/rollback-hint**:
    duidelijke foutmeldingen met oplossing (propagatievertraging van rollen
    afhandelen met retry/backoff).
 5. **Branding:** organisatienaam, logo en accentkleur instellen (met live preview;
-   overslaan mag). Eerste beheerder instellen, taal kiezen, wizard vergrendelen
+   overslaan mag). De ingelogde Global Admin wordt de eerste *Eigenaar*; kies
+   eventueel een Entra-groep voor de rol *Beheerder*. Taal kiezen, wizard vergrendelen
    (`setup_completed`).
    Een "Herstel verbinding"-actie in Instellingen draait de relevante stappen opnieuw.
 
@@ -209,8 +251,8 @@ Weergave*:
 - **Panel-login:** OIDC + PKCE, `state`/`nonce`, tokenvalidatie (issuer, audience,
   tid), afdwingen van MFA via de `amr`/`acr`-claim, sessie-rotatie na login,
   idle- en absolute timeout, uitloggen overal. Ondersteun Conditional Access.
-- **RBAC** in het panel (lezer / operator / beheerder) en step-up bevestiging bij
-  gevoelige acties.
+- **RBAC** volgens sectie 2a, plus step-up bevestiging (opnieuw inloggen met MFA)
+  bij gevoelige acties zoals rollen wijzigen of bulk-verwijderen.
 - **Geheimen:** certificaat-privésleutel versleuteld met libsodium
   (XChaCha20-Poly1305, via `libsodium-wrappers`); sleutel via Docker/Azure secret of
   Key Vault-referentie; nooit in logs, error-pagina's of backups in leesbare vorm.
@@ -261,6 +303,13 @@ Weergave*:
    de Fluent-achtige look met Apple-accenten.
 10. Organisatienaam, logo (incl. kwaadaardig SVG-testbestand dat wordt geweigerd of
     opgeschoond) en accentkleur zijn aan te passen en overleven een herstart.
+
+11. RBAC: een gebruiker met alleen de rol *Lezer* kan geen enkele schrijfactie doen,
+    ook niet door de API rechtstreeks aan te roepen (403 en audit-regel). Een
+    gebruiker met een scope op groep *Sales* ziet en wijzigt geen andere groepen. Een
+    gebruiker zonder rol kan niet inloggen, ook al is hij Global Admin in Entra. De
+    laatste Eigenaar is niet te verwijderen, en rechten uitdelen die je zelf niet
+    hebt wordt geweigerd. Dit is gedekt door geautomatiseerde tests.
 
 ### 9. Opleveren
 Lever per fase een kleine, reviewbare commit-reeks, werk README/docs bij, en
