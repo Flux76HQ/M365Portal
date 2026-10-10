@@ -33,6 +33,18 @@ een eigen commit-reeks:
 - **Fase D:** distributielijsten en mailcontacten (Exchange), RBAC-beheer-UI met
   scopes, audit log en beveiligings-hardening, e2e-tests en documentatie.
 
+**Stop na elke fase.** Ga nooit zelfstandig door naar de volgende fase. Sluit elke
+fase af met:
+1. een korte samenvatting van wat er gebouwd is en wat bewust niet;
+2. de testresultaten (unit, e2e, a11y, lint, typecheck) en wat niet te testen was;
+3. een stappenlijst waarmee ik het resultaat zelf kan proberen (inclusief
+   `docker run`-commando en wat ik tegen een testtenant moet controleren);
+4. open punten, aannames en risico's (ook in `docs/open-points.md`);
+5. de vraag: "Akkoord om door te gaan met fase X?"
+Wacht op mijn expliciete akkoord. Verwerk eerst mijn feedback als ik wijzigingen
+vraag. Na fase B en na fase D geldt dit extra zwaar: daar test ik tegen een echte
+M365-tenant voordat we verdergaan.
+
 Verzin geen API's of cmdlet-parameters: controleer ze in de officiële Microsoft
 Learn-documentatie en markeer wat je niet kon verifiëren in `docs/open-points.md`.
 
@@ -348,7 +360,7 @@ Weergave*:
 
 ### 9. Opleveren
 Lever per fase een kleine, reviewbare commit-reeks, werk README/docs bij, en
-sluit af met een lijst van openstaande risico's en vervolgideeën (fase 2:
+sluit elke fase af volgens de stopregel bovenaan en sluit de laatste fase af met een lijst van openstaande risico's en vervolgideeën (fase 2:
 licentiebeheer, shared mailboxes, MFA-overzicht, rollen).
 
 ---
