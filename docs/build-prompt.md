@@ -48,10 +48,18 @@ waarmee een beheerder een Microsoft 365-tenant beheert.
 Bij een lege `/data` start automatisch `/setup`. De wizard is **idempotent,
 hervatbaar en toont per stap status/rollback-hint**:
 1. Welkom + controle omgeving (HTTPS, schrijfbare `/data`, `APP_KEY`, PHP-extensies).
-2. **Tenant koppelen** met een tijdelijke beheerderslogin (device code flow of
-   interactieve login) van een gebruiker met Global Administrator (of combinatie
-   Application Administrator + Privileged Role Administrator). Dit bootstrap-token
-   wordt na de wizard weggegooid en nooit opgeslagen.
+2. **Tenant koppelen** met een tijdelijke Global Administrator-login via de
+   **device code flow**. Gebruik als bootstrap-client de Microsoft-client
+   "Microsoft Graph Command Line Tools" (client-ID
+   `14d82eec-204b-4c2f-b7e8-296a70dab67e`, de client van `Connect-MgGraph`);
+   die bestaat al in elke tenant, dus er is **geen eigen multi-tenant app** om
+   te registreren of te hosten. Maak het client-ID overschrijfbaar via env var
+   `BOOTSTRAP_CLIENT_ID`, zodat een beheerder een eigen app kan opgeven als
+   Microsoft deze client ooit beperkt. Vraag alleen de delegated scopes die de
+   wizard nodig heeft (`Application.ReadWrite.All`,
+   `AppRoleAssignment.ReadWrite.All`, `RoleManagement.ReadWrite.Directory`,
+   `Directory.Read.All`). Het bootstrap-token wordt na de wizard weggegooid en
+   nooit opgeslagen.
 3. **Automatisch configureren in de tenant:**
    - App-registratie "M365Portal" + service principal aanmaken;
    - certificaat genereren, publieke deel uploaden, privé versleuteld opslaan;
