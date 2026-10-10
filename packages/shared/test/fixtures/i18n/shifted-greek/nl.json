@@ -1,0 +1,14 @@
+{
+  "common.cancel": "Ακύρωση",
+  "common.items.one": "{count} item",
+  "common.items.other": "{count} items",
+  "common.save": "Αποθήκευση",
+  "dashboard.empty": "Er is nog geen tenant verbonden.",
+  "dashboard.title": "Dashboard",
+  "pages.notFound": "Deze pagina bestaat niet.",
+  "shell.search": "Αναζήτηση",
+  "shell.welcome": "Welkom, {name}",
+  "theme.dark": "Donker",
+  "theme.light": "Licht",
+  "theme.system": "Ακολούθηση συστήματος"
+}

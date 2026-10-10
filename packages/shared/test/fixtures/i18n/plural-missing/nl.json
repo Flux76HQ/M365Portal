@@ -1,0 +1,13 @@
+{
+  "common.cancel": "Annuleren",
+  "common.items.other": "{count} items",
+  "common.save": "Opslaan",
+  "dashboard.empty": "Er is nog geen tenant verbonden.",
+  "dashboard.title": "Dashboard",
+  "pages.notFound": "Deze pagina bestaat niet.",
+  "shell.search": "Zoeken",
+  "shell.welcome": "Welkom, {name}",
+  "theme.dark": "Donker",
+  "theme.light": "Licht",
+  "theme.system": "Systeem volgen"
+}

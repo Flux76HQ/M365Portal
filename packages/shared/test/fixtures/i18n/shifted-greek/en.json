@@ -1,0 +1,14 @@
+{
+  "common.cancel": "Cancel",
+  "common.items.one": "{count} item",
+  "common.items.other": "{count} items",
+  "common.save": "Save",
+  "dashboard.empty": "No tenant is connected yet.",
+  "dashboard.title": "Dashboard",
+  "pages.notFound": "This page does not exist.",
+  "shell.search": "Search",
+  "shell.welcome": "Welcome, {name}",
+  "theme.dark": "Dark",
+  "theme.light": "Light",
+  "theme.system": "Follow system"
+}

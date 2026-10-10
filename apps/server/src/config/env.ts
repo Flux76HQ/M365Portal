@@ -78,7 +78,7 @@ function isDnsName(name: string): boolean {
 
 /**
  * The host of a `Host` header or of a URL, in one form: lower case, without the port, without one
- * trailing dot, an IPv6 literal kept in brackets (`[::1]:8080` gives `[::1]`). Returns `undefined`
+ * trailing dot, an IPv6 literal kept in brackets (`[::1]:9090` gives `[::1]`). Returns `undefined`
  * for anything that is not a plausible host: empty, whitespace, a path, userinfo, a second colon
  * outside brackets, an empty label, a character outside printable ASCII (an internationalised name
  * arrives as punycode).

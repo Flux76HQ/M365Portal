@@ -667,8 +667,23 @@ describe('normalizeHost, the one host normaliser', () => {
     '[]',
     'café',
     'host\r\nX-Injected: 1',
+    // A zone id names an interface of one machine: never a host a request is addressed to.
+    '[fe80::1%eth0]',
+    '[fe80::1%25eth0]',
   ])('refuses %j', (value) => {
     expect(normalizeHost(value)).toBeUndefined();
+  });
+
+  it('accepts a label of 63 characters and a name of 253, and refuses one more of either', () => {
+    const label = (length: number): string => 'a'.repeat(length);
+    expect(normalizeHost(label(63))).toBe(label(63));
+    expect(normalizeHost(label(64))).toBeUndefined();
+    // Three labels of 63 characters, one of 61 and three dots make 253 characters, the longest name.
+    const longest = [label(63), label(63), label(63), label(61)].join('.');
+    expect(longest).toHaveLength(253);
+    expect(normalizeHost(longest)).toBe(longest);
+    expect(normalizeHost(`${longest}a`)).toBeUndefined();
+    expect(normalizeHost(`${longest}.`)).toBe(longest);
   });
 });
 
@@ -766,6 +781,13 @@ describe('reporting an invalid configuration', () => {
     expect((failure as Error).message).toContain('PORT');
     expect((failure as Error).message).not.toContain(CANARY);
     expect(String((failure as Error).stack)).not.toContain(CANARY);
+  });
+
+  it('replaces a message of a library, so that no text but ours reaches the report', () => {
+    // A value of the wrong type (not possible from `process.env`, possible from a caller) makes Zod
+    // write a message of its own. It is not one of ours, so it is not passed on.
+    const issues = issuesOf({ PORT: 8080 as unknown as string });
+    expect(issues).toEqual([{ variable: 'PORT', message: 'PORT is invalid' }]);
   });
 
   it('does not run the cross-field rules on a variable that is already invalid', () => {

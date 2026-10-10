@@ -1,0 +1,14 @@
+{
+  "common.cancel": "Annuleren",
+  "common.items.one": "{count} item",
+  "common.items.other": "{count} items",
+  "common.save": "",
+  "dashboard.empty": "   ",
+  "dashboard.title": "Dashboard",
+  "pages.notFound": "Deze pagina bestaat niet.",
+  "shell.search": "Zoeken",
+  "shell.welcome": "Welkom, {name}",
+  "theme.dark": "Donker",
+  "theme.light": "Licht",
+  "theme.system": "Systeem volgen"
+}

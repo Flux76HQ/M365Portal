@@ -225,7 +225,9 @@ function fixtureApp(env: Record<string, string>) {
     app.get('/api/v1/json', (c) => c.json({ ok: true }));
     app.get('/page', (c) => {
       const nonce = c.get('nonce')();
-      return c.html(`<!doctype html><script nonce="${nonce}">1</script><style nonce="${nonce}"></style>`);
+      return c.html(
+        `<!doctype html><script nonce="${nonce}">1</script><style nonce="${nonce}"></style>`,
+      );
     });
     app.get('/offline.html', (c) => c.html('<!doctype html><p>offline</p>'));
     app.get('/sw.js', (c) => c.body('self.skip = 1', 200, { 'content-type': 'text/javascript' }));
@@ -248,18 +250,34 @@ function fixtureApp(env: Record<string, string>) {
     });
     // A handler or a library that sets what must never be sent.
     app.get('/api/v1/leaky', (c) =>
-      c.json(
-        { ok: true },
-        200,
-        {
-          Server: 'Hono/4',
-          'X-Powered-By': 'Express',
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Credentials': 'true',
-          'Access-Control-Expose-Headers': 'X-Request-Id',
-        },
-      ),
+      c.json({ ok: true }, 200, {
+        Server: 'Hono/4',
+        'X-Powered-By': 'Express',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Expose-Headers': 'X-Request-Id',
+        // A handler cannot weaken the policy of its profile, nor borrow a header of another one.
+        'Content-Security-Policy': 'default-src *',
+        'Cross-Origin-Opener-Policy': 'unsafe-none',
+        'Cross-Origin-Embedder-Policy': 'unsafe-none',
+        'X-Frame-Options': 'SAMEORIGIN',
+        'Referrer-Policy': 'unsafe-url',
+        'Permissions-Policy': 'camera=*',
+        // An HSTS value no rule allowed: over http, or the flags on a host that was never declared.
+        'Strict-Transport-Security': 'max-age=99999999; includeSubDomains; preload',
+      }),
     );
+    app.get('/leaky-page', (c) => {
+      const nonce = c.get('nonce')();
+      return c.html(`<!doctype html><script nonce="${nonce}">1</script>`, 200, {
+        'Content-Security-Policy': "default-src * 'unsafe-inline' 'unsafe-eval'",
+        'Cross-Origin-Opener-Policy': 'unsafe-none',
+        'Cross-Origin-Embedder-Policy': 'unsafe-none',
+        'X-Frame-Options': 'SAMEORIGIN',
+        'X-Content-Type-Options': 'sniff',
+        'Strict-Transport-Security': 'max-age=99999999; includeSubDomains; preload',
+      });
+    });
     return app;
   };
 }
@@ -277,22 +295,57 @@ interface ResponseKind {
 const KINDS: readonly ResponseKind[] = [
   { name: 'JSON', path: '/api/v1/json', status: 200, profile: 'other' },
   { name: 'HTML', path: '/page', status: 200, profile: 'html', nonce: 'present' },
-  { name: 'HTML on HEAD', method: 'HEAD', path: '/page', status: 200, profile: 'html', nonce: 'present' },
-  { name: 'the offline page', path: '/offline.html', status: 200, profile: 'html', nonce: 'absent' },
+  {
+    name: 'HTML on HEAD',
+    method: 'HEAD',
+    path: '/page',
+    status: 200,
+    profile: 'html',
+    nonce: 'present',
+  },
+  {
+    name: 'the offline page',
+    path: '/offline.html',
+    status: 200,
+    profile: 'html',
+    nonce: 'absent',
+  },
   { name: 'the service worker', path: '/sw.js', status: 200, profile: 'worker' },
   { name: 'a script', path: '/assets/app.js', status: 200, profile: 'other' },
   { name: 'a style sheet', path: '/assets/app.css', status: 200, profile: 'other' },
   { name: 'an image', path: '/branding/logo.png', status: 200, profile: 'other' },
   { name: 'robots.txt', path: '/robots.txt', status: 200, profile: 'other' },
   { name: 'a redirect', path: '/redirect', status: 302, profile: 'other' },
-  { name: 'a redirect with immutable headers', path: '/immutable-redirect', status: 302, profile: 'other' },
+  {
+    name: 'a redirect with immutable headers',
+    path: '/immutable-redirect',
+    status: 302,
+    profile: 'other',
+  },
   { name: 'a 404', path: '/api/v1/missing', status: 404, profile: 'other' },
-  { name: 'a 405', path: '/api/v1/method', status: 200 + 205, profile: 'other' },
+  { name: 'a 405', path: '/api/v1/method', status: 405, profile: 'other' },
   { name: 'a 413', path: '/api/v1/too-large', status: 413, profile: 'other' },
   { name: 'a 429', path: '/api/v1/limited', status: 429, profile: 'other' },
   { name: 'a 500 from the error handler', path: '/api/v1/boom', status: 500, profile: 'other' },
-  { name: 'a 500 from a thrown string', path: '/api/v1/thrown-string', status: 500, profile: 'other' },
-  { name: 'a response that sets forbidden headers', path: '/api/v1/leaky', status: 200, profile: 'other' },
+  {
+    name: 'a 500 from a thrown string',
+    path: '/api/v1/thrown-string',
+    status: 500,
+    profile: 'other',
+  },
+  {
+    name: 'a response that sets forbidden headers',
+    path: '/api/v1/leaky',
+    status: 200,
+    profile: 'other',
+  },
+  {
+    name: 'a page that sets its own security headers',
+    path: '/leaky-page',
+    status: 200,
+    profile: 'html',
+    nonce: 'present',
+  },
   {
     name: 'a CORS preflight (answered 405)',
     method: 'OPTIONS',
@@ -305,7 +358,13 @@ const KINDS: readonly ResponseKind[] = [
       'access-control-request-headers': 'content-type',
     },
   },
-  { name: 'OPTIONS on an unknown path', method: 'OPTIONS', path: '/nowhere', status: 405, profile: 'other' },
+  {
+    name: 'OPTIONS on an unknown path',
+    method: 'OPTIONS',
+    path: '/nowhere',
+    status: 405,
+    profile: 'other',
+  },
 ];
 
 const HTTPS_ENV = { PUBLIC_BASE_URL: 'https://panel.example.com' };
@@ -359,7 +418,13 @@ describe('profiles', () => {
     const html = headersForProfile({ profile: 'html', nonce: createNonce(), https: false });
     const worker = headersForProfile({ profile: 'worker', nonce: undefined, https: false });
     const other = headersForProfile({ profile: 'other', nonce: undefined, https: false });
-    expect(new Set([html['Content-Security-Policy'], worker['Content-Security-Policy'], other['Content-Security-Policy']]).size).toBe(3);
+    expect(
+      new Set([
+        html['Content-Security-Policy'],
+        worker['Content-Security-Policy'],
+        other['Content-Security-Policy'],
+      ]).size,
+    ).toBe(3);
     expect(worker['Content-Security-Policy']).toBe(WORKER_CSP);
     expect(other['Content-Security-Policy']).toBe(OTHER_CSP);
     expect(WORKER_CSP).toBe(EXPECTED_WORKER_CSP);
@@ -380,12 +445,16 @@ describe('profiles', () => {
 
   it('adds Strict-Transport-Security only when it is handed one', () => {
     expect(
-      headersForProfile({ profile: 'other', nonce: undefined, https: true, strictTransport: 'max-age=1' })[
-        'Strict-Transport-Security'
-      ],
+      headersForProfile({
+        profile: 'other',
+        nonce: undefined,
+        https: true,
+        strictTransport: 'max-age=1',
+      })['Strict-Transport-Security'],
     ).toBe('max-age=1');
     expect(
-      'Strict-Transport-Security' in headersForProfile({ profile: 'other', nonce: undefined, https: true }),
+      'Strict-Transport-Security' in
+        headersForProfile({ profile: 'other', nonce: undefined, https: true }),
     ).toBe(false);
   });
 });
@@ -405,8 +474,8 @@ describe('the nonce', () => {
       expect(Buffer.from(nonce ?? '', 'base64').length).toBeGreaterThanOrEqual(16);
       // The handler drew the nonce through the context: the page and the policy agree.
       const body = await response.text();
-      expect(body).toContain(`<script nonce="${nonce}">`);
-      expect(body).toContain(`<style nonce="${nonce}">`);
+      expect(body).toContain(`<script nonce="${nonce ?? ''}">`);
+      expect(body).toContain(`<style nonce="${nonce ?? ''}">`);
       nonces.push(nonce ?? '');
     }
     expect(new Set(nonces).size).toBe(25);
@@ -548,7 +617,9 @@ describe('no CORS, no Server, X-Robots-Tag everywhere', () => {
     const response = await harness.client.get('/api/v1/leaky');
     expect(response.status).toBe(200);
     for (const name of ['server', 'x-powered-by']) expect(response.headers.has(name)).toBe(false);
-    expect([...response.headers.keys()].filter((name) => name.startsWith('access-control-'))).toEqual([]);
+    expect(
+      [...response.headers.keys()].filter((name) => name.startsWith('access-control-')),
+    ).toEqual([]);
     expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow');
     expect(await response.json()).toEqual({ ok: true });
   });
@@ -564,7 +635,9 @@ describe('no CORS, no Server, X-Robots-Tag everywhere', () => {
     expect(response.status).toBe(405);
     expect(response.headers.get('allow')).toBe('GET, HEAD');
     expect(response.headers.get('content-type')).toBe('application/problem+json');
-    expect([...response.headers.keys()].filter((name) => name.startsWith('access-control-'))).toEqual([]);
+    expect(
+      [...response.headers.keys()].filter((name) => name.startsWith('access-control-')),
+    ).toEqual([]);
     expect(await response.json()).toMatchObject({ code: 'method_not_allowed', status: 405 });
   });
 
@@ -575,7 +648,11 @@ describe('no CORS, no Server, X-Robots-Tag everywhere', () => {
         const app = new Hono<AppEnv>();
         app.use(requestContext({ config }));
         app.use(securityHeaders({ config }));
-        app.use(rejectOptions((request) => (new URL(request.url).pathname === '/rw' ? ['GET', 'PUT', 'HEAD'] : ['GET'])));
+        app.use(
+          rejectOptions((request) =>
+            new URL(request.url).pathname === '/rw' ? ['GET', 'PUT', 'HEAD'] : ['GET'],
+          ),
+        );
         return app;
       },
     });
@@ -622,62 +699,135 @@ describe('the headers guard (negative fixtures)', () => {
     ['other', true],
   ] as const)('accepts the correct %s headers (https %s)', (profile, https) => {
     expect(() => {
-      assertSecurityHeaders({ headers: good(profile, https), expect: expectationFor(profile, https) });
+      assertSecurityHeaders({
+        headers: good(profile, https),
+        expect: expectationFor(profile, https),
+      });
     }).not.toThrow();
   });
 
-  describe.each(['html', 'worker', 'other'] as const)('removing a header from the %s profile', (profile) => {
-    const names = [...good(profile, false).keys()];
-    it.each(names)('fails without %s', (name) => {
-      const headers = good(profile, false);
-      headers.delete(name);
-      expectGuardFails(assertSecurityHeaders, { headers, expect: expectationFor(profile, false) }, {
-        reason: profile,
+  describe.each(['html', 'worker', 'other'] as const)(
+    'removing a header from the %s profile',
+    (profile) => {
+      const names = [...good(profile, false).keys()];
+      it.each(names)('fails without %s', (name) => {
+        const headers = good(profile, false);
+        headers.delete(name);
+        expectGuardFails(
+          assertSecurityHeaders,
+          { headers, expect: expectationFor(profile, false) },
+          {
+            reason: profile,
+          },
+        );
       });
-    });
-  });
+    },
+  );
 
   it('fails when the policy has no nonce, a reused nonce of 64 bits, or the wrong nonce position', () => {
     const noNonce = good('html', false);
     noNonce.set('content-security-policy', expectedHtmlCsp(undefined, false));
-    expectGuardFails(assertSecurityHeaders, { headers: noNonce, expect: expectationFor('html', false) }, {
-      reason: 'carries no nonce',
-    });
+    expectGuardFails(
+      assertSecurityHeaders,
+      { headers: noNonce, expect: expectationFor('html', false) },
+      {
+        reason: 'carries no nonce',
+      },
+    );
 
     const short = good('html', false);
-    short.set('content-security-policy', expectedHtmlCsp(Buffer.alloc(8, 7).toString('base64'), false));
-    expectGuardFails(assertSecurityHeaders, { headers: short, expect: expectationFor('html', false) }, {
-      reason: 'fewer than 128 bits',
-    });
+    short.set(
+      'content-security-policy',
+      expectedHtmlCsp(Buffer.alloc(8, 7).toString('base64'), false),
+    );
+    expectGuardFails(
+      assertSecurityHeaders,
+      { headers: short, expect: expectationFor('html', false) },
+      {
+        reason: 'fewer than 128 bits',
+      },
+    );
   });
 
   it.each([
-    ['unsafe-inline in script-src', (p: string) => p.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'"), /wrong policy|unsafe-inline/],
-    ['unsafe-eval in script-src', (p: string) => p.replace("script-src 'self'", "script-src 'self' 'unsafe-eval'"), /wrong policy|unsafe-eval/],
-    ['unsafe-inline in style-src', (p: string) => p.replace("style-src 'self'", "style-src 'self' 'unsafe-inline'"), /wrong policy|unsafe-inline/],
-    ['a wildcard in script-src', (p: string) => p.replace("script-src 'self'", "script-src * 'self'"), /wrong policy|allows \*/],
-    ['data: in script-src', (p: string) => p.replace("script-src 'self'", "script-src 'self' data:"), /wrong policy|data:/],
-    ['data: in style-src', (p: string) => p.replace("style-src 'self'", "style-src 'self' data:"), /wrong policy|data:/],
-    ['default-src open', (p: string) => p.replace("default-src 'none'", "default-src 'self'"), /wrong policy/],
-    ['no Trusted Types', (p: string) => p.replace("; require-trusted-types-for 'script'", ''), /wrong policy|require-trusted-types-for/],
-    ['another Trusted Types policy', (p: string) => p.replace('trusted-types m365portal-sw', 'trusted-types default'), /wrong policy|trusted-types/],
-    ['frames allowed', (p: string) => p.replace("frame-ancestors 'none'", "frame-ancestors 'self'"), /wrong policy/],
+    [
+      'unsafe-inline in script-src',
+      (p: string) => p.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'"),
+      /wrong policy|unsafe-inline/,
+    ],
+    [
+      'unsafe-eval in script-src',
+      (p: string) => p.replace("script-src 'self'", "script-src 'self' 'unsafe-eval'"),
+      /wrong policy|unsafe-eval/,
+    ],
+    [
+      'unsafe-inline in style-src',
+      (p: string) => p.replace("style-src 'self'", "style-src 'self' 'unsafe-inline'"),
+      /wrong policy|unsafe-inline/,
+    ],
+    [
+      'a wildcard in script-src',
+      (p: string) => p.replace("script-src 'self'", "script-src * 'self'"),
+      /wrong policy|allows \*/,
+    ],
+    [
+      'data: in script-src',
+      (p: string) => p.replace("script-src 'self'", "script-src 'self' data:"),
+      /wrong policy|data:/,
+    ],
+    [
+      'data: in style-src',
+      (p: string) => p.replace("style-src 'self'", "style-src 'self' data:"),
+      /wrong policy|data:/,
+    ],
+    [
+      'default-src open',
+      (p: string) => p.replace("default-src 'none'", "default-src 'self'"),
+      /wrong policy/,
+    ],
+    [
+      'no Trusted Types',
+      (p: string) => p.replace("; require-trusted-types-for 'script'", ''),
+      /wrong policy|require-trusted-types-for/,
+    ],
+    [
+      'another Trusted Types policy',
+      (p: string) => p.replace('trusted-types m365portal-sw', 'trusted-types default'),
+      /wrong policy|trusted-types/,
+    ],
+    [
+      'frames allowed',
+      (p: string) => p.replace("frame-ancestors 'none'", "frame-ancestors 'self'"),
+      /wrong policy/,
+    ],
   ] as const)('fails for %s', (_name, mutate, reason) => {
     const headers = good('html', false);
     headers.set('content-security-policy', mutate(headers.get('content-security-policy') ?? ''));
-    expectGuardFails(assertSecurityHeaders, { headers, expect: expectationFor('html', false) }, { reason });
+    expectGuardFails(
+      assertSecurityHeaders,
+      { headers, expect: expectationFor('html', false) },
+      { reason },
+    );
   });
 
   it('fails for upgrade-insecure-requests over http, and without it over https', () => {
     const overHttp = good('html', false);
     overHttp.set('content-security-policy', expectedHtmlCsp(nonce, true));
-    expectGuardFails(assertSecurityHeaders, { headers: overHttp, expect: expectationFor('html', false) }, {
-      reason: /wrong policy|upgrade-insecure-requests/,
-    });
+    expectGuardFails(
+      assertSecurityHeaders,
+      { headers: overHttp, expect: expectationFor('html', false) },
+      {
+        reason: /wrong policy|upgrade-insecure-requests/,
+      },
+    );
     const overHttps = good('html', false);
-    expectGuardFails(assertSecurityHeaders, { headers: overHttps, expect: expectationFor('html', true) }, {
-      reason: /wrong policy|upgrade-insecure-requests/,
-    });
+    expectGuardFails(
+      assertSecurityHeaders,
+      { headers: overHttps, expect: expectationFor('html', true) },
+      {
+        reason: /wrong policy|upgrade-insecure-requests/,
+      },
+    );
   });
 
   it.each([
@@ -688,9 +838,13 @@ describe('the headers guard (negative fixtures)', () => {
   ])('fails when %s is present', (name, value) => {
     const headers = good('other', false);
     headers.set(name, value);
-    expectGuardFails(assertSecurityHeaders, { headers, expect: expectationFor('other', false) }, {
-      reason: /is present/,
-    });
+    expectGuardFails(
+      assertSecurityHeaders,
+      { headers, expect: expectationFor('other', false) },
+      {
+        reason: /is present/,
+      },
+    );
   });
 
   it('fails for a header with the wrong value', () => {
@@ -702,9 +856,13 @@ describe('the headers guard (negative fixtures)', () => {
     ] as const) {
       const headers = good('other', false);
       headers.set(name, value);
-      expectGuardFails(assertSecurityHeaders, { headers, expect: expectationFor('other', false) }, {
-        reason: name,
-      });
+      expectGuardFails(
+        assertSecurityHeaders,
+        { headers, expect: expectationFor('other', false) },
+        {
+          reason: name,
+        },
+      );
     }
   });
 
@@ -712,9 +870,13 @@ describe('the headers guard (negative fixtures)', () => {
     for (const name of PROFILE_ONLY) {
       const headers = good('other', false);
       headers.set(name, 'x');
-      expectGuardFails(assertSecurityHeaders, { headers, expect: expectationFor('other', false) }, {
-        reason: 'does not belong to this profile',
-      });
+      expectGuardFails(
+        assertSecurityHeaders,
+        { headers, expect: expectationFor('other', false) },
+        {
+          reason: 'does not belong to this profile',
+        },
+      );
     }
   });
 
@@ -729,16 +891,23 @@ describe('the headers guard (negative fixtures)', () => {
     for (const variant of variants) {
       const headers = good('other', false);
       headers.set('permissions-policy', variant);
-      expectGuardFails(assertSecurityHeaders, { headers, expect: expectationFor('other', false) }, {
-        reason: 'Permissions-Policy',
-      });
+      expectGuardFails(
+        assertSecurityHeaders,
+        { headers, expect: expectationFor('other', false) },
+        {
+          reason: 'Permissions-Policy',
+        },
+      );
     }
   });
 
   it('fails when Strict-Transport-Security is missing over https or present over http', () => {
     expectGuardFails(
       assertSecurityHeaders,
-      { headers: good('other', true), expect: { ...expectationFor('other', true), hsts: 'max-age=31536000' } },
+      {
+        headers: good('other', true),
+        expect: { ...expectationFor('other', true), hsts: 'max-age=31536000' },
+      },
       { reason: 'Strict-Transport-Security' },
     );
     const withHsts = good('other', false);

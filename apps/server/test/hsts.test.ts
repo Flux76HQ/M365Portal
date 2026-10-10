@@ -130,25 +130,45 @@ const SCENARIOS: readonly Scenario[] = [
   ]),
 
   // The declared host may itself be an address, a trailing-dot name or an IPv6 literal.
-  ...rows('declared IPv4 address', { PUBLIC_BASE_URL: 'https://203.0.113.9', HSTS_INCLUDE_SUBDOMAINS: 'true' }, [
-    ['203.0.113.9', `${YEAR}; includeSubDomains`],
-    ['203.0.113.9:8443', `${YEAR}; includeSubDomains`],
-    ['203.0.113.10', YEAR],
-    [DECLARED, YEAR],
-  ]),
-  ...rows('declared IPv6 literal', { PUBLIC_BASE_URL: 'https://[2001:db8::1]:8443', HSTS_INCLUDE_SUBDOMAINS: 'true' }, [
-    ['[2001:db8::1]:8443', `${YEAR}; includeSubDomains`],
-    ['[2001:DB8::1]', `${YEAR}; includeSubDomains`],
-    ['[2001:db8::2]', YEAR],
-  ]),
-  ...rows('declared name with a trailing dot', { PUBLIC_BASE_URL: 'https://panel.example.com.', HSTS_INCLUDE_SUBDOMAINS: 'true' }, [
-    [DECLARED, `${YEAR}; includeSubDomains`],
-    [`${DECLARED}.`, `${YEAR}; includeSubDomains`],
-    ['alias.example.com', YEAR],
-  ]),
+  ...rows(
+    'declared IPv4 address',
+    { PUBLIC_BASE_URL: 'https://203.0.113.9', HSTS_INCLUDE_SUBDOMAINS: 'true' },
+    [
+      ['203.0.113.9', `${YEAR}; includeSubDomains`],
+      ['203.0.113.9:8443', `${YEAR}; includeSubDomains`],
+      ['203.0.113.10', YEAR],
+      [DECLARED, YEAR],
+    ],
+  ),
+  ...rows(
+    'declared IPv6 literal',
+    { PUBLIC_BASE_URL: 'https://[2001:db8::1]:8443', HSTS_INCLUDE_SUBDOMAINS: 'true' },
+    [
+      ['[2001:db8::1]:8443', `${YEAR}; includeSubDomains`],
+      ['[2001:DB8::1]', `${YEAR}; includeSubDomains`],
+      ['[2001:db8::2]', YEAR],
+    ],
+  ),
+  ...rows(
+    'declared name with a trailing dot',
+    { PUBLIC_BASE_URL: 'https://panel.example.com.', HSTS_INCLUDE_SUBDOMAINS: 'true' },
+    [
+      [DECLARED, `${YEAR}; includeSubDomains`],
+      [`${DECLARED}.`, `${YEAR}; includeSubDomains`],
+      ['alias.example.com', YEAR],
+    ],
+  ),
 
   // Over http (and no trusted proxy that says otherwise): nothing, whatever the opt-ins.
-  ...rows('http, defaults', {}, [['localhost:8080', undefined], [null, undefined]], false),
+  ...rows(
+    'http, defaults',
+    {},
+    [
+      ['localhost:8080', undefined],
+      [null, undefined],
+    ],
+    false,
+  ),
   ...rows(
     'http, every opt-in',
     {
@@ -197,14 +217,22 @@ describe('hstsHeaderValue (FR-A-043, E-16)', () => {
     }).not.toThrow();
   });
 
-  it.each(SCENARIOS.map((scenario) => [scenario.name, scenario] as const))('%s', (_name, scenario) => {
-    expect(realRule(scenario)).toBe(scenario.expected);
-  });
+  it.each(SCENARIOS.map((scenario) => [scenario.name, scenario] as const))(
+    '%s',
+    (_name, scenario) => {
+      expect(realRule(scenario)).toBe(scenario.expected);
+    },
+  );
 
   it('asserts both directions for every host: flags present for the declared host, absent elsewhere', () => {
-    const flagged = SCENARIOS.filter((scenario) => scenario.expected?.includes('includeSubDomains') === true);
+    const flagged = SCENARIOS.filter(
+      (scenario) => scenario.expected?.includes('includeSubDomains') === true,
+    );
     const plain = SCENARIOS.filter(
-      (scenario) => scenario.https && scenario.expected !== undefined && !scenario.expected.includes('includeSubDomains'),
+      (scenario) =>
+        scenario.https &&
+        scenario.expected !== undefined &&
+        !scenario.expected.includes('includeSubDomains'),
     );
     const silent = SCENARIOS.filter((scenario) => !scenario.https);
     // The table has to contain all three kinds of row, or one direction is not tested at all.
@@ -252,7 +280,9 @@ describe('the HSTS guard (negative fixtures)', () => {
 
   const alwaysIncludePreload: HeaderFor = (scenario) => {
     const value = realRule(scenario);
-    return value === undefined || value.includes('preload') ? value : `${value}; includeSubDomains; preload`;
+    return value === undefined || value.includes('preload')
+      ? value
+      : `${value}; includeSubDomains; preload`;
   };
 
   const ignoresHost: HeaderFor = (scenario) => {
@@ -273,7 +303,7 @@ describe('the HSTS guard (negative fixtures)', () => {
   const dropsTheHeaderForOtherHosts: HeaderFor = (scenario) => {
     const value = realRule(scenario);
     const config = configOf(scenario.env);
-    const declared = scenario.host !== null && scenario.host.toLowerCase().startsWith(config.publicHost);
+    const declared = scenario.host?.toLowerCase().startsWith(config.publicHost) === true;
     return declared || !scenario.https ? value : undefined;
   };
 
@@ -282,7 +312,8 @@ describe('the HSTS guard (negative fixtures)', () => {
   const dropsTheHeaderWithoutHost: HeaderFor = (scenario) =>
     scenario.host === null ? undefined : realRule(scenario);
 
-  const ignoresMaxAge: HeaderFor = (scenario) => realRule(scenario)?.replace(/max-age=\d+/, 'max-age=31536000');
+  const ignoresMaxAge: HeaderFor = (scenario) =>
+    realRule(scenario)?.replace(/max-age=\d+/, 'max-age=31536000');
 
   it('passes for the real rule', () => {
     expect(() => {
@@ -322,7 +353,12 @@ function buildApp(env: Record<string, string>) {
 
 async function strictTransport(
   env: Record<string, string>,
-  options: { peer?: string; headers?: Record<string, string>; host?: string | null; path?: string } = {},
+  options: {
+    peer?: string;
+    headers?: Record<string, string>;
+    host?: string | null;
+    path?: string;
+  } = {},
 ): Promise<string | null> {
   const harness = await createTestApp({ buildApp: buildApp(env) });
   const client = harness.clientFor(options.peer === undefined ? {} : { peer: options.peer });
@@ -347,7 +383,10 @@ describe('Strict-Transport-Security in the pipeline (FR-A-043)', () => {
   it('is not sent for a forged X-Forwarded-Proto from a peer outside the trusted list', async () => {
     const env = { TRUST_PROXY: '10.0.0.0/8' };
     expect(
-      await strictTransport(env, { peer: '203.0.113.9', headers: { 'x-forwarded-proto': 'https' } }),
+      await strictTransport(env, {
+        peer: '203.0.113.9',
+        headers: { 'x-forwarded-proto': 'https' },
+      }),
     ).toBeNull();
   });
 
@@ -356,9 +395,9 @@ describe('Strict-Transport-Security in the pipeline (FR-A-043)', () => {
     expect(
       await strictTransport(env, { peer: '10.0.0.1', headers: { 'x-forwarded-proto': 'https' } }),
     ).toBe(YEAR);
-    expect(await strictTransport({ TRUST_PROXY: '1' }, { headers: { 'x-forwarded-proto': 'https' } })).toBe(
-      YEAR,
-    );
+    expect(
+      await strictTransport({ TRUST_PROXY: '1' }, { headers: { 'x-forwarded-proto': 'https' } }),
+    ).toBe(YEAR);
   });
 
   it('is not sent when the trusted proxy says http', async () => {
@@ -375,7 +414,9 @@ describe('Strict-Transport-Security in the pipeline (FR-A-043)', () => {
       HSTS_INCLUDE_SUBDOMAINS: 'true',
     };
     const options = { peer: '10.0.0.1', headers: { 'x-forwarded-proto': 'https' } };
-    expect(await strictTransport(env, { ...options, host: DECLARED })).toBe(`${YEAR}; includeSubDomains`);
+    expect(await strictTransport(env, { ...options, host: DECLARED })).toBe(
+      `${YEAR}; includeSubDomains`,
+    );
     expect(await strictTransport(env, { ...options, host: 'alias.example.com' })).toBe(YEAR);
     expect(await strictTransport(env, { ...options, host: null })).toBe(YEAR);
   });

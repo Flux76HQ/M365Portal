@@ -133,6 +133,16 @@ describe('problem bodies (FR-A-022)', () => {
     expect('errors' in describeProblem('validation_failed', REQUEST_ID).body).toBe(false);
   });
 
+  it('caps errors[] at the same number whoever builds the list', () => {
+    const errors = Array.from({ length: MAX_FIELD_ERRORS * 3 }, (_, index) => ({
+      pointer: `/field${String(index)}`,
+      code: 'invalid_type',
+    }));
+    const { body } = describeProblem('validation_failed', REQUEST_ID, { errors });
+    expect(body.errors).toHaveLength(MAX_FIELD_ERRORS);
+    expect(body.errors?.at(-1)?.pointer).toBe(`/field${String(MAX_FIELD_ERRORS - 1)}`);
+  });
+
   it('carries expectedOrigin for origin_not_allowed and a detail that names PUBLIC_BASE_URL (FR-A-016)', () => {
     const { body } = describeProblem('origin_not_allowed', REQUEST_ID, { expectedOrigin: ORIGIN });
     expect(body.expectedOrigin).toBe(ORIGIN);
@@ -248,6 +258,22 @@ describe('problem headers', () => {
     }
   });
 
+  it('accepts one second and one day, and refuses a second more than a day', () => {
+    for (const [seconds, header] of [
+      [1, '1'],
+      [86_400, '86400'],
+    ] as const) {
+      expect(
+        describeProblem('rate_limited', REQUEST_ID, { retryAfterSeconds: seconds }).headers[
+          'Retry-After'
+        ],
+      ).toBe(header);
+    }
+    expect(() =>
+      describeProblem('rate_limited', REQUEST_ID, { retryAfterSeconds: 86_401 }),
+    ).toThrow(/retryAfterSeconds/);
+  });
+
   it.each([undefined, 0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 31])(
     'refuses a Retry-After of %s for rate_limited',
     (seconds) => {
@@ -327,6 +353,38 @@ function build(
 async function bodyOf(response: Response): Promise<Record<string, unknown>> {
   return readJson<Record<string, unknown>>(response);
 }
+
+describe('the request id of a problem', () => {
+  it('is the one of the request when it is valid', async () => {
+    const harness = await createTestApp({
+      buildApp: build((app) => {
+        app.get('/id', (c) => problemResponse(c, 'not_found'));
+      }),
+    });
+    const response = await harness.client.get('/id', {
+      headers: { 'x-request-id': 'client-id-0001' },
+    });
+    expect((await bodyOf(response)).requestId).toBe('client-id-0001');
+  });
+
+  it.each(['bad id', 'x', 'a'.repeat(65), 'line\r\nbreak-0001'])(
+    'is replaced when the context holds %j, so that a body never carries an id the schema refuses',
+    async (id) => {
+      const harness = await createTestApp({
+        buildApp: build((app) => {
+          app.get('/id', (c) => {
+            c.set('requestId', id);
+            return problemResponse(c, 'not_found');
+          });
+        }),
+      });
+      const response = await harness.client.get('/id');
+      const body = await bodyOf(response);
+      expect(body.requestId).toMatch(/^[A-Za-z0-9-]{8,64}$/);
+      expect(body.requestId).not.toBe(id);
+    },
+  );
+});
 
 describe('problemResponse', () => {
   const buildApp = build((app) => {
@@ -474,6 +532,23 @@ describe('validationProblemResponse (FR-A-022, contract section 1)', () => {
     ]);
   });
 
+  it.each([
+    'permission_denied',
+    'internal_error',
+    'not_found',
+    'validation_failed',
+    'csrf_invalid',
+  ])(
+    'does not promote %s: only the three specific validation codes become the code of the problem',
+    async (code) => {
+      const schema = z.strictObject({ field: z.string().refine(() => false, { error: code }) });
+      const { response, body } = await respond(failureOf(schema, { field: 'x' }, 'json'));
+      expect(response.status).toBe(422);
+      assertProblemBody(body, 'validation_failed');
+      expect(body.errors).toEqual([{ pointer: '/field', code }]);
+    },
+  );
+
   it('does not promote a generic error that happens to sit on the same field', async () => {
     const schema = z.strictObject({ orgName: z.string().min(1, { error: 'org_name_invalid' }) });
     const { body } = await respond(failureOf(schema, { orgName: 7 }, 'json'));
@@ -559,6 +634,24 @@ describe('validationProblemResponse (FR-A-022, contract section 1)', () => {
       'invalid',
       'invalid',
       'not_found',
+    ]);
+    expect(ProblemSchema.safeParse(body).success).toBe(true);
+  });
+
+  it('keeps a fault code of 64 characters and replaces one of 65', async () => {
+    const failure: ValidationFailure = {
+      target: 'json',
+      error: {
+        issues: [
+          { code: 'a'.repeat(64), message: 'x', path: ['sixty_four'] },
+          { code: 'a'.repeat(65), message: 'x', path: ['sixty_five'] },
+        ],
+      },
+    };
+    const { body } = await respond(failure);
+    expect(body.errors).toEqual([
+      { pointer: '/sixty_four', code: 'a'.repeat(64) },
+      { pointer: '/sixty_five', code: 'invalid' },
     ]);
     expect(ProblemSchema.safeParse(body).success).toBe(true);
   });
@@ -801,6 +894,17 @@ describe('classifyStorageError (FR-A-065)', () => {
       kind: 'busy',
       code: 'SQLITE_BUSY',
     });
+  });
+
+  it('never reads the message: a text that names a code is not a code', () => {
+    expect(classifyStorageError(new Error('SQLITE_BUSY: database is locked'))).toBeUndefined();
+    expect(classifyStorageError(new Error('SQLITE_FULL'))).toBeUndefined();
+    expect(
+      classifyStorageError(Object.assign(new Error('SQLITE_FULL: disk full'), { code: 'EACCES' })),
+    ).toBeUndefined();
+    expect(
+      classifyStorageError({ message: 'SQLITE_CORRUPT: database disk image is malformed' }),
+    ).toBeUndefined();
   });
 
   it('reads a code that is not a string as no code', () => {

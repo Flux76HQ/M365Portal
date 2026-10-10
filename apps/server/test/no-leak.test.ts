@@ -12,6 +12,8 @@ import {
   createErrorHandler,
   describeError,
   errorBoundary,
+  MAX_STACK_CHARACTERS,
+  MAX_STACK_FRAMES,
   notFoundHandler,
 } from '../src/http/error-handler.js';
 import { requestContext, type AppEnv } from '../src/http/request-context.js';
@@ -39,6 +41,13 @@ function buildApp(context: TestAppContext): Hono<AppEnv> {
   });
   app.get('/cause', () => {
     throw new Error('the service failed', { cause: new Error(`connection string ${CANARY}`) });
+  });
+  // A cause that is data, not an Error: JSON.stringify would show its fields.
+  app.get('/cause-data', () => {
+    throw new Error('the service failed', { cause: { connection: CANARY, user: 'admin' } });
+  });
+  app.get('/cause-text', () => {
+    throw new Error('the service failed', { cause: `password=${CANARY}` });
   });
   app.get('/name', () => {
     throw Object.assign(new Error('x'), { name: `Error-${CANARY}` });
@@ -87,6 +96,8 @@ function buildApp(context: TestAppContext): Hono<AppEnv> {
 const ROUTES = [
   '/message',
   '/cause',
+  '/cause-data',
+  '/cause-text',
   '/name',
   '/code',
   '/unsafe-code',
@@ -209,6 +220,20 @@ describe('describeError', () => {
     } finally {
       Error.stackTraceLimit = previous;
     }
+  });
+
+  it('keeps at most MAX_STACK_FRAMES frames, however many there are', () => {
+    const error = new Error('many frames');
+    error.stack = `Error: many frames\n${Array.from(
+      { length: MAX_STACK_FRAMES * 4 },
+      (_, index) => `    at frame${String(index)} (file.js:1:1)`,
+    ).join('\n')}`;
+    const { stack } = describeError(error);
+    const frames = (stack ?? '').split('\n');
+    expect(frames).toHaveLength(MAX_STACK_FRAMES);
+    expect(frames[0]).toContain('frame0');
+    expect(frames.at(-1)).toContain(`frame${String(MAX_STACK_FRAMES - 1)}`);
+    expect((stack ?? '').length).toBeLessThanOrEqual(MAX_STACK_CHARACTERS);
   });
 
   it('describes a value that is not an Error without reading it', () => {

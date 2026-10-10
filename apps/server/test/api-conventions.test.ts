@@ -141,6 +141,12 @@ function buildApp() {
   app.use(requestContext({ config: result.config }));
   app.get('/ok', (c) => c.json({ requestId: c.get('requestId') }));
   app.get('/redirect', (c) => c.redirect('/ok'));
+  // Responses a handler builds itself: a plain Response, one with immutable headers, and one that a
+  // guard returns before the handler runs. The id has to be on all of them.
+  app.get('/raw', () => new Response('raw'));
+  app.get('/immutable', () => Response.redirect('http://localhost:8080/ok', 302));
+  app.use('/guarded', (c) => Promise.resolve(c.json({ denied: true }, 403)));
+  app.get('/guarded', (c) => c.json({ reached: true }));
   app.get('/fails', () => {
     throw new Error('handler failed');
   });
@@ -153,6 +159,9 @@ describe('X-Request-Id on every response (FR-A-024)', () => {
     ['a JSON response', '/ok', 200],
     ['a redirect', '/redirect', 302],
     ['a 404', '/nowhere', 404],
+    ['a plain Response', '/raw', 200],
+    ['a redirect with immutable headers', '/immutable', 302],
+    ['a response from a guard', '/guarded', 403],
     ['an error response', '/fails', 500],
   ])('is present on %s', async (_name, path, status) => {
     const harness = await createTestApp({ buildApp });

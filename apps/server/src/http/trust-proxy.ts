@@ -47,15 +47,12 @@ function announcedScheme(forwardedProto: string | null | undefined): 'http' | 'h
   return last === 'https' || last === 'http' ? last : undefined;
 }
 
-/** A list entry as a Node block-list rule. IPv4-mapped IPv6 ranges become IPv4 ranges. */
+/**
+ * A list entry as a Node block-list rule. An IPv4-mapped IPv6 range (`::ffff:10.0.0.0/104`) needs no
+ * special case: Node's block list matches the IPv4 address it stands for, which is how the peers
+ * are keyed (`normalizeIp`). `trust-proxy.test.ts` pins that behaviour with the ranges it maps.
+ */
 function addNetwork(list: BlockList, network: TrustedNetwork): void {
-  if (network.family === 6 && network.prefix >= 96) {
-    const unwrapped = normalizeIp(network.address);
-    if (unwrapped !== undefined && !unwrapped.includes(':')) {
-      list.addSubnet(unwrapped, network.prefix - 96, 'ipv4');
-      return;
-    }
-  }
   list.addSubnet(network.address, network.prefix, network.family === 4 ? 'ipv4' : 'ipv6');
 }
 

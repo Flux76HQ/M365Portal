@@ -29,7 +29,11 @@ export interface AppVariables {
   readonly scheme: 'http' | 'https';
   /** The reading of the injected clock when the request began, in milliseconds. */
   readonly startedAtMs: number;
-  /** The CSP nonce of this request: drawn on first use, the same value every time (T-A-028). */
+  /**
+   * The CSP nonce of this request: drawn on first use, the same value every time. Set by
+   * `securityHeaders` (T-A-028), so a handler that renders a page can call it only when that
+   * middleware ran before it; the header and the page then carry the same nonce.
+   */
   readonly nonce: () => string;
 }
 

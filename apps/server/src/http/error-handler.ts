@@ -47,8 +47,8 @@ export type ErrorHandlerFunction = (error: unknown, c: Context<AppEnv>) => Respo
 const SAFE_NAME = /^[A-Za-z][A-Za-z0-9_$.]{0,63}$/;
 const SAFE_CODE = /^[A-Z][A-Z0-9_]{1,63}$/;
 const FRAME_LINE = /^\s+at /;
-const MAX_STACK_CHARACTERS = 4_000;
-const MAX_STACK_FRAMES = 30;
+export const MAX_STACK_CHARACTERS = 4_000;
+export const MAX_STACK_FRAMES = 30;
 
 export interface ErrorDescription {
   readonly name: string;
