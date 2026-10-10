@@ -190,7 +190,7 @@ describe('checkAuditedReadOrigin: the Sec-Fetch-Site rule for a GET that writes 
     'same-origin, none',
     ' none',
   ])('refuses %j', (value) => {
-    expect(checkAuditedReadOrigin(value).ok).toBe(false);
+    expect(checkAuditedReadOrigin(value)).toEqual({ ok: false, reason: 'sec_fetch_site' });
   });
 });
 
@@ -345,6 +345,27 @@ describe('validate: the states of a token (plan 8.3, E-09)', () => {
     expect(csrf.validate(value, '')).toEqual({ ok: false, reason: 'malformed' });
   });
 
+  it('does not accept the same signature spelled differently: the two unused bits of its last character must be zero', () => {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    for (let round = 0; round < 8; round += 1) {
+      const clock = createFakeClock(`2026-10-10T12:00:0${String(round)}.000Z`);
+      const csrf = makeCsrf(clock, Buffer.alloc(32, 40 + round));
+      const { token } = csrf.issue('');
+      const last = token.slice(-1);
+      // The last of 43 characters holds 4 bits of signature and 2 bits that mean nothing.
+      expect(alphabet.indexOf(last) % 4).toBe(0);
+      const respelled = `${token.slice(0, -1)}${alphabet.charAt(alphabet.indexOf(last) + 1)}`;
+
+      // Node decodes both spellings to the same 32 bytes ...
+      expect(Buffer.from(respelled.split('.')[4] ?? '', 'base64url')).toEqual(
+        Buffer.from(token.split('.')[4] ?? '', 'base64url'),
+      );
+      // ... and only the canonical one is a token.
+      expect(csrf.validate(token, '')).toEqual({ ok: true });
+      expect(csrf.validate(respelled, '')).toEqual({ ok: false, reason: 'bad_signature' });
+    }
+  });
+
   it('reports a flipped character of the signature as a bad signature', () => {
     const { csrf, token } = minted();
     const last = token.slice(-1);
@@ -443,7 +464,7 @@ describe('validate: the states of a token (plan 8.3, E-09)', () => {
 
     it.each([
       0, 1, 9, 10, 99, 100, 123_456_789, 999_999_999, 9_999_999_999, 99_999_999_999,
-      100_000_000_000, 999_999_971_199,
+      100_000_000_000, 999_999_971_199, 90_000_000, 9_000_000_000, 8_000_000_000,
     ])(
       'accepts a token issued at %i s since the epoch, and one whose expiry has one digit more',
       (seconds) => {

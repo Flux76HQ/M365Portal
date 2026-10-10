@@ -8,6 +8,8 @@
 // Negative fixtures (tasks.md section 0.3): the redaction guard is proven by running it on
 // redactors that are wrong in each way a redactor can be wrong. A guard that has never been seen
 // to fail is an assumption.
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
@@ -15,7 +17,15 @@ import { loadConfigOrThrow } from '../src/config/index.js';
 import { createErrorHandler, errorBoundary, notFoundHandler } from '../src/http/error-handler.js';
 import { requestContext, type AppEnv } from '../src/http/request-context.js';
 import { createLogger, logPosture, type Logger } from '../src/logging/logger.js';
-import { isSensitiveKey, redactDeep, REDACTED } from '../src/logging/redact.js';
+import {
+  isSensitiveKey,
+  MAX_ARRAY_ITEMS,
+  MAX_DEPTH,
+  MAX_STRING_CHARACTERS,
+  redactDeep,
+  redactFields,
+  REDACTED,
+} from '../src/logging/redact.js';
 import { createRequestLogger } from '../src/logging/request-logger.js';
 import { createFakeClock } from './helpers/fake-clock.js';
 import { createLogCapture } from './helpers/log-capture.js';
@@ -112,14 +122,56 @@ describe('createLogger: one JSON object per call (FR-A-051)', () => {
     expect(capture.lines()).toHaveLength(1);
   });
 
-  it('writes to standard output when no destination is given', () => {
-    // The default destination is the process's stdout (FR-A-051). Creating the logger must not
-    // throw or write anything; the line itself is not asserted here (it would land in the test run).
-    const log = createLogger({ level: 'silent' });
-    expect(() => {
-      log.fatal({}, 'nothing is written at silent');
-    }).not.toThrow();
-  });
+  it('writes to standard output, and the last line before an exit is there', () => {
+    const serverRoot = fileURLToPath(new URL('..', import.meta.url));
+    const script = [
+      "import { createLogger } from './src/logging/logger.ts';",
+      "const log = createLogger({ level: 'info', now: () => 0 });",
+      "log.info({ answer: 42, password: 'canary-stdout' }, 'to stdout');",
+      'process.exit(0);',
+    ].join('\n');
+
+    const result = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', '--input-type=module', '-e', script],
+      {
+        cwd: serverRoot,
+        encoding: 'utf8',
+        timeout: 60_000,
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout.trim())).toEqual({
+      level: 'info',
+      time: '1970-01-01T00:00:00.000Z',
+      msg: 'to stdout',
+      answer: 42,
+      password: REDACTED,
+    });
+  }, 60_000);
+
+  it('does not crash the process when standard output is gone', () => {
+    const serverRoot = fileURLToPath(new URL('..', import.meta.url));
+    const script = [
+      "import { closeSync } from 'node:fs';",
+      "import { createLogger } from './src/logging/logger.ts';",
+      "const log = createLogger({ level: 'info', now: () => 0 });",
+      'closeSync(1);',
+      "log.info({}, 'nowhere to go');",
+      "process.stderr.write('survived');",
+    ].join('\n');
+
+    const result = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', '--input-type=module', '-e', script],
+      { cwd: serverRoot, encoding: 'utf8', timeout: 60_000 },
+    );
+
+    expect(result.stderr).toBe('survived');
+    expect(result.status).toBe(0);
+  }, 60_000);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -238,9 +290,8 @@ describe('redactDeep (FR-A-051)', () => {
   });
 
   it('marks a cycle instead of looping', () => {
-    const text = JSON.stringify(redactDeep(hostileInput()));
-    expect(text).toContain('[circular]');
-    expect(text).toContain('kept-circular');
+    const result = redactDeep(hostileInput()) as Record<string, unknown>;
+    expect(result.circular).toEqual({ harmless: 'kept-circular', self: '[circular]' });
   });
 
   it('shares an object that appears twice without calling it a cycle', () => {
@@ -265,6 +316,99 @@ describe('redactDeep (FR-A-051)', () => {
     const text = JSON.stringify(result);
     expect(text.length).toBeLessThan(20_000);
     expect(text).toContain('[truncated]');
+  });
+
+  it('has the limits it states: 8,192 characters, 100 array items, 8 levels', () => {
+    expect(MAX_STRING_CHARACTERS).toBe(8_192);
+    expect(MAX_ARRAY_ITEMS).toBe(100);
+    expect(MAX_DEPTH).toBe(8);
+  });
+
+  it('keeps a string of exactly the limit whole and cuts one character more', () => {
+    expect(redactDeep({ text: 'x'.repeat(MAX_STRING_CHARACTERS) })).toEqual({
+      text: 'x'.repeat(MAX_STRING_CHARACTERS),
+    });
+    const cut = redactDeep({ text: 'x'.repeat(MAX_STRING_CHARACTERS + 1) }) as { text: string };
+    expect(cut.text.startsWith('x'.repeat(MAX_STRING_CHARACTERS))).toBe(true);
+    expect(cut.text).toContain('[truncated]');
+    expect(cut.text.length).toBeLessThan(MAX_STRING_CHARACTERS + 20);
+  });
+
+  it('keeps an array of exactly the limit whole and marks the items beyond it', () => {
+    const exact = redactDeep({ list: Array.from({ length: MAX_ARRAY_ITEMS }, (_, i) => i) }) as {
+      list: unknown[];
+    };
+    expect(exact.list).toHaveLength(MAX_ARRAY_ITEMS);
+    expect(exact.list.at(-1)).toBe(MAX_ARRAY_ITEMS - 1);
+
+    const over = redactDeep({ list: Array.from({ length: MAX_ARRAY_ITEMS + 1 }, (_, i) => i) }) as {
+      list: unknown[];
+    };
+    expect(over.list).toHaveLength(MAX_ARRAY_ITEMS + 1);
+    expect(over.list.at(-1)).toBe('[+1 more]');
+    expect(over.list.at(-2)).toBe(MAX_ARRAY_ITEMS - 1);
+  });
+
+  it('keeps objects nested to the depth limit and truncates the one beyond it', () => {
+    // The fields are level 0; a value at level MAX_DEPTH is the first that is cut, if it is an object.
+    const chain = (objects: number): Record<string, unknown> => {
+      let inner: unknown = 'leaf';
+      for (let level = 0; level < objects; level += 1) inner = { next: inner };
+      return inner as Record<string, unknown>;
+    };
+    const depthOf = (value: unknown): number => {
+      let depth = 0;
+      let cursor = value;
+      while (typeof cursor === 'object' && cursor !== null && 'next' in cursor) {
+        cursor = cursor.next;
+        depth += 1;
+      }
+      return depth;
+    };
+
+    const whole = redactDeep(chain(MAX_DEPTH));
+    expect(depthOf(whole)).toBe(MAX_DEPTH);
+    let end: unknown = whole;
+    for (let level = 0; level < MAX_DEPTH; level += 1) end = (end as { next: unknown }).next;
+    expect(end).toBe('leaf');
+
+    const cut = redactDeep(chain(MAX_DEPTH + 1));
+    let last: unknown = cut;
+    for (let level = 0; level < MAX_DEPTH; level += 1) last = (last as { next: unknown }).next;
+    expect(last).toBe('[truncated]');
+  });
+
+  it('applies the same depth limit to arrays inside arrays', () => {
+    const nest = (arrays: number): unknown => {
+      let inner: unknown = 'leaf';
+      for (let level = 0; level < arrays; level += 1) inner = [inner];
+      return inner;
+    };
+    let whole: unknown = redactDeep({ value: nest(MAX_DEPTH - 1) });
+    whole = (whole as { value: unknown }).value;
+    for (let level = 0; level < MAX_DEPTH - 1; level += 1) whole = (whole as unknown[])[0];
+    expect(whole).toBe('leaf');
+
+    let cut: unknown = redactDeep({ value: nest(MAX_DEPTH + 3) });
+    cut = (cut as { value: unknown }).value;
+    let reached = 0;
+    while (Array.isArray(cut)) {
+      cut = cut[0];
+      reached += 1;
+    }
+    expect(cut).toBe('[truncated]');
+    expect(reached).toBe(MAX_DEPTH - 1);
+  });
+
+  it('gives redactFields a record, whatever it is handed', () => {
+    expect(redactFields({ a: 1, password: CANARY })).toEqual({ a: 1, password: REDACTED });
+    expect(
+      redactFields(new URL('https://example.invalid/') as unknown as Record<string, unknown>),
+    ).toEqual({
+      value: '[object URL]',
+    });
+    expect(redactFields(null as unknown as Record<string, unknown>)).toEqual({ value: null });
+    expect(redactFields(['a'] as unknown as Record<string, unknown>)).toEqual({ value: ['a'] });
   });
 
   it('describes an error by name, code and frames only: never the message, the cause or an own property', () => {
@@ -347,7 +491,21 @@ describe('redactDeep (FR-A-051)', () => {
     };
     const text = JSON.stringify(redactDeep(hostile));
     expect(text).not.toContain(CANARY);
-    expect(text).toContain('kept');
+    expect(redactDeep(hostile)).toEqual({ boom: '[unreadable]', fine: 'kept' });
+  });
+
+  it('describes an object of a class by a safe name, and a hostile name as Object', () => {
+    class Widget {}
+    expect(redactDeep(new Widget())).toBe('[object Widget]');
+    expect(redactDeep(new (class _Hidden {})())).toBe('[object Object]');
+    expect(redactDeep(Object.create({ constructor: 'x' }))).toBe('[object Object]');
+    const hostileName = new (class {})();
+    Object.defineProperty(hostileName.constructor, 'name', { value: 'a b; password=' + CANARY });
+    expect(redactDeep(hostileName)).toBe('[object Object]');
+  });
+
+  it('keeps the marker text that the logs and the docs name', () => {
+    expect(REDACTED).toBe('[redacted]');
   });
 
   it('writes a key called __proto__ as a key, not as a prototype', () => {
@@ -376,6 +534,21 @@ describe('the logger redacts everything that reaches it (FR-A-051)', () => {
     expect(capture.text()).not.toContain(CANARY);
     expect(capture.text()).toContain('kept-value');
     expect(capture.lines()).toHaveLength(2);
+  });
+
+  it('redacts the bindings of a child logger too', () => {
+    const capture = createLogCapture();
+    const log = createLogger({ level: 'info', destination: capture });
+    const child = log.child({ clientSecret: CANARY, component: 'kept-component' });
+
+    child.info({ fine: 'kept-fine' }, 'from a child');
+
+    expect(capture.text()).not.toContain(CANARY);
+    expect(capture.lines()[0]).toMatchObject({
+      clientSecret: REDACTED,
+      component: 'kept-component',
+      fine: 'kept-fine',
+    });
   });
 
   it('redacts a sensitive key at the top level of the line', () => {
@@ -592,6 +765,14 @@ function buildLoggedApp(
     throw new Error(`handler failed for ${EMAIL}`);
   });
   app.get('/api/v1/bad-request', (c) => c.json({ error: true }, 400));
+  app.get('/api/v1/pairs/:id', async (_c, next) => {
+    await next();
+  });
+  app.get('/api/v1/pairs/special', (c) => c.json({ special: true }));
+  app.get(
+    '/api/v1/status/:code',
+    (c) => new Response(null, { status: Number(c.req.param('code')) }),
+  );
   app.get('/healthz', (c) => c.json({ status: 'ok' }));
   app.get('/readyz', (c) => c.json({ status: 'ok' }));
   app.onError(createErrorHandler({ log }));
@@ -722,7 +903,34 @@ describe('the request line (FR-A-051)', () => {
     });
     await verbose.client.get('/healthz');
     expect(verbose.logs.lines()).toHaveLength(1);
-    expect(verbose.logs.lines()[0]).toMatchObject({ level: 'debug', route: '/healthz' });
+    expect(verbose.logs.lines()[0]).toMatchObject({
+      level: 'debug',
+      msg: 'request',
+      route: '/healthz',
+    });
+  });
+
+  it('names the route that answered, not the first one that matched', async () => {
+    const harness = await createTestApp({ buildApp: (context) => buildLoggedApp(context) });
+
+    await harness.client.get('/api/v1/pairs/special');
+
+    expect(harness.logs.lines()[0]?.route).toBe('/api/v1/pairs/special');
+  });
+
+  it.each([
+    [200, 'info'],
+    [404, 'info'],
+    [499, 'info'],
+    [500, 'warn'],
+    [503, 'warn'],
+    [599, 'warn'],
+  ])('writes a %i at %s', async (status, level) => {
+    const harness = await createTestApp({ buildApp: (context) => buildLoggedApp(context) });
+
+    await harness.client.get(`/api/v1/status/${String(status)}`);
+
+    expect(harness.logs.lines()[0]).toMatchObject({ level, status });
   });
 
   it('writes a 5xx at warn and everything else at info', async () => {

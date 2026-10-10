@@ -18,6 +18,8 @@ export type LogFields = Readonly<Record<string, unknown>>;
 /** The call shape every module of the server logs with. The error handler's `ErrorLogger` fits it. */
 export interface Logger {
   readonly level: LogLevel;
+  /** A logger that adds `bindings` to every line. They are redacted like any other field. */
+  child(bindings: LogFields): Logger;
   trace(fields: LogFields, message: string): void;
   debug(fields: LogFields, message: string): void;
   info(fields: LogFields, message: string): void;
@@ -70,7 +72,40 @@ export function createLogger(options: CreateLoggerOptions): Logger {
     },
     options.destination ?? stdoutDestination(),
   );
-  return instance as Logger;
+  return wrap(instance);
+}
+
+/**
+ * pino's own `child` would take its bindings as they come, past the redaction hook, so the logger
+ * handed out is a thin wrapper that redacts them first. A request-scoped logger carrying the request
+ * id is the likely use; one carrying a token must not be able to leak it.
+ */
+function wrap(instance: pino.Logger): Logger {
+  return {
+    get level(): LogLevel {
+      return instance.level as LogLevel;
+    },
+    // pino calls hasOwnProperty on what it is given, which a record without a prototype lacks.
+    child: (bindings) => wrap(instance.child({ ...redactFields(bindings) })),
+    trace: (fields, message) => {
+      instance.trace(fields, message);
+    },
+    debug: (fields, message) => {
+      instance.debug(fields, message);
+    },
+    info: (fields, message) => {
+      instance.info(fields, message);
+    },
+    warn: (fields, message) => {
+      instance.warn(fields, message);
+    },
+    error: (fields, message) => {
+      instance.error(fields, message);
+    },
+    fatal: (fields, message) => {
+      instance.fatal(fields, message);
+    },
+  };
 }
 
 /** What the start knows beyond the configuration (FR-A-015). */

@@ -1,0 +1,9 @@
+{
+  "migrations": [
+    {
+      "tag": "0000_init",
+      "sha256": "c8ef08b37db63f46e17b95339871e0c5a433fabb84d53b43e958633bd506d562",
+      "schemaVersion": 0
+    }
+  ]
+}

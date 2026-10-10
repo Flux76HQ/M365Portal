@@ -1,0 +1,470 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "6a8783e4-6f42-4e46-a642-72dab0dcfe75",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "audit_log": {
+      "name": "audit_log",
+      "columns": {
+        "seq": {
+          "name": "seq",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ts": {
+          "name": "ts",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_kind": {
+          "name": "actor_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target_type": {
+          "name": "target_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "target_id": {
+          "name": "target_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reason_code": {
+          "name": "reason_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "client_ip": {
+          "name": "client_ip",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "detail": {
+          "name": "detail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "prev_hash": {
+          "name": "prev_hash",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "hash": {
+          "name": "hash",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "audit_log_hash_uq": {
+          "name": "audit_log_hash_uq",
+          "columns": ["hash"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "audit_log_ts_shape": {
+          "name": "audit_log_ts_shape",
+          "value": "ts GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        },
+        "audit_log_outcome_set": {
+          "name": "audit_log_outcome_set",
+          "value": "outcome IN ('success', 'denied', 'rejected', 'error')"
+        },
+        "audit_log_detail_json": {
+          "name": "audit_log_detail_json",
+          "value": "json_valid(detail) = 1 AND length(CAST(detail AS BLOB)) <= 4096"
+        },
+        "audit_log_hash_sizes": {
+          "name": "audit_log_hash_sizes",
+          "value": "length(prev_hash) = 32 AND length(hash) = 32"
+        }
+      }
+    },
+    "branding": {
+      "name": "branding",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "org_name": {
+          "name": "org_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "accent": {
+          "name": "accent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "logo_light": {
+          "name": "logo_light",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_dark": {
+          "name": "logo_dark",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_compact": {
+          "name": "logo_compact",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_compact_derived": {
+          "name": "logo_compact_derived",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "icon_favicon32": {
+          "name": "icon_favicon32",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "icon_apple180": {
+          "name": "icon_apple180",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "icon_pwa192": {
+          "name": "icon_pwa192",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "icon_pwa512": {
+          "name": "icon_pwa512",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "icon_maskable512": {
+          "name": "icon_maskable512",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_by_kind": {
+          "name": "updated_by_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_by_id": {
+          "name": "updated_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "branding_logo_light_branding_asset_sha256_fk": {
+          "name": "branding_logo_light_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "tableTo": "branding_asset",
+          "columnsFrom": ["logo_light"],
+          "columnsTo": ["sha256"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "branding_logo_dark_branding_asset_sha256_fk": {
+          "name": "branding_logo_dark_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "tableTo": "branding_asset",
+          "columnsFrom": ["logo_dark"],
+          "columnsTo": ["sha256"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "branding_logo_compact_branding_asset_sha256_fk": {
+          "name": "branding_logo_compact_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "tableTo": "branding_asset",
+          "columnsFrom": ["logo_compact"],
+          "columnsTo": ["sha256"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "branding_icon_favicon32_branding_asset_sha256_fk": {
+          "name": "branding_icon_favicon32_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "tableTo": "branding_asset",
+          "columnsFrom": ["icon_favicon32"],
+          "columnsTo": ["sha256"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "branding_icon_apple180_branding_asset_sha256_fk": {
+          "name": "branding_icon_apple180_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "tableTo": "branding_asset",
+          "columnsFrom": ["icon_apple180"],
+          "columnsTo": ["sha256"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "branding_icon_pwa192_branding_asset_sha256_fk": {
+          "name": "branding_icon_pwa192_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "tableTo": "branding_asset",
+          "columnsFrom": ["icon_pwa192"],
+          "columnsTo": ["sha256"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "branding_icon_pwa512_branding_asset_sha256_fk": {
+          "name": "branding_icon_pwa512_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "tableTo": "branding_asset",
+          "columnsFrom": ["icon_pwa512"],
+          "columnsTo": ["sha256"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "branding_icon_maskable512_branding_asset_sha256_fk": {
+          "name": "branding_icon_maskable512_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "tableTo": "branding_asset",
+          "columnsFrom": ["icon_maskable512"],
+          "columnsTo": ["sha256"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "branding_single_row": {
+          "name": "branding_single_row",
+          "value": "id = 1"
+        },
+        "branding_revision_positive": {
+          "name": "branding_revision_positive",
+          "value": "revision >= 1"
+        },
+        "branding_org_name_bytes": {
+          "name": "branding_org_name_bytes",
+          "value": "length(CAST(org_name AS BLOB)) BETWEEN 1 AND 256"
+        },
+        "branding_accent_shape": {
+          "name": "branding_accent_shape",
+          "value": "accent GLOB '#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'"
+        },
+        "branding_logo_compact_derived_flag": {
+          "name": "branding_logo_compact_derived_flag",
+          "value": "logo_compact_derived IN (0, 1)"
+        },
+        "branding_logo_compact_derived_needs_logo": {
+          "name": "branding_logo_compact_derived_needs_logo",
+          "value": "logo_compact_derived = 0 OR logo_compact IS NOT NULL"
+        },
+        "branding_updated_at_shape": {
+          "name": "branding_updated_at_shape",
+          "value": "updated_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        }
+      }
+    },
+    "branding_asset": {
+      "name": "branding_asset",
+      "columns": {
+        "sha256": {
+          "name": "sha256",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "bytes": {
+          "name": "bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "width": {
+          "name": "width",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "height": {
+          "name": "height",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "luminance": {
+          "name": "luminance",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "unreferenced_at": {
+          "name": "unreferenced_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "branding_asset_unreferenced_idx": {
+          "name": "branding_asset_unreferenced_idx",
+          "columns": ["unreferenced_at"],
+          "isUnique": false,
+          "where": "unreferenced_at IS NOT NULL"
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "branding_asset_sha256_shape": {
+          "name": "branding_asset_sha256_shape",
+          "value": "length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'"
+        },
+        "branding_asset_bytes_range": {
+          "name": "branding_asset_bytes_range",
+          "value": "bytes BETWEEN 1 AND 2097152"
+        },
+        "branding_asset_width_range": {
+          "name": "branding_asset_width_range",
+          "value": "width BETWEEN 1 AND 1024"
+        },
+        "branding_asset_height_range": {
+          "name": "branding_asset_height_range",
+          "value": "height BETWEEN 1 AND 1024"
+        },
+        "branding_asset_luminance_range": {
+          "name": "branding_asset_luminance_range",
+          "value": "luminance IS NULL OR luminance BETWEEN 0 AND 1"
+        },
+        "branding_asset_created_at_shape": {
+          "name": "branding_asset_created_at_shape",
+          "value": "created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        },
+        "branding_asset_unreferenced_at_shape": {
+          "name": "branding_asset_unreferenced_at_shape",
+          "value": "unreferenced_at IS NULL OR unreferenced_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

@@ -16,7 +16,7 @@
 //
 // The ETag is a hash of the bytes, weak. It is added to the worker, the offline files and
 // `robots.txt` when the file has none (static serving does not send one), and used for the 304. The
-// manifest is the route's: its ETag is the revision, and this middleware only honours it.
+// manifest comes with the ETag of its revision from its route; that tag is kept and used for the 304.
 import { createHash } from 'node:crypto';
 import type { Context, MiddlewareHandler } from 'hono';
 import { setResponseHeaders, type AppEnv } from './request-context.js';

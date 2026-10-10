@@ -1,0 +1,95 @@
+CREATE TABLE `audit_log` (
+	`seq` integer PRIMARY KEY NOT NULL,
+	`ts` text NOT NULL,
+	`actor_kind` text NOT NULL,
+	`actor_id` text NOT NULL,
+	`action` text NOT NULL,
+	`target_type` text,
+	`target_id` text,
+	`outcome` text NOT NULL,
+	`reason_code` text,
+	`client_ip` text,
+	`request_id` text,
+	`detail` text DEFAULT '{}' NOT NULL,
+	`prev_hash` blob NOT NULL,
+	`hash` blob NOT NULL,
+	CONSTRAINT "audit_log_ts_shape" CHECK(ts GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+	CONSTRAINT "audit_log_outcome_set" CHECK(outcome IN ('success', 'denied', 'rejected', 'error')),
+	CONSTRAINT "audit_log_detail_json" CHECK(json_valid(detail) = 1 AND length(CAST(detail AS BLOB)) <= 4096),
+	CONSTRAINT "audit_log_hash_sizes" CHECK(length(prev_hash) = 32 AND length(hash) = 32)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `audit_log_hash_uq` ON `audit_log` (`hash`);--> statement-breakpoint
+CREATE TABLE `branding` (
+	`id` integer PRIMARY KEY NOT NULL,
+	`revision` integer NOT NULL,
+	`org_name` text NOT NULL,
+	`accent` text NOT NULL,
+	`logo_light` text,
+	`logo_dark` text,
+	`logo_compact` text,
+	`logo_compact_derived` integer DEFAULT 0 NOT NULL,
+	`icon_favicon32` text NOT NULL,
+	`icon_apple180` text NOT NULL,
+	`icon_pwa192` text NOT NULL,
+	`icon_pwa512` text NOT NULL,
+	`icon_maskable512` text NOT NULL,
+	`updated_at` text NOT NULL,
+	`updated_by_kind` text NOT NULL,
+	`updated_by_id` text NOT NULL,
+	FOREIGN KEY (`logo_light`) REFERENCES `branding_asset`(`sha256`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`logo_dark`) REFERENCES `branding_asset`(`sha256`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`logo_compact`) REFERENCES `branding_asset`(`sha256`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`icon_favicon32`) REFERENCES `branding_asset`(`sha256`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`icon_apple180`) REFERENCES `branding_asset`(`sha256`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`icon_pwa192`) REFERENCES `branding_asset`(`sha256`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`icon_pwa512`) REFERENCES `branding_asset`(`sha256`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`icon_maskable512`) REFERENCES `branding_asset`(`sha256`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "branding_single_row" CHECK(id = 1),
+	CONSTRAINT "branding_revision_positive" CHECK(revision >= 1),
+	CONSTRAINT "branding_org_name_bytes" CHECK(length(CAST(org_name AS BLOB)) BETWEEN 1 AND 256),
+	CONSTRAINT "branding_accent_shape" CHECK(accent GLOB '#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'),
+	CONSTRAINT "branding_logo_compact_derived_flag" CHECK(logo_compact_derived IN (0, 1)),
+	CONSTRAINT "branding_logo_compact_derived_needs_logo" CHECK(logo_compact_derived = 0 OR logo_compact IS NOT NULL),
+	CONSTRAINT "branding_updated_at_shape" CHECK(updated_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z')
+);
+--> statement-breakpoint
+CREATE TABLE `branding_asset` (
+	`sha256` text PRIMARY KEY NOT NULL,
+	`bytes` integer NOT NULL,
+	`width` integer NOT NULL,
+	`height` integer NOT NULL,
+	`luminance` real,
+	`created_at` text NOT NULL,
+	`unreferenced_at` text,
+	CONSTRAINT "branding_asset_sha256_shape" CHECK(length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+	CONSTRAINT "branding_asset_bytes_range" CHECK(bytes BETWEEN 1 AND 2097152),
+	CONSTRAINT "branding_asset_width_range" CHECK(width BETWEEN 1 AND 1024),
+	CONSTRAINT "branding_asset_height_range" CHECK(height BETWEEN 1 AND 1024),
+	CONSTRAINT "branding_asset_luminance_range" CHECK(luminance IS NULL OR luminance BETWEEN 0 AND 1),
+	CONSTRAINT "branding_asset_created_at_shape" CHECK(created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+	CONSTRAINT "branding_asset_unreferenced_at_shape" CHECK(unreferenced_at IS NULL OR unreferenced_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z')
+);
+--> statement-breakpoint
+CREATE INDEX `branding_asset_unreferenced_idx` ON `branding_asset` (`unreferenced_at`) WHERE unreferenced_at IS NOT NULL;
+--> statement-breakpoint
+-- =============================================================================================
+-- HAND-WRITTEN SECTION (data-model 7.1). Everything above this banner is drizzle-kit output; the
+-- audit_log triggers below are not part of the TypeScript schema (drizzle-kit cannot render them),
+-- which is why the committed snapshots are taken from the migrated database (PD-05).
+--
+-- audit_log_no_update / audit_log_no_delete: the log is append-only (I-7).
+-- audit_log_chain_link: SQLite cannot compute SHA-256, but it can refuse an insert whose seq or
+-- prev_hash does not continue the chain, so even a buggy writer cannot fork it (I-6). Because it
+-- requires seq = MAX(seq) + 1, an INSERT OR REPLACE onto an existing seq is refused as well.
+-- =============================================================================================
+CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log
+BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
+--> statement-breakpoint
+CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log
+BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
+--> statement-breakpoint
+CREATE TRIGGER audit_log_chain_link BEFORE INSERT ON audit_log
+WHEN NEW.seq <> COALESCE((SELECT MAX(seq) FROM audit_log), 0) + 1
+  OR NEW.prev_hash <> COALESCE((SELECT hash FROM audit_log WHERE seq = (SELECT MAX(seq) FROM audit_log)), zeroblob(32))
+BEGIN SELECT RAISE(ABORT, 'audit_log chain link violated'); END;

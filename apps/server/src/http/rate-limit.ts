@@ -137,7 +137,8 @@ export function createRateLimiter(options: RateLimiterOptions): RateLimiter {
       }
       return {
         allowed: false,
-        retryAfterSeconds: Math.max(1, Math.ceil((cost - bucket.level) / 1000)),
+        // The bucket is short of a token, so the time to one is more than 0 and the ceiling at least 1.
+        retryAfterSeconds: Math.ceil((cost - bucket.level) / 1000),
       };
     },
     get size() {

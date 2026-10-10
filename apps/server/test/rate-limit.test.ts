@@ -136,6 +136,37 @@ describe('Retry-After is the ceiling of the time to one token, in whole seconds'
     expect(limiter.take('write', 'a').allowed).toBe(true);
   });
 
+  it.each([
+    // [milliseconds since the last refusal-free moment, the wait the limiter must report]
+    [0, 10],
+    [1, 10],
+    [999, 10],
+    [1_000, 9],
+    [1_001, 9],
+    [8_999, 2],
+    [9_000, 1],
+    [9_999, 1],
+  ])('upload: %i ms after the bucket ran dry the wait is %i s', (elapsed, seconds) => {
+    const clock = createFakeClock();
+    const limiter = limiterWith(clock);
+    takeMany(limiter, 'upload', 'a', LIMITS.rateLimit.upload.capacity);
+
+    clock.advance(elapsed);
+
+    expect(retryAfterOf(limiter.take('upload', 'a'))).toBe(seconds);
+  });
+
+  it('write: 1,001 ms still missing is 2 s, 1,000 ms is 1 s', () => {
+    const clock = createFakeClock();
+    const limiter = limiterWith(clock);
+    takeMany(limiter, 'write', 'a', LIMITS.rateLimit.write.capacity);
+
+    clock.advance(999);
+    expect(retryAfterOf(limiter.take('write', 'a'))).toBe(2);
+    clock.advance(1);
+    expect(retryAfterOf(limiter.take('write', 'a'))).toBe(1);
+  });
+
   it('read: half a second to a token is still 1 s, never 0', () => {
     const clock = createFakeClock();
     const limiter = limiterWith(clock);
@@ -375,6 +406,75 @@ describe('at most 10,000 tracked clients (FR-A-045)', () => {
 
       expect(takeMany(limiter, 'read', 'a', 5)).toBe(tokens);
     });
+
+    // After a table that was full and had no idle bucket, the limiter remembers when the first
+    // bucket will be idle and does not look before then. It must look at that very millisecond.
+    it.each([
+      // One millisecond before the first bucket is idle: nothing to find, the oldest goes.
+      [999, 3],
+      // At the millisecond: 'idle' goes, and the oldest, which is busy, stays.
+      [1_000, 1],
+      [1_001, 1],
+    ])('after a full table, %i ms later: the remembered bound is exact', (wait, tokens) => {
+      const clock = createFakeClock();
+      const limiter = limiterWith(clock, { maxClients: 4, rules });
+      takeMany(limiter, 'read', 'oldest', 3);
+      takeMany(limiter, 'read', 'oldest-too', 3);
+      takeMany(limiter, 'read', 'idle-soon', 1);
+      takeMany(limiter, 'read', 'newest', 3);
+      // The table is full and nothing is idle: this looks, finds nothing, drops 'oldest'.
+      limiter.take('read', 'first-arrival');
+
+      clock.advance(wait);
+      limiter.take('read', 'second-arrival');
+
+      expect(takeMany(limiter, 'read', 'oldest-too', 5)).toBe(tokens);
+    });
+  });
+});
+
+describe('the limiter refuses rules and sizes that make no sense', () => {
+  const ok = { capacity: 1, refillIntervalMs: 1_000 };
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'refuses a capacity of %s',
+    (capacity) => {
+      expect(() =>
+        createRateLimiter({
+          now: () => 0,
+          rules: { read: { capacity, refillIntervalMs: 1_000 }, write: ok, upload: ok },
+        }),
+      ).toThrow(RangeError);
+    },
+  );
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'refuses a refill interval of %s',
+    (refillIntervalMs) => {
+      expect(() =>
+        createRateLimiter({
+          now: () => 0,
+          rules: { read: ok, write: ok, upload: { capacity: 1, refillIntervalMs } },
+        }),
+      ).toThrow(RangeError);
+    },
+  );
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'refuses a table of %s clients',
+    (maxClients) => {
+      expect(() => createRateLimiter({ now: () => 0, maxClients })).toThrow(RangeError);
+    },
+  );
+
+  it('accepts the smallest sensible rule and table', () => {
+    const limiter = createRateLimiter({
+      now: () => 0,
+      rules: { read: ok, write: ok, upload: ok },
+      maxClients: 1,
+    });
+    expect(limiter.take('read', 'a').allowed).toBe(true);
+    expect(limiter.take('read', 'a').allowed).toBe(false);
   });
 });
 
@@ -542,6 +642,7 @@ describe('classifyRequest (plan 8.4)', () => {
     '/sw.js.map',
     '/SW.js',
     '/assets',
+    '/assets/',
     '/assetsx/file.js',
     '/Assets/file.js',
     '/offline.exe',

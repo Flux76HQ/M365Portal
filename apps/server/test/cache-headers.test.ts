@@ -102,6 +102,16 @@ describe('defaultCacheControl (FR-A-050)', () => {
     expect(defaultCacheControl(path, 200)).toBe('no-store');
   });
 
+  it('draws the lines between success, redirect and error exactly at 300 and 400', () => {
+    expect(defaultCacheControl('/assets/app.js', 199)).toBe('no-store');
+    expect(defaultCacheControl('/assets/app.js', 299)).toBe(IMMUTABLE_PUBLIC);
+    expect(defaultCacheControl('/assets/app.js', 300)).toBe('no-store');
+    expect(defaultCacheControl('/favicon.ico', 300)).toBe('no-cache');
+    expect(defaultCacheControl('/favicon.ico', 399)).toBe('no-cache');
+    expect(defaultCacheControl('/favicon.ico', 400)).toBe('no-store');
+    expect(defaultCacheControl('/favicon.ico', 304)).toBe('no-cache');
+  });
+
   it.each([400, 401, 403, 404, 405, 413, 415, 422, 429, 500, 503, 301, 302, 307, 101])(
     'is no-store for status %i, whatever the path: an error must never be cached for a year',
     (status) => {
@@ -454,6 +464,17 @@ function compressApp(): Hono<AppEnv> {
   );
   app.get('/partial', (c) => c.text(textOf(3_000), 206, { 'Content-Range': 'bytes 0-2999/9000' }));
   app.get('/no-content', (c) => c.body(null, 204));
+  app.get('/partial-no-range', (c) => c.text(textOf(3_000), 206));
+  // Bytes, not a string: a string body gets a text/plain content type from the constructor.
+  app.get('/no-type', () => new Response(Buffer.from(textOf(3_000))));
+  app.get('/exact-length', (c) =>
+    c.text(textOf(COMPRESS_MIN_BYTES), 200, { 'Content-Length': String(COMPRESS_MIN_BYTES) }),
+  );
+  app.get('/short-length', (c) =>
+    c.text(textOf(COMPRESS_MIN_BYTES - 1), 200, {
+      'Content-Length': String(COMPRESS_MIN_BYTES - 1),
+    }),
+  );
   app.get('/vary-origin', (c) => c.text(textOf(3_000), 200, { Vary: 'Origin' }));
   app.get('/vary-encoding', (c) => c.text(textOf(3_000), 200, { Vary: 'accept-encoding' }));
   app.get('/vary-star', (c) => c.text(textOf(3_000), 200, { Vary: '*' }));
@@ -541,6 +562,21 @@ describe('compress: Brotli at quality 4, or gzip (contract section 1)', () => {
     ).toBe('br');
   });
 
+  it('treats a coding with no weight as weight 1: equal to an explicit q=1, so Brotli wins the tie either way round', async () => {
+    expect((await fetchEncoded('/text', 'gzip, br;q=1')).headers.get('content-encoding')).toBe(
+      'br',
+    );
+    expect((await fetchEncoded('/text', 'br;q=1, gzip')).headers.get('content-encoding')).toBe(
+      'br',
+    );
+    expect((await fetchEncoded('/text', 'gzip;q=1, br')).headers.get('content-encoding')).toBe(
+      'br',
+    );
+    expect(
+      (await fetchEncoded('/text', 'gzip;q=1.0, br;q=0.9')).headers.get('content-encoding'),
+    ).toBe('gzip');
+  });
+
   it('takes the wildcard for Brotli, and q=0 for a refusal', async () => {
     expect((await fetchEncoded('/text', '*')).headers.get('content-encoding')).toBe('br');
     expect((await fetchEncoded('/text', '*;q=0')).headers.get('content-encoding')).toBeNull();
@@ -615,6 +651,39 @@ describe('compress: Brotli at quality 4, or gzip (contract section 1)', () => {
     expect(COMPRESS_MIN_BYTES).toBe(1_024);
   });
 
+  it('does not read a body at all when its declared length already says it is too small', async () => {
+    let pulls = 0;
+    const app = new Hono<AppEnv>();
+    app.use(compress());
+    app.get('/x', () => {
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulls += 1;
+          controller.enqueue(new Uint8Array(40));
+          if (pulls >= 3) controller.close();
+        },
+      });
+      return new Response(body, {
+        headers: { 'Content-Type': 'text/plain', 'Content-Length': '120' },
+      });
+    });
+    const harness = await createTestApp({ buildApp: () => app });
+
+    const response = await harness.client.get('/x', { headers: { 'accept-encoding': 'br' } });
+
+    // A stream is pulled once when it is created; reading it to the end would pull it three times.
+    expect(pulls).toBe(1);
+    expect(response.headers.get('content-encoding')).toBeNull();
+  });
+
+  it('compresses a response whose declared length is exactly 1 KiB, and not one byte less', async () => {
+    const exact = await fetchEncoded('/exact-length', 'br');
+    expect(exact.headers.get('content-encoding')).toBe('br');
+    const short = await fetchEncoded('/short-length', 'br');
+    expect(short.headers.get('content-encoding')).toBeNull();
+    expect(short.headers.get('vary')).toBeNull();
+  });
+
   it('leaves a response alone when its declared length says it is small', async () => {
     const response = await fetchEncoded('/small-length', 'br');
     expect(response.headers.get('content-encoding')).toBeNull();
@@ -640,10 +709,13 @@ describe('compress: Brotli at quality 4, or gzip (contract section 1)', () => {
     expect(await response.text()).toBe('already-compressed-bytes');
   });
 
-  it.each(['/partial', '/no-content', '/empty'])('leaves %s alone', async (path) => {
-    const response = await fetchEncoded(path, 'br');
-    expect(response.headers.get('content-encoding')).toBeNull();
-  });
+  it.each(['/partial', '/partial-no-range', '/no-content', '/empty', '/no-type'])(
+    'leaves %s alone',
+    async (path) => {
+      const response = await fetchEncoded(path, 'br');
+      expect(response.headers.get('content-encoding')).toBeNull();
+    },
+  );
 
   it('compresses an error response that is large enough, like any other JSON', async () => {
     const response = await fetchEncoded('/problem', 'br');

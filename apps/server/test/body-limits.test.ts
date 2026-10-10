@@ -175,6 +175,24 @@ describe('bodyLimit, in process (FR-A-025)', () => {
     expect(huge.pulled()).toBeLessThanOrEqual(JSON_LIMIT + 2 * 65_536);
   });
 
+  it('tells the source of the body that nothing more is wanted when it refuses a stream', async () => {
+    const harness = await createTestApp({ buildApp });
+    const events: string[] = [];
+    const source = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(bytes(65_536));
+      },
+      cancel() {
+        events.push('cancelled');
+      },
+    });
+
+    const refused = await post(harness, '/json', source);
+
+    expect(refused.status).toBe(413);
+    expect(events).toEqual(['cancelled']);
+  });
+
   it('refuses on the declared Content-Length without reading the body at all', async () => {
     const harness = await createTestApp({ buildApp });
     const body = countingStream(5 * MIB, 65_536);
@@ -218,29 +236,39 @@ describe('bodyLimit, in process (FR-A-025)', () => {
     expect(small.status).toBe(200);
   });
 
-  it.each(['abc', '-1', '1e3', '0x10', '', ' ', '12 34', '99999999999999999999'])(
-    'does not trust a Content-Length of %j: the bytes that arrive are counted',
-    async (value) => {
-      const harness = await createTestApp({ buildApp });
+  it.each([
+    'abc',
+    '-1',
+    '1e3',
+    '2e3',
+    '0x10',
+    '0x7d0',
+    '2000.0',
+    '+2000',
+    '',
+    ' ',
+    '12 34',
+    '99999999999999999999',
+  ])('does not trust a Content-Length of %j: the bytes that arrive are counted', async (value) => {
+    const harness = await createTestApp({ buildApp });
 
-      const accepted = await post(harness, '/small', bytes(500), {
-        ...JSON_HEADERS,
-        'content-length': value,
-      });
-      const refused = await post(harness, '/small', bytes(1_001), {
-        ...JSON_HEADERS,
-        'content-length': value,
-      });
+    const accepted = await post(harness, '/small', bytes(500), {
+      ...JSON_HEADERS,
+      'content-length': value,
+    });
+    const refused = await post(harness, '/small', bytes(1_001), {
+      ...JSON_HEADERS,
+      'content-length': value,
+    });
 
-      // A value that is not a number says nothing; one that is a huge number is a refusal on its own.
-      if (value === '99999999999999999999') {
-        expect(accepted.status).toBe(413);
-      } else {
-        expect(accepted.status).toBe(200);
-      }
-      expect(refused.status).toBe(413);
-    },
-  );
+    // A value that is not a number says nothing; one that is a huge number is a refusal on its own.
+    if (value === '99999999999999999999') {
+      expect(accepted.status).toBe(413);
+    } else {
+      expect(accepted.status).toBe(200);
+    }
+    expect(refused.status).toBe(413);
+  });
 
   it('passes an empty body, a request without a body and a GET straight through', async () => {
     const harness = await createTestApp({ buildApp });
@@ -337,6 +365,22 @@ describe('bodyLimit, in process (FR-A-025)', () => {
     expect(refused.status).toBe(413);
   });
 
+  it('accepts a limit of one byte, the smallest there is', async () => {
+    const app = new Hono<AppEnv>();
+    app.use(requestContext({ config: loadConfigOrThrow({}) }));
+    app.post('/x', bodyLimit(1), async (c) =>
+      c.json({ bytes: (await c.req.arrayBuffer()).byteLength }),
+    );
+    const harness = await createTestApp({ buildApp: () => app });
+    const send = async (size: number): Promise<Response> =>
+      await harness.app.fetch(
+        new Request(`${harness.publicOrigin}/x`, { method: 'POST', body: bytes(size) }),
+      );
+
+    expect((await send(1)).status).toBe(200);
+    expect((await send(2)).status).toBe(413);
+  });
+
   it('refuses a limit that is not a whole number of bytes', () => {
     for (const limit of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(() => bodyLimit(limit), String(limit)).toThrow(RangeError);
@@ -355,6 +399,8 @@ describe('contentTypeAllowed (FR-A-020)', () => {
     'application/json;charset=UTF-8',
     'Application/JSON',
     'APPLICATION/JSON ; charset="utf-8"',
+    'application/json; charset="utf\\-8"',
+    'application/json; charset="\\u\\t\\f\\-8"',
     ' application/json',
   ])('lets %j through as JSON', (header) => {
     expect(contentTypeAllowed('json', header, true)).toBe(true);
@@ -382,6 +428,11 @@ describe('contentTypeAllowed (FR-A-020)', () => {
     'application/json; charset',
     'application/json; charset="utf-8',
     'application/json, text/plain',
+    'application json',
+    'application;json',
+    'application\tjson',
+    '/json',
+    'multipart form-data; boundary=abc',
     'application/json\r\nX-Injected: 1',
   ])('refuses %j as JSON', (header) => {
     expect(contentTypeAllowed('json', header, true)).toBe(false);
@@ -392,6 +443,8 @@ describe('contentTypeAllowed (FR-A-020)', () => {
     'multipart/form-data;boundary=abc',
     'Multipart/Form-Data; Boundary=abc',
     'multipart/form-data; boundary="a b c"',
+    'multipart/form-data; boundary="ab\\-cd"',
+    'multipart/form-data; boundary="\\a\\b\\c"',
     'multipart/form-data; charset=utf-8; boundary=abc',
     `multipart/form-data; boundary=${'a'.repeat(70)}`,
   ])('lets %j through as multipart', (header) => {
@@ -406,6 +459,10 @@ describe('contentTypeAllowed (FR-A-020)', () => {
     `multipart/form-data; boundary=${'a'.repeat(71)}`,
     'multipart/form-data; boundary=a<b',
     'multipart/form-data; boundary=a; boundary=b',
+    'multipart/form-data; boundary=abc; =x',
+    'multipart/form-data; =x; boundary=abc',
+    'multipart/form-data; boundary="abc\\',
+    'multipart/form-data; boundary="abc',
     'multipart/mixed; boundary=abc',
     'multipart/related; boundary=abc',
     'application/json',
@@ -414,6 +471,13 @@ describe('contentTypeAllowed (FR-A-020)', () => {
     '',
   ])('refuses %j as multipart', (header) => {
     expect(contentTypeAllowed('multipart', header, true)).toBe(false);
+  });
+
+  it('reads a header of 1,024 characters and no more: a longer one is not worth parsing', () => {
+    const padded = (length: number): string => `application/json${' '.repeat(length - 16)}`;
+    expect(padded(1_024)).toHaveLength(1_024);
+    expect(contentTypeAllowed('json', padded(1_024), true)).toBe(true);
+    expect(contentTypeAllowed('json', padded(1_025), true)).toBe(false);
   });
 
   it.each(['json', 'multipart'] as const)(
@@ -683,8 +747,7 @@ describe('nodeServerOptions (FR-A-025)', () => {
   });
 
   it('checks for timed-out connections more often than the 30 s default, which would let a slow client hold a socket for 45 s', () => {
-    expect(CONNECTIONS_CHECKING_INTERVAL_MS).toBeLessThanOrEqual(5_000);
-    expect(CONNECTIONS_CHECKING_INTERVAL_MS).toBeGreaterThan(0);
+    expect(CONNECTIONS_CHECKING_INTERVAL_MS).toBe(5_000);
   });
 
   it('keeps the keep-alive timeout above the 60 s idle timeout of a proxy in front', () => {

@@ -37,8 +37,6 @@ export type ContentEncoding = 'br' | 'gzip';
 /** Paths whose answers are never compressed. */
 const NEVER_COMPRESSED: ReadonlySet<string> = new Set(['/api/v1/csrf']);
 
-const NO_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 206, 304]);
-
 /** Text, JSON (also `+json`: problem documents, the manifest) and JavaScript. Not `image/svg+xml`. */
 export function isCompressibleType(contentType: string | null): boolean {
   if (contentType === null) return false;
@@ -60,8 +58,9 @@ export function chooseEncoding(header: string | null): ContentEncoding | undefin
   if (header === null) return undefined;
   const weights = new Map<string, number>();
   for (const item of header.split(',')) {
-    const [name, ...parameters] = item.trim().toLowerCase().split(';');
-    if (name === undefined || name.trim() === '') continue;
+    const [rawName = '', ...parameters] = item.toLowerCase().split(';');
+    const name = rawName.trim();
+    if (name === '') continue;
     let weight = 1;
     for (const parameter of parameters) {
       const [key, value] = parameter.split('=');
@@ -70,7 +69,7 @@ export function chooseEncoding(header: string | null): ContentEncoding | undefin
         weight = Number.isFinite(parsed) ? parsed : 0;
       }
     }
-    weights.set(name.trim(), weight);
+    weights.set(name, weight);
   }
   const weightOf = (name: string): number => weights.get(name) ?? weights.get('*') ?? 0;
   const br = weightOf('br');
@@ -119,9 +118,9 @@ export function compress(options: CompressOptions = {}): MiddlewareHandler<AppEn
     const response = c.res;
     const { headers } = response;
 
-    if (response.body === null || response.status < 200 || NO_BODY_STATUSES.has(response.status)) {
-      return;
-    }
+    // 204, 205 and 304 are "null body statuses": a Response cannot carry a body with them, so the
+    // first test covers them. A 206 has a body whose bytes are positions in the whole.
+    if (response.body === null || response.status === 206) return;
     if (headers.has('Content-Encoding') || headers.has('Content-Range')) return;
     if (c.req.header('range') !== undefined || never.has(c.req.path)) return;
     if (/(?:^|[\s,])no-transform(?:[\s,;]|$)/i.test(headers.get('Cache-Control') ?? '')) return;
