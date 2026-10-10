@@ -21,11 +21,11 @@ Dit contract beschrijft de 32 routes die fase B toevoegt: aanmelden met Entra (`
 | CSRF and Origin | Every method other than GET and HEAD under `/api/v1` needs `Origin` equal to the origin of `PUBLIC_BASE_URL` and header `X-CSRF-Token` from `GET /api/v1/csrf`. The token binding is computed from the cookies the browser sent, with no database read: SHA-256 hex of the session cookie value and of the setup cookie value, joined by `.` when both are present, empty when neither (SB-09). The `GET /auth/*` navigations carry no token (no state change besides the in-memory login transaction and cookies). `Sec-Fetch-Site`, when present, must be `same-origin` on writes; `GET /auth/callback` is the one exempt GET (SB-25) |
 | Cookies | Spec table 6.9.3. Names `__Host-m365portal_session`, `__Host-m365portal_oidc`, `__Host-m365portal_setup` on https; `m365portal_session`, `m365portal_oidc`, `m365portal_setup` on `http://localhost`. `HttpOnly`, `Path=/`, no `Domain`, no `Expires`; `Secure` exactly when https; session and setup `SameSite=Strict`, transaction `SameSite=Lax; Max-Age=600`. `Set-Cookie` appears only on responses that set or clear one of them. Two cookies of the same name in a request count as absent (fail closed, one `cookie_duplicate` log line) |
 | Caching | `Cache-Control: no-store` on `/auth/*`, `/api/v1/auth/*`, `/api/v1/setup/*`, `/api/v1/connection/*`, `/api/v1/me`, `/api/v1/me/access`, `/api/v1/rbac/*` and the shell HTML (FR-B-417). The service worker never caches or intercepts these (`pass`) |
-| Session headers | Every response to a request that carried a valid user or break-glass session has `X-Session-Idle-Expires: <ISO-8601 UTC>` (the sliding idle deadline; for break-glass the absolute deadline, which does not slide). The web client reads it to schedule the two-minute warning (PB-16, SB-18) |
+| Session headers | Every response to a request that carried a valid user or break-glass session has `X-Session-Idle-Expires: <ISO-8601 UTC>` (the sliding idle deadline; for break-glass the absolute deadline, which does not slide). The web client reads it to schedule the two-minute warning (PB-16, SB-18). The polled routes P20 and P22 declare `slidesSession: false` (FR-B-420): they do not extend a user session's idle deadline, so the header they carry shows the unchanged deadline |
 | Rate-limit classes | `auth` (capacity 10, refill 0.2 per second per client): `/auth/*` and `/api/v1/auth/*`; `setup` (same numbers): `GET /api/v1/setup/status` and `POST /api/v1/setup/unlock` only; `read` (120, 2 per second) and `write` (10, 0.5 per second) for everything else as in Phase A. The wizard polls `runs/current` at 1 request per second against `read` (PB-14). 429 `rate_limited` carries an integer `Retry-After` and is never audited |
 | Body limits | JSON bodies 262,144 bytes; `unlock`, `logout`, `logout-all`, `break-glass` 4,096 bytes (413 `payload_too_large`). No Phase B route accepts a larger request; the largest request of the application stays the branding import (9,437,184 bytes) |
 | Errors | RFC 9457 `application/problem+json` as in Phase A: `type` `urn:m365portal:problem:<code>`, `title`, `status`, `detail` (English, generic, never shown by the UI), `code`, `requestId`, `errors[]` of `{pointer, code}` for validation. **Microsoft text never appears**: only allow-listed codes and parameters. A wizard result code (section 6.2) is never the problem `code`; it travels in `errors[].code` or in the step state (CD-05) |
-| Audit | "Audit" column: the `action` written on success. Every denial of a write route, and of a permissioned read by an authenticated actor, is audited with `action` = route id, `outcome` `denied`, `reason_code` and the request id and client address, before the response; if that append fails the answer is 503 `storage_unavailable` instead of the denial (FR-B-602). Anonymous reads answer 401 and are not audited. 429 is never audited |
+| Audit | "Audit" column: the `action` written on success. Every denial of a write route, and of a permissioned read by an authenticated actor, is audited with `action` = route id, `outcome` `denied`, `reason_code` and the request id and client address, before the response; if that append fails the answer is 503 `storage_unavailable` instead of the denial (FR-B-602). Anonymous reads answer 401 and are not audited. 429 is never audited. P12, P23 and P24 are control actions on in-memory process state and write no success entry (FR-B-601) |
 | Idempotency and concurrency | Assignments are created and deleted, never edited: no `ETag` or `If-Match` is used by Phase B routes. A duplicate create is 409 `assignment_exists`; deleting an unknown id is 404. Wizard runs are exclusive (409 `setup_step_busy`) |
 | Degraded mode | Storage unusable: routes that need storage answer 503 `storage_unavailable`; `/api/v1/me` and `/api/v1/csrf` answer as anonymous. Secrets unavailable (`APP_KEY` missing or invalid, certificate unreadable): `GET /auth/login` answers 303 to `/signin?error=secrets_unavailable`, Graph- and Exchange-backed routes answer 503 `secrets_unavailable`, break-glass and the Settings pages that need no Graph still work (plan 6.5) |
 | Pagination | List routes take `limit` (1 to 200, default 100) and an opaque `cursor`; the response carries `nextCursor` or `null` (CD-10) |
@@ -155,13 +155,14 @@ MeResponse = {
              stepUpValidUntil: IsoTimestamp | null, groupsStale: boolean } | null,
   setup:   { state: 'unconfigured' | 'in_progress' | 'awaiting_first_signin' | 'completed' },
   features:{ showcase: boolean, breakGlass: boolean },
+  adminConsentUrl: string | null,         // tenant-wide consent link of FR-B-419; null until a tenant is pinned (TB-14)
   version: string, publicOrigin: string, storageAvailable: boolean
 }
 ```
 
 - `actor.id` is the `oid` for `user`, `setup` for the setup actor, `break_glass` for break-glass, empty for anonymous. `label` is the display-name label (UPN label when there is no name), `Setup`, `Break-glass` or empty; labels never select or authorise anything (FR-B-406). Setup: `permissions` are exactly `settings:branding` and `settings:connection`. Break-glass: exactly `rbac:manage`.
 - `session` is non-null for `user` and `break_glass`; for break-glass `idleExpiresAt` equals `expiresAt`. It is null for anonymous and for the setup actor (its timeouts are in `GET /api/v1/setup/state`).
-- `features.breakGlass` is true when both break-glass variables are configured (SB-18); the UI uses it to show or hide `/break-glass`. `features.preview` and the actor kind `preview` no longer exist (FR-B-102).
+- `features.breakGlass` is true when both break-glass variables are configured (SB-18); the UI uses it to show or hide `/break-glass`. `features.preview` and the actor kind `preview` no longer exist (FR-B-102). `adminConsentUrl` is built from the pinned tenant id, the application id and the registered callback URI, all of which every authorize redirect already reveals; the sign-in page shows it only for `consent_required` and `admin_approval_required` (TB-14).
 - Storage unusable: answers as anonymous with `storageAvailable: false` (Phase A); `setup.state` is the value loaded at start, or `unconfigured` when none was loaded.
 
 ### P08 `GET /api/v1/csrf`
@@ -283,11 +284,11 @@ Access `setup`; class `write`. Ends the wizard (state edge `in_progress` -> `awa
 
 | Item | Rule |
 |---|---|
-| Request | `FinishRequest` (strict): `{ language?: 'nl' \| 'en', beheerderGroupId?: Guid \| null }`. Branding is saved beforehand through the Phase A routes with the setup actor's `settings:branding`; skipping it is allowed |
-| Preconditions | Steps `environment`, `connect`, `configure`, `verify` each `succeeded` or `warning` (manual mode: its own subset), a designated first Owner known, no run active |
+| Request | `FinishRequest` (strict): `{ confirmOwnerOid: Guid, language?: 'nl' \| 'en', beheerderGroupId?: Guid \| null }`. `confirmOwnerOid` must equal the designated first Owner (`designatedOwner.oid` of P13): the wizard shows that person's label and asks for confirmation (FR-B-219 h). Branding is saved beforehand through the Phase A routes with the setup actor's `settings:branding`; skipping it is allowed |
+| Preconditions | The state is `in_progress` (a replayed finish changes nothing: 409 `setup_step_not_ready`); steps `environment`, `connect`, `configure`, `verify` each `succeeded` or `warning` (manual mode: its own subset), a designated first Owner known, no run active |
 | Effect | One transaction: insert the `owner` assignment for `designated_owner_oid` (`source: wizard`, `created_by: setup`) if absent, the optional `admin` assignment for the group, store the language, set the state and write the audit entries. The bootstrap object has already been discarded |
 | 200 | `FinishResponse`: `{ state: 'awaiting_first_signin', designatedOwner: { oid: Guid, upnLabel: string \| null, nameLabel: string \| null }, signinUrl: '/auth/login?returnTo=%2F' }` |
-| Errors | 409 `setup_step_not_ready` (with `errors[]` `{pointer: '/', code: 'owner_missing'}` when no Owner is known), 409 `setup_step_busy`, 422 `validation_failed` (with `errors[]` `{pointer: '/beheerderGroupId', code: 'group_unknown'}` when Graph answers 404 for the group; CD-05), 503 `graph_unavailable` (the group could not be checked), 401, 403, 404, 429, 503 `storage_unavailable` |
+| Errors | 409 `setup_step_not_ready` (with `errors[]` `{pointer: '/', code: 'owner_missing'}` when no Owner is known), 409 `setup_step_busy`, 422 `validation_failed` (with `errors[]` `{pointer: '/beheerderGroupId', code: 'group_unknown'}` when Graph answers 404 for the group, or `{pointer: '/confirmOwnerOid', code: 'owner_changed'}` when it differs from the designated Owner; CD-05), 503 `graph_unavailable` (the group could not be checked), 401, 403, 404, 429, 503 `storage_unavailable` |
 | Audit | `setup.step.run` (`step: finish`); `rbac.assignment.create` with actor `setup`, `source: wizard`, for each assignment created (SB-21) |
 
 The state becomes `completed` only in the sign-in callback (P02) of the designated `oid`; if that person never signs in the state stays open (documented, B-09).
@@ -310,7 +311,9 @@ RunStatus      = { id: Guid, kind: 'setup' | 'repair', mode: 'continue' | 'recon
                    startedAt: IsoTimestamp, finishedAt: IsoTimestamp | null, cancelRequested: boolean }
 DeviceCodePanel= { userCode: string, verificationUri: string | null, expiresAt: IsoTimestamp, intervalSeconds: integer,
                    state: 'waiting_for_user' | 'signed_in' | 'expired' | 'declined' | 'cancelled' | 'blocked' }
-AdoptionPrompt = { kind: 'application', candidate: { objectId: Guid, appId: Guid, displayName: string } }
+AdoptionPrompt = { kind: 'application', candidate: { objectId: Guid, appId: Guid, displayName: string,
+                    foreign: { keyCredentials: integer, owners: integer, servicePrincipalKeyCredentials: integer, servicePrincipalOwners: integer } },
+                    requiresAcknowledgement: boolean }       // true when any foreign count is above 0 (FR-B-318); a password credential never reaches the prompt: the step ends `application_untrusted`
 ProofItem      = { key: 'application' | 'service_principal' | 'certificate' | 'graph_roles' | 'exchange_roles' | 'entra_role'
                       | 'check_v1' | 'check_v2' | 'check_v3' | 'check_v4' | 'check_v5' | 'check_v6',
                    status: 'ok' | 'warning' | 'failed' | 'not_checked', at: IsoTimestamp | null, params: Params }
@@ -321,14 +324,14 @@ Proof          = { generatedAt: IsoTimestamp, mode: 'automatic' | 'manual', item
 
 ### 6.2 Wizard result codes
 
-These are the values of `errorCode`, of proof `params.code` and of `errors[].code` (never of a problem `code`). Each has a catalogue message and a remedy key in `nl` and `en`; Microsoft free text is neither stored nor shown, only the `AADSTS` number where the table says so.
+These are the values of `errorCode`, of proof `params.code` and of `errors[].code` (never of a problem `code`). For the `environment` step the status column is the check status of FR-B-213 (`fail`, `warn`); the step status derived from it is `failed` or `warning`. Each has a catalogue message and a remedy key in `nl` and `en`; Microsoft free text is neither stored nor shown, only the `AADSTS` number where the table says so.
 
 | Step | Code | Status | Meaning |
 |---|---|---|---|
-| environment | `public_base_url_invalid`, `data_dir_not_writable`, `app_key_missing`, `app_key_invalid` | failed | FR-B-213 |
-| environment | `network_unreachable` | failed | login or Graph host unreachable (params: host names) |
-| environment | `network_exchange_unreachable`, `node_version_unsupported`, `time_skew_warning` | warning | |
-| environment | `time_skew_excessive` | failed | skew over 300 s (U35) |
+| environment | `public_base_url_invalid`, `data_dir_not_writable`, `app_key_missing`, `app_key_invalid` | fail | FR-B-213 |
+| environment | `network_unreachable` | fail | login or Graph host unreachable (params: host names) |
+| environment | `network_exchange_unreachable`, `node_version_unsupported`, `time_skew_warning` | warn | FR-B-213 |
+| environment | `time_skew_excessive` | fail | skew over 300 s (U35) |
 | connect | `device_code_expired`, `device_code_declined`, `device_code_cancelled` | failed | EB-03 |
 | connect | `device_code_blocked` | failed | `AADSTS53003`; offers manual mode (EB-04) |
 | connect | `consent_required`, `admin_approval_required`, `assignment_required` | failed | `AADSTS65001`; `AADSTS90093` and `AADSTS90094`; `AADSTS50105` |
@@ -337,13 +340,15 @@ These are the values of `errorCode`, of proof `params.code` and of `errors[].cod
 | configure | `app_role_missing` | failed | FR-B-302 |
 | configure | `application_ambiguous` | failed | several matches (FR-B-304) |
 | configure | `application_adoption_required` | waiting | one match without our install tag; needs P25 |
+| configure | `application_untrusted` | failed | a password credential on the candidate or its service principal, or credentials that cannot be read (FR-B-318) |
 | configure | `policy_refused`, `thumbprint_mismatch`, `forbidden_permission_present` | failed | EB-10, FR-B-306, FR-B-307 |
 | configure | `replication_timeout`, `graph_error` | failed | window exhausted; permanent Graph error (the allow-listed Graph error code is a param) |
 | configure | `exchange_service_principal_missing` | skipped | EB-08 |
 | verify | `token_unavailable`, `organization_mismatch`, `users_unreadable`, `drift_detected` | failed | V1, V2, V3, V4 |
 | verify | `exchange_not_ready`, `exchange_unavailable`, `optional_claim_missing` | warning | V5, V6 (EB-09) |
+| verify | `foreign_credential_present` | warning | V4: password or foreign key credentials on the runtime application or its service principal (FR-B-319) |
 | verify | `not_checked` | skipped | V4 and V6 in manual mode |
-| finish | `owner_missing`, `group_unknown` | failed | FR-B-219 |
+| finish | `owner_missing`, `group_unknown`, `owner_changed` | failed | FR-B-219 (`owner_changed`: `confirmOwnerOid` differs from the designated Owner, an `errors[]` code of 422 `validation_failed`) |
 
 ### P19 `GET /api/v1/connection`
 
@@ -364,7 +369,7 @@ ConnectionResponse = {
 
 ### P20 `GET /api/v1/connection/log?after=&limit=`
 
-History paging. Query `LogQuery`: `after` (integer >= 0, default 0), `limit` (1 to 200, default 100). 200 `LogPage`: `{ lines: LogLine[], lastSeq: integer, hasMore: boolean, truncated: boolean }`; `truncated` is true when lines after `after` were already trimmed (only the newest 1,000 are kept). Rows are in `seq` order. Errors as P19.
+History paging. Declares `slidesSession: false` (FR-B-420). Query `LogQuery`: `after` (integer >= 0, default 0), `limit` (1 to 200, default 100). 200 `LogPage`: `{ lines: LogLine[], lastSeq: integer, hasMore: boolean, truncated: boolean }`; `truncated` is true when lines after `after` were already trimmed (only the newest 1,000 are kept). Rows are in `seq` order. Errors as P19.
 
 ### P21 `POST /api/v1/connection/runs`
 
@@ -372,7 +377,7 @@ Starts a background run in the same process and answers at once.
 
 | Item | Rule |
 |---|---|
-| Request | `StartRunRequest` (strict): `{ steps: ('connect' \| 'configure' \| 'verify')[] \| 'repair', mode: 'continue' \| 'reconcile', tenantHint?: string, applicationName?: string, exchangeRole?: Guid }`. `steps` is a non-empty ordered subset without repeats, or the word `repair` (which requires `mode: reconcile`). `tenantHint`: a tenant GUID or domain name, at most 253 characters (never `common` or `consumers`; the authority is the hint or `organizations`). `applicationName`: 3 to 64 characters, NFC. `exchangeRole`: the directory role template id to assign (default Exchange Administrator, FR-B-308) |
+| Request | `StartRunRequest` (strict): `{ steps: ('connect' \| 'configure' \| 'verify')[] \| 'repair', mode: 'continue' \| 'reconcile', tenantHint?: string, applicationName?: string, exchangeRole?: 'exchange_administrator' \| 'exchange_recipient_administrator' }`. `steps` is a non-empty ordered subset without repeats, or the word `repair` (which requires `mode: reconcile`). `tenantHint`: a lower-case tenant GUID or a DNS name (labels of letters, digits and hyphens, 1 to 63 characters, at most 253 in total), never `common`, `consumers` or `organizations` (the authority is the hint or `organizations`; FR-B-317). `applicationName`: 3 to 64 characters, NFC, through the organisation-name normaliser (FR-B-303). `exchangeRole`: a key of the constant `EXCHANGE_ROLES` (default `exchange_administrator`, FR-B-308); a GUID or any other value is 422 `validation_failed`, so no other directory role can be assigned to the runtime application |
 | Modes | `continue` skips sub-actions already `succeeded` or `skipped`; `reconcile` visits every sub-action read-first (repair, and the idempotency test) |
 | Preconditions | `connect` needs `environment` without `failed`; `configure` needs `connect` succeeded and, in automatic mode, a live bootstrap object; `verify` needs `configure` succeeded or warning; `repair` needs the pinned tenant and either a fresh device-code sign-in on that tenant or the manual inputs |
 | 202 | `RunStatus`; `Location: /api/v1/connection/runs/current`. The run continues in the background; progress comes from P22 |
@@ -381,7 +386,7 @@ Starts a background run in the same process and answers at once.
 
 ### P22 `GET /api/v1/connection/runs/current?after=`
 
-The one polled channel (SB-19). The UI calls it once per second while a run is active or the device code is shown (every 2 seconds in a hidden tab) and after every action. It carries the run, the step states, the device-code panel and the new log lines together, so the polling load is one request per second against the `read` bucket.
+The one polled channel (SB-19); it declares `slidesSession: false` (FR-B-420), so polling does not keep a user session alive. The UI calls it once per second while a run is active or the device code is shown (every 2 seconds in a hidden tab) and after every action. It carries the run, the step states, the device-code panel and the new log lines together, so the polling load is one request per second against the `read` bucket.
 
 ```ts
 RunSnapshot = {
@@ -410,9 +415,9 @@ Explicit confirmation to adopt an existing application that has the wizard's nam
 
 | Item | Rule |
 |---|---|
-| Request | `AdoptRequest` (strict): `{ kind: 'application', objectId: Guid, confirm: true }`; `objectId` must equal the candidate in the current `AdoptionPrompt` |
+| Request | `AdoptRequest` (strict): `{ kind: 'application', objectId: Guid, confirm: true, acknowledgeForeign?: boolean }`; `objectId` must equal the candidate in the current `AdoptionPrompt`; `acknowledgeForeign: true` is required when the prompt says `requiresAcknowledgement` (FR-B-318) |
 | 200 | `RunStatus` (the run continues) |
-| Errors | 409 `setup_step_not_ready` (nothing to adopt), 422 `validation_failed` (`confirm` is not `true`, or `objectId` differs from the candidate; pointer `/objectId`), 401, 403, 404, 429 |
+| Errors | 409 `setup_step_not_ready` (nothing to adopt), 422 `validation_failed` (`confirm` is not `true`, `objectId` differs from the candidate (pointer `/objectId`), or `acknowledgeForeign` is missing when required (pointer `/acknowledgeForeign`)), 401, 403, 404, 429 |
 | Audit | `setup.object.change` with `kind: application`, `op: adopt`, `confirmed: true`, `objectId`, `appId`, `name` |
 
 ### P26 `POST /api/v1/connection/verify`
@@ -454,7 +459,7 @@ Query `AssignmentListQuery`: `principalId` (Guid, optional), `role` (role key, o
 | Item | Rule |
 |---|---|
 | Request | `CreateAssignmentRequest` (strict): `{ principalType: 'user' \| 'group', principalId: Guid, role: string, scope?: ScopeItem[], expiresAt?: IsoTimestamp \| null }`; at most 50 scope items |
-| Validation order | Zod -> role exists and is assignable -> `owner` takes no scope and no expiry -> every scope target is used by one of the role's permissions, and global-only roles take no scope (`assignment_invalid`) -> `expiresAt` in the future and at most 730 days ahead -> **early `canGrant`** (403 `escalation_denied` before any Graph traffic) -> the principal exists (`GraphClient.getUser` or `getGroup`) -> `BEGIN IMMEDIATE`: reload the actor's grants, `canGrant` again, count limits (5,000 assignments, 100 roles, 200 distinct bound groups, 50 scope items), insert, audit |
+| Validation order | Zod -> role exists and is assignable -> `owner` takes no scope and no expiry -> a group principal with a role that holds `rbac:manage` or `settings:connection` is refused (422 `assignment_invalid`, `errors[]` code `privileged_role_group`; FR-B-515) -> every scope target is used by one of the role's permissions, and global-only roles take no scope (`assignment_invalid`) -> `expiresAt` in the future and at most 730 days ahead -> **early `canGrant`** (403 `escalation_denied` before any Graph traffic) -> the principal exists (`GraphClient.getUser` or `getGroup`) -> `BEGIN IMMEDIATE`: reload the actor's grants, `canGrant` again, count limits (5,000 assignments, 100 roles, 200 distinct bound groups, 50 scope items), insert, audit |
 | 201 | `Assignment`; `Location: /api/v1/rbac/assignments/{id}` |
 | Errors | 403 `escalation_denied` (audited as denied with the reason), 403 `permission_denied`, `step_up_required`, 409 `assignment_exists` (same principal, role and scope set), 422 `assignment_invalid`, 422 `principal_unknown`, 422 `validation_failed`, 503 `graph_unavailable` (`Retry-After: 30`), 503 `graph_throttled`, 401, 403 Origin/CSRF, 413, 415, 429 |
 | Audit | `rbac.assignment.create`: `principalType`, `principalId`, `role`, `scopeTargets`, `scopeItems`, `expiresAt`, `source: api` |
@@ -474,7 +479,7 @@ The break-glass recovery path (FR-B-523). `actorKinds: ['break_glass']`: any oth
 | Item | Rule |
 |---|---|
 | Request | `RestoreOwnerRequest` (strict): `{ userId: Guid, confirmUnverified?: boolean }` |
-| Effect | `GraphClient.getUser(userId)`: null -> 422 `principal_unknown`; Graph unavailable -> 503 `graph_unavailable` unless `confirmUnverified: true` (the operator accepts the id as typed; `graphChecked: false` in the audit). Then one transaction inserts the `owner` assignment (`principal_type user`, `source: break_glass`, `created_by: break-glass`) |
+| Effect | `GraphClient.getUser(userId)`: null -> 422 `principal_unknown`; `accountEnabled` false -> 422 `principal_unknown` with `errors[]` code `principal_disabled` (FR-B-523); Graph unavailable -> 503 `graph_unavailable` unless `confirmUnverified: true` (the operator accepts the id as typed; `graphChecked: false` in the audit). Then one transaction inserts the `owner` assignment (`principal_type user`, `source: break_glass`, `created_by: break-glass`) |
 | 201 | `Assignment` |
 | Errors | 409 `assignment_exists` (the user already holds `owner`), 422 `principal_unknown`, 422 `validation_failed`, 503 `graph_unavailable`, 403 `permission_denied`, 401, 403 Origin/CSRF, 429 |
 | Audit | `rbac.owner.restore`: `assignmentId`, `graphChecked` |
@@ -517,7 +522,7 @@ Phase A codes are unchanged (`permission_denied`, `origin_not_allowed`, `csrf_in
 | `policy_not_applied` | 500 | a scoped route that returned 2xx without applying scope (none in Phase B; the test-only module proves the net); audited as `error` | |
 | `principal_unknown` | 422 | P15, P29, P32 | |
 | `assignment_exists` | 409 | P29, P32 | |
-| `assignment_invalid` | 422 | P29: role not assignable, scope target unused by the role, expiry out of range, `owner` with scope or expiry | |
+| `assignment_invalid` | 422 | P29: role not assignable, scope target unused by the role, expiry out of range, `owner` with scope or expiry, a privileged role for a group (`errors[]` code `privileged_role_group`) | |
 | `break_glass_locked` | 429 | P06 | integer seconds |
 | `graph_unavailable` | 503 | P15, P17, P18, P29, P32 | 30 |
 | `graph_throttled` | 503 | any Graph-backed route when Graph asks for a wait over 60 seconds | value from Graph |
@@ -692,9 +697,9 @@ Naming and rules of Phase A section 8 apply: the constant ends in `Schema`; the 
 | `schemas/connection.ts` | `ResultCodeSchema` (from `SETUP_RESULT_CODES`), `SubActionStateSchema`, `StepStateSchema`, `LogLineSchema`, `LogQuerySchema`, `LogPageSchema`, `RunStatusSchema`, `DeviceCodePanelSchema`, `AdoptionPromptSchema`, `RunSnapshotSchema`, `StartRunRequestSchema`, `AdoptRequestSchema`, `ProofItemSchema`, `ProofSchema` (also the validator of the stored `tenant_connection.proof`, at most 51,200 bytes), `ConnectionResponseSchema` |
 | `schemas/rbac.ts` | `ScopeItemSchema` (validated against `SCOPE_MATRIX`), `GrantSchema`, `AssignmentSchema`, `RoleSchema`, `RoleTemplateSchema`, `RoleListResponseSchema`, `AssignmentListQuerySchema`, `AssignmentListResponseSchema`, `CreateAssignmentRequestSchema`, `EffectiveQuerySchema`, `EffectiveResponseSchema`, `RestoreOwnerRequestSchema` |
 | `permissions.ts`, `problem.ts`, `limits.ts` | Extended: the 19 new problem codes with status and title; the Phase B limits of spec 6.9.2 |
-| `setup/` | `STEPS` and sub-action keys, `SETUP_RESULT_CODES`, `LOG_KEYS`, `buildDesiredState`, `aggregate`, backoff schedule, `isAllowedVerificationUri`, `SETUP_STEP_DETAIL` (closed key list) |
+| `setup/` | `STEPS` and sub-action keys, `SETUP_RESULT_CODES`, `LOG_KEYS`, `buildDesiredState`, `aggregate`, backoff schedule, `isAllowedVerificationUri`, `EXCHANGE_ROLES` (FR-B-308), `SETUP_STEP_DETAIL` (closed key list) |
 | `auth/` | `cookieNames`, `serializeCookie`, `redirectUris`, `authorizeRedirectUri`, `safeReturnTo`, `evaluateAmr`, `SIGNIN_ERROR_CODES`, `NO_ACCESS_REASONS`, `SIGNIN_CHECKS` |
-| `rbac/` | `BUILTIN_ROLES`, `TEMPLATES`, `PERMISSION_RESOURCE`, `SCOPE_MATRIX`, `normalizeScopeItem`, `canonicalScopeKey`, `matchScope`, `computeGrants`, `covers`, `canGrantCore`, `projectUser` (FR-B-713: one implementation each, source scan) |
+| `rbac/` | `BUILTIN_ROLES`, `TEMPLATES`, `PERMISSION_RESOURCE`, `SCOPE_MATRIX`, `normalizeScopeItem`, `canonicalScopeKey`, `matchScope`, `computeGrants`, `covers`, `canGrantCore`, `projectUser`, `GROUP_FORBIDDEN_PERMISSIONS` (FR-B-515), `roleLabelKey`, `permissionLabelKey`, `scopeItemText`, `qualifierLabelKey`, `originText`, `principalLabel` (FR-B-716) (FR-B-713: one implementation each, source scan) |
 
 ### 12.2 Server only (`apps/server`)
 
@@ -737,3 +742,7 @@ As Phase A 8.4, plus: every operation lists its success response and the problem
 | CD-10 | List routes take `limit` (1 to 200, default 100) and an opaque `cursor`, and return `nextCursor` | Phase D lists need sorting |
 | CD-11 | Break-glass credential failures are 401 `unauthenticated` with the challenge header, identical for an unknown user and a wrong password (FR-B-521 names only the 429 lock; a 403 would say "signed in but not allowed") | Never |
 | CD-12 | `POST /connection/verify` returns the full `Proof` (so the settings page needs no second read); the stored proof is replaced for the app-only items only | Never |
+| CD-13 | An `AdoptionPrompt` carries the counts of foreign key credentials and owners and `requiresAcknowledgement`; a password credential ends the step with `application_untrusted` instead of a prompt (FR-B-318, ODB-18) | The owner test (OV-03) |
+| CD-14 | `exchangeRole` is a key of `EXCHANGE_ROLES`, never a free GUID, so a request cannot assign an arbitrary directory role to the runtime application (FR-B-308) | A third role is added to the constant with evidence |
+| CD-15 | `FinishRequest` names the person who becomes Owner (`confirmOwnerOid`); a replayed finish is 409 (FR-B-219 h) | Never |
+| CD-16 | A group principal never receives a role holding `rbac:manage` or `settings:connection`; the refusal is `assignment_invalid` with `errors[]` code `privileged_role_group` (FR-B-515, ODB-16) | The owner overturns ODB-16 |

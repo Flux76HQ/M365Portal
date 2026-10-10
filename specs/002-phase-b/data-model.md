@@ -32,7 +32,7 @@ Fase B voegt één migratie toe, `0001_phase_b`: 17 tabellen, 9 indexen en 29 tr
 
 Tables not created: no `settings` bag (the tenant settings are typed columns of `tenant_connection`), no token table (the product retains no Microsoft token), no `user` table keyed by e-mail (labels never select a principal, FR-B-406), no permission catalogue table (permissions are the shared registry; rows reference them by name and `rbac_role_permission` is validated by the writer).
 
-### Differences from spec Appendix B (recorded as SB-02, SB-11 and SB-15 in plan 18.1)
+### Differences from the first draft of spec Appendix B (recorded as SB-02, SB-11 and SB-15 in plan 18.1; applied to spec Appendix B on 2026-10-10, so the two agree)
 
 | Table | Difference | Why |
 |---|---|---|
@@ -573,7 +573,7 @@ Notes that explain the design:
 - **Last owner and concurrency.** The trigger runs inside the writer's transaction. SQLite has one writer, and the application starts every write with `BEGIN IMMEDIATE`, so two requests that each remove "the other" owner serialise and the second finds only itself (`server/rbac/last-owner.concurrency.test.ts`, two connections). Only user principals count: a group holding `owner` does not keep the panel reachable (probe case "group owner does not count"). An owner assignment of a user who was deleted in Entra still counts, because SQL cannot know; break-glass `restore-owner` is the recovery.
 - **The epoch is the revocation channel.** Because the triggers live in the database, a change made by any path (repository, CLI, a hand-run SQL statement) invalidates every cached grant set at the next request. `rbac_role_template` has no trigger because it feeds no effective permission.
 - **Group cache triggers clear everything**, not only one user's rows: group assignments change rarely and the rebuild costs `ceil(G / 20)` calls per active user, so the simple rule wins.
-- **Not enforced in SQL, on purpose:** the row-count limits (5,000 assignments, 100 roles, 200 bound groups) and the 730-day expiry horizon are service rules checked in the write transaction, because a trigger would hide the reason code from the caller; `server/rbac/limits.test.ts` covers them.
+- **Not enforced in SQL, on purpose:** the row-count limits (5,000 assignments, 100 roles, 200 bound groups) and the 730-day expiry horizon are service rules checked in the write transaction, because a trigger would hide the reason code from the caller; `server/rbac/limits.test.ts` covers them. The rule that a group principal never holds a role with `rbac:manage` or `settings:connection` (FR-B-515) is likewise a service rule plus a `computeGrants` rule, not a trigger: the pure function must hold even for a row inserted by hand, and the migration SQL above was probed as written (section 13) and stays as it is.
 
 ## 9. Invariants
 
@@ -591,8 +591,9 @@ Notes that explain the design:
 | I-B10 | A group-assignment change leaves no stale membership: the cache is empty and every `groups_resolved_at` is null | `rbac_group_cache_assignment_*` triggers | `server/rbac/membership.test.ts`, `server/migrations.phase-b.test.ts` |
 | I-B11 | No `owner` assignment has an expiry | `rbac_assignment_owner_no_expiry_*` triggers; service rule | `server/rbac/last-owner.test.ts`, `server/migrations.phase-b.test.ts` |
 | I-B12 | A session of kind `break_glass` has an empty `oid`; a session of kind `user` has a GUID `oid`; both have a GUID `tid` | `session_principal` `CHECK` | `server/auth/session-store.test.ts`, `server/migrations.phase-b.test.ts` |
+| I-B13 | No group-bound assignment grants `rbac:manage` or `settings:connection` | **not SQL, on purpose:** the assignment service refuses it (422 `assignment_invalid`) and `computeGrants` ignores both permissions for group principals, so a row written around the API grants nothing (FR-B-515) | `server/rbac/group-privileged.test.ts`, `shared/rbac-effective.test.ts` |
 
-I-B1 to I-B9 are those of spec Appendix B; I-B10 to I-B12 are added here (SB-15) and go into the spec at its next edit. **Note on I-B6.** The spec says "at most one active certificate". Renewal needs a second, not yet active certificate to exist while the old one still signs (PB-13), so the schema allows one `active` plus one `pending`; the pending one never signs anything until verification proves possession, and the swap (retire, activate, repoint `tenant_connection.certificate_id`) is one transaction. A third row can exist for the length of that transaction (`retired`, pending deletion).
+I-B1 to I-B13 are those of spec Appendix B (I-B10 to I-B12 were added to the spec on 2026-10-10, I-B13 by the analysis pass). **Note on I-B6.** The spec says "at most one active certificate". Renewal needs a second, not yet active certificate to exist while the old one still signs (PB-13), so the schema allows one `active` plus one `pending`; the pending one never signs anything until verification proves possession, and the swap (retire, activate, repoint `tenant_connection.certificate_id`) is one transaction. A third row can exist for the length of that transaction (`retired`, pending deletion).
 
 ## 10. Audit log: vocabulary and detail allow-list
 
@@ -626,7 +627,7 @@ I-B1 to I-B9 are those of spec Appendix B; I-B10 to I-B12 are added here (SB-15)
 
 That is 19 actions. Each is declared once in `apps/server/src/audit/vocabulary.ts`; `server/audit-b-coverage.test.ts` iterates the route table and this list and fails when a route declares an action that is not here, or an action here has no route or code path (`setup.reopen` and `secrets.app_key.rotate` are CLI paths, `auth.session.revoked` is the revalidation path, `setup.tenant.pin` is verification V2).
 
-**Detail allow-list** (`audit/allowlist.ts`). The writer accepts the 37 keys below, the Phase A keys (`permission`, `method`, the route template) and nothing else; an unknown key, a wrong value type or a key whose name matches `secret`, `token`, `key`, `password`, `assertion`, `pem` or `credential` (case-insensitive) is rejected, and the audit append fails the surrounding transaction. `fromKeyId` and `toKeyId` are key **ids** (FR-B-104) and are on the list by exact name.
+**Detail allow-list** (`audit/allowlist.ts`). The writer accepts the 38 keys below, the Phase A keys (`permission`, `method`, the route template) and nothing else; an unknown key, a wrong value type or a key whose name matches `secret`, `token`, `key`, `password`, `assertion`, `pem` or `credential` (case-insensitive) is rejected, and the audit append fails the surrounding transaction. `fromKeyId` and `toKeyId` are key **ids** (FR-B-104) and are on the list by exact name.
 
 | Value rule | Keys |
 |---|---|
@@ -710,6 +711,7 @@ One probe finding changed the SQL and is recorded because it shows why the probe
 - **Backup.** Phase A rule: stop the container and copy all of `/data` including `-wal` and `-shm`. **Also keep `APP_KEY` (and the Compose secret file) in a place that is not the backup of `/data`.** Both are needed to restore.
 - **Restore.** Copy `/data` back with ownership uid 65532 while the container is stopped, set the same `APP_KEY`, start. The start-up wrapper applies any pending migration (with its own pre-migrate copy).
 - **Lost `APP_KEY`.** The database starts; `/readyz` reports the check `secrets` as `app_key_missing` (or `app_key_invalid`, `certificate_unreadable`); sign-in answers 503 `secrets_unavailable` with an explanation on `/signin`, and break-glass and the Settings pages that need no Graph still work (plan 6.5); the repair wizard with an administrator creates a new certificate and seals it under a new key. There is no backdoor (RB-07).
+- **Exposed `APP_KEY`.** Rotating the key re-seals the same private key. An attacker who holds the old key and any older copy of `/data` (a backup, a `pre-rotate-*` or `pre-migrate-*` copy) can still open it, so after a possible exposure the certificate itself is renewed through the repair flow (spec FR-B-109) and the older copies are deleted.
 - **Wrong `APP_KEY` after a rotation.** `rotate-app-key` is idempotent and refuses to proceed when a row opens under neither key (nothing changes). Keep the pre-rotate copy until the new key is verified in service.
 - **Retention.** `audit_log`: indefinite until Phase D defines retention (OD-10). `session`: expired rows purged hourly. `setup_log`: newest 1,000. `rbac_group_member_cache`: rebuilt within `GROUP_CACHE_TTL_SECONDS`. `app_user`: kept indefinitely (DM-03). Backups: newest 3 `pre-migrate-*` and newest 3 `pre-rotate-*`.
 - **Classification.**
