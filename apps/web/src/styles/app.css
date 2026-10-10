@@ -1,0 +1,248 @@
+/* The application stylesheet: the one file main.tsx imports (FR-A-120). It wires Tailwind v4 to the
+   design tokens and adds nothing else of its own.
+
+   WHERE THE VALUES LIVE
+   Every value is defined once, in packages/shared/src/tokens. tokens.generated.css (pnpm
+   tokens:generate) turns them into CSS variables; the server injects the colour roles per request
+   (the organisation's accent). This file only gives the variables utility names. `@theme reference
+   inline` makes Tailwind generate `.rounded-md { border-radius: var(--radius-md) }` without
+   declaring `--radius-md` a second time (a plain `@theme` would emit it next to the token file,
+   and for the same name even as a self-reference, which is a cycle).
+
+   UTILITY VOCABULARY (the gate note of G3 repeats this table)
+     colour    surface-page|raised|sidebar|overlay   bg-surface-raised
+               fg, fg-secondary, fg-muted             text-fg-secondary
+               line-control, line-subtle              border-line-control
+               danger, warning, success, info         text-danger
+               accent, accent-hover, accent-active,   bg-accent hover:bg-accent-hover
+               accent-subtle, on-accent, accent-text,
+               focus-ring
+     type      text-caption|body-sm|body|body-lg|subtitle|title-3|title-2|title-1|display
+               (size, line height and, from 20 px up, tracking); font-regular|medium|semibold
+     shape     rounded-sm|md|lg|full, shadow-1|2|3
+     size      h-control (32 px, 40 px on coarse pointers), min-h-target / min-w-target (24 px),
+               h-row-compact|row-comfortable, max-w-content, spacing on the 4 px grid (p-4 = 16 px)
+     layers    z-base|sticky|chrome|menu|scrim|dialog|toast|tooltip
+     motion    duration-instant|fast|base|slow, ease-standard|spring
+     glass     glass-header, glass-sidebar, glass-scrim (opaque under forced colours, reduced
+               transparency and without backdrop-filter: see a11y.css)
+     variants  dark: (data-theme=dark), reduced-transparency:, forced-colors:, contrast-more:
+   Tailwind's own palette, type scale, radii, shadows and font weights are removed on purpose: a
+   class such as bg-red-500 or rounded-xl must not compile, because no token stands behind it. */
+
+@import 'tailwindcss' source(none);
+@import './fonts.css';
+@import './tokens.generated.css';
+@import './a11y.css';
+@import './motion.css';
+
+/* Tailwind v4 scans every non-ignored file under the working directory, build output included, so
+   the CSS would depend on whether dist/ exists (stack probe: 68,014 B with it, 63,645 B without).
+   `source(none)` turns that off; the sources are listed here, relative to this file. */
+@source '../../index.html';
+@source '../';
+
+/* The theme is `data-theme` on <html> (the boot script sets it before first paint). shadcn's
+   class-based variant ignores it, which made the first dark tests of the probe light (P19). */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+@custom-variant reduced-transparency (@media (prefers-reduced-transparency: reduce));
+
+@theme {
+  --color-*: initial;
+  --text-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+  --font-weight-*: initial;
+  --font-sans: initial;
+  --tracking-*: initial;
+  --ease-*: initial;
+  --breakpoint-*: initial;
+  --animate-*: initial;
+}
+
+/* Breakpoints cannot be variables (a media query cannot read one), so the values are written here
+   and styles.test.ts compares them with BREAKPOINTS_PX. 768 px is where the sidebar becomes a
+   drawer, 1024 px where the details panel docks. */
+@theme reference {
+  --breakpoint-sm: 40rem;
+  --breakpoint-md: 48rem;
+  --breakpoint-lg: 64rem;
+  --breakpoint-xl: 80rem;
+  --breakpoint-2xl: 96rem;
+}
+
+@theme reference inline {
+  /* Colour roles. fg-muted and line-subtle go through the aliases of a11y.css, which prefers-contrast
+     raises; every other role is read directly. */
+  --color-surface-page: var(--surface-page);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sidebar: var(--surface-sidebar);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-fg: var(--text-primary);
+  --color-fg-secondary: var(--text-secondary);
+  --color-fg-muted: var(--fg-muted);
+  --color-line-control: var(--border-control);
+  --color-line-subtle: var(--line-subtle);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-info: var(--info);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-active: var(--accent-active);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-on-accent: var(--on-accent);
+  --color-accent-text: var(--accent-text);
+  --color-focus-ring: var(--focus-ring);
+
+  /* Type scale: size and line height for all nine styles; the four largest also get the tight
+     tracking (plan 10.3: -0.01 em from 20 px up). */
+  --font-sans: var(--font-sans);
+  --text-caption: var(--font-size-caption);
+  --text-caption--line-height: var(--line-height-caption);
+  --text-body-sm: var(--font-size-body-sm);
+  --text-body-sm--line-height: var(--line-height-body-sm);
+  --text-body: var(--font-size-body);
+  --text-body--line-height: var(--line-height-body);
+  --text-body-lg: var(--font-size-body-lg);
+  --text-body-lg--line-height: var(--line-height-body-lg);
+  --text-subtitle: var(--font-size-subtitle);
+  --text-subtitle--line-height: var(--line-height-subtitle);
+  --text-title-3: var(--font-size-title-3);
+  --text-title-3--line-height: var(--line-height-title-3);
+  --text-title-3--letter-spacing: var(--tracking-tight);
+  --text-title-2: var(--font-size-title-2);
+  --text-title-2--line-height: var(--line-height-title-2);
+  --text-title-2--letter-spacing: var(--tracking-tight);
+  --text-title-1: var(--font-size-title-1);
+  --text-title-1--line-height: var(--line-height-title-1);
+  --text-title-1--letter-spacing: var(--tracking-tight);
+  --text-display: var(--font-size-display);
+  --text-display--line-height: var(--line-height-display);
+  --text-display--letter-spacing: var(--tracking-tight);
+  --font-weight-regular: var(--font-weight-regular);
+  --font-weight-medium: var(--font-weight-medium);
+  --font-weight-semibold: var(--font-weight-semibold);
+  --tracking-tight: var(--tracking-tight);
+
+  /* Shape and elevation. */
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --shadow-1: var(--shadow-1);
+  --shadow-2: var(--shadow-2);
+  --shadow-3: var(--shadow-3);
+
+  /* Sizes on the 4 px grid: p-4 is 16 px, h-control the control height of the pointer, min-h-target
+     the WCAG 2.5.8 floor. */
+  --spacing: var(--space-1);
+  --spacing-control: var(--control-height);
+  --spacing-target: var(--target-min);
+  --spacing-row-compact: var(--table-row-compact);
+  --spacing-row-comfortable: var(--table-row-comfortable);
+  --container-content: var(--content-max);
+
+  /* Motion: even a bare `transition` class takes the base duration and the standard easing. */
+  --ease-standard: var(--ease-standard);
+  --ease-spring: var(--ease-spring);
+  --default-transition-duration: var(--duration-base);
+  --default-transition-timing-function: var(--ease-standard);
+
+  /* backdrop-blur-header|sidebar|scrim */
+  --blur-header: var(--blur-header);
+  --blur-sidebar: var(--blur-sidebar);
+  --blur-scrim: var(--blur-scrim);
+}
+
+/* The glass layers: a translucent surface with blur. The variables are switched to opaque surfaces
+   and to a zero blur by a11y.css where glass is not wanted or not supported. */
+@utility glass-header {
+  background-color: var(--glass-header);
+  backdrop-filter: blur(var(--blur-header));
+}
+
+@utility glass-sidebar {
+  background-color: var(--glass-sidebar);
+  backdrop-filter: blur(var(--blur-sidebar));
+}
+
+@utility glass-scrim {
+  background-color: var(--scrim);
+  backdrop-filter: blur(var(--blur-scrim));
+}
+
+/* Stacking layers (tokens: z-index is never a number in a component). */
+@utility z-base {
+  z-index: var(--z-base);
+}
+
+@utility z-sticky {
+  z-index: var(--z-sticky);
+}
+
+@utility z-chrome {
+  z-index: var(--z-chrome);
+}
+
+@utility z-menu {
+  z-index: var(--z-menu);
+}
+
+@utility z-scrim {
+  z-index: var(--z-scrim);
+}
+
+@utility z-dialog {
+  z-index: var(--z-dialog);
+}
+
+@utility z-toast {
+  z-index: var(--z-toast);
+}
+
+@utility z-tooltip {
+  z-index: var(--z-tooltip);
+}
+
+/* Durations by name (Tailwind's duration-150 would be a literal). */
+@utility duration-instant {
+  --tw-duration: var(--duration-instant);
+  transition-duration: var(--duration-instant);
+}
+
+@utility duration-fast {
+  --tw-duration: var(--duration-fast);
+  transition-duration: var(--duration-fast);
+}
+
+@utility duration-base {
+  --tw-duration: var(--duration-base);
+  transition-duration: var(--duration-base);
+}
+
+@utility duration-slow {
+  --tw-duration: var(--duration-slow);
+  transition-duration: var(--duration-slow);
+}
+
+@layer base {
+  /* Borders default to the decorative divider colour. Preflight leaves them at currentColor. */
+  *,
+  ::before,
+  ::after,
+  ::backdrop {
+    border-color: var(--line-subtle);
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--surface-page);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}

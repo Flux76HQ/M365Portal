@@ -1,0 +1,95 @@
+// The logger (FR-A-051, plan 8.9): pino, JSON, one line per call on standard output, the level from
+// `LOG_LEVEL`, and a redaction pass over every field before it is written.
+//
+// The call shape is `log.info(fields, message)`: the message is a fixed word (`request`, `posture`,
+// `unhandled_error`), and everything variable travels in `fields`, where the redaction can see it.
+// pino would also accept `log.info('text %s', value)`, which puts a value into the message where no
+// key rule applies; the `Logger` type below leaves that form out on purpose.
+//
+// Time comes from an injected clock (plan 13.2), so a test that moves the clock gets the time it
+// set, and a clock that steps backwards gives a line with an earlier time, as it should.
+import pino from 'pino';
+import type { AppConfig, LogLevel } from '../config/env.js';
+import { readPosture } from '../config/posture.js';
+import { redactFields } from './redact.js';
+
+export type LogFields = Readonly<Record<string, unknown>>;
+
+/** The call shape every module of the server logs with. The error handler's `ErrorLogger` fits it. */
+export interface Logger {
+  readonly level: LogLevel;
+  trace(fields: LogFields, message: string): void;
+  debug(fields: LogFields, message: string): void;
+  info(fields: LogFields, message: string): void;
+  warn(fields: LogFields, message: string): void;
+  error(fields: LogFields, message: string): void;
+  fatal(fields: LogFields, message: string): void;
+}
+
+export interface LogDestination {
+  write(line: string): unknown;
+}
+
+export interface CreateLoggerOptions {
+  readonly level: LogLevel;
+  /** Where the lines go. Default: standard output (descriptor 1), written synchronously. */
+  readonly destination?: LogDestination;
+  /** The clock for the `time` of each line, in milliseconds since the epoch. Default: `Date.now`. */
+  readonly now?: () => number;
+}
+
+function stdoutDestination(): LogDestination {
+  // Synchronous, so that the last line before an exit (a failed start, the shutdown) is written.
+  const destination = pino.destination({ dest: 1, sync: true });
+  destination.on('error', () => {
+    // A closed standard output means the runtime is gone; throwing from here would only add a
+    // crash to the problem, and the log has nowhere left to say so.
+  });
+  return destination;
+}
+
+function timeOf(now: () => number): string {
+  const milliseconds = now();
+  const instant = Number.isFinite(milliseconds) ? new Date(milliseconds) : new Date();
+  return instant.toISOString();
+}
+
+export function createLogger(options: CreateLoggerOptions): Logger {
+  const now = options.now ?? Date.now;
+  const instance = pino(
+    {
+      level: options.level,
+      // No process id and no host name: the first is noise, the second is a container id.
+      base: null,
+      timestamp: () => `,"time":"${timeOf(now)}"`,
+      formatters: {
+        level: (label) => ({ level: label }),
+        bindings: (bindings) => redactFields(bindings),
+        log: (fields) => redactFields(fields),
+      },
+    },
+    options.destination ?? stdoutDestination(),
+  );
+  return instance as Logger;
+}
+
+/** What the start knows beyond the configuration (FR-A-015). */
+export interface StartStatus {
+  readonly storageWritable: boolean;
+  /** The schema version of the database, or `null` when there is none (degraded mode). */
+  readonly schemaVersion: number | null;
+}
+
+/**
+ * The posture line (FR-A-015, E-15): once, at info, at start. Modes and flags only: whether preview
+ * mode refuses requests that are not from loopback, which trust-proxy mode is in effect (never an
+ * address), the HSTS mode, showcase, whether storage is writable and the schema version. No value
+ * of any variable and no address.
+ */
+export function logPosture(
+  log: Pick<Logger, 'info'>,
+  config: AppConfig,
+  status: StartStatus,
+): void {
+  log.info({ event: 'posture', ...readPosture(config), ...status }, 'posture');
+}

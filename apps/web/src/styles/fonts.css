@@ -1,0 +1,55 @@
+/* Inter, self-hosted (FR-A-123, plan D6). Two files, nothing else:
+     inter-latin-wght-normal.woff2      48,256 B, the face every page needs (preloaded by the shell)
+     inter-latin-ext-wght-normal.woff2  85,068 B, fetched only when a page shows a character of its
+                                        unicode-range (Polish, Czech, Turkish ... organisation names)
+   The package's own wght.css would also emit cyrillic, greek and vietnamese; the unicode ranges below
+   are copied from its unicode.json (styles.test.ts compares them), and Vite resolves the bare
+   specifier in url() so only these two files reach dist/. font-display: swap shows text at once in the
+   fallback face below, which has Inter's metrics, so the swap does not move the layout. */
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2')
+    format('woff2-variations');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')
+    format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* The size-adjusted fallback ("Inter Fallback" in the font stack of the tokens). Arial (or Liberation
+   Sans, which has Arial's advance widths) is scaled to Inter's width and given Inter's line box, so
+   the text occupies the same space before and after the swap.
+
+   size-adjust       Inter / Arial, measured in Chromium 141 over Dutch and English interface text at
+                     weight 400: 106.7 % (Inter is about 7 % wider).
+   ascent-override   Inter hhea ascender 1984 / unitsPerEm 2048 = 96.875 % of the font size, divided
+                     by the size adjustment: 90.8 %.
+   descent-override  494 / 2048 = 24.12 %, divided by the adjustment: 22.6 %.
+   line-gap-override Inter's lineGap is 0.
+   styles.test.ts re-derives the last three from the shipped font file. A system without Arial or
+   Liberation Sans skips this face and uses system-ui unadjusted (the swap may then shift the layout
+   by a few pixels; nothing breaks). */
+@font-face {
+  font-family: 'Inter Fallback';
+  src: local('Arial'), local('Liberation Sans');
+  size-adjust: 106.7%;
+  ascent-override: 90.8%;
+  descent-override: 22.6%;
+  line-gap-override: 0%;
+}

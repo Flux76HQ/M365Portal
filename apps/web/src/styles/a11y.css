@@ -1,0 +1,153 @@
+/* Accessibility CSS (FR-A-121, FR-A-122, FR-A-152). Imported by app.css after the tokens, so the
+   variable overrides below (unlayered, same specificity as the token blocks) win by source order;
+   the element rules sit in the base layer so a component utility can still refine them.
+
+   The server injects only the colour roles per request (renderTokenCss). Everything overridden here
+   is a static token (glass, blur, focus geometry) or a variable of this file, so the cascade never
+   depends on where the server's <style> sits in the document. */
+
+/* Where a focused element must stay visible: the shell's sticky header is 56 px (3.5 rem); the rest
+   is breathing room. Scrollers use it as scroll-padding so focus is never hidden behind the header
+   (WCAG 2.4.11). */
+:root {
+  --scroll-offset: 4.5rem;
+}
+
+@layer base {
+  /* The two variables components read for decorative lines and secondary text. They default to the
+     token roles and are raised under prefers-contrast: more without touching the roles, which the
+     server may override at any time. */
+  :root {
+    --line-subtle: var(--border-subtle);
+    --fg-muted: var(--text-muted);
+  }
+
+  html {
+    scroll-padding-block-start: var(--scroll-offset);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* Focus: keyboard focus only, 2 px outline with a 2 px offset in the derived focus-ring colour,
+     which has at least 3:1 against every surface (FR-A-101). The ring sits on the surface, not on
+     a filled control. Nothing in the application removes an outline without drawing another. */
+  :focus-visible {
+    outline: var(--focus-width, 2px) solid var(--focus-ring);
+    outline-offset: var(--focus-offset, 2px);
+  }
+
+  /* The browser default for placeholders (Tailwind's preflight halves the text colour) would fall
+     below 4.5:1; the muted role has 5.3:1 or more. */
+  ::placeholder {
+    color: var(--fg-muted);
+    opacity: 1;
+  }
+
+  /* Selected text uses the accent pair, whose contrast is guaranteed. */
+  ::selection {
+    background-color: var(--accent);
+    color: var(--on-accent);
+  }
+
+  @media (prefers-contrast: more) {
+    :root {
+      --line-subtle: var(--border-control);
+      --fg-muted: var(--text-secondary);
+    }
+  }
+
+  /* Forced colours: the browser replaces colours with the user's palette, but only where something
+     is drawn. Controls that are a filled shape without a border would disappear, so they get a
+     1 px border in a system colour (zero specificity: a component's own border wins). Checkboxes,
+     radios and switches draw their own box, track or thumb with a border (they are buttons, which is
+     why the first entry excludes those roles), and banners, toasts and alerts have theirs, so none of
+     those is in this list: a second outline around them would only
+     add noise. */
+  @media (forced-colors: active) {
+    :where(
+      button:not([role='checkbox'], [role='radio'], [role='switch']),
+      [role='button'],
+      [role='tab'],
+      [role='menuitem'],
+      [role='option'],
+      [role='dialog'],
+      [role='menu'],
+      [role='tooltip'],
+      input,
+      select,
+      textarea
+    ) {
+      border: 1px solid ButtonBorder;
+    }
+
+    :where(table, th, td) {
+      border-color: CanvasText;
+    }
+
+    :focus-visible {
+      outline-color: Highlight;
+    }
+  }
+}
+
+/* Glass and blur fall back to opaque surfaces under forced colours, reduced transparency and where
+   backdrop-filter does not exist (FR-A-121). Text never sits on a layer below 92 % alpha anyway
+   (tokens), so the contrast figures hold either way. */
+@media (forced-colors: active) {
+  :root {
+    --glass-header: Canvas;
+    --glass-sidebar: Canvas;
+    --blur-header: 0px;
+    --blur-sidebar: 0px;
+    --blur-scrim: 0px;
+    --focus-width: 3px;
+  }
+
+  /* The dot of the chosen radio is a filled shape: with the fill replaced it would vanish, and the
+     chosen option would look like the others. Unlayered, because its own utility class (a fill in
+     the utilities layer) must not win; the selection colour of the system is drawn instead. */
+  [data-slot='radio-indicator'] {
+    forced-color-adjust: none;
+    background-color: Highlight;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-header: var(--surface-page);
+    --glass-sidebar: var(--surface-sidebar);
+    --blur-header: 0px;
+    --blur-sidebar: 0px;
+    --blur-scrim: 0px;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --glass-header: var(--surface-page);
+    --glass-sidebar: var(--surface-sidebar);
+    --blur-header: 0px;
+    --blur-sidebar: 0px;
+    --blur-scrim: 0px;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --focus-width: 3px;
+  }
+}
+
+/* Nothing animates under prefers-reduced-motion (FR-A-122). `none` rather than a very short
+   duration: no animation or transition object exists at all, so document.getAnimations() stays
+   empty (e2e/reduced-motion.spec.ts) and Radix presence unmounts at once. MotionConfig
+   reducedMotion="user" covers the Motion-driven transitions; this is the second layer. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

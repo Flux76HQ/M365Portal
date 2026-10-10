@@ -1,0 +1,147 @@
+/* Enter and exit animations of the overlays (FR-A-122). Every one lasts at most 200 ms and takes its
+   duration and easing from the tokens (--duration-*, --ease-*), never a number of its own; a
+   skeleton or a spinner does not loop, because "every animation lasts at most 200 ms" leaves no room
+   for an infinite one. Under prefers-reduced-motion a11y.css sets `animation: none !important`, so
+   these never run and Radix unmounts an exiting element at once.
+
+   Radix presence waits for animationend, so an exit animation must be a real animation on the
+   element that carries data-state="closed". `both` keeps the first keyframe before the start and
+   the last after the end.
+
+   Direction: the interface is always left to right (E-07), so the slide uses physical X. */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pop-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-out-right {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes slide-in-bottom {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-out-bottom {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@utility animate-fade-in {
+  animation: fade-in var(--duration-fast) var(--ease-standard) both;
+}
+
+@utility animate-fade-out {
+  animation: fade-out var(--duration-fast) var(--ease-standard) both;
+}
+
+@utility animate-pop-in {
+  animation: pop-in var(--duration-base) var(--ease-spring) both;
+}
+
+@utility animate-pop-out {
+  animation: pop-out var(--duration-fast) var(--ease-standard) both;
+}
+
+@utility animate-slide-in-right {
+  animation: slide-in-right var(--duration-slow) var(--ease-spring) both;
+}
+
+@utility animate-slide-out-right {
+  animation: slide-out-right var(--duration-base) var(--ease-standard) both;
+}
+
+@utility animate-slide-in-bottom {
+  animation: slide-in-bottom var(--duration-slow) var(--ease-spring) both;
+}
+
+@utility animate-slide-out-bottom {
+  animation: slide-out-bottom var(--duration-base) var(--ease-standard) both;
+}
+
+@utility animate-toast-in {
+  animation: toast-in var(--duration-base) var(--ease-spring) both;
+}
+
+@utility animate-toast-out {
+  animation: toast-out var(--duration-fast) var(--ease-standard) both;
+}

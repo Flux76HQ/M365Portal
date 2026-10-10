@@ -65,7 +65,10 @@
     "glyphs:generate": "tsx scripts/gen-glyphs.ts"
   },
   "devDependencies": {
+    "@fontsource/inter": "catalog:",
     "@types/node": "catalog:",
+    "@types/opentype.js": "catalog:",
+    "opentype.js": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
