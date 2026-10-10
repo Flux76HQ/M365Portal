@@ -25,18 +25,23 @@ waarmee een beheerder een Microsoft 365-tenant beheert.
 - **Eén Docker-image, één container**, draait overal (Azure Container Apps /
   App Service for Containers, on-prem, VPS, NAS). Geen GitHub Pages: een statische
   site kan geen secrets/certificaten veilig bewaren en geen Exchange-aanroepen doen.
-- Stack backend: **PHP 8.4** (strict types, readonly classes, property hooks waar
-  zinvol; PSR-12/PSR-15), Slim 4 of Symfony-componenten, **FrankenPHP/Caddy**
-  (HTTP/2 + HTTP/3, early hints, Brotli/zstd) en **SQLite (WAL)** op volume
-  `/data` voor config, audit log en sessies. Optioneel `pwsh` met
-  ExchangeOnlineManagement in dezelfde image als fallback voor Exchange-cmdlets.
-- Stack frontend: server-gerenderde Twig-templates met **HTMX** en **Alpine.js**
-  (progressive enhancement, View Transitions API, geen zware SPA), **Tailwind CSS v4**
-  met design tokens, **Vite** voor de build, iconen als inline SVG (Lucide). Geen
-  CDN-afhankelijkheden tijdens runtime: alles wordt in de image meegebouwd en met
-  SRI/hash geserveerd. Installeerbaar als **PWA** (manifest, offline-fallback pagina).
-- API-first: interne JSON-API met **OpenAPI 3.1**-spec; de UI gebruikt dezelfde
-  services, zodat automatisering later mogelijk is.
+- **Taal: TypeScript end-to-end** (strict mode), één monorepo (pnpm workspaces) met
+  gedeelde types tussen frontend en backend. Reden: beste ecosysteem voor
+  Microsoft (MSAL, Graph SDK), beste UI-bibliotheken en één taal voor de agent.
+- Backend: **Node.js 22 LTS** met **Hono** (of Fastify), **Zod** voor validatie,
+  **Drizzle ORM** op **SQLite (WAL)** in volume `/data` (config, audit log, sessies).
+  `@azure/msal-node` en de Graph-client voor Microsoft; Exchange via REST
+  (`InvokeCommand`), optioneel `pwsh` met ExchangeOnlineManagement als fallback.
+  **Backend-for-frontend:** tokens en certificaat blijven server-side; de browser
+  krijgt alleen een `__Host-` sessiecookie, nooit een access token.
+- Frontend: **React 19 + Vite**, **TanStack Router/Query/Table**, **Tailwind CSS v4**
+  met **shadcn/ui** (Radix) als basis voor het eigen design system, Lucide-iconen,
+  **React Hook Form + Zod**, Motion voor animaties. Geen CDN-afhankelijkheden
+  tijdens runtime: alles wordt in de image meegebouwd. Installeerbaar als **PWA**.
+- Het geheel wordt door één Node-proces geserveerd (statische build + API) in één
+  image; Caddy of een reverse proxy voor HTTPS is optioneel.
+- API-first: interne JSON-API met **OpenAPI 3.1**-spec (uit de Zod-schema's
+  gegenereerd); de UI gebruikt dezelfde API, zodat automatisering later kan.
 - Config uitsluitend via env vars + `/data`. Healthcheck-endpoint `/healthz`.
   Non-root user, read-only root filesystem waar mogelijk, HTTPS via reverse proxy
   of Caddy (automatisch certificaat) instelbaar.
@@ -55,7 +60,7 @@ waarmee een beheerder een Microsoft 365-tenant beheert.
 ### 3. Onboarding wizard (eerste start)
 Bij een lege `/data` start automatisch `/setup`. De wizard is **idempotent,
 hervatbaar en toont per stap status/rollback-hint**:
-1. Welkom + controle omgeving (HTTPS, schrijfbare `/data`, `APP_KEY`, PHP-extensies).
+1. Welkom + controle omgeving (HTTPS, schrijfbare `/data`, `APP_KEY`, Node-versie).
 2. **Tenant koppelen** met een tijdelijke Global Administrator-login via de
    **device code flow**. Gebruik als bootstrap-client de Microsoft-client
    "Microsoft Graph Command Line Tools" (client-ID
@@ -141,7 +146,7 @@ Vercel en het Microsoft Entra-admincenter), niet als een standaard admin-templat
 - **RBAC** in het panel (lezer / operator / beheerder) en step-up bevestiging bij
   gevoelige acties.
 - **Geheimen:** certificaat-privésleutel versleuteld met libsodium
-  (XChaCha20-Poly1305); sleutel via Docker/Azure secret of Key Vault-referentie;
+  (XChaCha20-Poly1305, via `libsodium-wrappers`); sleutel via Docker/Azure secret of Key Vault-referentie;
   nooit in logs, error-pagina's of backups in leesbare vorm.
 - **Webbeveiliging:** strikte **CSP met nonces** (geen `unsafe-inline`),
   Trusted Types, HSTS (preload), `Referrer-Policy`, `Permissions-Policy`,
@@ -152,8 +157,7 @@ Vercel en het Microsoft Entra-admincenter), niet als een standaard admin-templat
   een beperkte Exchange-rolgroep in plaats van de volledige Exchange Administrator;
   documenteer per permissie het waarom en bied in de UI een "permissie-audit".
 - **Onveranderbaar audit log** (hash-keten) met wie/wat/wanneer/resultaat/IP.
-- **Supply chain:** vastgepinde dependencies, Dependabot/Renovate, `composer audit`
-  en `npm audit` in CI, secret scanning, CodeQL, image gebouwd op een minimale
+- **Supply chain:** vastgepinde dependencies, Dependabot/Renovate, `pnpm audit` in CI, secret scanning, CodeQL, image gebouwd op een minimale
   (distroless of Alpine) basis, **cosign-handtekening**, **SLSA-provenance** en SBOM
   (CycloneDX) bij elke release.
 - **Runtime:** non-root, `read_only` rootfs, `cap_drop: ALL`, `no-new-privileges`,
@@ -163,9 +167,9 @@ Vercel en het Microsoft Entra-admincenter), niet als een standaard admin-templat
 ### 7. Kwaliteit en observability
 - Architectuur: scheiding tussen `GraphClient`, `ExchangeClient` (REST met
   pwsh-fallback achter dezelfde interface), services en controllers.
-- Tests: PHPUnit (unit + integratie met gemockte HTTP), **Playwright** e2e en
-  visuele regressietests, axe-core toegankelijkheidstests, PHPStan level max,
-  PHP-CS-Fixer en ESLint/Prettier in CI. Optionele e2e-suite tegen een M365
+- Tests: Vitest (unit + integratie met gemockte HTTP via MSW), **Playwright** e2e en
+  visuele regressietests, axe-core toegankelijkheidstests, TypeScript strict,
+  ESLint en Prettier (of Biome) in CI. Optionele e2e-suite tegen een M365
   developer tenant.
 - **Observability:** gestructureerde JSON-logs (zonder PII), **OpenTelemetry**
   traces/metrics (uitschakelbaar), `/healthz` en `/readyz`, nette throttling
@@ -181,7 +185,7 @@ Vercel en het Microsoft Entra-admincenter), niet als een standaard admin-templat
    distributielijst toe te voegen en weer te verwijderen.
 4. Een mailcontact is aan te maken, te bewerken en te verwijderen.
 5. Alle schrijfacties staan in het audit log; geen secrets in logs of repo.
-6. CI is groen (lint, PHPStan, unit/e2e/a11y-tests, image-build, scans).
+6. CI is groen (lint, typecheck, unit/e2e/a11y-tests, image-build, scans).
 7. Lighthouse ≥ 95 op alle hoofdpagina's; axe-core meldt geen ernstige problemen.
 8. Security-headers scoren A+ (securityheaders.com / Mozilla Observatory);
    de image is gesigneerd en heeft SBOM en provenance.
@@ -198,7 +202,7 @@ licentiebeheer, shared mailboxes, MFA-overzicht, rollen).
 | Optie | Oordeel |
 |---|---|
 | GitHub Pages | Niet geschikt: statisch, geen veilige secrets, geen Exchange-aanroepen |
-| Azure Web App met kale PHP | Kan, maar Azure-gebonden en lastiger voor certificaten/pwsh |
+| Azure Web App zonder container | Kan, maar Azure-gebonden en lastiger voor certificaten/pwsh |
 | **Docker, alles in 1 container** | **Aanbevolen**: draait overal, ook op Azure |
 
 Kernpunt: Graph kan geen leden aan distributielijsten toevoegen of mailcontacten
