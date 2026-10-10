@@ -108,7 +108,7 @@ export const brandingAsset = sqliteTable('branding_asset', {
 | Luminance | `CHECK (luminance IS NULL OR luminance BETWEEN 0 AND 1)` |
 | Time shapes | the same `GLOB` as `branding.updated_at` for `created_at` and, when not null, `unreferenced_at` |
 
-Semantics (PD-10): `unreferenced_at IS NULL` means "referenced by the applied branding"; a non-null value is the moment the asset became unreferenced (an upload that has not been applied yet, or an asset a later apply retired). "Staged" in the spec and the API means `unreferenced_at IS NOT NULL`. Unreferenced assets are served only to an actor holding `settings:branding` (FR-A-090).
+Semantics (PD-10): `unreferenced_at IS NULL` means "referenced by the applied branding"; a non-null value is the moment the asset became unreferenced (an upload that has not been applied yet, or an asset a later apply retired). "Staged" in the spec and the API means `unreferenced_at IS NOT NULL`. Unreferenced assets are served only to an actor holding `settings:branding` (FR-A-090). Staging identical bytes again while the row is unreferenced sets `unreferenced_at` to the current time, in the same synchronous step as the existence and quota check, so an asset the user uploads again cannot be swept before the apply (FR-A-091); a referenced row is left alone and an identical re-stage does not count twice against the quota.
 
 The partial form of the index (`WHERE unreferenced_at IS NOT NULL`) is preferred if the Drizzle helper supports it (UNVERIFIED); otherwise the plain index is used. At most 32 rows and 32 MiB (the sum of `bytes`) may have `unreferenced_at IS NOT NULL`.
 
@@ -224,7 +224,7 @@ first prev_hash  = 32 zero bytes
 | `branding.import` | `branding` / `1` | `success`, `rejected`, `denied` | `dryRun`, `schemaVersion`, `bytes`, image hashes per slot, warnings (codes) |
 | `branding.export` | `branding` / `1` | `success` | `revision`, `bytes` |
 
-A denied write (permission, Origin or CSRF) is recorded with `action` equal to the **route id** (for example `branding.apply`), `outcome = denied`, `reason_code` one of `permission_denied`, `origin_not_allowed`, `csrf_invalid`, and `detail` holding `permission`, `method` and the route template; the `request_id` and `client_ip` columns are filled. Precondition failures (412, 428) and validation failures (422) of apply and reset are not audited, because no change was attempted; rejected uploads and imports are (FR-A-072). Rate-limited requests (429) are never audited (FR-A-034).
+A denied write (permission, Origin or CSRF) is recorded with `action` equal to the **route id** (for example `branding.apply`), `outcome = denied`, `reason_code` one of `permission_denied`, `origin_not_allowed`, `csrf_invalid`, and `detail` holding `permission`, `method` and the route template; the `request_id` and `client_ip` columns are filled. Precondition failures (412, 428) and validation failures (422) of apply and reset are not audited, because no change was attempted; rejected uploads and imports are (FR-A-072). Rate-limited requests (429) are never audited (FR-A-034). `branding.export` is a GET that writes an audit entry, so it applies the `Sec-Fetch-Site` rule of FR-A-044; a refused cross-site export is a denied read and is not audited (PA-15).
 
 ## 8. Migrations
 
@@ -264,7 +264,7 @@ On every start, after the database opens with foreign keys off: read all `__driz
 | Job | When | Rule |
 |---|---|---|
 | Temporary files | start, then hourly | Delete everything in `branding/.tmp/` older than 10 minutes |
-| Unreferenced assets | start, then hourly | Delete rows (and their files) where `unreferenced_at` is older than 24 hours and the hash is not referenced by `branding`; file first or row first is irrelevant because both are idempotent; a referenced hash is never selected |
+| Unreferenced assets | start, then hourly | Delete rows (and their files) where `unreferenced_at` (as last refreshed by a re-stage) is older than 24 hours and the hash is not referenced by `branding`; file first or row first is irrelevant because both are idempotent; a referenced hash is never selected |
 | Orphan files | start, then hourly | Delete `branding/*.png` that have no registry row and are older than one hour (an interrupted write) |
 | Missing files | start only | For each referenced asset whose file is missing, log `branding_asset_missing` (warn); serving that hash answers 404 and the UI falls back to the monogram; `/readyz` stays 200 |
 

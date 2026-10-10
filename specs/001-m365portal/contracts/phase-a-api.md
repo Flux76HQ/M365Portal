@@ -15,7 +15,7 @@ Dit contract beschrijft alle HTTP-routes van fase A: gezondheid (`/healthz`, `/r
 | Base path | API under `/api/v1`. Health at `/healthz` and `/readyz`; images at `/branding/`; PWA files at the root (FR-A-020). Task-text names `/api/v1/meta` and `/api/v1/session` are **not** created: `/api/v1/me` carries the meta fields and the actor/permission view, `/api/v1/session` is reserved for Phase B (PD-25) |
 | Formats | JSON in and out, UTF-8, except the upload (`multipart/form-data`), images, the manifest and `robots.txt`. JSON write routes require `Content-Type: application/json`, otherwise 415 `unsupported_media_type` |
 | Access vocabulary | `public` (no permission, every actor), or a permission from the catalogue (section 8.1). Anonymous holds no permission; the preview actor (only with `PREVIEW_MODE=true`) holds all. Declared once per route in `defineRoute` and exposed as `x-public` or `x-permission` |
-| Write routes | Any method other than GET, HEAD, OPTIONS under `/api/v1`. They run Origin check, CSRF check, authorisation in that order (plan 8.3, 7.2). Without preview mode every one of them answers 403 `permission_denied` and the denial is audited (FR-A-033, FR-A-034) |
+| Write routes | Any method other than GET, HEAD, OPTIONS under `/api/v1`. They run Origin check, CSRF check, authorisation in that order (plan 8.3, 7.2). `GET /api/v1/branding/export` writes an audit entry and therefore also applies the `Sec-Fetch-Site` rule (absent, `same-origin` or `none` pass; `same-site` and `cross-site` give 403 `origin_not_allowed`, not audited). Without preview mode every one of them answers 403 `permission_denied` and the denial is audited (FR-A-033, FR-A-034) |
 | CSRF | Header `X-CSRF-Token` from `GET /api/v1/csrf`; `Origin` equal to the origin of `PUBLIC_BASE_URL`; `Sec-Fetch-Site`, when present, `same-origin` |
 | Optimistic concurrency | `ETag: "<revision>"` on `GET /api/v1/branding` and on every response carrying the branding. `PUT`, `DELETE` and non-dry-run import require `If-Match: "<revision>"` (strong, quoted integer): missing gives 428 `precondition_required`, stale 412 `branding_conflict`, malformed 422 `validation_failed` (pointer `header/If-Match`) |
 | Request id | Every response carries `X-Request-Id`. An inbound `X-Request-Id` is used only if it matches `^[A-Za-z0-9-]{8,64}$`; otherwise a new one is generated. The id appears in problem bodies, logs and audit entries |
@@ -68,7 +68,7 @@ Liveness: answers 200 while the process runs, also in degraded mode. `Cache-Cont
 
 ### R2 `GET /readyz`
 
-Readiness: database open, schema at the expected version, data directory writable (the last by a write-and-delete probe, cached for 2 seconds). Used by the Docker `HEALTHCHECK` (A-34).
+Readiness: database open, schema at the expected version, data directory writable (the last by a write-and-delete probe). The whole result is cached for 2 seconds, because the route is exempt from rate limiting. Used by the Docker `HEALTHCHECK` (A-34).
 
 | Response | Schema |
 |---|---|
@@ -87,7 +87,7 @@ The client's view of who it is and what it may do. Resolved on the server from c
 |---|---|
 | 200 | `MeResponse`: `{ actor: { kind: "anonymous" \| "preview", id: string, label: string }, permissions: Permission[], features: { showcase: boolean, preview: boolean }, version: string, publicOrigin: string, storageAvailable: boolean }` |
 
-Anonymous: `permissions: []`. Preview: all 15 catalogue permissions and `features.preview: true`. `publicOrigin` lets the UI explain `origin_not_allowed`. The same data is embedded in the HTML shell as the boot data block.
+Anonymous: `permissions: []`. Preview: all 15 catalogue permissions and `features.preview: true`; `features.preview` is true only when this request resolved to the preview actor, which with `PREVIEW_MODE=true` also needs a loopback `Host` and no `Forwarded`, `X-Forwarded-*` or `X-Real-IP` header unless `PREVIEW_MODE_ALLOW_REMOTE=true` (FR-A-036); any other request is the anonymous actor. `publicOrigin` lets the UI explain `origin_not_allowed`. The same data is embedded in the HTML shell as the boot data block.
 
 ### R5 `GET /api/v1/csrf`
 
@@ -117,7 +117,7 @@ Stages one image: runs the pipeline of plan 8.5 and stores the processed PNG, un
 | Item | Rule |
 |---|---|
 | Request | `Content-Type: multipart/form-data` with exactly one part named `file`. Query `UploadAssetQuery`: `slot` |
-| Size | Request body at most 2,162,688 bytes, file at most 2,097,152 bytes (413 `payload_too_large` while streaming) |
+| Size | Request body at most 2,162,688 bytes (cut off while streaming, also without `Content-Length`), file at most 2,097,152 bytes (413 `payload_too_large` once the part is parsed: a file one byte over still fits inside the envelope) |
 | Ignored | The client's file name and the part's media type are never read or stored |
 | 201 / 200 | `UploadAssetResponse`: `{ asset: StagedAsset, warnings: UploadWarning[] }`; 201 when the processed bytes are new, 200 when identical bytes were staged before (`asset.created` says which) |
 | Errors | 403 `permission_denied`, `origin_not_allowed`, `csrf_invalid` (audited); 409 `staging_quota_exceeded`; 413 `payload_too_large`; 415 `unsupported_media_type` (not multipart) or `image_type_unsupported`; 422 `validation_failed` (not exactly one `file` part, malformed multipart), `image_empty`, `image_corrupt`, `image_pixels_exceeded`, `image_processing_timeout`, `svg_not_wellformed`, `svg_doctype_forbidden`, `svg_text_unsupported`, `svg_too_complex`; 429 `image_processing_busy` (with `Retry-After`) or `rate_limited`; 503 `storage_unavailable`, `storage_busy`, `shutting_down` |
@@ -142,7 +142,7 @@ Resets to defaults (name "M365Portal", the default accent, monogram icons, no lo
 
 ### R10 `GET /api/v1/branding/export`
 
-200 `BrandingExport` as `application/json` with `Content-Disposition: attachment; filename="m365portal-branding-YYYYMMDD.json"` and `Cache-Control: no-store`. Contains the stored master PNGs as base64 (explicit compact only). A denied export (403) is not audited because it is a read (PA-15). Audit `branding.export` on success.
+200 `BrandingExport` as `application/json` with `Content-Disposition: attachment; filename="m365portal-branding-YYYYMMDD.json"` and `Cache-Control: no-store`. Contains the stored master PNGs as base64 (explicit compact only). A denied export (403) is not audited because it is a read (PA-15), and a cross-site request is refused before any audit entry or export is made (403 `origin_not_allowed`). Audit `branding.export` on success.
 
 ### R11 `POST /api/v1/branding/import?dryRun=true|false`
 
