@@ -42,8 +42,8 @@ def main() -> int:
     working = [normalize(p) for p in run_git("diff", "--name-only").splitlines() if p.strip()]
     files = sorted(set(staged + working))
 
-    needs_bump = any(needs_bump(p) for p in files)
-    if not needs_bump:
+    bump_required = any(needs_bump(p) for p in files)
+    if not bump_required:
         print("No protected non-doc changes detected. VERSION unchanged.")
         return 0
 

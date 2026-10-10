@@ -1,0 +1,21 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+.vite/
+
+# Generated
+routeTree.gen.ts
+pnpm-lock.yaml
+playwright-report/
+test-results/
+blob-report/
+
+# Owned by other tooling or formatted by hand
+*.md
+docs/
+specs/
+.github/
+.githooks/
+scripts/
+VERSION

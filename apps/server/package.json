@@ -1,0 +1,25 @@
+{
+  "name": "@m365portal/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "HOST=127.0.0.1 tsx watch src/index.ts",
+    "build": "node build.mjs",
+    "start": "HOST=127.0.0.1 node dist/index.js",
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "catalog:",
+    "hono": "catalog:"
+  },
+  "devDependencies": {
+    "@m365portal/shared": "workspace:*",
+    "@types/node": "catalog:",
+    "esbuild": "catalog:",
+    "tsx": "catalog:",
+    "vitest": "catalog:"
+  }
+}

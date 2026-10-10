@@ -1,0 +1,37 @@
+{
+  "name": "m365portal",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.19.0 <23"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @m365portal/server --filter @m365portal/web dev",
+    "routes:generate": "pnpm --filter @m365portal/web generate",
+    "routes:check": "pnpm routes:generate && git ls-files --error-unmatch apps/web/src/routeTree.gen.ts && git diff --exit-code -- apps/web/src/routeTree.gen.ts",
+    "lint": "pnpm routes:generate && eslint . --max-warnings 0",
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json",
+    "test": "pnpm test:packages && pnpm test:tools",
+    "test:packages": "pnpm -r --filter \"!@m365portal/e2e\" test",
+    "test:tools": "vitest run --config vitest.config.ts",
+    "build": "pnpm -r build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "e2e": "pnpm --filter @m365portal/e2e test",
+    "audit:prod": "pnpm audit --prod"
+  },
+  "devDependencies": {
+    "@eslint/js": "catalog:",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-prettier": "catalog:",
+    "eslint-plugin-jsx-a11y": "catalog:",
+    "eslint-plugin-react-hooks": "catalog:",
+    "globals": "catalog:",
+    "prettier": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:",
+    "vitest": "catalog:"
+  }
+}

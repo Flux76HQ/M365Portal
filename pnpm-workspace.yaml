@@ -1,0 +1,68 @@
+packages:
+  - apps/*
+  - packages/*
+  - e2e
+
+catalog:
+  '@eslint/js': 10.0.1
+  '@hono/node-server': 2.1.4
+  '@playwright/test': 1.56.1
+  '@tailwindcss/vite': 4.3.3
+  '@tanstack/react-router': 1.170.42
+  '@tanstack/router-cli': 1.167.41
+  '@tanstack/router-plugin': 1.168.43
+  '@testing-library/dom': 10.4.2
+  '@testing-library/jest-dom': 7.0.1
+  '@testing-library/react': 16.3.3
+  '@types/node': 22.20.5
+  '@types/react': 19.3.0
+  '@types/react-dom': 19.3.0
+  '@vitejs/plugin-react': 6.1.2
+  esbuild: 0.28.2
+  eslint: 10.12.0
+  eslint-config-prettier: 10.1.8
+  eslint-plugin-jsx-a11y: 6.10.2
+  eslint-plugin-react-hooks: 7.1.1
+  globals: 17.13.0
+  happy-dom: 20.14.6
+  hono: 4.13.13
+  prettier: 3.9.10
+  react: 19.3.0
+  react-dom: 19.3.0
+  tailwindcss: 4.3.3
+  tsx: 4.23.15
+  typescript: 6.0.3
+  typescript-eslint: 8.71.1
+  vite: 8.3.4
+  vitest: 5.0.3
+
+# Every version is pinned once, in the catalog above: `pnpm add` records the pin here and writes
+# "catalog:" into package.json, and a version that differs from the catalog entry is rejected.
+catalogMode: strict
+
+# esbuild's postinstall is the only install script in the tree. It only validates the platform
+# binary and swaps in a faster shim, so build.mjs, tsx and Vite work without it: it stays ignored.
+# Add better-sqlite3 when it is installed (it ships prebuilds and needs no build step).
+ignoredBuiltDependencies:
+  - esbuild
+
+# Silences ONE known peer conflict and nothing else: eslint-plugin-jsx-a11y 6.10.2 (last release
+# 2024-10-26, unmaintained) declares eslint "<=9", yet all its rules fire on ESLint 10 (stack-probe
+# P2). The key names the parent so that any other plugin that does not support ESLint 10 is still
+# reported. ESLint 9 is deprecated, so lowering eslint is not the way out; if the plugin ever breaks,
+# replace it. See tools/INSTALL-PROTOCOL.md.
+peerDependencyRules:
+  allowedVersions:
+    'eslint-plugin-jsx-a11y>eslint': '10'
+
+# A dependency with an install script that is neither ignored above nor allowed fails the frozen
+# install (ERR_PNPM_IGNORED_BUILDS) instead of printing a warning. See tools/INSTALL-PROTOCOL.md.
+strictDepBuilds: true
+
+# Without this pnpm installs both the glibc and the musl variant of every native package (sharp:
+# +19 MB, stack-probe P10). The runtime image is glibc (distroless debian12) and a musl builder
+# must not be used for it. pnpm only honours the setting when it fetches full registry metadata
+# (pnpm add and pnpm install do, pnpm remove does not): see "REMOVING a dependency" in
+# tools/INSTALL-PROTOCOL.md.
+supportedArchitectures:
+  libc: [glibc]
