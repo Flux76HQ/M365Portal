@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@hono/node-server": "catalog:",
-    "hono": "catalog:"
+    "hono": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@m365portal/shared": "workspace:*",

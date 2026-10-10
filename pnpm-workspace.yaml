@@ -35,6 +35,7 @@ catalog:
   typescript-eslint: 8.71.1
   vite: 8.3.4
   vitest: 5.0.3
+  zod: 4.6.5
 
 # Every version is pinned once, in the catalog above: `pnpm add` records the pin here and writes
 # "catalog:" into package.json, and a version that differs from the catalog entry is rejected.

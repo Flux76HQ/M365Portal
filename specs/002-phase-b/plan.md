@@ -11,7 +11,7 @@
 ## Samenvatting (Nederlands)
 
 Dit plan beschrijft hoe fase B wordt gebouwd bovenop de geplande fase A-interfaces: een setup-poort (eenmalig token, brute-force-limieten, 404 na vergrendeling), een hervatbare tenant-wizard (device code, app-registratie, certificaat, Graph-permissies, Exchange-rol, verificatie met retry en backoff, handmatige modus), Entra-aanmelden (autorisatiecode met PKCE, certificaat-assertion, eigen ID-token-validatie met `jose`, server-side sessies met gehashte id's, CSRF gebonden aan de sessie, step-up, uitloggen overal), geheimen versleuteld met libsodium en het RBAC-fundament (rollen, toewijzingen aan gebruikers en groepen, scopes, een centrale policy-laag zonder `PREVIEW_MODE`, laatste-Eigenaar-bescherming in SQL-triggers, break-glass). Alles wat Microsoft doet wordt in tests gesimuleerd door één nep-tenant (MSW, een nep-identiteitsprovider met `jose`), met een extra vangnet dat elke echte netwerkverbinding in tests blokkeert.
-Dit plan is gecontroleerd met proeven in deze omgeving (sectie 0): het levert 25 aanpassingen aan de spec op (sectie 18), waaronder dat `node:https` door MSW niet wordt onderschept (alleen `fetch` is toegestaan, met een no-egress-vangnet), dat `@peculiar/x509` een `reflect-metadata`-polyfill nodig heeft (lazy geladen), dat scrypt met `N` tot 2^20 een gigabyte geheugen vraagt (begrensd op 128 MiB), en dat `jose` een `iat` in de toekomst, een `aud`-array en een `jku`-header niet zelf weigert (eigen controles vóór en na `jose`). De Exchange-schrijfroute blijft een eigenaarsbeslissing (sectie 19). Na fase B stopt het werk voor de test van de eigenaar tegen een echte tenant.
+Dit plan is gecontroleerd met proeven in deze omgeving (sectie 0): het levert 26 aanpassingen aan de spec op (sectie 18), waaronder dat `node:https` door MSW niet wordt onderschept (alleen `fetch` is toegestaan, met een no-egress-vangnet), dat `@peculiar/x509` een `reflect-metadata`-polyfill nodig heeft (lazy geladen), dat scrypt met `N` tot 2^20 een gigabyte geheugen vraagt (begrensd op 128 MiB), en dat `jose` een `iat` in de toekomst, een `aud`-array en een `jku`-header niet zelf weigert (eigen controles vóór en na `jose`). De Exchange-schrijfroute blijft een eigenaarsbeslissing (sectie 19). Na fase B stopt het werk voor de test van de eigenaar tegen een echte tenant.
 
 ## Summary
 
@@ -938,7 +938,7 @@ Service methods that read or change a scoped resource take a capability argument
 | `/settings/access` | "Mijn toegang" | any signed-in actor | lazy |
 | `/settings/restore-access` | "Eigenaar herstellen" | actor kind `break_glass` | lazy |
 
-An anonymous visitor of a gated route is replaced (history `replace`) to `/signin?returnTo=<path>`; a signed-in actor without the permission sees the in-place No-access content at the same URL (Phase A). While the setup state is not `completed` the server answers an HTML navigation to any panel page other than `/setup`, `/signin` and static assets with 303 to `/setup`, **unless the request carries a valid user session** (SB-14: a non-designated user who signs in during `awaiting_first_signin` must not land on the token form). The command registry and the sidebar add the Settings entries by permission and, for restore-access, by actor kind (`anyOf` plus `actorKinds`).
+An anonymous visitor of a gated route is replaced (history `replace`) to `/signin?returnTo=<path>`; a signed-in actor without the permission sees the in-place No-access content at the same URL (Phase A). While the setup state is not `completed` the server answers an HTML navigation to any panel page other than `/setup`, `/signin`, `/no-access` and static assets with 303 to `/setup`, **unless the request carries a valid user session** (SB-14: a non-designated user who signs in during `awaiting_first_signin` must not land on the token form; SB-26: a user without a role has no session, and the callback sends them to `/no-access`, which therefore must not bounce to `/setup` either). The command registry and the sidebar add the Settings entries by permission and, for restore-access, by actor kind (`anyOf` plus `actorKinds`).
 
 ### 12.2 Boot data and the Strict-cookie re-check (PB-15)
 
@@ -1042,6 +1042,9 @@ Each row is a test that applies the control to the guard and expects red, run th
 | No-egress guard | a test opening a real socket | `server/fakes/no-egress.test.ts` |
 | Single implementation | a second `evaluateAmr`, `signClientAssertion` or `cookieNames` | `shared/single-implementation.test.ts`, `server/single-implementation.test.ts` |
 | Schema parity | a migration default that differs from the schema | `server/schema-parity.test.ts` |
+| Migration triggers | each of the 29 triggers dropped in turn must make at least one case fail; a trigger without a case fails the completeness check | `server/migrations.phase-b.test.ts` |
+| Data-model document | a copy of the SQL block of data-model.md with one changed constant must differ from the migration | `server/migrations.doc.test.ts` |
+| Contract document | a route in the route table that the contract file lacks, and the reverse; an exemption (`secFetch`) on a second route | `server/docs-contract.test.ts`, `server/route-table.test.ts` |
 | Preview removal | a source file containing `PREVIEW_MODE` | `shared/repo-conventions.test.ts` |
 | Secrets in files | a data directory containing the PEM or the key | `server/secrets/no-plaintext.test.ts` |
 | Headers | `connect-src` with a Microsoft host | `server/security-headers.test.ts` |
@@ -1187,6 +1190,7 @@ The spec asks that the plan amend it in the same commit where it differs; this p
 | SB-23 | FR-B-701, FR-B-709 | Snapshot file `apps/server/schema-snapshots/0001-phase-b.sql`; ADR blocks | PB-28 |
 | SB-24 | 8.5 | Register updates of 18.3 | V-B08, V-B12 to V-B16 |
 | SB-25 | 6.9.7 note 2 | `GET /auth/callback` (P02) audits denied sign-ins on a GET and is by design a cross-site top-level navigation (`Sec-Fetch-Site: cross-site` from Entra), so the Phase A rule for audited GETs (FR-A-044) cannot apply to it; the route declares the exemption, the control is `state`, `nonce`, PKCE and the Lax transaction cookie; it is the only exempt route | contracts file, `server/route-table.test.ts` (the exemption list is exactly `[auth.callback]`), `server/auth/callback.test.ts` (`FakeBrowser` sends `Sec-Fetch-Site: cross-site` on the callback) |
+| SB-26 | FR-B-201 | The exempt pages of the 303 to `/setup` are `/setup*`, `/signin`, `/no-access` and static assets (spec: without `/no-access`) | contracts file section 8, `e2e/setup-redirect.spec.ts` (a no-role sign-in during `awaiting_first_signin` ends on `/no-access`) |
 
 ### 18.2 Conflicts between inputs, resolved
 

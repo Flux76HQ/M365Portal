@@ -69,5 +69,8 @@
     "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "dependencies": {
+    "zod": "catalog:"
   }
 }
