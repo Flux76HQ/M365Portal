@@ -1,0 +1,9 @@
+mount: apps/web/src/components/shell/org-mark.ts
+// Cutting a name at a grapheme boundary is the job of shortOrgName in packages/shared.
+const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+export function cutName(name: string, limit: number): string {
+  return Array.from(segmenter.segment(name), (part) => part.segment)
+    .slice(0, limit)
+    .join('');
+}

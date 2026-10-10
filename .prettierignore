@@ -4,8 +4,11 @@ dist/
 coverage/
 .vite/
 
-# Generated
+# Generated. A generator's output is compared byte for byte with the committed file (glyph table,
+# token stylesheet, route tree), so a formatter must never touch it.
 routeTree.gen.ts
+*.generated.ts
+*.generated.css
 pnpm-lock.yaml
 playwright-report/
 test-results/
@@ -17,5 +20,4 @@ docs/
 specs/
 .github/
 .githooks/
-scripts/
 VERSION

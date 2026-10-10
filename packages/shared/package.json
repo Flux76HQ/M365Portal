@@ -7,15 +7,67 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./permissions": {
+      "types": "./src/permissions.ts",
+      "default": "./src/permissions.ts"
+    },
+    "./limits": {
+      "types": "./src/limits.ts",
+      "default": "./src/limits.ts"
+    },
+    "./problem": {
+      "types": "./src/problem.ts",
+      "default": "./src/problem.ts"
+    },
+    "./routes": {
+      "types": "./src/routes.ts",
+      "default": "./src/routes.ts"
+    },
+    "./schemas/*": {
+      "types": "./src/schemas/*.ts",
+      "default": "./src/schemas/*.ts"
+    },
+    "./branding/*": {
+      "types": "./src/branding/*.ts",
+      "default": "./src/branding/*.ts"
+    },
+    "./tokens": {
+      "types": "./src/tokens/index.ts",
+      "default": "./src/tokens/index.ts"
+    },
+    "./i18n": {
+      "types": "./src/i18n/index.ts",
+      "default": "./src/i18n/index.ts"
+    },
+    "./i18n/*": {
+      "types": "./src/i18n/*.ts",
+      "default": "./src/i18n/*.ts"
+    },
+    "./i18n/locales/*": {
+      "types": "./src/i18n/locales/*",
+      "default": "./src/i18n/locales/*"
+    },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "default": "./src/testing/index.ts"
     }
   },
   "scripts": {
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "build": "node -e \"console.log('@m365portal/shared is consumed as TypeScript source: nothing to build')\""
+    "build": "node -e \"console.log('@m365portal/shared is consumed as TypeScript source: nothing to build')\"",
+    "i18n:merge": "tsx scripts/i18n-merge.ts",
+    "i18n:check": "vitest run test/i18n-catalogue.test.ts test/i18n-fragments.test.ts",
+    "tokens:generate": "tsx scripts/gen-tokens-css.ts",
+    "tokens:check": "tsx scripts/gen-tokens-css.ts --check",
+    "glyphs:generate": "tsx scripts/gen-glyphs.ts"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
     "vitest": "catalog:"
   }
 }

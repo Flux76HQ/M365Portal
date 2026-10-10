@@ -1,0 +1,12 @@
+mount: tools/example/package.json
+{
+  "name": "example",
+  "private": true,
+  "dependencies": {
+    "left-pad": "*",
+    "right-pad": "~2.0.1"
+  },
+  "optionalDependencies": {
+    "fsevents": ">=2.0.0"
+  }
+}

@@ -1,0 +1,8 @@
+mount: apps/web/src/lib/branding-helpers.tsx
+// Definitions can also sit as members of an object: the name is what counts, not the keyword.
+export const brandingHelpers = {
+  logoPlateFor: (luminance: number): 'none' | 'light' | 'dark' => (luminance < 0.2 ? 'light' : 'none'),
+  shortOrgName(name: string): string {
+    return name.slice(0, 12);
+  },
+};

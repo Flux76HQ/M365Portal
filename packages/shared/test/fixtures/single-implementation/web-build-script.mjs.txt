@@ -1,0 +1,5 @@
+mount: apps/web/build/locale-boot.mjs
+// Plain JavaScript counts: a build script is code too.
+export function detectLocale(languages) {
+  return languages.includes('nl') ? 'nl' : 'en';
+}

@@ -1,0 +1,2 @@
+mount: apps/web/src/lib/stray-dev-port.ts
+export const devServer = 'http://localhost:5173';

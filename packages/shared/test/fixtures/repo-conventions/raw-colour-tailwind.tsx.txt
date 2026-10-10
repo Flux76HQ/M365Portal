@@ -1,0 +1,4 @@
+mount: apps/web/src/components/RawTailwind.tsx
+export function RawTailwind() {
+  return <div className="rounded bg-[#0b5fff] text-[oklch(0.9_0.02_250)] border-[rgb(1,2,3)]" />;
+}

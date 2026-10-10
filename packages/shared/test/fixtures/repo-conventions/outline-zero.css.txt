@@ -1,0 +1,7 @@
+mount: apps/web/src/styles/focus-zero.css
+@layer base {
+  a:focus-visible {
+    outline: 0 !important;
+    color: inherit;
+  }
+}

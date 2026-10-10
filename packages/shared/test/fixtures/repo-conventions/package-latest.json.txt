@@ -1,0 +1,8 @@
+mount: tools/example/package.json
+{
+  "name": "example",
+  "private": true,
+  "dependencies": {
+    "left-pad": "latest"
+  }
+}

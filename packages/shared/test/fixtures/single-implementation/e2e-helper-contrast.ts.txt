@@ -1,0 +1,5 @@
+mount: e2e/lib/contrast.ts
+// An e2e helper that is not a test file (a test helper under e2e/lib) is scanned too.
+export function contrastRatio(first: number, second: number): number {
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+}

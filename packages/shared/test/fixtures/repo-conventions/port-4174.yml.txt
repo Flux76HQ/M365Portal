@@ -1,0 +1,7 @@
+mount: .github/workflows/stray-port.yml
+name: stray-port
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl --fail http://127.0.0.1:4174/healthz

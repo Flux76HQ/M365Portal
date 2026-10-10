@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { createApp } from './app.js';
+import { createApp } from '../src/app.js';
 
 const versionFile = readFileSync(new URL('../../../VERSION', import.meta.url), 'utf8').trim();
 

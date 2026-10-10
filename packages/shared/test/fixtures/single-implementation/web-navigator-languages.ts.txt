@@ -1,0 +1,7 @@
+mount: apps/web/src/lib/locale.ts
+// Reading navigator.languages and matching the tags here is a second locale normaliser. Passing
+// the list on to detectLocale(...) is the allowed way to use it.
+export function preferredLocale(): 'nl' | 'en' {
+  const first = navigator.languages.find((tag) => tag.startsWith('nl') || tag.startsWith('en'));
+  return first?.startsWith('nl') === true ? 'nl' : 'en';
+}

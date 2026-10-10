@@ -1,0 +1,5 @@
+mount: apps/web/src/lib/readable-on.ts
+// WCAG relative luminance computed by hand: contrast arithmetic exists once, in packages/shared.
+export function luminanceOf(red: number, green: number, blue: number): number {
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}

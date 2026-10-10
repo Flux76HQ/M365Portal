@@ -1,0 +1,5 @@
+mount: apps/web/src/lib/raw-function.ts
+export const surface = 'rgb(12, 34, 56)';
+export const text = `oklch(0.2 0.02 250)`;
+export const glass = 'hsl(210 20% 98% / 0.9)';
+export const mixed = 'color-mix(in oklab, red 40%, blue)';

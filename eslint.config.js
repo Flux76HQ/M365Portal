@@ -9,7 +9,10 @@
 //                         and silently drops `globals`
 //   4. web only           react-hooks and jsx-a11y (never applied to server, shared or e2e)
 //   5. relaxations        test files only (the config-file entry is absent because nothing needs it)
-//   6. eslint-config-prettier last, so formatting rules never fight Prettier
+//   6. local rules        eslint-rules/: one entry per rule file, scoped by the rule's own `scope`
+//                         export (the loader builds the entries; a new rule is a new file, this
+//                         file does not change)
+//   7. eslint-config-prettier last, so formatting rules never fight Prettier
 //
 // The guards above are proven by tools/lint-canary: it lints deliberately wrong code through
 // this very file and fails when a guard stops firing.
@@ -20,6 +23,7 @@ import jsxA11y from 'eslint-plugin-jsx-a11y';
 import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
+import { configs as localRuleConfigs } from './eslint-rules/index.js';
 
 export default defineConfig([
   globalIgnores([
@@ -67,6 +71,8 @@ export default defineConfig([
       '@typescript-eslint/unbound-method': 'off',
     },
   },
+
+  ...localRuleConfigs,
 
   prettier,
 ]);

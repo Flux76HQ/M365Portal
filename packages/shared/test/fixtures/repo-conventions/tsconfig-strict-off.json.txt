@@ -1,0 +1,8 @@
+mount: tools/example/tsconfig.json
+{
+  // A package may not switch a base flag off again.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": false
+  }
+}

@@ -1,0 +1,9 @@
+mount: packages/shared/src/branding/org-name.ts
+// Two definitions in the home module itself.
+export function normalizeOrgName(raw: string): string {
+  return raw.trim();
+}
+
+export const normalizeOrgName2 = 1;
+
+export const normalizeOrgName = (raw: string): string => raw.normalize('NFC');

@@ -1,0 +1,7 @@
+mount: apps/server/src/branding/accent.ts
+// A second accent normaliser in the server package, written as an arrow function.
+export const normalizeAccent = (hex: string): string => hex.trim().toLowerCase();
+
+export const deriveAccentTokens = function (hex: string): { accent: string } {
+  return { accent: hex };
+};

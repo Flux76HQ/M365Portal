@@ -1,0 +1,7 @@
+mount: apps/web/src/lib/permissions.ts
+// A second permission catalogue and a second any-of helper in the web package.
+export const PERMISSIONS = ['users:read', 'groups:read', 'contacts:read', 'audit:read'] as const;
+
+export function hasAnyPermission(held: readonly string[], wanted: readonly string[]): boolean {
+  return wanted.some((permission) => held.includes(permission));
+}

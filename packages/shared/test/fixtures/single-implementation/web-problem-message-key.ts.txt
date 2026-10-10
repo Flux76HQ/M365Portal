@@ -1,0 +1,5 @@
+mount: apps/web/src/lib/problem-message.ts
+// Building the catalogue key by hand skips the fallback for unknown codes that problemMessageKey has.
+export function messageKeyFor(code: string): string {
+  return `problem.${code}`;
+}

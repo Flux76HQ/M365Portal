@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { APP_VERSION, parseVersion } from './version.js';
+import { APP_VERSION, parseVersion } from '../src/version.js';
 
 describe('version', () => {
   it('APP_VERSION is MAJOR.MINOR.PATCH', () => {

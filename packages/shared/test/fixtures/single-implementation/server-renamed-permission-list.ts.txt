@@ -1,0 +1,12 @@
+mount: apps/server/src/policy/preview-actor.ts
+// No function or constant carries a name from the table, but this is still a second list of
+// permission names: the preview actor must take PERMISSIONS from packages/shared.
+const everything = [
+  'users:read',
+  'groups:read',
+  'groups:members:write',
+  'distributionlists:read',
+  'settings:branding',
+];
+
+export const previewPermissions = new Set(everything);

@@ -1,0 +1,5 @@
+mount: packages/shared/src/schemas/branding.ts
+// Inside packages/shared the rule is the same: one definition, in the module the table names.
+export function normalizeAccent(hex: string): string {
+  return hex.toLowerCase();
+}

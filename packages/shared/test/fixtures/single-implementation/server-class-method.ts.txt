@@ -1,0 +1,7 @@
+mount: apps/server/src/http/locale-negotiator.ts
+// A locale-tag normaliser hiding in a class.
+export class LocaleNegotiator {
+  detectLocale(tags: readonly string[]): 'nl' | 'en' {
+    return tags.some((tag) => tag.startsWith('nl')) ? 'nl' : 'en';
+  }
+}

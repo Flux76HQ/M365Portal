@@ -1,0 +1,16 @@
+mount: package.json
+{
+  "name": "m365portal",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "engines": { "node": ">=22.19.0 <23" },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "build": "pnpm -r build",
+    "e2e": "playwright test",
+    "schema:check": "pnpm --filter @m365portal/server no-such-script",
+    "docs:check": "pnpm --filter @m365portal/nowhere docs"
+  }
+}

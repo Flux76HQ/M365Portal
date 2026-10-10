@@ -1,0 +1,6 @@
+mount: apps/web/package.json
+{
+  "name": "web",
+  "private": true,
+  "scripts": {}
+}

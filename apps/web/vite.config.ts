@@ -1,11 +1,13 @@
+import { DEFAULT_PORT } from '@m365portal/shared/limits';
 import tailwindcss from '@tailwindcss/vite';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
-// Where `pnpm dev` finds the API server: the same PORT the server reads (FR-A-016; its default is
-// 8080, see apps/server/src/listen.ts). The `dev` script of the server pins HOST=127.0.0.1.
-const apiOrigin = `http://127.0.0.1:${process.env.PORT ?? '8080'}`;
+// Where `pnpm dev` finds the API server: the same PORT the server reads, with the same default
+// (FR-A-016; @m365portal/shared/limits defines it once). The `dev` script of the server pins
+// HOST=127.0.0.1.
+const apiOrigin = `http://127.0.0.1:${process.env.PORT ?? String(DEFAULT_PORT)}`;
 
 export default defineConfig({
   // The router plugin must come before the React plugin.
@@ -23,8 +25,8 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
-    include: ['src/**/*.test.{ts,tsx}'],
-    setupFiles: ['./src/test/setup.ts'],
+    include: ['test/**/*.test.{ts,tsx}'],
+    setupFiles: ['./test/setup.ts'],
     css: false,
   },
 });

@@ -1,0 +1,4 @@
+mount: apps/web/src/styles/focus-none.css
+.button:focus {
+  outline: none;
+}

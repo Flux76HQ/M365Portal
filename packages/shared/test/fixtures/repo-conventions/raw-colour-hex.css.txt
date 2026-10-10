@@ -1,0 +1,6 @@
+mount: apps/web/src/styles/raw-hex.css
+.card {
+  background: #1a2b3c;
+  color: #fff;
+  border-color: #ABCDEF80;
+}

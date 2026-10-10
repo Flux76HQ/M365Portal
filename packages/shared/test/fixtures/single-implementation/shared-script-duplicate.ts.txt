@@ -1,0 +1,5 @@
+mount: packages/shared/scripts/initials-copy.ts
+// packages/shared/scripts is outside packages/shared/src, so it is scanned like any other consumer.
+export function deriveInitials(name: string): string {
+  return name.slice(0, 2).toUpperCase();
+}

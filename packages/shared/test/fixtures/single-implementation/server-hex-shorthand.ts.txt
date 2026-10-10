@@ -1,0 +1,5 @@
+mount: apps/server/src/branding/theme-colour.ts
+// Expanding #rgb to #rrggbb is part of normalizeAccent in packages/shared.
+export function expandShorthand(hex: string): string {
+  return hex.replace(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/i, '#$1$1$2$2$3$3').toLowerCase();
+}

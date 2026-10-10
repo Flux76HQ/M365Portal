@@ -1,0 +1,6 @@
+mount: apps/server/src/branding/pipeline/hover-colour.ts
+// The OKLab conversion is the heart of deriveAccentTokens; a copy of it drifts from the original.
+export function toOkLabLightness(red: number, green: number, blue: number): number {
+  const l = Math.cbrt(0.4122214708 * red + 0.5363325363 * green + 0.0514459929 * blue);
+  return l;
+}

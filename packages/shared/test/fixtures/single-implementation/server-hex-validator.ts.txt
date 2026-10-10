@@ -1,0 +1,7 @@
+mount: apps/server/src/branding/manifest-colour.ts
+// Validating a #rrggbb string by hand is a second accent validator, even without any expansion.
+const FULL_HEX = new RegExp('^#[0-9a-fA-F]{6}$');
+
+export function isFullHex(value: string): boolean {
+  return FULL_HEX.test(value);
+}

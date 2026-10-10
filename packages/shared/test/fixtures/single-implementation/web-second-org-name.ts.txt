@@ -1,0 +1,5 @@
+mount: apps/web/src/lib/org-name.ts
+// A second organisation-name normaliser in the web package: the defect FR-A-008 exists to stop.
+export function normalizeOrgName(raw: string): string {
+  return raw.trim().replace(/\s+/g, ' ');
+}

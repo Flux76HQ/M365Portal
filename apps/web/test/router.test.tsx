@@ -1,7 +1,7 @@
 import { RouterProvider, createMemoryHistory } from '@tanstack/react-router';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { createAppRouter } from './router';
+import { createAppRouter } from '../src/router';
 
 describe('app router', () => {
   it('renders the index route with the product name', async () => {
