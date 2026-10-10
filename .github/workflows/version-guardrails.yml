@@ -1,0 +1,39 @@
+name: version-guardrails
+
+# `enforce-version-bump` is its own job so the name can be found on the pull
+# request: AGENTS.md cites it under exactly this name.
+#
+# Two triggers, deliberately (project-baseline.md section 5): the pull-request
+# check compares against the base as it was when it ran, so two correct pull
+# requests that each bump to the next number both go green and the second merge
+# lands a version that increases nothing. The push check compares against the
+# commit the branch actually had before (`github.event.before`), which detects it.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  enforce-version-bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test the version guard
+        run: python -m unittest discover -s scripts -p "test_version_guard.py" -v
+
+      - name: Validate version bump (pull request)
+        if: github.event_name == 'pull_request'
+        run: python scripts/check_version_bump.py --base-ref "origin/${{ github.base_ref }}"
+
+      - name: Validate version bump (merge)
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: python scripts/check_version_bump.py --base-ref "${{ github.event.before }}"

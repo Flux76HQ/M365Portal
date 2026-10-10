@@ -1,0 +1,41 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.turbo/
+.vite/
+
+# Runtime data (the /data volume is never tracked)
+/data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Secrets: only .env.example is tracked
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Test artefacts
+playwright-report/
+test-results/
+blob-report/
+e2e/.auth/
+
+# Agent / editor state
+.worktrees/
+.claude/settings.local.json
+.mcp.json
+.copilot/mcp-config.json
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+__pycache__/
+*.pyc

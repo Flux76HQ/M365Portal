@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""Fast pre-commit checks. Heavier gates (lint, tests, image) run in CI."""
+import subprocess
+import sys
+
+commands = (
+    [sys.executable, "scripts/check_version_bump.py", "--staged"],
+    # Runs here, not only in CI: its subject is what the *other* AI clients see,
+    # which nothing inside the client doing the work will reveal.
+    [sys.executable, "scripts/check_agent_instructions.py"],
+)
+
+for cmd in commands:
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        print(f"Fix and rerun: {' '.join(cmd)}", file=sys.stderr)
+        sys.exit(result.returncode)
+
+sys.exit(0)

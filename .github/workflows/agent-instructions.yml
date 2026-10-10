@@ -1,0 +1,25 @@
+name: agent-instructions
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # `agent-instructions-lint` is its own job so the name can be found on the pull
+  # request: AGENTS.md cites it under exactly this name. A control you cannot find
+  # on any pull request under the name a document cites it by is not a control.
+  agent-instructions-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Tests of the validator first: if the script fails, you want to know
+      # whether the script is broken or the documents are.
+      - name: Test the agent-instructions validator
+        run: python -m unittest discover -s scripts -p "test_check_agent_instructions.py" -v
+
+      - name: Validate the agent instruction surfaces
+        run: python scripts/check_agent_instructions.py
