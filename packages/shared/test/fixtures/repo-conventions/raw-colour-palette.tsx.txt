@@ -1,0 +1,4 @@
+mount: apps/web/src/components/PaletteUtilities.tsx
+export function PaletteUtilities() {
+  return <div className="rounded bg-red-500 text-white hover:bg-slate-900 dark:border-gray-200/50" />;
+}

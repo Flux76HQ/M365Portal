@@ -1,0 +1,7 @@
+mount: apps/web/src/styles/focus-apply.css
+.button:focus {
+  @apply outline-none;
+}
+.link:focus-visible {
+  @apply focus:outline-none;
+}

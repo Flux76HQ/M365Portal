@@ -1,0 +1,4 @@
+mount: apps/web/public/offline.css
+*:focus {
+  outline: none;
+}

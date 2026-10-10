@@ -1,0 +1,4 @@
+mount: apps/web/src/test/helpers.ts
+export function normalizeOrgName(raw: string): string {
+  return raw.trim();
+}

@@ -1,0 +1,12 @@
+mount: apps/web/src/styles/raw-named.css
+.a {
+  color: white;
+  background: red;
+}
+.b {
+  border: 1px solid Tomato;
+  box-shadow: 0 0 2px 1px rgba(0, 0, 0, 0.2), 0 0 0 1px navy;
+}
+.c {
+  color: light-dark(white, black);
+}

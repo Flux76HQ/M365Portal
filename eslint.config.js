@@ -1,7 +1,9 @@
 // Flat config for the whole workspace. One typed-lint run covers every package.
 //
 // Layout of this file (order matters, later entries win):
-//   1. ignores            generated files and build output
+//   1. ignores            generated files and build output, anchored to where they really are: a
+//                         source folder that merely shares a name with one (apps/web/src/features/
+//                         coverage) is linted
 //   2. baseline           eslint recommended for every file, typescript-eslint strict + stylistic
 //                         (type-aware, projectService) for TypeScript only
 //   3. globals            one entry per runtime, kept apart from every other entry on purpose:
@@ -28,12 +30,19 @@ import { configs as localRuleConfigs } from './eslint-rules/index.js';
 export default defineConfig([
   globalIgnores([
     '**/node_modules/**',
-    '**/dist/**',
-    '**/coverage/**',
-    '**/routeTree.gen.ts',
-    '**/playwright-report/**',
-    '**/test-results/**',
-    '**/blob-report/**',
+    // Build output and coverage reports sit directly in the root or in a package, never deeper.
+    'dist/**',
+    'coverage/**',
+    'apps/*/dist/**',
+    'apps/*/coverage/**',
+    'packages/*/dist/**',
+    'packages/*/coverage/**',
+    // The router generator writes this file and opens it with a bare eslint-disable comment.
+    'apps/web/src/routeTree.gen.ts',
+    // Playwright output.
+    'e2e/playwright-report/**',
+    'e2e/test-results/**',
+    'e2e/blob-report/**',
   ]),
 
   { linterOptions: { reportUnusedDisableDirectives: 'error' } },
@@ -58,11 +67,19 @@ export default defineConfig([
     ],
     languageOptions: { globals: globals.node },
   },
-  { files: ['apps/web/src/**/*.{ts,tsx}'], languageOptions: { globals: globals.browser } },
+  // espree reads JSX only when it is told to, and no default pattern of ESLint matches *.jsx.
+  { files: ['**/*.jsx'], languageOptions: { parserOptions: { ecmaFeatures: { jsx: true } } } },
+  {
+    files: ['apps/web/{src,public}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'],
+    languageOptions: { globals: globals.browser },
+  },
   { files: ['packages/shared/**/*.ts'], languageOptions: { globals: globals.es2021 } },
 
-  { files: ['apps/web/**/*.{ts,tsx}'], extends: [reactHooks.configs.flat.recommended] },
-  { files: ['apps/web/**/*.tsx'], extends: [jsxA11y.flatConfigs.recommended] },
+  {
+    files: ['apps/web/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'],
+    extends: [reactHooks.configs.flat.recommended],
+  },
+  { files: ['apps/web/**/*.{tsx,jsx}'], extends: [jsxA11y.flatConfigs.recommended] },
 
   {
     files: ['**/*.test.{ts,tsx}', 'e2e/tests/**/*.ts'],

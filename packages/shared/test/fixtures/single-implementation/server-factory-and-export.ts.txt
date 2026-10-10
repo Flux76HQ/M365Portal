@@ -1,0 +1,4 @@
+mount: apps/server/src/branding/names.ts
+const impl = (raw: string): string => raw.trim();
+export { impl as shortOrgName };
+export const normalizeOrgName = makeNormaliser();

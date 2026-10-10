@@ -1,0 +1,13 @@
+mount: apps/web/src/components/NoOutline.tsx
+export function NoOutline() {
+  return (
+    <div>
+      <button className="px-2 outline-none" />
+      <button className="focus:outline-none" />
+      <button className="outline-0 rounded" />
+      <button className={cn('outline-hidden', open && 'ring-0')} />
+      <input style={{ outline: 'none' }} />
+      <input style={{ outlineStyle: 'none', outlineWidth: 0 }} />
+    </div>
+  );
+}

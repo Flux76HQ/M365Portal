@@ -41,21 +41,28 @@ const DEPENDENCY_FIELDS = [
   'optionalDependencies',
 ] as const;
 
-/** Dependencies, build output and caches: never inspected, at any depth. */
-const IGNORED_DIRECTORIES = new Set([
-  'node_modules',
+/** Installed code and version control: never inspected, at any depth. */
+const INSTALLED_DIRECTORIES = new Set(['node_modules', '.git']);
+/**
+ * Build output and tool caches. They are skipped directly in a package root only (`apps/web/dist`):
+ * `apps/web/src/features/coverage` is source that happens to share a name with one, and the
+ * undeclared import inside it must be seen.
+ */
+const BUILD_OUTPUT_DIRECTORIES = new Set([
   'dist',
-  'build',
   'coverage',
   'test-results',
   'playwright-report',
   'blob-report',
-  '.git',
   '.vite',
   '.turbo',
 ]);
-/** Documentation folders of the repository root: they hold examples, not code that runs. */
-const ROOT_DOCUMENTATION_DIRECTORIES = new Set(['docs', 'specs']);
+/**
+ * Folders of the repository root that hold no code of this repository: documentation (examples),
+ * the git-ignored `build/` of the root (apps/web/build is a source folder and is read) and the
+ * worktrees of agents (complete copies of the repository).
+ */
+const ROOT_SKIPPED_DIRECTORIES = new Set(['docs', 'specs', 'build', '.worktrees']);
 
 const NODE_BUILTINS = new Set(builtinModules.map((name) => name.split('/')[0]));
 
@@ -169,15 +176,26 @@ function referencesIn(file: string, text: string): References {
   return file.endsWith('.css') ? referencesInStyle(text) : referencesInSource(file, text);
 }
 
-function walk(directory: string, isRoot: boolean, found: string[]): void {
+/**
+ * Every file below `directory` that can import something. `members` are the workspace packages (as
+ * absolute paths): another package answers for itself, but a folder that merely has a package.json
+ * of its own (`{ "type": "module" }` beside some scripts) is part of this package.
+ */
+function walk(
+  directory: string,
+  isPackageRoot: boolean,
+  isRepositoryRoot: boolean,
+  members: ReadonlySet<string>,
+  found: string[],
+): void {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (IGNORED_DIRECTORIES.has(entry.name)) continue;
-      if (isRoot && ROOT_DOCUMENTATION_DIRECTORIES.has(entry.name)) continue;
-      // A folder with its own package.json is another workspace package: it answers for itself.
-      if (existsSync(join(path, 'package.json'))) continue;
-      walk(path, false, found);
+      if (INSTALLED_DIRECTORIES.has(entry.name)) continue;
+      if (isPackageRoot && BUILD_OUTPUT_DIRECTORIES.has(entry.name)) continue;
+      if (isRepositoryRoot && ROOT_SKIPPED_DIRECTORIES.has(entry.name)) continue;
+      if (members.has(path)) continue;
+      walk(path, false, false, members, found);
     } else if (
       entry.isFile() &&
       (SOURCE_FILE.test(entry.name) ||
@@ -212,8 +230,17 @@ export function scanPackage(root: string, workspace: string): PackageScan {
   );
   const declared = declaredNames(manifest);
 
+  // The other packages of the workspace answer for themselves. A repository without a workspace file
+  // (a fixture of one package) has no others.
+  const members = new Set(
+    existsSync(join(root, 'pnpm-workspace.yaml'))
+      ? workspaceDirectories(root)
+          .filter((directory) => directory !== workspace)
+          .map((directory) => join(root, directory))
+      : [],
+  );
   const files: string[] = [];
-  walk(packageDirectory, workspace === '.', files);
+  walk(packageDirectory, true, workspace === '.', members, files);
 
   const usedIn = new Map<string, Set<string>>();
   const record = (name: string, file: string): void => {

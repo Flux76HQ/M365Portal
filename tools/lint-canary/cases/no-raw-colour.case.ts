@@ -69,4 +69,93 @@ export const reference = 'var(--accent)';
     code: HEX,
     mustNotReport: [RULE],
   },
+  // G0 defects D4, D5, D15, D20: where the rule looks, and what it takes for a colour.
+  {
+    name: 'a source folder that merely shares the name of build output is linted (coverage)',
+    path: 'apps/web/src/features/coverage/colour-hex.ts',
+    code: HEX,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a module with the extension .mts is linted',
+    path: 'apps/web/src/__lint_canary__/colour-hex.mts',
+    code: HEX,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a module with the extension .cts is linted',
+    path: 'apps/web/src/__lint_canary__/colour-hex.cts',
+    code: HEX,
+    mustReport: [RULE],
+  },
+  {
+    name: 'plain JavaScript (.js) is linted',
+    path: 'apps/web/src/__lint_canary__/colour-hex.js',
+    code: HEX,
+    mustReport: [RULE],
+  },
+  {
+    name: 'JSX in a .jsx file is linted',
+    path: 'apps/web/src/__lint_canary__/colour-style.jsx',
+    code: `
+export function Swatch() {
+  return <div style={{ color: '#1a2b3c' }} />;
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a .mjs and a .cjs module are linted',
+    path: 'apps/web/src/__lint_canary__/colour-hex.mjs',
+    code: HEX,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a static file of the web package (public/offline.js) is linted',
+    path: 'apps/web/public/__lint_canary__/offline.js',
+    code: HEX,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a named colour in a style object',
+    path: 'apps/web/src/__lint_canary__/colour-named.tsx',
+    code: `
+export function Swatch() {
+  return <div style={{ color: 'red', background: 'white' }} />;
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a named colour in a colour attribute',
+    path: 'apps/web/src/__lint_canary__/colour-fill.tsx',
+    code: `
+export function Dot() {
+  return <circle fill="black" r="2" />;
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a named colour in a Tailwind arbitrary property and in light-dark()',
+    path: 'apps/web/src/__lint_canary__/colour-light-dark.ts',
+    code: `
+export const classes = '[color:red] p-2';
+export const scheme = 'light-dark(white, black)';
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'control: colours that come from a token are allowed (var() arguments, an anchor)',
+    path: 'apps/web/src/__lint_canary__/colour-token-arguments.tsx',
+    code: `
+export const mixed = 'color-mix(in oklab, var(--accent) 20%, transparent)';
+export const hue = 'hsl(var(--accent))';
+export const classes = 'bg-[color:var(--accent)] shadow-[0_0_0_1px_var(--ring)]';
+export function Skip() {
+  return <a href="#add" style={{ color: 'var(--fg)', fill: 'currentColor' }} />;
+}
+`,
+    mustNotReport: [RULE],
+  },
 ] as const satisfies readonly CanaryCase[];

@@ -1,0 +1,5 @@
+mount: apps/web/src/lib/palette.json
+{
+  "brand": "#336699",
+  "surface": "rgb(250, 250, 250)"
+}

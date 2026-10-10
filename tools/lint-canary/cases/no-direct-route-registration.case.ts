@@ -107,4 +107,72 @@ export function createApp(): Hono {
     code: DIRECT_ROUTE,
     mustNotReport: [RULE],
   },
+  // G0 defects D14 and D15: renamed imports, destructured methods, middleware that answers.
+  {
+    name: 'a second application created through a renamed import',
+    path: 'apps/server/src/__lint_canary__/route-renamed-hono.ts',
+    code: `
+import { Hono as H } from 'hono';
+export const sub = new H();
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a route method taken off the application with destructuring',
+    path: 'apps/server/src/__lint_canary__/route-destructured.ts',
+    code: `
+import type { Hono } from 'hono';
+export function wire(app: Hono): void {
+  const { get } = app;
+  get('/x', (c) => c.text('x'));
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a route registered with use() by a handler that never calls next',
+    path: 'apps/server/src/__lint_canary__/route-use-handler.ts',
+    code: `
+import type { Hono } from 'hono';
+export function wire(app: Hono): void {
+  app.use('/open', (c) => c.text('ok'));
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a route method called with a name held in a variable',
+    path: 'apps/server/src/__lint_canary__/route-dynamic-method.ts',
+    code: `
+import type { Hono } from 'hono';
+export function wire(app: Hono, method: 'get' | 'post'): void {
+  app[method]('/x', (c) => c.text('x'));
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a .mjs module of the server is linted',
+    path: 'apps/server/src/__lint_canary__/route-new-hono.mjs',
+    code: `
+import { Hono } from 'hono';
+export const sub = new Hono();
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'control: a middleware that calls next is allowed',
+    path: 'apps/server/src/__lint_canary__/route-use-next.ts',
+    code: `
+import type { Hono } from 'hono';
+export function wire(app: Hono): void {
+  app.use('/api/*', async (c, next) => {
+    c.header('x-test', '1');
+    await next();
+  });
+  app.use(async (_c, next) => next());
+}
+`,
+    mustNotReport: [RULE],
+  },
 ] as const satisfies readonly CanaryCase[];

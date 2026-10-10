@@ -14,123 +14,94 @@
 //
 // What is scanned, and how
 //   - OUTSIDE packages/shared/src: every code file (ts, tsx, mts, cts, js, jsx, mjs, cjs) that is not
-//     a test and not documentation. That includes packages/shared/scripts, e2e helpers, tools, build
-//     scripts and root configuration. For each file the TypeScript parser (not a text search, so
-//     comments, strings and look-alike identifiers are left alone) finds
-//       1. a definition by name: function, class, enum, variable with a function, class, array,
-//          object or `new` initialiser (or a call that is handed one), method, or object member. An
-//          alias (`const x = shared.x`), an import and a re-export are not definitions;
-//       2. a tell-tale re-implementation: Intl.Segmenter, a regular expression that takes a colour
-//          value apart or validates it whole (`^#rrggbb$`, `#rgb` expansion; a pattern that
-//          SEARCHES text for colours, like the no-raw-colour lint rule's, is a recogniser and is
-//          left alone), WCAG or OKLab constants, a navigator.language(s) read that is not handed
-//          to detectLocale, a catalogue key built by hand (`problem.${code}`), a list of four or
-//          more permission names.
-//   - INSIDE packages/shared/src: each name is defined at most once, in its home module. Zero
-//     definitions is fine (the module has not landed yet; the stubs of T-A-002 are `export {};`).
+//     a test and not documentation. A test is a file in the test folder of a package (apps/*/test,
+//     packages/*/test, e2e/tests and the like, anchored: `apps/server/src/test` is source) or a
+//     file named like a test that its runner collects. That includes packages/shared/scripts, e2e
+//     helpers, tools, build scripts, static files and root configuration. For each file the
+//     TypeScript parser (not a text search, so comments, strings and look-alike identifiers are left
+//     alone) finds
+//       1. a definition of a name of the table: function, class, enum, variable with a function,
+//          class, array, object or `new` initialiser or the result of a call (a factory), method,
+//          accessor, object member, a default in a parameter or a destructuring pattern, an
+//          assignment to a name or property, `export { impl as name }` of something the file
+//          implements. An alias (`const x = shared.x`, `x.bind(y)`), an import and a re-export are
+//          not definitions;
+//       2. a look-alike: a function whose NAME says it does the work of a concept under another
+//          spelling (`normaliseOrgName`, `getInitials`, `pickLocale`, `luminanceOf`, `hasPermission`).
+//          Components, hooks (`useLocale`) and event handlers (`onAccentChange`) are left alone;
+//       3. a tell-tale re-implementation: Intl.Segmenter, a regular expression that takes a colour
+//          value apart or validates it whole (`^#rrggbb$`, `^[0-9a-f]{6}$`, `#rgb` expansion; a
+//          pattern that SEARCHES text for colours, like the no-raw-colour lint rule's, is a
+//          recogniser and is left alone), WCAG or OKLab constants, YIQ brightness weights, a
+//          navigator.language(s) or Accept-Language read that is not handed to detectLocale, a
+//          catalogue key built by hand (`problem.${code}`, `['problem', code].join('.')`), a list,
+//          union or enum of four or more permission names, a catalogue built from lists of
+//          resources and actions.
+//   - INSIDE packages/shared/src: each name is defined at most once, in its home module. A home that
+//     is still a stub (`export {};`) defines nothing; as soon as it holds code it must define the
+//     names its row requires, so a row cannot guard nothing because the owner spelled the function
+//     differently (G0 defect D19).
 //
 // A surface that genuinely needs a different answer needs a documented reason, not a local copy
-// (baseline section 10). EXEMPTIONS is that record. It is empty, it only ever excuses a tell-tale
-// (never a definition by name), every entry needs a reason, and an entry that is no longer needed
-// fails the test so the list cannot rot. Add one by asking stream S0 or the owner, not by editing
-// around the guard. The case to expect: a server step that must weigh PNG pixels with the WCAG
-// constants for the stored luminance of a logo (plan section 8, step 8). Prefer a shared helper
-// over an exemption.
+// (baseline section 10). EXEMPTIONS is that record. It is empty, it excuses a tell-tale or a
+// look-alike name in one file (never a definition of a name of the table), every entry needs a
+// reason, and an entry that is no longer needed fails the test so the list cannot rot. Add one by
+// asking stream S0 or the owner, not by editing around the guard. The cases to expect: a server step
+// that must weigh PNG pixels with the WCAG constants for the stored luminance of a logo (plan section
+// 8, step 8), and the static offline page, which cannot import detectLocale and reads
+// navigator.languages itself (plan PD-17). Prefer a shared helper over an exemption.
 //
-// To add a concept: add a row to CONCEPTS (identifiers, home module, tell-tales) and, if FR-A-008
-// grows, its words to FR_A_008_WORDS. The table tests and the data-driven tests pick it up.
+// To add a concept: add a row to CONCEPTS (identifiers, the names that must exist, home module,
+// tell-tales, the words of a look-alike) and, if FR-A-008 grows, its words to FR_A_008_WORDS. The
+// table tests and the data-driven tests pick it up.
 //
-// This is a coarse net, not a proof. It does not follow renamed imports, `export { local as name }`,
-// assignments after declaration, code inside HTML files or generated strings. The unit tests of
-// each module (org-name, accent, ...) are what check the behaviour; this file checks that there is
-// one place for it to live.
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+// This is a coarse net, not a proof. It does not follow a name through an import, code inside HTML
+// files or generated strings. The unit tests of each module (org-name, accent, ...) are what check
+// the behaviour; this file checks that there is one place for it to live.
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { expectGuardFails } from '../src/testing/index.js';
+import {
+  isTestPath,
+  loadTree as loadRepositoryTree,
+  mountFixture as mountRepositoryFixture,
+  oversizedFiles,
+  repositoryRoot,
+  type Tree,
+  withFile,
+} from './support/repository.js';
 
-type Tree = ReadonlyMap<string, string>;
 type Check = (tree: Tree) => string[];
 
 // ---------------------------------------------------------------------------------------------
 // The real tree
 // ---------------------------------------------------------------------------------------------
 
-const repositoryRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const fixtureDirectory = fileURLToPath(
   new URL('./fixtures/single-implementation/', import.meta.url),
 );
 
-/** Never read: dependencies, build output, caches and version control. */
-const SKIPPED_DIRECTORIES = new Set([
-  'node_modules',
-  'dist',
-  '.git',
-  'coverage',
-  'playwright-report',
-  'test-results',
-  'blob-report',
-  '.vite',
-  '.turbo',
-  '.worktrees',
-]);
 const CODE_FILE = /\.[cm]?[jt]sx?$/;
-const MAX_FILE_BYTES = 1_000_000;
 
 const SHARED_SRC = 'packages/shared/src/';
 const DOCUMENTATION_DIRECTORIES = ['docs/', 'specs/'];
 
-function walk(directory: string, prefix: string, found: Map<string, string>): void {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = `${prefix}${entry.name}`;
-    if (entry.isDirectory()) {
-      if (!SKIPPED_DIRECTORIES.has(entry.name))
-        walk(join(directory, entry.name), `${path}/`, found);
-    } else if (entry.isFile() && CODE_FILE.test(entry.name)) {
-      const text = readFileSync(join(directory, entry.name), 'utf8');
-      found.set(path, text.length > MAX_FILE_BYTES ? '' : text);
-    }
-  }
+/** Every code file of the repository (see support/repository.ts for what is never read). */
+function loadTree(root?: string): Tree {
+  return loadRepositoryTree((name) => CODE_FILE.test(name), root);
 }
 
-function loadTree(): Tree {
-  const found = new Map<string, string>();
-  walk(repositoryRoot, '', found);
-  return found;
-}
-
-/** A fixture file is `mount: <path>` on the first line, then the content of the file to mount. */
 function mountFixture(tree: Tree, fixture: string): Tree {
-  const text = readFileSync(join(fixtureDirectory, fixture), 'utf8');
-  const newline = text.indexOf('\n');
-  const header = text.slice(0, newline);
-  if (!header.startsWith('mount: '))
-    throw new Error(`${fixture}: first line must be "mount: <path>"`);
-  const path = header.slice('mount: '.length).trim();
-  return new Map([...tree, [path, text.slice(newline + 1)]]);
-}
-
-function withFile(tree: Tree, path: string, content: string): Tree {
-  return new Map([...tree, [path, content]]);
+  return mountRepositoryFixture(tree, fixtureDirectory, fixture).tree;
 }
 
 // ---------------------------------------------------------------------------------------------
 // What is in scope
 // ---------------------------------------------------------------------------------------------
-
-/**
- * Tests, fixtures and test helpers: they name the things they test on purpose. This is the same
- * definition as in repo-conventions.test.ts, so both guards agree on what a test is.
- */
-function isTestPath(path: string): boolean {
-  return (
-    /(^|\/)(?:test|tests|__tests__|fixtures)\//.test(path) ||
-    /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path) ||
-    /(^|\/)test_[^/]*\.py$/.test(path)
-  );
-}
 
 /** A declaration file cannot hold an implementation. */
 function isCode(path: string): boolean {
@@ -159,7 +130,9 @@ type TellTale =
   | 'hex-expansion'
   | 'oklab-matrix'
   | 'wcag-coefficients'
+  | 'yiq-coefficients'
   | 'language-reader'
+  | 'accept-language'
   | 'problem-key'
   | 'permission-list';
 
@@ -172,14 +145,21 @@ const TELL_TALES: Readonly<Record<TellTale, string>> = {
     'OKLab matrix constant outside packages/shared: accent tokens are derived once, by deriveAccentTokens',
   'wcag-coefficients':
     'WCAG luminance constant outside packages/shared: relative luminance and contrast exist once, in branding/contrast',
+  'yiq-coefficients':
+    'YIQ brightness weights (299, 587, 114) outside packages/shared: the text colour on an accent is chosen once, in branding/contrast',
   'language-reader':
     'navigator language read that is not handed to detectLocale(...): locale tags are normalised once, by detectLocale',
+  'accept-language':
+    'Accept-Language read or parsed that is not handed to detectLocale(...): locale tags are normalised once, by detectLocale',
   'problem-key':
     'problem catalogue key built by hand: problem codes map to messages once, through problemMessageKey',
   'permission-list':
     'list of permission names outside packages/shared: the catalogue is PERMISSIONS (a single name or a short any-of list is fine)',
 };
 const TELL_TALE_IDS = Object.keys(TELL_TALES) as TellTale[];
+
+/** A name that must be defined, or a group of which at least one must be. */
+type Required = string | readonly string[];
 
 interface Concept {
   /** Short stable id, used in messages. */
@@ -188,10 +168,36 @@ interface Concept {
   readonly fr008: readonly string[];
   /** Identifiers defined at most once in packages/shared/src, and never outside it. */
   readonly names: readonly string[];
+  /**
+   * What the home must define, exactly once, as soon as it holds code (G0 defect D19). Without it a
+   * row guards nothing if the owner spells the function differently: zero definitions would pass for
+   * ever. A group asks for at least one of its names.
+   */
+  readonly required: readonly Required[];
   /** The only module that may define them. */
   readonly home: string;
   /** Re-implementations to look for outside packages/shared/src. */
   readonly tellTales: readonly TellTale[];
+  /**
+   * Is a function with these words in its name a second implementation of this concept under
+   * another spelling (G0 defect D2)? `words` is the name split at case changes, lower-cased:
+   * `normaliseOrgName` gives [normalise, org, name].
+   */
+  readonly lookalike: (words: readonly string[]) => boolean;
+}
+
+/** Splits `normaliseOrgName`, `ALL_PERMISSIONS` and `toSixDigitHex` into lower-case words. */
+function wordsOf(name: string): string[] {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((word) => word.toLowerCase());
+}
+
+function followedBy(words: readonly string[], first: RegExp, second: RegExp): boolean {
+  return words.some((word, index) => first.test(word) && second.test(words[index + 1] ?? '\u0000'));
 }
 
 const CONCEPTS: readonly Concept[] = [
@@ -199,20 +205,41 @@ const CONCEPTS: readonly Concept[] = [
     id: 'org-name',
     fr008: ['organisation-name normalisation', 'short-name cut'],
     names: ['normalizeOrgName', 'shortOrgName'],
+    required: ['normalizeOrgName', 'shortOrgName'],
     home: `${SHARED_SRC}branding/org-name.ts`,
     tellTales: ['grapheme-segmentation'],
+    // "org name" and a verb that cuts or cleans it: normaliseOrgName, cleanOrganisationName,
+    // shortOrganizationName, canonicalOrgName, OrgNameNormalizer.
+    lookalike: (words) =>
+      followedBy(words, /^org(?:ani[sz]ation)?$/, /^names?$/) &&
+      words.some((word) =>
+        /^(?:normali[sz]|clean|canonical|sanitis|sanitiz|tidy|short|truncat|cut|abbreviat)/.test(
+          word,
+        ),
+      ),
   },
   {
     id: 'accent',
     fr008: ['accent hex normalisation'],
     names: ['normalizeAccent', 'deriveAccentTokens'],
+    required: ['normalizeAccent', 'deriveAccentTokens'],
     home: `${SHARED_SRC}branding/accent.ts`,
     tellTales: ['hex-expansion', 'oklab-matrix'],
+    // The word "accent", or a hex colour being expanded or tidied: toSixDigitHex, expandHex.
+    lookalike: (words) =>
+      words.some((word) => /^accents?$/.test(word)) ||
+      (words.includes('hex') &&
+        words.some((word) =>
+          /^(?:six|digits?|expand\w*|shorthand|short|normali[sz]\w*|clean\w*|canonical\w*|colou?rs?)$/.test(
+            word,
+          ),
+        )),
   },
   {
     // The names of these helpers are not fixed by the spec (T-A-122 says "the contrast helpers"):
     // these are the ones a second WCAG implementation would plausibly carry. The constants of the
-    // tell-tale catch the rest.
+    // tell-tale catch the rest. Once the module has landed, at least one of them must be defined;
+    // if S3 spells them differently the table is extended (a request to S0), it is not left empty.
     id: 'contrast',
     fr008: [],
     names: [
@@ -223,50 +250,77 @@ const CONCEPTS: readonly Concept[] = [
       'getRelativeLuminance',
       'getContrastRatio',
     ],
+    required: [
+      [
+        'relativeLuminance',
+        'contrastRatio',
+        'wcagContrast',
+        'wcagLuminance',
+        'getRelativeLuminance',
+        'getContrastRatio',
+      ],
+    ],
     home: `${SHARED_SRC}branding/contrast.ts`,
-    tellTales: ['wcag-coefficients'],
+    tellTales: ['wcag-coefficients', 'yiq-coefficients'],
+    lookalike: (words) => words.some((word) => /^(?:luminance|contrast|luma|wcag)$/.test(word)),
   },
   {
     id: 'initials',
     fr008: ['initials'],
     names: ['deriveInitials'],
+    required: ['deriveInitials'],
     home: `${SHARED_SRC}branding/initials.ts`,
     tellTales: ['grapheme-segmentation'],
+    lookalike: (words) => words.includes('initials'),
   },
   {
     id: 'monogram',
     fr008: ['monogram glyph mapping'],
     names: ['monogramGlyphs'],
+    required: ['monogramGlyphs'],
     home: `${SHARED_SRC}branding/monogram.ts`,
     tellTales: [],
+    lookalike: (words) => words.some((word) => word.startsWith('monogram')),
   },
   {
     id: 'logo-plate',
     fr008: [],
     names: ['logoPlateFor'],
+    required: ['logoPlateFor'],
     home: `${SHARED_SRC}branding/logo-plate.ts`,
     tellTales: [],
+    lookalike: (words) => followedBy(words, /^logos?$/, /^plates?$/),
   },
   {
     id: 'locale',
     fr008: ['locale-tag normalisation'],
     names: ['detectLocale'],
+    required: ['detectLocale'],
     home: `${SHARED_SRC}i18n/detect.ts`,
-    tellTales: ['language-reader'],
+    tellTales: ['language-reader', 'accept-language'],
+    lookalike: (words) =>
+      words.some((word) => /^locales?$/.test(word)) ||
+      followedBy(words, /^accept$/, /^languages?$/),
   },
   {
     id: 'problem',
     fr008: ['problem-code to message mapping'],
     names: ['problemMessageKey'],
+    required: ['problemMessageKey'],
     home: `${SHARED_SRC}problem.ts`,
     tellTales: ['problem-key'],
+    lookalike: (words) =>
+      words.includes('problem') &&
+      words.some((word) => /^(?:keys?|messages?|msg|text|title|label)$/.test(word)),
   },
   {
     id: 'permissions',
     fr008: ['permission catalogue'],
     names: ['PERMISSIONS', 'hasAnyPermission'],
+    required: ['PERMISSIONS', 'hasAnyPermission'],
     home: `${SHARED_SRC}permissions.ts`,
     tellTales: ['permission-list'],
+    lookalike: (words) => words.some((word) => /^permissions?$/.test(word)),
   },
 ];
 
@@ -310,14 +364,19 @@ function importPathOf(home: string): string {
 // Exemptions: a documented reason, not a local copy
 // ---------------------------------------------------------------------------------------------
 
-interface Exemption {
+/**
+ * Either a tell-tale a file is excused from, or a look-alike name it may define. A definition of a
+ * name of the table can never be excused.
+ */
+type Exemption = {
   /** Repository-relative path of the file that is excused. */
   readonly path: string;
-  /** Which tell-tale it is excused from. A definition by name can never be excused. */
-  readonly tellTale: TellTale;
-  /** Why this surface needs its own arithmetic and cannot call the shared function. */
+  /** Why this surface needs its own arithmetic or its own function and cannot use the shared one. */
   readonly reason: string;
-}
+} & (
+  | { readonly tellTale: TellTale; readonly name?: undefined }
+  | { readonly name: string; readonly tellTale?: undefined }
+);
 
 /** Empty on purpose: nothing needed an exemption when this file was written. */
 const EXEMPTIONS: readonly Exemption[] = [];
@@ -338,21 +397,22 @@ interface Definition {
   readonly line: number;
 }
 
+/** A function whose name says it does the work of a concept of the table (G0 defect D2). */
+interface Lookalike extends Definition {
+  readonly concept: Concept;
+}
+
 interface Facts {
   readonly definitions: readonly Definition[];
+  readonly lookalikes: readonly Lookalike[];
   readonly tellTales: Readonly<Record<TellTale, readonly Hit[]>>;
 }
 
 function emptyTellTales(): Record<TellTale, Hit[]> {
-  return {
-    'grapheme-segmentation': [],
-    'hex-expansion': [],
-    'oklab-matrix': [],
-    'wcag-coefficients': [],
-    'language-reader': [],
-    'problem-key': [],
-    'permission-list': [],
-  };
+  return Object.fromEntries(TELL_TALE_IDS.map((id) => [id, []])) as unknown as Record<
+    TellTale,
+    Hit[]
+  >;
 }
 
 function scriptKindOf(path: string): ts.ScriptKind {
@@ -385,7 +445,8 @@ function unwrap(expression: ts.Expression): ts.Expression {
     ts.isAsExpression(current) ||
     ts.isSatisfiesExpression(current) ||
     ts.isNonNullExpression(current) ||
-    ts.isTypeAssertionExpression(current)
+    ts.isTypeAssertionExpression(current) ||
+    ts.isAwaitExpression(current)
   ) {
     current = current.expression;
   }
@@ -402,17 +463,39 @@ function isFunctionOrLiteral(expression: ts.Expression): boolean {
   );
 }
 
+/** An arrow or function expression, alone or handed to a wrapper: `useCallback((x) => x, [])`. */
+function isFunctionLike(expression: ts.Expression): boolean {
+  const value = unwrap(expression);
+  if (ts.isArrowFunction(value) || ts.isFunctionExpression(value)) return true;
+  return (
+    ts.isCallExpression(value) &&
+    value.arguments.some((argument) => {
+      const inner = unwrap(argument);
+      return ts.isArrowFunction(inner) || ts.isFunctionExpression(inner);
+    })
+  );
+}
+
+/** `x.bind(y)`, `require('x')` and `import('x')` hand over something that exists. */
+function isAliasCall(call: ts.CallExpression): boolean {
+  if (call.expression.kind === ts.SyntaxKind.ImportKeyword) return true;
+  const callee = unwrap(call.expression);
+  if (ts.isIdentifier(callee)) return callee.text === 'require';
+  return ts.isPropertyAccessExpression(callee) && callee.name.text === 'bind';
+}
+
 /**
  * Does this initialiser carry an implementation or a list, as opposed to naming one that exists?
- * `const x = shared.x` and `const y = shared.y(1)` are not implementations; `const x = (a) => a`,
- * `const x = [..]`, `new Set([..])` and `memoize((a) => a)` are.
+ * `const x = shared.x` and `const x = shared.x.bind(shared)` name one; `const x = (a) => a`,
+ * `const x = [..]`, `new Set([..])`, `memoize((a) => a)` and `const x = makeNormaliser()` carry one:
+ * a variable called after a concept that is the RESULT of a call is a factory's product.
  */
 function isImplementation(initializer: ts.Expression): boolean {
   const value = unwrap(initializer);
   if (isFunctionOrLiteral(value) || ts.isClassExpression(value) || ts.isNewExpression(value)) {
     return true;
   }
-  return ts.isCallExpression(value) && value.arguments.some(isFunctionOrLiteral);
+  return ts.isCallExpression(value) && !isAliasCall(value);
 }
 
 function isAmbient(declaration: ts.Declaration): boolean {
@@ -424,7 +507,44 @@ function nameText(name: ts.Node | undefined): string | undefined {
   return ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : undefined;
 }
 
-function definitionOf(node: ts.Node, source: ts.SourceFile): Definition | undefined {
+/** Top-level names that carry an implementation: the targets of `export { impl as name }`. */
+function localImplementations(source: ts.SourceFile): Set<string> {
+  const names = new Set<string>();
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.body !== undefined) {
+      if (statement.name !== undefined) names.add(statement.name.text);
+    } else if (ts.isClassDeclaration(statement)) {
+      if (statement.name !== undefined) names.add(statement.name.text);
+    } else if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (
+          ts.isIdentifier(declaration.name) &&
+          declaration.initializer !== undefined &&
+          isImplementation(declaration.initializer)
+        ) {
+          names.add(declaration.name.text);
+        }
+      }
+    }
+  }
+  return names;
+}
+
+function assignedName(left: ts.Expression): string | undefined {
+  if (ts.isIdentifier(left)) return left.text;
+  if (ts.isPropertyAccessExpression(left)) return left.name.text;
+  if (ts.isElementAccessExpression(left) && ts.isStringLiteralLike(left.argumentExpression)) {
+    return left.argumentExpression.text;
+  }
+  return undefined;
+}
+
+/** A definition of a name of the table: every form in which a function, class or list gets that name. */
+function definitionOf(
+  node: ts.Node,
+  source: ts.SourceFile,
+  locals: ReadonlySet<string>,
+): Definition | undefined {
   let name: string | undefined;
   let kind: string;
   if (ts.isFunctionDeclaration(node)) {
@@ -444,14 +564,72 @@ function definitionOf(node: ts.Node, source: ts.SourceFile): Definition | undefi
   } else if (ts.isMethodDeclaration(node)) {
     if (node.body === undefined) return undefined;
     [name, kind] = [nameText(node.name), 'method'];
+  } else if (ts.isGetAccessorDeclaration(node)) {
+    if (node.body === undefined) return undefined;
+    [name, kind] = [nameText(node.name), 'getter'];
   } else if (ts.isPropertyAssignment(node) || ts.isPropertyDeclaration(node)) {
     if (node.initializer === undefined || !isImplementation(node.initializer)) return undefined;
     [name, kind] = [nameText(node.name), 'property'];
+  } else if (ts.isBindingElement(node) || ts.isParameter(node)) {
+    // A default value in a destructuring pattern or a parameter list: `({ shortOrgName = (n) => n })`.
+    if (node.initializer === undefined || !isImplementation(node.initializer)) return undefined;
+    [name, kind] = [nameText(node.name), 'default'];
+  } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    if (!isImplementation(node.right)) return undefined;
+    [name, kind] = [assignedName(node.left), 'assignment'];
+  } else if (ts.isExportSpecifier(node)) {
+    // `export { impl as name }` of something this file implements. A re-export from a module, and an
+    // export of an import, name something that exists.
+    if (node.parent.parent.moduleSpecifier !== undefined) return undefined;
+    if (node.propertyName === undefined || !locals.has(node.propertyName.text)) return undefined;
+    [name, kind] = [node.name.text, 'export'];
   } else {
     return undefined;
   }
   if (name === undefined || !CONCEPT_BY_NAME.has(name)) return undefined;
   return { name, kind, line: lineOf(source, node) };
+}
+
+function containsJsx(node: ts.Node): boolean {
+  if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node)) {
+    return true;
+  }
+  return ts.forEachChild(node, (child) => (containsJsx(child) ? true : undefined)) === true;
+}
+
+/**
+ * A function that is named after a concept without being the function of the table. Components
+ * (they render), hooks (`useLocale` reads a context) and event handlers (`onAccentChange`) are not
+ * normalisers and are left alone; everything else that is a function and sounds like a concept is a
+ * second implementation until an EXEMPTIONS entry says otherwise.
+ */
+function lookalikeOf(node: ts.Node, source: ts.SourceFile): Lookalike | undefined {
+  let name: string | undefined;
+  let kind: string;
+  let body: ts.Node | undefined;
+  if (ts.isFunctionDeclaration(node)) {
+    if (node.body === undefined || isAmbient(node)) return undefined;
+    [name, kind, body] = [nameText(node.name), 'function', node.body];
+  } else if (ts.isVariableDeclaration(node)) {
+    if (node.initializer === undefined || !isFunctionLike(node.initializer) || isAmbient(node)) {
+      return undefined;
+    }
+    [name, kind, body] = [nameText(node.name), 'variable', node.initializer];
+  } else if (ts.isMethodDeclaration(node)) {
+    if (node.body === undefined) return undefined;
+    [name, kind, body] = [nameText(node.name), 'method', node.body];
+  } else if (ts.isPropertyAssignment(node) || ts.isPropertyDeclaration(node)) {
+    if (node.initializer === undefined || !isFunctionLike(node.initializer)) return undefined;
+    [name, kind, body] = [nameText(node.name), 'property', node.initializer];
+  } else {
+    return undefined;
+  }
+  if (name === undefined || CONCEPT_BY_NAME.has(name)) return undefined;
+  if (/^use[A-Z0-9]/.test(name) || /^(?:on|handle)[A-Z0-9]/.test(name)) return undefined;
+  const words = wordsOf(name);
+  const concept = CONCEPTS.find((candidate) => candidate.lookalike(words));
+  if (concept === undefined || containsJsx(body)) return undefined;
+  return { name, kind, line: lineOf(source, node), concept };
 }
 
 function lineOf(source: ts.SourceFile, node: ts.Node): number {
@@ -466,6 +644,18 @@ const WCAG_CONSTANTS = new Set([0.2126, 0.7152, 0.0722, 0.03928, 0.04045]);
 const OKLAB_CONSTANTS = new Set([
   0.4122214708, 0.5363325363, 0.0514459929, 0.2104542553, 0.793617785, 0.0040720468,
 ]);
+/**
+ * The YIQ brightness weights, as fractions or in thousandths. Each is a plain number that turns up
+ * for other reasons (an HTTP status, a size), so the tell-tale needs two different weights in one file.
+ */
+const YIQ_WEIGHTS = new Map<number, string>([
+  [0.299, 'red'],
+  [0.587, 'green'],
+  [0.114, 'blue'],
+  [299, 'red'],
+  [587, 'green'],
+  [114, 'blue'],
+]);
 
 /** A character class that spells hexadecimal digits: `[0-9a-f]`, `[a-fA-F\d]`, `[\da-f]`, ... */
 const HEX_CLASS = /\[(?=[^\]]*(?:0-9|\\d))(?=[^\]]*[aA]-[fF])[^\]]*\]/g;
@@ -473,21 +663,32 @@ const HEX_CLASS = /\[(?=[^\]]*(?:0-9|\\d))(?=[^\]]*[aA]-[fF])[^\]]*\]/g;
 const THREE_SINGLE_GROUPS = /(?:\((?:\.|\\[wWdDsS]|\[[^\]]+\])\)){3}/;
 /** The widths of a colour: 3 (rgb), 4 (rgba), 6 (rrggbb) or 8 (rrggbbaa) digits, or a range. */
 const COLOUR_WIDTH = /\{(?:3|4|6|8)(?:,\d+)?\}/;
+/** `([0-9a-f])([0-9a-f])([0-9a-f])`: three single hex digits, the `#rgb` expansion with the "#" cut off. */
+const THREE_HEX_GROUPS = /(?:\(\[(?=[^\]]*(?:0-9|\\d))(?=[^\]]*[aA]-[fF])[^\]]*\]\)){3}/;
+/** Without a "#" only a 3 or 6 digit width gives a colour away: 8 digits is a checksum, 4 a code. */
+const BARE_COLOUR_WIDTH = /\{(?:3|6)(?:,\d+)?\}|\{[3-6],[6-8]\}/;
 
 /**
  * Does the pattern take a colour VALUE apart or validate it as a whole? That is what a second accent
- * normaliser does: it expands #rgb (three single-character groups) or checks `^#rrggbb$`.
+ * normaliser does: it expands #rgb (three single-character groups) or checks `^#rrggbb$` (or, with
+ * the "#" stripped off first, `^[0-9a-f]{6}$`).
  *
  * A pattern that SEARCHES for colours inside larger text is a recogniser, not a normaliser, and is
  * left alone: the no-raw-colour lint rule finds `#rrggbb` in source code with a lookbehind and a
  * lookahead and normalises nothing. The difference is the anchor at the start of the pattern.
+ * Identifiers of 8, 12, 32 or 64 hex digits (checksums, UUIDs, hashes) are not colours.
  */
 function looksLikeHexColourPattern(pattern: string): boolean {
-  if (!pattern.includes('#')) return false;
-  if (THREE_SINGLE_GROUPS.test(pattern)) return true;
-  if (!pattern.startsWith('^')) return false;
   const hexClasses = pattern.match(HEX_CLASS)?.length ?? 0;
-  return hexClasses > 0 && (hexClasses >= 3 || COLOUR_WIDTH.test(pattern));
+  if (pattern.includes('#')) {
+    if (THREE_SINGLE_GROUPS.test(pattern)) return true;
+    if (!pattern.startsWith('^')) return false;
+    return hexClasses > 0 && (hexClasses >= 3 || COLOUR_WIDTH.test(pattern));
+  }
+  if (THREE_HEX_GROUPS.test(pattern)) return true;
+  return (
+    pattern.startsWith('^') && hexClasses >= 1 && hexClasses <= 2 && BARE_COLOUR_WIDTH.test(pattern)
+  );
 }
 
 /** `/body/flags` to `body`. */
@@ -535,10 +736,37 @@ function isPassedToDetectLocale(node: ts.Node): boolean {
 }
 
 /** The resource part of the catalogue of brief 2a (`users:read`, `settings:branding`, ...). */
-const PERMISSION_NAME =
-  /^(?:users|groups|distributionlists|contacts|audit|settings|rbac)(?::[a-z]+){1,2}$/;
+const PERMISSION_RESOURCES = [
+  'users',
+  'groups',
+  'distributionlists',
+  'contacts',
+  'audit',
+  'settings',
+  'rbac',
+];
+const PERMISSION_NAME = new RegExp(`^(?:${PERMISSION_RESOURCES.join('|')})(?::[a-z]+){1,2}$`);
 /** A single name or a short any-of list is normal use; the catalogue has 15. */
 const PERMISSION_LIST_MIN = 4;
+/** Resource names in one list that, with a "resource:action" join in a loop, build the catalogue by hand. */
+const PERMISSION_RESOURCES_MIN = 3;
+const ITERATION_METHODS = new Set(['flatMap', 'map', 'reduce', 'forEach']);
+
+/** Is the node inside a callback handed to `flatMap`, `map`, `reduce` or `forEach`? */
+function isInsideIterationCallback(node: ts.Node): boolean {
+  for (let current: ts.Node = node; !ts.isSourceFile(current); current = current.parent) {
+    const parent = current.parent;
+    if (
+      (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) &&
+      ts.isCallExpression(parent) &&
+      ts.isPropertyAccessExpression(parent.expression) &&
+      ITERATION_METHODS.has(parent.expression.name.text)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function permissionNamesIn(node: ts.ArrayLiteralExpression | ts.ObjectLiteralExpression): number {
   const found = new Set<string>();
@@ -559,7 +787,53 @@ function permissionNamesIn(node: ts.ArrayLiteralExpression | ts.ObjectLiteralExp
   return found.size;
 }
 
-function noteTellTales(node: ts.Node, source: ts.SourceFile, found: Record<TellTale, Hit[]>): void {
+function permissionNamesInUnion(node: ts.UnionTypeNode): number {
+  const found = new Set<string>();
+  for (const member of node.types) {
+    if (ts.isLiteralTypeNode(member) && ts.isStringLiteralLike(member.literal)) {
+      if (PERMISSION_NAME.test(member.literal.text)) found.add(member.literal.text);
+    }
+  }
+  return found.size;
+}
+
+function permissionNamesInEnum(node: ts.EnumDeclaration): number {
+  const found = new Set<string>();
+  for (const member of node.members) {
+    const value = member.initializer;
+    if (value !== undefined && ts.isStringLiteralLike(value) && PERMISSION_NAME.test(value.text)) {
+      found.add(value.text);
+    }
+  }
+  return found.size;
+}
+
+/** `${resource}:${action}`, `${resource}:read`, `resource + ':' + action`: a name joined by hand. */
+function joinsWithColon(node: ts.Node): boolean {
+  if (ts.isTemplateExpression(node)) {
+    return node.templateSpans.some((span) => span.literal.text.startsWith(':'));
+  }
+  return (
+    ts.isBinaryExpression(node) &&
+    node.operatorToken.kind === ts.SyntaxKind.PlusToken &&
+    ((ts.isStringLiteralLike(node.right) && node.right.text.startsWith(':')) ||
+      (ts.isStringLiteralLike(node.left) && node.left.text.endsWith(':')))
+  );
+}
+
+/** What a file shows about permissions beyond a single literal: collected during the walk. */
+interface FileFlags {
+  hasResourceList: boolean;
+  firstColonJoin: number | undefined;
+  readonly yiq: Map<string, number>;
+}
+
+function noteTellTales(
+  node: ts.Node,
+  source: ts.SourceFile,
+  found: Record<TellTale, Hit[]>,
+  flags: FileFlags,
+): void {
   const note = (tellTale: TellTale, detail: string): void => {
     found[tellTale].push({ line: lineOf(source, node), detail });
   };
@@ -576,11 +850,14 @@ function noteTellTales(node: ts.Node, source: ts.SourceFile, found: Record<TellT
     const value = Number(node.text);
     if (WCAG_CONSTANTS.has(value)) note('wcag-coefficients', node.text);
     if (OKLAB_CONSTANTS.has(value)) note('oklab-matrix', node.text);
+    const weight = YIQ_WEIGHTS.get(value);
+    if (weight !== undefined && !flags.yiq.has(weight)) flags.yiq.set(weight, lineOf(source, node));
   }
 
   if (ts.isRegularExpressionLiteral(node)) {
     const body = regexBody(node.text);
     if (looksLikeHexColourPattern(body)) note('hex-expansion', `/${body}/`);
+    if (/;(?:\\s\*)?q=/.test(body)) note('accept-language', `/${body}/`);
   }
   if (
     (ts.isNewExpression(node) || ts.isCallExpression(node)) &&
@@ -601,6 +878,14 @@ function noteTellTales(node: ts.Node, source: ts.SourceFile, found: Record<TellT
     note('language-reader', (node as ts.PropertyAccessExpression).getText(source));
   }
 
+  if (ts.isStringLiteralLike(node)) {
+    if (node.text.toLowerCase() === 'accept-language' && !isPassedToDetectLocale(node)) {
+      note('accept-language', `'${node.text}'`);
+    } else if (/;\s*q=/.test(node.text)) {
+      note('accept-language', `'${node.text}'`);
+    }
+  }
+
   if (ts.isTemplateExpression(node) && /(?:^|\W)problem\.$/.test(node.head.text)) {
     note('problem-key', '`problem.${...}`');
   }
@@ -612,25 +897,90 @@ function noteTellTales(node: ts.Node, source: ts.SourceFile, found: Record<TellT
   ) {
     note('problem-key', "'problem.' + ...");
   }
+  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+    const method = node.expression.name.text;
+    const receiver = unwrap(node.expression.expression);
+    if (method === 'join' && ts.isArrayLiteralExpression(receiver)) {
+      const separator = node.arguments[0];
+      const dotted =
+        separator !== undefined && ts.isStringLiteralLike(separator) && separator.text === '.';
+      const mentionsProblem = receiver.elements.some(
+        (element) => ts.isStringLiteralLike(element) && /^problems?$/i.test(element.text),
+      );
+      if (dotted && mentionsProblem) note('problem-key', "['problem', ...].join('.')");
+    }
+    if (
+      method === 'concat' &&
+      ts.isStringLiteralLike(receiver) &&
+      /(?:^|\W)problem\.$/.test(receiver.text)
+    ) {
+      note('problem-key', "'problem.'.concat(...)");
+    }
+  }
 
   if (ts.isArrayLiteralExpression(node) || ts.isObjectLiteralExpression(node)) {
     const count = permissionNamesIn(node);
     if (count >= PERMISSION_LIST_MIN) note('permission-list', `${String(count)} permission names`);
   }
+  if (ts.isArrayLiteralExpression(node)) {
+    const resources = new Set(
+      node.elements.flatMap((element) =>
+        ts.isStringLiteralLike(element) && PERMISSION_RESOURCES.includes(element.text)
+          ? [element.text]
+          : [],
+      ),
+    );
+    if (resources.size >= PERMISSION_RESOURCES_MIN) flags.hasResourceList = true;
+  }
+  if (ts.isUnionTypeNode(node)) {
+    const count = permissionNamesInUnion(node);
+    if (count >= PERMISSION_LIST_MIN)
+      note('permission-list', `a union of ${String(count)} permission names`);
+  }
+  if (ts.isEnumDeclaration(node)) {
+    const count = permissionNamesInEnum(node);
+    if (count >= PERMISSION_LIST_MIN)
+      note('permission-list', `an enum of ${String(count)} permission names`);
+  }
+  if (
+    joinsWithColon(node) &&
+    isInsideIterationCallback(node) &&
+    flags.firstColonJoin === undefined
+  ) {
+    flags.firstColonJoin = lineOf(source, node);
+  }
 }
 
 function analyse(path: string, text: string, kind: ts.ScriptKind): Facts {
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, kind);
+  const locals = localImplementations(source);
   const definitions: Definition[] = [];
+  const lookalikes: Lookalike[] = [];
   const tellTales = emptyTellTales();
+  const flags: FileFlags = { hasResourceList: false, firstColonJoin: undefined, yiq: new Map() };
   const visit = (node: ts.Node): void => {
-    const definition = definitionOf(node, source);
+    const definition = definitionOf(node, source, locals);
     if (definition !== undefined) definitions.push(definition);
-    noteTellTales(node, source, tellTales);
+    const lookalike = lookalikeOf(node, source);
+    if (lookalike !== undefined) lookalikes.push(lookalike);
+    noteTellTales(node, source, tellTales, flags);
     ts.forEachChild(node, visit);
   };
   visit(source);
-  return { definitions, tellTales };
+
+  // Two different brightness weights in one file are a YIQ picker, whatever it is called.
+  if (flags.yiq.size >= 2) {
+    const line = Math.min(...flags.yiq.values());
+    tellTales['yiq-coefficients'].push({ line, detail: [...flags.yiq.keys()].join(' and ') });
+  }
+  // A catalogue built from resource and action lists: a list of resources and a "resource:action" join in a loop.
+  if (flags.hasResourceList && flags.firstColonJoin !== undefined) {
+    tellTales['permission-list'].push({
+      line: flags.firstColonJoin,
+      detail: 'permission names built from resource and action lists',
+    });
+  }
+  return { definitions, lookalikes, tellTales };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -639,8 +989,10 @@ function analyse(path: string, text: string, kind: ts.ScriptKind): Facts {
 
 interface Report {
   readonly definitions: string[];
+  readonly lookalikes: string[];
   readonly tellTales: string[];
   readonly homes: string[];
+  readonly landed: string[];
   readonly exemptions: string[];
 }
 
@@ -649,14 +1001,37 @@ function homesOf(tellTale: TellTale): string {
   return concepts.map((concept) => concept.home).join(', ');
 }
 
+/** `export {};` and comments only: the placeholder every stream's module starts as (T-A-002). */
+function isStubModule(text: string): boolean {
+  const code = text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '')
+    .trim();
+  return code === '' || /^export \{\};?$/.test(code);
+}
+
+const excusedTellTale = (path: string, tellTale: TellTale): string => `${path}\u0000${tellTale}`;
+const excusedName = (path: string, name: string): string => `${path}\u0000name\u0000${name}`;
+
 function scan(tree: Tree, exemptions: readonly Exemption[] = EXEMPTIONS): Report {
-  const report: Report = { definitions: [], tellTales: [], homes: [], exemptions: [] };
+  const report: Report = {
+    definitions: [],
+    lookalikes: [],
+    tellTales: [],
+    homes: [],
+    landed: [],
+    exemptions: [],
+  };
   const paths = [...tree.keys()].sort();
   const excused = new Set(
-    exemptions.map((exemption) => `${exemption.path}\u0000${exemption.tellTale}`),
+    exemptions.map((exemption) =>
+      exemption.name === undefined
+        ? excusedTellTale(exemption.path, exemption.tellTale)
+        : excusedName(exemption.path, exemption.name),
+    ),
   );
 
-  // Outside packages/shared/src: no definition of a table name, no tell-tale.
+  // Outside packages/shared/src: no definition of a table name, no look-alike, no tell-tale.
   for (const path of paths.filter(isOutsideScope)) {
     const facts = factsOf(path, tree.get(path) ?? '');
     for (const definition of facts.definitions) {
@@ -666,8 +1041,14 @@ function scan(tree: Tree, exemptions: readonly Exemption[] = EXEMPTIONS): Report
         `${path}:${String(definition.line)}: second definition of ${definition.name} (${definition.kind}); the one implementation is ${concept.home}, import it from ${importPathOf(concept.home)} (FR-A-008)`,
       );
     }
+    for (const lookalike of facts.lookalikes) {
+      if (excused.has(excusedName(path, lookalike.name))) continue;
+      report.lookalikes.push(
+        `${path}:${String(lookalike.line)}: "${lookalike.name}" (${lookalike.kind}) is named like the ${lookalike.concept.id} concept (${lookalike.concept.names.join(', ')}), which is implemented once in ${lookalike.concept.home}: import it from ${importPathOf(lookalike.concept.home)}, or, if this is a different thing, add an entry to EXEMPTIONS with a reason (FR-A-008)`,
+      );
+    }
     for (const tellTale of TELL_TALE_IDS) {
-      if (excused.has(`${path}\u0000${tellTale}`)) continue;
+      if (excused.has(excusedTellTale(path, tellTale))) continue;
       for (const hit of facts.tellTales[tellTale]) {
         report.tellTales.push(
           `${path}:${String(hit.line)}: ${TELL_TALES[tellTale]} [${tellTale}: ${hit.detail}]; see ${homesOf(tellTale)} (FR-A-008)`,
@@ -702,12 +1083,33 @@ function scan(tree: Tree, exemptions: readonly Exemption[] = EXEMPTIONS): Report
     }
   }
 
+  // A module that holds code defines what its row guards (D19). A stub defines nothing, on purpose.
+  for (const concept of CONCEPTS) {
+    const text = tree.get(concept.home);
+    if (text === undefined || isStubModule(text)) continue;
+    const defined = new Set(factsOf(concept.home, text).definitions.map((item) => item.name));
+    for (const entry of concept.required) {
+      const alternatives = typeof entry === 'string' ? [entry] : entry;
+      if (alternatives.some((name) => defined.has(name))) continue;
+      report.landed.push(
+        `${concept.home}: the module has code but defines no ${alternatives.join(' or ')}: FR-A-008 pins ${typeof entry === 'string' ? 'it' : 'them'} here, and a row whose names are not defined guards nothing. Spell ${typeof entry === 'string' ? 'it' : 'one of them'} as the table does, or ask stream S0 to change the table (single-implementation.test.ts)`,
+      );
+    }
+  }
+
   // The exemption list itself must stay honest.
   for (const exemption of exemptions) {
-    const label = `exemption ${exemption.path} [${exemption.tellTale}]`;
+    const subject = exemption.name ?? exemption.tellTale;
+    const label = `exemption ${exemption.path} [${subject}]`;
     if (exemption.reason.trim().length < MIN_REASON_LENGTH) {
       report.exemptions.push(
         `${label}: give a reason of at least ${String(MIN_REASON_LENGTH)} characters, saying why this surface cannot call the shared function (baseline section 10)`,
+      );
+    }
+    const concept = exemption.name === undefined ? undefined : CONCEPT_BY_NAME.get(exemption.name);
+    if (concept !== undefined) {
+      report.exemptions.push(
+        `${label}: a name of the table can never be excused; it is defined once, in ${concept.home}`,
       );
     }
     const text = tree.get(exemption.path);
@@ -715,9 +1117,18 @@ function scan(tree: Tree, exemptions: readonly Exemption[] = EXEMPTIONS): Report
       report.exemptions.push(
         `${label}: not a scanned file (missing, a test, documentation or inside packages/shared/src)`,
       );
-    } else if (factsOf(exemption.path, text).tellTales[exemption.tellTale].length === 0) {
+    } else if (exemption.name === undefined) {
+      if (factsOf(exemption.path, text).tellTales[exemption.tellTale].length === 0) {
+        report.exemptions.push(
+          `${label}: stale, the file no longer shows this tell-tale; remove the exemption`,
+        );
+      }
+    } else if (
+      concept === undefined &&
+      !factsOf(exemption.path, text).lookalikes.some((item) => item.name === exemption.name)
+    ) {
       report.exemptions.push(
-        `${label}: stale, the file no longer shows this tell-tale; remove the exemption`,
+        `${label}: stale, the file no longer defines a function of that name that looks like a second implementation; remove the exemption`,
       );
     }
   }
@@ -725,12 +1136,21 @@ function scan(tree: Tree, exemptions: readonly Exemption[] = EXEMPTIONS): Report
 }
 
 const checkSecondDefinitions: Check = (tree) => scan(tree).definitions;
+const checkLookalikes: Check = (tree) => scan(tree).lookalikes;
+const checkLanded: Check = (tree) => scan(tree).landed;
 const checkReimplementations: Check = (tree) => scan(tree).tellTales;
 const checkHomes: Check = (tree) => scan(tree).homes;
 const checkExemptions: Check = (tree) => scan(tree).exemptions;
 const checkAll: Check = (tree) => {
   const report = scan(tree);
-  return [...report.definitions, ...report.tellTales, ...report.homes, ...report.exemptions];
+  return [
+    ...report.definitions,
+    ...report.lookalikes,
+    ...report.tellTales,
+    ...report.homes,
+    ...report.landed,
+    ...report.exemptions,
+  ];
 };
 
 function asGuard(check: Check): (tree: Tree) => void {
@@ -776,6 +1196,8 @@ const CHECKS: readonly (readonly [string, Check])[] = [
   ['2 no tell-tale re-implementation outside packages/shared/src', checkReimplementations],
   ['3 each name is defined at most once, in its home module', checkHomes],
   ['4 the exemption list is honest', checkExemptions],
+  ['5 no look-alike under another spelling outside packages/shared/src', checkLookalikes],
+  ['6 a module that has landed defines the names its row guards', checkLanded],
 ];
 
 describe('single implementation: the real tree', () => {
@@ -801,11 +1223,26 @@ describe('single implementation: the real tree', () => {
     expect(inside).toContain(`${SHARED_SRC}index.ts`);
   });
 
+  it('reads every code file whole: none is so large that it would be scanned as empty (D18)', () => {
+    expect(oversizedFiles(realTree)).toEqual([]);
+    const huge = withFile(
+      realTree,
+      'apps/web/src/lib/huge.ts',
+      `export const a = "${'x'.repeat(1_000_000)}";`,
+    );
+    expectGuardFails(asGuard(oversizedFiles), huge, {
+      name: 'oversized code file',
+      reason: 'apps/web/src/lib/huge.ts is',
+    });
+  });
+
   it('does not scan tests, fixtures, documentation or declaration files', () => {
     expect(isOutsideScope('apps/web/test/router.test.tsx')).toBe(false);
     expect(isOutsideScope('apps/server/test/helpers/test-app.ts')).toBe(false);
     expect(isOutsideScope('e2e/tests/smoke.spec.ts')).toBe(false);
-    expect(isOutsideScope('apps/web/src/components/button.test.tsx')).toBe(false);
+    // A file named like a test is a test only where its runner collects it (G0 defect D3): beside the
+    // sources nobody runs it, so it is source, and repo-conventions.test.ts check 9 reports it too.
+    expect(isOutsideScope('apps/web/src/components/button.test.tsx')).toBe(true);
     expect(isOutsideScope('packages/shared/test/org-name.test.ts')).toBe(false);
     expect(isOutsideScope('docs/example.ts')).toBe(false);
     expect(isOutsideScope('specs/001-m365portal/prototype.js')).toBe(false);
@@ -913,8 +1350,10 @@ describe('single implementation: the detector bites on every row of the table', 
   });
 
   it.each(NAMES)('%s: %s defined once in its home is accepted', (_id, name, home) => {
+    // The other names of the row are asked for by check 6 (see "a row must protect something").
     const tree = withFile(realTree, home, `export function ${name}(): void {}\n`);
-    expect(problemsAt(checkAll, tree, home)).toEqual([]);
+    expect(problemsAt(checkSecondDefinitions, tree, home)).toEqual([]);
+    expect(problemsAt(checkHomes, tree, home)).toEqual([]);
   });
 
   it.each(NAMES)(
@@ -942,6 +1381,8 @@ describe('single implementation: the detector bites on every row of the table', 
     'wcag-coefficients':
       'export const y = (r: number, g: number, b: number) => 0.2126 * r + 0.7152 * g + 0.0722 * b;\n',
     'language-reader': "export const lang = navigator.languages.find((l) => l.startsWith('nl'));\n",
+    'yiq-coefficients': 'export const y = (r: number, b: number) => 299 * r + 114 * b;\n',
+    'accept-language': "export const raw = (c: Ctx) => c.req.header('accept-language');\n",
     'problem-key': 'export const key = (code: string) => `problem.${code}`;\n',
     'permission-list':
       "export const all = ['users:read', 'groups:read', 'contacts:read', 'audit:read'];\n",
@@ -1024,6 +1465,26 @@ describe('single implementation: negative fixtures fail on purpose', () => {
       /apps\/web\/build\/locale-boot\.mjs:2: second definition of detectLocale \(function\)/,
     ],
     [
+      'web-test-folder-helper.ts.txt',
+      /apps\/web\/src\/test\/helpers\.ts:1: second definition of normalizeOrgName \(function\)/,
+    ],
+    [
+      'server-factory-and-export.ts.txt',
+      /names\.ts:2: second definition of shortOrgName \(export\)[\s\S]*names\.ts:3: second definition of normalizeOrgName \(variable\)/,
+    ],
+    [
+      'server-lookalike-normaliser.ts.txt',
+      /clean-name\.ts:1: "cleanOrganisationName" \(function\) is named like the org-name concept[\s\S]*EXEMPTIONS/,
+    ],
+    [
+      'server-yiq-picker.ts.txt',
+      /text-colour\.ts:\d+: YIQ brightness weights \(299, 587, 114\) outside packages\/shared[\s\S]*branding\/contrast\.ts/,
+    ],
+    [
+      'web-permission-union.ts.txt',
+      /permission-union\.ts:\d+: list of permission names outside packages\/shared[\s\S]*a union of 6 permission names/,
+    ],
+    [
       'shared-misplaced-definition.ts.txt',
       /packages\/shared\/src\/schemas\/branding\.ts:2: normalizeAccent is defined here, but its one home is packages\/shared\/src\/branding\/accent\.ts/,
     ],
@@ -1099,9 +1560,7 @@ describe('single implementation: what must stay allowed (the guard is not over-e
         '// normalizeOrgName and shortOrgName live in packages/shared; PERMISSIONS too.',
         '/* function detectLocale() {} const logoPlateFor = () => 1; */',
         "export const ruleNames = ['normalizeAccent', 'deriveAccentTokens', 'hasAnyPermission'];",
-        'export const normalizeOrgNameForSearch = (value: string): string => value.trim();',
         'export const shortOrgNames = new Map<string, string>();',
-        'export function detectLocaleFromHeader(header: string): string { return header; }',
         'export const myPERMISSIONS = [1, 2, 3];',
         'export interface PermissionList { PERMISSIONS: readonly string[] }',
         'export type logoPlateFor = (luminance: number) => string;',
@@ -1381,6 +1840,563 @@ describe('single implementation: exemptions', () => {
         path === 'apps/server/src/not-there.ts' ? realTree : there,
         { name: path, reason: `exemption ${path} [wcag-coefficients]: not a scanned file` },
       );
+    }
+  });
+});
+
+describe('single implementation: where the scan looks (G0 defects D3 and D16)', () => {
+  const temporaryRoots: string[] = [];
+  afterAll(() => {
+    for (const directory of temporaryRoots) rmSync(directory, { recursive: true, force: true });
+  });
+
+  it('reads a source folder that merely shares a name with build output', () => {
+    const root = mkdtempSync(join(tmpdir(), 'm365portal-single-'));
+    temporaryRoots.push(root);
+    const files: Record<string, string> = {
+      'package.json': '{}',
+      'dist/out.ts': 'export {};',
+      'apps/web/package.json': '{}',
+      'apps/web/dist/out.js': 'export {};',
+      'apps/web/coverage/out.js': 'export {};',
+      'apps/web/src/features/coverage/org.ts': 'export {};',
+      'apps/web/src/features/dist/x.ts': 'export {};',
+      'apps/web/src/.vite/y.ts': 'export {};',
+      'apps/web/src/.worktrees/z.ts': 'export {};',
+      '.worktrees/copy/a.ts': 'export {};',
+      'node_modules/dep/index.js': 'export {};',
+    };
+    for (const [path, content] of Object.entries(files)) {
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), content);
+    }
+
+    expect([...loadTree(root).keys()].sort()).toEqual([
+      'apps/web/src/.vite/y.ts',
+      'apps/web/src/.worktrees/z.ts',
+      'apps/web/src/features/coverage/org.ts',
+      'apps/web/src/features/dist/x.ts',
+    ]);
+  });
+
+  it.each([
+    'apps/web/src/test/helpers.ts',
+    'apps/server/src/fixtures/org.ts',
+    'apps/server/src/test/org.ts',
+    'apps/web/src/__tests__/org.ts',
+    'apps/web/src/features/tests/org.ts',
+    'apps/web/src/features/coverage/org.ts',
+    'packages/shared/scripts/test/org.ts',
+    'e2e/lib/fixtures/org.ts',
+  ])(
+    'scans %s: a folder called test or fixtures deeper than the package root is source',
+    (path) => {
+      expect(isOutsideScope(path)).toBe(true);
+      expectGuardFails(
+        asGuard(checkSecondDefinitions),
+        withFile(
+          realTree,
+          path,
+          'export function normalizeOrgName(raw: string): string { return raw; }\n',
+        ),
+        { name: path, reason: `${path}:1: second definition of normalizeOrgName (function)` },
+      );
+    },
+  );
+
+  it.each([
+    'apps/server/test/org.ts',
+    'apps/server/test/fixtures/hostile/org.ts',
+    'apps/web/test/helpers/org.ts',
+    'packages/shared/test/org.test.ts',
+    'packages/shared/test/fixtures/x/org.ts',
+    'e2e/tests/org.spec.ts',
+    'eslint-rules/test/org.test.ts',
+    'tools/lint-canary/cases/org.case.ts',
+    'tools/lint-canary/org.test.ts',
+    'scripts/org.test.ts',
+  ])('does not scan %s: the tests and fixtures of a package are exempt', (path) => {
+    expect(isOutsideScope(path)).toBe(false);
+  });
+
+  it('does not exempt a file named like a test where no runner collects it', () => {
+    for (const path of ['apps/web/src/lib/org.test.ts', 'apps/server/src/org.spec.ts']) {
+      expect(isOutsideScope(path), path).toBe(true);
+    }
+  });
+});
+
+describe('single implementation: definition forms the first version missed (G0 defect D3)', () => {
+  const outside = 'apps/web/src/lib/second.ts';
+
+  it.each([
+    ['a factory call', 'export const normalizeOrgName = makeNormaliser();', 'normalizeOrgName'],
+    [
+      'a renamed export of a local implementation',
+      'const impl = (raw: string): string => raw.trim();\nexport { impl as normalizeOrgName };',
+      'normalizeOrgName',
+    ],
+    [
+      'a renamed export of a local function',
+      'function impl(raw: string): string { return raw.trim(); }\nexport { impl as shortOrgName };',
+      'shortOrgName',
+    ],
+    [
+      'a default in a destructured parameter',
+      'export function f({ normalizeOrgName = (raw: string) => raw.trim() }: Options): string { return normalizeOrgName(""); }',
+      'normalizeOrgName',
+    ],
+    [
+      'a parameter default',
+      'export const f = (deriveInitials = (name: string) => name.slice(0, 2)) => deriveInitials;',
+      'deriveInitials',
+    ],
+    [
+      'a default in a destructuring declaration',
+      'const { shortOrgName = (name: string) => name.slice(0, 3) } = options;',
+      'shortOrgName',
+    ],
+    [
+      'an assignment to a property of exports',
+      'exports.hasAnyPermission = function () { return false; };',
+      'hasAnyPermission',
+    ],
+    [
+      'an assignment to a bare name after the declaration',
+      'let detectLocale; detectLocale = (tags) => tags[0];',
+      'detectLocale',
+    ],
+    [
+      'a getter',
+      'export const holder = { get logoPlateFor() { return (): string => "none"; } };',
+      'logoPlateFor',
+    ],
+    [
+      'a class getter',
+      'export class Holder { get monogramGlyphs(): () => string { return () => "A"; } }',
+      'monogramGlyphs',
+    ],
+  ])('%s is a definition', (_description, code, name) => {
+    expectGuardFails(asGuard(checkSecondDefinitions), withFile(realTree, outside, `${code}\n`), {
+      name,
+      reason: `${outside}:`,
+    });
+    const problems = checkSecondDefinitions(withFile(realTree, outside, `${code}\n`));
+    expect(problems.join('\n')).toContain(`second definition of ${name}`);
+  });
+
+  it('does not take an alias for a definition: a property, a bind, a require, an import', () => {
+    const code = [
+      "import * as org from '@m365portal/shared/branding/org-name';",
+      "import { deriveInitials as impl } from '@m365portal/shared/branding/initials';",
+      'export const normalizeOrgName = org.normalizeOrgName;',
+      'export const shortOrgName = org.shortOrgName.bind(org);',
+      "export const hasAnyPermission = require('@m365portal/shared/permissions').hasAnyPermission;",
+      "const { detectLocale } = await import('@m365portal/shared/i18n/detect');",
+      'export { impl as deriveInitials };',
+      'const local = org.normalizeOrgName;',
+      'export { local as problemMessageKey };',
+      'let logoPlateFor; logoPlateFor = org.logoPlateFor;',
+      'export function f({ monogramGlyphs = org.monogramGlyphs }: Options) { return monogramGlyphs; }',
+    ].join('\n');
+    const tree = withFile(realTree, 'apps/server/src/aliases.ts', code);
+
+    expect(problemsAt(checkAll, tree, 'apps/server/src/aliases.ts')).toEqual([]);
+  });
+});
+
+describe('single implementation: a second normaliser under another spelling (G0 defect D2)', () => {
+  const PLACES = ['apps/web/src/lib/x.ts', 'apps/server/src/x.ts', 'e2e/lib/x.ts'];
+
+  const LOOKALIKES: readonly (readonly [string, string, string])[] = [
+    [
+      'normaliseOrgName',
+      'export function normaliseOrgName(raw: string): string { return raw.trim(); }',
+      'org-name',
+    ],
+    [
+      'cleanOrganisationName',
+      'export const cleanOrganisationName = (raw: string) => raw.trim();',
+      'org-name',
+    ],
+    [
+      'shortOrganizationName',
+      'export const shortOrganizationName = (raw: string) => raw.slice(0, 12);',
+      'org-name',
+    ],
+    [
+      'canonicalOrgName',
+      'export const canonicalOrgName = (raw: string) => raw.trim();',
+      'org-name',
+    ],
+    [
+      'getInitials',
+      "export function getInitials(name: string) { return name.split(' ').map((w) => w[0]).join(''); }",
+      'initials',
+    ],
+    ['monogramFor', 'export const monogramFor = (name: string) => name.slice(0, 1);', 'monogram'],
+    ['toSixDigitHex', 'export function toSixDigitHex(h: string): string { return h; }', 'accent'],
+    ['expandAccent', 'export const expandAccent = (h: string) => h;', 'accent'],
+    ['luminanceOf', 'export const luminanceOf = (r: number) => r;', 'contrast'],
+    [
+      'contrastBetween',
+      'export function contrastBetween(a: number, b: number) { return a / b; }',
+      'contrast',
+    ],
+    [
+      'pickLocale',
+      "export function pickLocale(acceptLanguage: string) { return acceptLanguage.startsWith('nl') ? 'nl' : 'en'; }",
+      'locale',
+    ],
+    [
+      'parseAcceptLanguage',
+      'export const parseAcceptLanguage = (header: string) => header.split(",");',
+      'locale',
+    ],
+    ['problemKeyFor', 'export const problemKeyFor = (code: string) => code;', 'problem'],
+    [
+      'getProblemMessage',
+      'export function getProblemMessage(code: string) { return code; }',
+      'problem',
+    ],
+    [
+      'hasPermission',
+      'export const hasPermission = (held: string[], wanted: string) => held.includes(wanted);',
+      'permissions',
+    ],
+    ['allPermissions', 'export function allPermissions(): string[] { return []; }', 'permissions'],
+    [
+      'normalizeOrgNameForSearch',
+      'export const normalizeOrgNameForSearch = (value: string): string => value.trim();',
+      'org-name',
+    ],
+    [
+      'detectLocaleFromHeader',
+      'export function detectLocaleFromHeader(header: string): string { return header; }',
+      'locale',
+    ],
+    [
+      'a method',
+      'export class Negotiator { pickLocale(tags: string[]) { return tags[0]; } }',
+      'locale',
+    ],
+    [
+      'an object member',
+      'export const helpers = { cleanOrgName: (n: string) => n.trim() };',
+      'org-name',
+    ],
+    [
+      'a wrapped function',
+      'export const normaliseOrgName = useCallback((raw: string) => raw.trim(), []);',
+      'org-name',
+    ],
+  ];
+
+  it.each(LOOKALIKES)('%s is a second implementation in disguise', (description, code, concept) => {
+    const name = /^[a-z]\w*$/i.test(description)
+      ? description
+      : (/(\w+)\s*(?:\(|=)/.exec(code.replace(/^export (?:const|function|class) \w+ /, ''))?.[1] ??
+        '');
+    for (const path of PLACES) {
+      const problems = checkLookalikes(withFile(realTree, path, `${code}\n`));
+      expect(
+        problems.some(
+          (problem) =>
+            problem.startsWith(`${path}:1: `) &&
+            problem.includes(`is named like the ${concept} concept`),
+        ),
+        `${path}: ${problems.join(' | ')} (${name})`,
+      ).toBe(true);
+    }
+  });
+
+  it('names the one implementation and the way out', () => {
+    expectGuardFails(
+      asGuard(checkLookalikes),
+      withFile(
+        realTree,
+        'apps/web/src/lib/x.ts',
+        'export const normaliseOrgName = (raw: string) => raw;\n',
+      ),
+      {
+        name: 'message',
+        reason:
+          /"normaliseOrgName" \(variable\) is named like the org-name concept \(normalizeOrgName, shortOrgName\)[^]*packages\/shared\/src\/branding\/org-name\.ts[^]*@m365portal\/shared\/branding\/org-name[^]*EXEMPTIONS/,
+      },
+    );
+  });
+
+  it('leaves components, hooks, handlers and unrelated words alone', () => {
+    const code = [
+      'export function LocaleSwitcher() { return <select />; }',
+      'export const AccentPicker = memo(function AccentPickerInner() { return <input />; });',
+      'export const PermissionGate = ({ children }: Props) => <>{children}</>;',
+      'export const useLocale = () => useContext(LocaleContext);',
+      'export function usePermissions() { return useContext(PermissionContext); }',
+      'export const onAccentChange = (value: string) => value;',
+      'function handlePermissionToggle(): void {}',
+      'export const initialState = () => ({});',
+      'export function normalizeEmail(raw: string): string { return raw.trim(); }',
+      'export const cleanUpTimers = () => undefined;',
+      'export const accentuate = (text: string) => text;',
+      'export const contrasting = (a: number) => a;',
+      'export const isProblem = (value: unknown) => value !== undefined;',
+      'export const problemDetails = (code: string) => code;',
+      'export const shortId = (id: string) => id.slice(0, 8);',
+      'export const sorted = names.sort((a, b) => a.localeCompare(b));',
+      'export const orgNameInput = { value: "" };',
+    ].join('\n');
+    const tree = withFile(realTree, 'apps/web/src/components/mixed.tsx', code);
+
+    expect(problemsAt(checkLookalikes, tree, 'apps/web/src/components/mixed.tsx')).toEqual([]);
+  });
+
+  it('does not apply to packages/shared/src, tests or fixtures', () => {
+    const code = 'export const pickLocale = (a: string) => a;\n';
+    const tree = new Map([
+      ...realTree,
+      ['packages/shared/src/schemas/common.ts', code],
+      ['apps/web/test/locale.test.ts', code],
+      ['apps/server/test/fixtures/x.ts', code],
+    ]);
+
+    expect(checkLookalikes(tree)).toEqual([]);
+  });
+
+  it('does not report a table name twice: the exact check owns it', () => {
+    const tree = withFile(
+      realTree,
+      'apps/web/src/lib/x.ts',
+      'export function normalizeOrgName() {}\n',
+    );
+
+    expect(checkLookalikes(tree)).toEqual([]);
+    expect(checkSecondDefinitions(tree)).not.toEqual([]);
+  });
+});
+
+describe('single implementation: more tell-tales of a second implementation (G0 defect D2)', () => {
+  const TELL_TALE_SAMPLES: readonly (readonly [TellTale, string])[] = [
+    [
+      'yiq-coefficients',
+      'export const pick = (r: number, g: number, b: number) => ((r * 299 + g * 587 + b * 114) / 1000 > 128 ? "dark" : "light");',
+    ],
+    ['yiq-coefficients', 'export const weights = [0.299, 0.587, 0.114];'],
+    ['yiq-coefficients', 'export const y = (r: number, b: number) => 0.299 * r + 0.114 * b;'],
+    ['accept-language', "export const h = (c: { req: Req }) => c.req.header('Accept-Language');"],
+    ['accept-language', "export const first = headers['accept-language'];"],
+    ['accept-language', "export const q = (v: string) => v.split(',').map((p) => p.split(';q='));"],
+    ['accept-language', 'export const weight = /;\\s*q=([0-9.]+)/;'],
+    ['problem-key', "export const key = (code: string) => ['problem', code].join('.');"],
+    ['problem-key', "export const key2 = (code: string) => 'problem.'.concat(code);"],
+    ['hex-expansion', 'export const isHex = /^[0-9a-f]{6}$/i;'],
+    ['hex-expansion', "export const ok = new RegExp('^[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$');"],
+    [
+      'hex-expansion',
+      'export const expand = (h: string) => h.replace(/^([0-9a-f])([0-9a-f])([0-9a-f])$/i, "$1$1$2$2$3$3");',
+    ],
+    [
+      'permission-list',
+      "export type P = 'users:read' | 'users:write' | 'groups:read' | 'groups:write' | 'audit:read' | 'audit:export';",
+    ],
+    [
+      'permission-list',
+      "export enum P { A = 'users:read', B = 'users:write', C = 'groups:read', D = 'groups:write' }",
+    ],
+    [
+      'permission-list',
+      "const R = ['users', 'groups', 'contacts', 'audit'];\nconst A = ['read', 'write'];\nexport const all = R.flatMap((r) => A.map((a) => `${r}:${a}`));",
+    ],
+    [
+      'permission-list',
+      "const R = ['users', 'groups', 'contacts'];\nexport const all = R.map((r) => r + ':' + 'read');",
+    ],
+  ];
+
+  it.each(TELL_TALE_SAMPLES)('%s: %j fails in the web, server and e2e code', (tellTale, sample) => {
+    for (const path of ['apps/web/src/lib/x.ts', 'apps/server/src/x.ts', 'e2e/lib/x.ts']) {
+      const problems = checkReimplementations(withFile(realTree, path, `${sample}\n`));
+      expect(
+        problems.some(
+          (problem) => problem.startsWith(`${path}:`) && problem.includes(TELL_TALES[tellTale]),
+        ),
+        `${path}: ${problems.join(' | ')}`,
+      ).toBe(true);
+    }
+  });
+
+  it('allows what only looks like them', () => {
+    const code = [
+      'export const status = 299;',
+      'export const total = 299 + 1;',
+      "export const lang = c.req.header('x-requested-with');",
+      "export const handed = detectLocale(parse(c.req.header('accept-language')));",
+      "export const key = (code: string) => ['error', code].join('.');",
+      "export const joined = ['problem', 'details'].join('-');",
+      'export const sha = /^[0-9a-f]{64}$/;',
+      'export const crc = /^[0-9a-f]{8}$/i;',
+      'export const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;',
+      "export type Pair = 'users:read' | 'users:write' | 'groups:read';",
+      "export type Mode = 'light' | 'dark' | 'system' | 'contrast';",
+      "export enum Kind { A = 'a', B = 'b', C = 'c', D = 'd' }",
+      'export const bucket = (ip: string, route: string) => `${ip}:${route}`;',
+      "export const words = ['users', 'groups', 'audit', 'rbac', 'settings'];",
+    ].join('\n');
+    const tree = withFile(realTree, 'apps/server/src/lib/lookalikes.ts', code);
+
+    expect(problemsAt(checkReimplementations, tree, 'apps/server/src/lib/lookalikes.ts')).toEqual(
+      [],
+    );
+  });
+
+  it('is excused by an exemption with a reason, like the older tell-tales', () => {
+    const file = 'apps/server/src/lib/pixels.ts';
+    const sample = 'export const weights = [0.299, 0.587, 0.114];\n';
+    const tree = withFile(realTree, file, sample);
+    const exemption: Exemption = {
+      path: file,
+      tellTale: 'yiq-coefficients',
+      reason:
+        'Legacy video frames are weighed with the YIQ weights; the shared helper takes a hex string.',
+    };
+
+    expect(scan(tree).tellTales.join('\n')).toContain(`${file}:1:`);
+    expect(scan(tree, [exemption]).tellTales.filter((problem) => problem.startsWith(file))).toEqual(
+      [],
+    );
+    expect(scan(tree, [exemption]).exemptions).toEqual([]);
+  });
+});
+
+describe('single implementation: exemptions for a look-alike name (G0 defect D2)', () => {
+  const FILE = 'apps/server/src/lib/locale-header.ts';
+  const CODE = 'export function pickLocale(header: string): string { return header; }\n';
+  const REASON =
+    'Reads the raw header for the log line only; the shell language comes from detectLocale.';
+  const exemption: Exemption = { path: FILE, name: 'pickLocale', reason: REASON };
+  const tree = withFile(realTree, FILE, CODE);
+
+  it('is needed: without it the file fails', () => {
+    expect(scan(tree).lookalikes.join('\n')).toContain(`${FILE}:1: "pickLocale"`);
+  });
+
+  it('excuses that name in that file only', () => {
+    expect(scan(tree, [exemption]).lookalikes.filter((p) => p.startsWith(FILE))).toEqual([]);
+    expect(scan(tree, [exemption]).exemptions).toEqual([]);
+    const other = withFile(tree, 'apps/server/src/lib/other.ts', CODE);
+    expect(scan(other, [exemption]).lookalikes.join('\n')).toContain(
+      'apps/server/src/lib/other.ts:1:',
+    );
+    const renamed = withFile(
+      realTree,
+      FILE,
+      'export function negotiateLocale(): string { return ""; }\n',
+    );
+    expect(scan(renamed, [exemption]).lookalikes.join('\n')).toContain('"negotiateLocale"');
+  });
+
+  it('is refused without a real reason, when stale, and for a name of the table', () => {
+    expectGuardFails(
+      asGuard((candidate) => scan(candidate, [{ ...exemption, reason: 'needed' }]).exemptions),
+      tree,
+      { name: 'short reason', reason: 'give a reason of at least 40 characters' },
+    );
+    expectGuardFails(
+      asGuard((candidate) => scan(candidate, [exemption]).exemptions),
+      withFile(realTree, FILE, 'export const answer = 42;\n'),
+      { name: 'stale', reason: `exemption ${FILE} [pickLocale]: stale` },
+    );
+    expectGuardFails(
+      asGuard(
+        (candidate) =>
+          scan(candidate, [{ path: FILE, name: 'detectLocale', reason: REASON }]).exemptions,
+      ),
+      withFile(realTree, FILE, 'export function detectLocale() {}\n'),
+      { name: 'table name', reason: 'a name of the table can never be excused' },
+    );
+  });
+});
+
+describe('single implementation: a row must protect something once its module has landed (G0 defect D19)', () => {
+  const STUB = 'export {};\n';
+
+  it('lets a stub home define nothing (the modules have not landed yet)', () => {
+    expect(checkLanded(realTree)).toEqual([]);
+    for (const concept of CONCEPTS) {
+      expect(
+        checkLanded(withFile(realTree, concept.home, `// stub of ${concept.id}\n${STUB}`)),
+      ).toEqual([]);
+    }
+  });
+
+  it.each(CONCEPTS.map((concept) => [concept.id, concept.home] as const))(
+    '%s: a home with code that defines none of its names fails',
+    (id, home) => {
+      expectGuardFails(
+        asGuard(checkLanded),
+        withFile(realTree, home, 'export const somethingElse = (a: number) => a;\n'),
+        {
+          name: id,
+          reason: new RegExp(`${home.replace(/\./g, '\\.')}: the module has code but defines no `),
+        },
+      );
+    },
+  );
+
+  it('fails a module that defines only part of its row', () => {
+    expectGuardFails(
+      asGuard(checkLanded),
+      withFile(
+        realTree,
+        `${SHARED_SRC}branding/org-name.ts`,
+        'export function normalizeOrgName(raw: string): string { return raw; }\n',
+      ),
+      { name: 'half a row', reason: 'defines no shortOrgName' },
+    );
+  });
+
+  it('accepts a module that defines every name of its row once', () => {
+    for (const concept of CONCEPTS) {
+      const names = concept.required.map((entry) =>
+        typeof entry === 'string' ? entry : (entry[0] ?? ''),
+      );
+      const code = names.map((name) => `export function ${name}(): void {}`).join('\n');
+      const tree = withFile(realTree, concept.home, `${code}\n`);
+      expect(problemsAt(checkAll, tree, concept.home), concept.id).toEqual([]);
+    }
+  });
+
+  it('asks the contrast row for one helper, not for all six plausible spellings', () => {
+    const contrast = CONCEPTS.find((concept) => concept.id === 'contrast');
+    const home = contrast?.home ?? '';
+    const tree = withFile(
+      realTree,
+      home,
+      'export function contrastRatio(): number { return 1; }\n',
+    );
+    expect(problemsAt(checkLanded, tree, home)).toEqual([]);
+  });
+
+  it('counts a re-export as no definition: the home must define the name itself', () => {
+    expectGuardFails(
+      asGuard(checkLanded),
+      withFile(
+        realTree,
+        `${SHARED_SRC}permissions.ts`,
+        "export { PERMISSIONS, hasAnyPermission } from './elsewhere.js';\n",
+      ),
+      { name: 're-export', reason: 'defines no PERMISSIONS' },
+    );
+  });
+
+  it('every row names what it requires, and every required name is one of its names', () => {
+    for (const concept of CONCEPTS) {
+      expect(concept.required.length, concept.id).toBeGreaterThan(0);
+      for (const entry of concept.required) {
+        for (const name of typeof entry === 'string' ? [entry] : entry) {
+          expect(concept.names, `${concept.id}: ${name}`).toContain(name);
+        }
+      }
     }
   });
 });

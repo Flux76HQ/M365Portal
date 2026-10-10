@@ -1,0 +1,4 @@
+mount: apps/server/src/branding/text-colour.ts
+export function textOn(r: number, g: number, b: number): 'dark' | 'light' {
+  return (r * 299 + g * 587 + b * 114) / 1000 > 128 ? 'dark' : 'light';
+}

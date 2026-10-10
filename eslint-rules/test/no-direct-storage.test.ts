@@ -32,6 +32,11 @@ createRuleTester().run('local/no-direct-storage', rule, {
   assertionOptions: STRICT_ASSERTIONS,
   valid: [
     validCase("import { readStored } from './storage';"),
+    validCase('export type Store = typeof localStorage;', 'naming the type of the global'),
+    validCase('export type Session = typeof sessionStorage; export type Db = typeof indexedDB;'),
+    validCase('export type Cookie = typeof document.cookie;', 'the type of document.cookie'),
+    validCase('let held: typeof window.localStorage | undefined;', 'a type annotation'),
+    validCase('export interface Holder { readonly store: Storage }', 'the Storage interface'),
     validCase("const storage = createStorage(); storage.get('theme');"),
     validCase(
       "const localStorage = fake; localStorage.getItem('x');",
@@ -45,6 +50,8 @@ createRuleTester().run('local/no-direct-storage', rule, {
     validCase("document.title = 'x'; document.cookies;", 'other members of document'),
     validCase("const cookie = 'a=b'; request.cookie;", 'cookie that is not document.cookie'),
     validCase("const name = 'localStorage';", 'the word in a string'),
+    validCase('const w = other; w.localStorage; w.document.cookie;', 'an alias of something else'),
+    validCase('const k = props.key; window[k];', 'a key that is not known'),
     {
       name: 'a locally declared name in a module with the browser globals declared',
       code: 'const indexedDB = open(); indexedDB.close();',
@@ -73,6 +80,27 @@ createRuleTester().run('local/no-direct-storage', rule, {
       'sessionStorage',
       'renamed destructuring',
     ),
+    // The global object reached another way, and a key spelled in parts.
+    direct(
+      "const w = window; w.localStorage.getItem('k');",
+      'localStorage',
+      'a const alias of window',
+    ),
+    direct('globalThis.window.sessionStorage.clear();', 'sessionStorage', 'globalThis.window'),
+    direct('window.top.localStorage;', 'localStorage', 'window.top'),
+    direct(
+      "window['local' + 'Storage'].getItem('k');",
+      'localStorage',
+      'a key built from literals',
+    ),
+    direct("const k = 'indexedDB'; window[k].open('db');", 'indexedDB', 'a key held in a const'),
+    direct(
+      'const w = globalThis; const { localStorage: ls } = w;',
+      'localStorage',
+      'destructured from an alias',
+    ),
+    direct('const w = window; w.document.cookie;', 'document.cookie', 'document of an alias'),
+    direct("const d = document; d.cookie = 'a=b';", 'document.cookie', 'a const alias of document'),
     {
       name: 'the global declared by languageOptions.globals is still the global',
       code: "localStorage.getItem('k');",
@@ -94,10 +122,10 @@ createRuleTester().run('local/no-direct-storage', rule, {
 });
 
 describe('local/no-direct-storage: scope', () => {
-  it('applies to the whole web source except the storage module', () => {
+  it('applies to every kind of script of the web package except the storage module', () => {
     const scope = scopeOf('no-direct-storage');
 
-    expect(scope.files).toEqual(['apps/web/src/**/*.{ts,tsx}']);
+    expect(scope.files).toEqual(['apps/web/{src,public}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}']);
     expect(scope.ignores).toEqual(['apps/web/src/lib/storage.ts']);
   });
 });

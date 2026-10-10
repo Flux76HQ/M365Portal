@@ -6,12 +6,16 @@
 // in the web package these are refused:
 //
 //   localStorage, sessionStorage, indexedDB       as globals, or through window / globalThis / self
-//   document.cookie                               read or write
+//                                                 (also globalThis.window, window.top and a const
+//                                                 that holds one: `const w = window; w.localStorage`)
+//   document.cookie                               read or write, destructured, or through a const
 //
 // A local variable, import or parameter that merely has one of these names is not the global and
 // passes; the scope analysis tells them apart. `const { localStorage } = window` is the same access
-// as `window.localStorage`.
-import { isGlobalObjectName, staticName, unwrap } from '../lib/ast.js';
+// as `window.localStorage`. Naming the type of the global is not using it: `type Store = typeof
+// localStorage` passes.
+import { isDocument, isGlobalObject, resolvedName } from '../lib/ast.js';
+import { WEB_SCRIPTS } from '../lib/scope.js';
 
 export const meta = {
   type: 'problem',
@@ -27,28 +31,11 @@ export const meta = {
 };
 
 export const scope = {
-  files: ['apps/web/src/**/*.{ts,tsx}'],
+  files: [WEB_SCRIPTS],
   ignores: ['apps/web/src/lib/storage.ts'],
 };
 
 const STORAGE_GLOBALS = new Set(['localStorage', 'sessionStorage', 'indexedDB']);
-
-/** `window`, `globalThis` or `self`. */
-function isGlobalObject(expression) {
-  const node = unwrap(expression);
-  return node.type === 'Identifier' && isGlobalObjectName(node.name);
-}
-
-/** `document`, or the document of a global object (`window.document`). */
-function isDocument(expression) {
-  const node = unwrap(expression);
-  if (node.type === 'Identifier') return node.name === 'document';
-  return (
-    node.type === 'MemberExpression' &&
-    staticName(node) === 'document' &&
-    isGlobalObject(node.object)
-  );
-}
 
 /** The expression a destructuring pattern takes its values from, if it is a declarator or assignment. */
 function sourceOfPattern(pattern) {
@@ -71,34 +58,43 @@ export function create(context) {
     // that the configuration declares, and references that resolve to nothing at all.
     Program(node) {
       const globalScope = sourceCode.getScope(node);
+      // `typeof localStorage` in a type is a name for a type, not an access.
+      const isTypeQuery = (reference) => reference.identifier.parent.type === 'TSTypeQuery';
       for (const variable of globalScope.variables) {
         if (variable.defs.length === 0 && STORAGE_GLOBALS.has(variable.name)) {
-          for (const reference of variable.references) report(reference.identifier, variable.name);
+          for (const reference of variable.references) {
+            if (!isTypeQuery(reference)) report(reference.identifier, variable.name);
+          }
         }
       }
       for (const reference of globalScope.through) {
-        if (STORAGE_GLOBALS.has(reference.identifier.name)) {
+        if (STORAGE_GLOBALS.has(reference.identifier.name) && !isTypeQuery(reference)) {
           report(reference.identifier, reference.identifier.name);
         }
       }
     },
 
     MemberExpression(node) {
-      const name = staticName(node);
+      const name = resolvedName(sourceCode, node);
       if (name === undefined) return;
-      if (STORAGE_GLOBALS.has(name) && isGlobalObject(node.object)) {
+      if (STORAGE_GLOBALS.has(name) && isGlobalObject(sourceCode, node.object)) {
         report(node, name);
-      } else if (name === 'cookie' && isDocument(node.object)) {
+      } else if (name === 'cookie' && isDocument(sourceCode, node.object)) {
         report(node, 'document.cookie');
       }
     },
 
     Property(node) {
       if (node.parent.type !== 'ObjectPattern') return;
-      const name = staticName(node);
-      if (name === undefined || !STORAGE_GLOBALS.has(name)) return;
+      const name = resolvedName(sourceCode, node);
+      if (name === undefined) return;
       const source = sourceOfPattern(node.parent);
-      if (source !== undefined && isGlobalObject(source)) report(node, name);
+      if (source === undefined) return;
+      if (STORAGE_GLOBALS.has(name) && isGlobalObject(sourceCode, source)) {
+        report(node, name);
+      } else if (name === 'cookie' && isDocument(sourceCode, source)) {
+        report(node, 'document.cookie');
+      }
     },
   };
 }

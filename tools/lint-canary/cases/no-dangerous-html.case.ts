@@ -77,4 +77,53 @@ export function Plain({ text }: { text: string }) {
     code: INNER_HTML,
     mustNotReport: [RULE],
   },
+  // G0 defects D12 and D15: the other HTML sinks, and where the rule looks.
+  {
+    name: 'setHTMLUnsafe and createContextualFragment',
+    path: 'apps/web/src/__lint_canary__/html-unsafe.ts',
+    code: `
+export function show(element: HTMLElement, html: string, range: Range): void {
+  (element as unknown as { setHTMLUnsafe(value: string): void }).setHTMLUnsafe(html);
+  range.createContextualFragment(html);
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'an iframe srcdoc assignment',
+    path: 'apps/web/src/__lint_canary__/html-srcdoc.ts',
+    code: `
+export function frame(element: HTMLIFrameElement, html: string): void {
+  element.srcdoc = html;
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'document.write through a constant that holds the document',
+    path: 'apps/web/src/__lint_canary__/html-alias.ts',
+    code: `
+export function emit(html: string): void {
+  const d = document;
+  d.write(html);
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a source folder that shares the name of build output is linted (coverage)',
+    path: 'apps/web/src/features/coverage/html-inner.ts',
+    code: INNER_HTML,
+    mustReport: [RULE],
+  },
+  {
+    name: 'plain JavaScript (.js, .mjs) is linted',
+    path: 'apps/web/src/__lint_canary__/html-inner.mjs',
+    code: `
+export function show(element, html) {
+  element.innerHTML = html;
+}
+`,
+    mustReport: [RULE],
+  },
 ] as const satisfies readonly CanaryCase[];

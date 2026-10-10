@@ -1,0 +1,7 @@
+mount: apps/web/src/lib/suppressed.ts
+// eslint-disable-next-line local/no-raw-colour
+export const background = '#1a2b3c';
+/* eslint-disable local/no-literal-ui-strings -- the heading is temporary */
+export const heading = 'Dashboard';
+// eslint-disable-next-line
+export const anything = 1;

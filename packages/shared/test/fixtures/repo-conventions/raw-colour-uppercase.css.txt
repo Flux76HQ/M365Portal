@@ -1,0 +1,10 @@
+mount: apps/web/src/styles/raw-uppercase.css
+.a {
+  color: RGB(0 0 0);
+}
+.b {
+  background: OKLCH(0.5 0.1 20);
+}
+.c {
+  border-color: Color-Mix(in srgb, Hsl(10 20% 30%) 50%, Hsl(20 20% 30%));
+}

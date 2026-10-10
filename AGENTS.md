@@ -120,8 +120,9 @@ stays small.
 ## 8. Git and pull request workflow
 
 - Develop on a feature branch; never commit directly to the integration branch.
-  This repository's integration branch is not yet decided by the owner — until it
-  is, work lands on the branch the session was given.
+  This repository's integration branch is `main`, as the owner decided. GitHub's
+  Default branch setting must match it (a repository setting an agent cannot
+  change: the owner sets it under Settings, Branches).
 - Write clear commit messages in English, as a small reviewable series per phase.
   Agents commit; they do not open or merge a pull request unless the owner asks.
 - Push with `git push -u origin <branch-name>`.

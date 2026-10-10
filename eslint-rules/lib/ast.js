@@ -77,3 +77,111 @@ export function constInitializer(sourceCode, identifier) {
   }
   return definition.node.init ?? undefined;
 }
+
+/**
+ * The string an expression always evaluates to, when that is known without running the code: a
+ * string literal, a template whose substitutions are constants, a `+` of constants, or a `const`
+ * that holds one. `undefined` for anything else.
+ */
+export function constantString(sourceCode, expression, depth = 0) {
+  const node = unwrap(expression);
+  switch (node.type) {
+    case 'Literal':
+      return typeof node.value === 'string' ? node.value : undefined;
+    case 'TemplateLiteral': {
+      let text = '';
+      for (const [index, quasi] of node.quasis.entries()) {
+        text += quasi.value.cooked ?? quasi.value.raw;
+        const substitution = node.expressions[index];
+        if (substitution === undefined) continue;
+        const part = constantString(sourceCode, substitution, depth);
+        if (part === undefined) return undefined;
+        text += part;
+      }
+      return text;
+    }
+    case 'BinaryExpression': {
+      if (node.operator !== '+') return undefined;
+      const left = constantString(sourceCode, node.left, depth);
+      const right = left === undefined ? undefined : constantString(sourceCode, node.right, depth);
+      return right === undefined ? undefined : left + right;
+    }
+    case 'Identifier': {
+      const initializer = depth < 4 ? constInitializer(sourceCode, node) : undefined;
+      return initializer === undefined
+        ? undefined
+        : constantString(sourceCode, initializer, depth + 1);
+    }
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Like `staticName`, and a computed key that is a constant string expression counts as well:
+ * `el['inner' + 'HTML']` and `const k = 'innerHTML'; el[k]` both spell "innerHTML".
+ */
+export function resolvedName(sourceCode, node) {
+  const name = staticName(node);
+  if (name !== undefined || node.computed !== true) return name;
+  const key = node.type === 'MemberExpression' ? node.property : node.key;
+  return key === undefined || key === null ? undefined : constantString(sourceCode, key);
+}
+
+/** Properties through which a window reaches the global object again: `globalThis.window.top`. */
+const GLOBAL_OBJECT_PROPERTIES = new Set([
+  'window',
+  'self',
+  'globalThis',
+  'top',
+  'parent',
+  'frames',
+]);
+
+/**
+ * `window`, `globalThis`, `self`, a chain of them (`globalThis.window`, `window.top`), or a `const`
+ * that holds one: `const w = window; w.localStorage` is the same access as `window.localStorage`.
+ */
+export function isGlobalObject(sourceCode, expression, depth = 0) {
+  const node = unwrap(expression);
+  if (node.type === 'Identifier') {
+    if (isGlobalObjectName(node.name)) return true;
+    const initializer = depth < 4 ? constInitializer(sourceCode, node) : undefined;
+    return initializer !== undefined && isGlobalObject(sourceCode, initializer, depth + 1);
+  }
+  if (node.type !== 'MemberExpression') return false;
+  const name = resolvedName(sourceCode, node);
+  return (
+    name !== undefined &&
+    GLOBAL_OBJECT_PROPERTIES.has(name) &&
+    isGlobalObject(sourceCode, node.object, depth + 1)
+  );
+}
+
+/**
+ * `document`, `window.document`, a `const` that holds either, and the document that `document.open()`
+ * gives back.
+ */
+export function isDocument(sourceCode, expression, depth = 0) {
+  const node = unwrap(expression);
+  if (node.type === 'Identifier') {
+    if (node.name === 'document') return true;
+    const initializer = depth < 4 ? constInitializer(sourceCode, node) : undefined;
+    return initializer !== undefined && isDocument(sourceCode, initializer, depth + 1);
+  }
+  if (node.type === 'MemberExpression') {
+    return (
+      resolvedName(sourceCode, node) === 'document' &&
+      isGlobalObject(sourceCode, node.object, depth + 1)
+    );
+  }
+  if (node.type === 'CallExpression') {
+    const callee = unwrap(node.callee);
+    return (
+      callee.type === 'MemberExpression' &&
+      resolvedName(sourceCode, callee) === 'open' &&
+      isDocument(sourceCode, callee.object, depth + 1)
+    );
+  }
+  return false;
+}

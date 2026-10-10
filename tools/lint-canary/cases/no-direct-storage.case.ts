@@ -80,4 +80,33 @@ export function readTheme(): string | null {
     code: READ_THEME,
     mustNotReport: [RULE],
   },
+  // G0 defects D15 and D20: scripts of the web package, and a type that names the global.
+  {
+    name: 'localStorage in a plain JavaScript module',
+    path: 'apps/web/src/__lint_canary__/storage-local.js',
+    code: `
+export function readTheme() {
+  return window.localStorage.getItem('m365portal.theme');
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a source folder that shares the name of build output is linted (coverage)',
+    path: 'apps/web/src/features/coverage/storage-local.ts',
+    code: READ_THEME,
+    mustReport: [RULE],
+  },
+  {
+    name: 'control: naming the type of the global is not using it',
+    path: 'apps/web/src/__lint_canary__/storage-type.ts',
+    code: `
+export type Store = typeof localStorage;
+export type Cookie = typeof document.cookie;
+export interface Holder {
+  readonly store: Storage;
+}
+`,
+    mustNotReport: [RULE],
+  },
 ] as const satisfies readonly CanaryCase[];

@@ -1,0 +1,4 @@
+mount: apps/web/src/assets/logo.svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8">
+  <path d="M0 0h8v8H0z" fill="#ff0000" />
+</svg>

@@ -1,0 +1,10 @@
+mount: apps/web/src/components/RawNamed.tsx
+export function RawNamed() {
+  return (
+    <svg style={{ color: 'red', backgroundColor: "white" }} fill="black" stroke='Navy'>
+      <path className="[color:tomato] [background:linear-gradient(white,black)]" />
+      <rect className="bg-[red] text-[color:blue]" />
+    </svg>
+  );
+}
+export const scheme = 'light-dark(white, black)';

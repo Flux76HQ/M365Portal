@@ -1,0 +1,14 @@
+mount: apps/web/public/offline.html
+<!doctype html>
+<html lang="en">
+  <head>
+    <style>
+      *:focus {
+        outline: none;
+      }
+    </style>
+  </head>
+  <body>
+    <a href="/" style="outline: 0">home</a>
+  </body>
+</html>

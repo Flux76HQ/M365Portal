@@ -6,7 +6,12 @@
 //
 //   - JSX text:            <p>Save changes</p>
 //   - user-facing props:   aria-label, aria-description, aria-placeholder, aria-roledescription,
-//                          title, placeholder and alt
+//                          aria-valuetext, aria-braillelabel, aria-brailleroledescription, title,
+//                          placeholder, alt and children
+//   - elements whose label or value is text: the label of <option>, <optgroup> and <track>, and the
+//                          value of an <input> of type submit, button or reset
+//   - the same keys in an object literal, wherever it is: `<input {...{ placeholder: 'Search' }} />`
+//                          and `const props = { 'aria-label': 'Close' }; <button {...props} />`
 //
 // "Literal" means a string that contains a letter and does not come out of a call (a catalogue
 // call, `t('key')`, is a call; its arguments are keys and data, not text). Punctuation, digits,
@@ -15,9 +20,17 @@
 // `a ?? 'x'`, a template literal's fixed text and a `+` concatenation: `{'Save'}` is the same
 // mistake as `Save`.
 //
+// A `const` that holds such a string and is shown (`const heading = 'Users'; <h1>{heading}</h1>`) is
+// followed one step, like the SQL rule follows a const. A `let`, a parameter and an import are values
+// from elsewhere and are not.
+//
 // Only the listed attributes are inspected. A component prop such as `label` is not: the rule cannot
-// know whether a component renders it, and the catalogue check plus review cover that.
-import { unwrap } from '../lib/ast.js';
+// know whether a component renders it, and the catalogue check plus review cover that. Strings that
+// reach the screen through an array that is mapped (`['Name', 'Email'].map(...)`) or an object field
+// that a component renders later are likewise beyond a syntactic rule: the catalogue check, review
+// and the end-to-end tests cover them (known limit O6).
+import { constInitializer, staticName, unwrap } from '../lib/ast.js';
+import { WEB_COMPONENTS } from '../lib/scope.js';
 
 export const meta = {
   type: 'problem',
@@ -33,9 +46,11 @@ export const meta = {
   schema: [],
 };
 
+// Tests live in apps/web/test, outside this scope. A *.test.tsx beside the sources is nobody's test
+// (repo-conventions.test.ts check 9 reports it), so it is no reason to switch the rule off.
 export const scope = {
-  files: ['apps/web/src/**/*.tsx'],
-  ignores: ['apps/web/src/**/*.test.tsx', 'apps/web/src/**/*.spec.tsx'],
+  files: [WEB_COMPONENTS],
+  ignores: [],
 };
 
 const USER_FACING_ATTRIBUTES = new Set([
@@ -43,10 +58,19 @@ const USER_FACING_ATTRIBUTES = new Set([
   'aria-description',
   'aria-placeholder',
   'aria-roledescription',
+  'aria-valuetext',
+  'aria-braillelabel',
+  'aria-brailleroledescription',
   'title',
   'placeholder',
   'alt',
+  'children',
 ]);
+
+/** Elements whose `label` attribute is shown as text. */
+const LABELLED_ELEMENTS = new Set(['option', 'optgroup', 'track']);
+/** The `type` values of an <input> that shows its `value` as the text of a button. */
+const BUTTON_INPUT_TYPES = new Set(['submit', 'button', 'reset']);
 
 const LETTER = /\p{L}/u;
 const SHOWN_LENGTH = 40;
@@ -63,9 +87,21 @@ function shown(value) {
  * The literal strings an expression would put on screen: [{ node, value }]. Calls, identifiers and
  * member accesses are values from elsewhere and yield nothing.
  */
-function literalsShownBy(expression) {
+function literalsShownBy(sourceCode, expression, followConst = true) {
   const node = unwrap(expression);
+  const next = (child) => literalsShownBy(sourceCode, child, followConst);
   switch (node.type) {
+    case 'Identifier': {
+      // One step through a const: `const heading = 'Users'; <h1>{heading}</h1>`. The report stays at
+      // the place where the text is shown.
+      const initializer = followConst ? constInitializer(sourceCode, node) : undefined;
+      return initializer === undefined
+        ? []
+        : literalsShownBy(sourceCode, initializer, false).map((literal) => ({
+            node,
+            value: literal.value,
+          }));
+    }
     case 'Literal':
       return typeof node.value === 'string' && LETTER.test(node.value)
         ? [{ node, value: node.value }]
@@ -75,34 +111,70 @@ function literalsShownBy(expression) {
       return LETTER.test(fixedText) ? [{ node, value: fixedText }] : [];
     }
     case 'ConditionalExpression':
-      return [...literalsShownBy(node.consequent), ...literalsShownBy(node.alternate)];
+      return [...next(node.consequent), ...next(node.alternate)];
     case 'LogicalExpression':
       // `a && b` shows b (or a falsy a); `a || b` and `a ?? b` can show either side.
-      return node.operator === '&&'
-        ? literalsShownBy(node.right)
-        : [...literalsShownBy(node.left), ...literalsShownBy(node.right)];
+      return node.operator === '&&' ? next(node.right) : [...next(node.left), ...next(node.right)];
     case 'BinaryExpression':
-      return node.operator === '+'
-        ? [...literalsShownBy(node.left), ...literalsShownBy(node.right)]
-        : [];
+      return node.operator === '+' ? [...next(node.left), ...next(node.right)] : [];
     default:
       return [];
   }
 }
 
+/** The string value of a JSX attribute, when it is written as a plain string. */
+function plainValue(attribute) {
+  const { value } = attribute;
+  if (value?.type === 'Literal') return value.value;
+  if (value?.type === 'JSXExpressionContainer' && value.expression.type === 'Literal') {
+    return value.expression.value;
+  }
+  return undefined;
+}
+
+/**
+ * `label` of <option>, <optgroup> and <track>, and `value` of an <input> that is a button, are text
+ * on the screen. On a component they cannot be judged (the component may never show them).
+ */
+function isShownByElement(attribute, name) {
+  const element = attribute.parent;
+  if (element.name.type !== 'JSXIdentifier') return false;
+  const tag = element.name.name;
+  if (name === 'label') return LABELLED_ELEMENTS.has(tag);
+  if (name === 'value' && tag === 'input') {
+    const type = element.attributes.find(
+      (candidate) =>
+        candidate.type === 'JSXAttribute' &&
+        candidate.name.type === 'JSXIdentifier' &&
+        candidate.name.name === 'type',
+    );
+    return type !== undefined && BUTTON_INPUT_TYPES.has(String(plainValue(type)));
+  }
+  return false;
+}
+
 export function create(context) {
+  const { sourceCode } = context;
+
   return {
     JSXText(node) {
-      if (LETTER.test(node.value)) {
-        context.report({ node, messageId: 'jsxText', data: { text: shown(node.value) } });
-      }
+      if (!LETTER.test(node.value)) return;
+      // Point at the words, not at the line breaks and indentation around them.
+      const raw = sourceCode.getText(node);
+      const start = node.range[0] + (raw.length - raw.trimStart().length);
+      const end = node.range[1] - (raw.length - raw.trimEnd().length);
+      context.report({
+        loc: { start: sourceCode.getLocFromIndex(start), end: sourceCode.getLocFromIndex(end) },
+        messageId: 'jsxText',
+        data: { text: shown(node.value) },
+      });
     },
 
     JSXExpressionContainer(node) {
       // The container of an attribute value is handled by the JSXAttribute visitor.
       if (node.parent.type !== 'JSXElement' && node.parent.type !== 'JSXFragment') return;
       if (node.expression.type === 'JSXEmptyExpression') return;
-      for (const literal of literalsShownBy(node.expression)) {
+      for (const literal of literalsShownBy(sourceCode, node.expression)) {
         context.report({
           node: literal.node,
           messageId: 'jsxText',
@@ -112,20 +184,36 @@ export function create(context) {
     },
 
     JSXAttribute(node) {
-      if (node.name.type !== 'JSXIdentifier' || !USER_FACING_ATTRIBUTES.has(node.name.name)) return;
+      if (node.name.type !== 'JSXIdentifier') return;
+      const { name } = node.name;
+      if (!USER_FACING_ATTRIBUTES.has(name) && !isShownByElement(node, name)) return;
       const { value } = node;
       if (value === null) return;
       const literals =
         value.type === 'JSXExpressionContainer'
           ? value.expression.type === 'JSXEmptyExpression'
             ? []
-            : literalsShownBy(value.expression)
-          : literalsShownBy(value);
+            : literalsShownBy(sourceCode, value.expression)
+          : literalsShownBy(sourceCode, value);
       for (const literal of literals) {
         context.report({
           node: literal.node,
           messageId: 'attribute',
-          data: { name: node.name.name, text: shown(literal.value) },
+          data: { name, text: shown(literal.value) },
+        });
+      }
+    },
+
+    // The same keys in an object literal: props that are spread, or handed to createElement.
+    Property(node) {
+      if (node.parent.type !== 'ObjectExpression') return;
+      const name = staticName(node);
+      if (name === undefined || !USER_FACING_ATTRIBUTES.has(name)) return;
+      for (const literal of literalsShownBy(sourceCode, node.value)) {
+        context.report({
+          node: literal.node,
+          messageId: 'attribute',
+          data: { name, text: shown(literal.value) },
         });
       }
     },

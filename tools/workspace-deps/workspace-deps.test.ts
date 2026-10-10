@@ -189,6 +189,78 @@ describe('workspace dependency guard: negative controls on a fixture workspace',
   });
 });
 
+describe('workspace dependency guard: what the walk skips (G0 defect D16)', () => {
+  const root = createTree({
+    'pnpm-workspace.yaml': 'packages:\n  - apps/*\n  - apps/web/embedded\n',
+    'package.json': manifest('fixture-root'),
+    'apps/web/package.json': manifest('@fixture/web', ['declared-dep']),
+    // Source that is called after build output or sits beside a package.json of its own.
+    'apps/web/build/plugins/sw.ts': "import 'undeclared-in-build-plugin';\n",
+    'apps/web/build/make-sw.mjs': "import 'undeclared-in-make-sw';\n",
+    'apps/web/src/features/coverage/org.ts': "import 'undeclared-in-coverage-folder';\n",
+    'apps/web/src/features/dist/x.ts': "import 'undeclared-in-dist-folder';\n",
+    'apps/web/src/.vite/y.ts': "import 'undeclared-in-vite-folder';\n",
+    'apps/web/tools/package.json': '{ "type": "module" }\n',
+    'apps/web/tools/script.mjs': "import 'undeclared-beside-a-type-module';\n",
+    // Output and installed code in the package root.
+    'apps/web/dist/out.js': "import 'ignored-dist';\n",
+    'apps/web/coverage/out.js': "import 'ignored-coverage';\n",
+    'apps/web/.vite/out.js': "import 'ignored-vite';\n",
+    'apps/web/test-results/out.js': "import 'ignored-test-results';\n",
+    'apps/web/node_modules/pkg/index.js': "import 'ignored-installed';\n",
+    'apps/web/src/node_modules/pkg/index.js': "import 'ignored-nested-installed';\n",
+    // A package that is a workspace member answers for itself.
+    'apps/web/embedded/package.json': manifest('@fixture/embedded'),
+    'apps/web/embedded/src/x.ts': "import 'undeclared-in-embedded';\n",
+    // The repository root.
+    'tools/check.ts': "import 'undeclared-in-tools';\n",
+    'dist/root-out.js': "import 'ignored-root-dist';\n",
+    'build/root-out.js': "import 'ignored-root-build';\n",
+    '.worktrees/copy/package.json': manifest('copy'),
+    '.worktrees/copy/x.ts': "import 'ignored-worktree';\n",
+    'docs/example.ts': "import 'ignored-documentation';\n",
+  });
+
+  function names(workspace: string): string[] {
+    return scanPackage(root, workspace).undeclared.map((finding) => finding.name);
+  }
+
+  it('reads the build folder of a package, a source folder named like build output, and a nested type=module package.json', () => {
+    expect(names('apps/web')).toEqual([
+      'undeclared-beside-a-type-module',
+      'undeclared-in-build-plugin',
+      'undeclared-in-coverage-folder',
+      'undeclared-in-dist-folder',
+      'undeclared-in-make-sw',
+      'undeclared-in-vite-folder',
+    ]);
+  });
+
+  it('skips build output and installed code directly in the package root, and node_modules anywhere', () => {
+    const everything = describeFindings(scanWorkspace(root)).join('\n');
+    for (const ignored of [
+      'ignored-dist',
+      'ignored-coverage',
+      'ignored-vite',
+      'ignored-test-results',
+      'ignored-installed',
+      'ignored-nested-installed',
+      'ignored-root-dist',
+      'ignored-root-build',
+      'ignored-worktree',
+      'ignored-documentation',
+    ]) {
+      expect(everything).not.toContain(ignored);
+    }
+  });
+
+  it('leaves a workspace member to itself, and reads it as its own package', () => {
+    expect(names('apps/web')).not.toContain('undeclared-in-embedded');
+    expect(names('apps/web/embedded')).toEqual(['undeclared-in-embedded']);
+    expect(names('.')).toEqual(['undeclared-in-tools']);
+  });
+});
+
 describe('workspace dependency guard: helpers', () => {
   it.each([
     ['vitest', 'vitest'],

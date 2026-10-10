@@ -90,4 +90,72 @@ export function bucket(cache: Map<string, number>, ip: string, route: string): n
     code: BUILT_QUERY,
     mustNotReport: [RULE],
   },
+  // G0 defects D9 and D15: SQL assembled over several statements, and where the rule looks.
+  {
+    name: 'SQL built up with += in a let and run later',
+    path: 'apps/server/src/__lint_canary__/sql-let.ts',
+    code: `
+interface Db {
+  prepare(text: string): { all(): unknown[] };
+}
+export function search(db: Db, x: string): unknown[] {
+  let q = 'SELECT * FROM t WHERE 1=1';
+  q += ' AND x = ' + x;
+  return db.prepare(q).all();
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a statement assembled by a helper function',
+    path: 'apps/server/src/__lint_canary__/sql-helper.ts',
+    code: `
+interface Db {
+  prepare(text: string): { all(): unknown[] };
+}
+declare function buildQuery(filters: string[]): string;
+export function search(db: Db, filters: string[]): unknown[] {
+  return db.prepare(buildQuery(filters)).all();
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a migration script outside src is linted too',
+    path: 'apps/server/scripts/__lint_canary__/sql-template.ts',
+    code: BUILT_QUERY,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a .mjs module of the server is linted',
+    path: 'apps/server/src/__lint_canary__/sql-template.mjs',
+    code: `
+export function find(db, id) {
+  return db.prepare(\`SELECT * FROM branding WHERE id = \${id}\`).all();
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a source folder that shares the name of build output is linted (coverage)',
+    path: 'apps/server/src/features/coverage/sql-template.ts',
+    code: BUILT_QUERY,
+    mustReport: [RULE],
+  },
+  {
+    name: 'control: the drizzle migrations folder is outside the rule',
+    path: 'apps/server/drizzle/__lint_canary__/migrate.ts',
+    code: BUILT_QUERY,
+    mustNotReport: [RULE],
+  },
+  {
+    name: 'control: a cache key that reads like a sentence is not SQL',
+    path: 'apps/server/src/__lint_canary__/sql-cache-key.ts',
+    code: `
+export function note(cache: Map<string, number>, ip: string): number | undefined {
+  return cache.get(\`rate limit from \${ip}\`);
+}
+`,
+    mustNotReport: [RULE],
+  },
 ] as const satisfies readonly CanaryCase[];

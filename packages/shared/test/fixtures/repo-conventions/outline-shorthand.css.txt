@@ -1,0 +1,13 @@
+mount: apps/web/src/styles/focus-shorthand.css
+.a:focus {
+  outline: 0 none;
+}
+.b:focus {
+  outline: none 0;
+}
+.c:focus {
+  outline: 0px solid transparent;
+}
+.d:focus-visible {
+  outline: hidden;
+}

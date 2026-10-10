@@ -1,0 +1,8 @@
+mount: apps/web/src/lib/permission-union.ts
+export type Capability =
+  | 'users:read'
+  | 'groups:read'
+  | 'contacts:read'
+  | 'audit:read'
+  | 'audit:export'
+  | 'settings:branding';

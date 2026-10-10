@@ -51,4 +51,46 @@ export function isSafe(value: unknown): boolean {
     code: CREATE_POLICY,
     mustNotReport: [RULE],
   },
+  // G0 defects D13 and D15: a factory reached in a way other than "const alias = window.trustedTypes".
+  {
+    name: 'a policy created through a fallback (window.trustedTypes ?? polyfill)',
+    path: 'apps/web/src/__lint_canary__/tt-fallback.ts',
+    code: `
+declare const polyfill: TrustedTypePolicyFactory;
+const tt = window.trustedTypes ?? polyfill;
+export const policy = tt.createPolicy('other', {});
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a policy created through a factory passed in as a parameter',
+    path: 'apps/web/src/__lint_canary__/tt-parameter.ts',
+    // The DOM library of TypeScript does not declare the Trusted Types API; @types/trusted-types or
+    // a module's own declaration does, under the name the rule looks for.
+    code: `
+interface TrustedTypePolicyFactory {
+  createPolicy(name: string, rules: object): unknown;
+}
+export function make(factory: TrustedTypePolicyFactory): unknown {
+  return factory.createPolicy('other', {});
+}
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a policy created through a getter and through globalThis.window',
+    path: 'apps/web/src/__lint_canary__/tt-getter.ts',
+    code: `
+const get = () => window.trustedTypes;
+export const a = get()?.createPolicy('other', {});
+export const b = globalThis.window.trustedTypes?.createPolicy('other', {});
+`,
+    mustReport: [RULE],
+  },
+  {
+    name: 'a source folder that shares the name of build output is linted (coverage)',
+    path: 'apps/web/src/features/coverage/tt-policy.ts',
+    code: CREATE_POLICY,
+    mustReport: [RULE],
+  },
 ] as const satisfies readonly CanaryCase[];
