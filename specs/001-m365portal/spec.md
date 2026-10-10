@@ -258,7 +258,7 @@ Every row names the behaviour that is required, not a hope. "Enforced by" uses t
 | E-25 | Container run with another uid, or a bind mount owned by someone else | `/readyz` 503 `data_dir_not_writable` with the remedy in the UI and in `docs/operations.md` (`chown 65532:65532`, or a named volume, which inherits the image's ownership). | `server/lifecycle.test.ts`, `server/docs-contract.test.ts` |
 | E-26 | Shutdown while a request is in flight | Drain up to 10 s; an upload in progress is aborted with 503; a write is either committed together with its audit entry or rolled back; leftover temporary files are removed at the next start; exit code 0 when drained. | `server/lifecycle.test.ts` |
 | E-27 | Injection through names and headers (path traversal in `/branding/<name>`, NUL, uppercase hex, wrong length, `.png.exe`; hostile `X-Request-Id`; multipart `filename="../../x"`; CRLF in values) | 404 for any asset name not matching `^[0-9a-f]{64}\.png$`; inbound request ids that do not match the pattern are replaced; client filenames are ignored; headers are never built from unvalidated input. | `server/branding/serve-assets.test.ts` (H-43), `server/api-conventions.test.ts` (H-38) |
-| E-28 | Many simultaneous image jobs | At most 2 run, up to 4 wait, the rest get 429 `image_processing_busy`; memory stays bounded. | `server/branding/hostile-uploads.test.ts` (H-39) |
+| E-28 | Many simultaneous image jobs, or a job that never finishes | At most 2 run, up to 4 wait, the rest get 429 `image_processing_busy`; memory stays bounded; a job over its 10 s budget gives 422 `image_processing_timeout` and its child process is killed. | `server/branding/hostile-uploads.test.ts` (H-39), `server/branding/job-runner.test.ts` |
 
 ---
 
@@ -380,7 +380,7 @@ Format: ID, level, requirement, enforcement. Where a row names a CI job, that jo
 | FR-A-094 | MUST | `GET /manifest.webmanifest` is generated from branding: `name`, `short_name` (cut at a grapheme boundary to 12 by the shared `shortOrgName`), `theme_color` (effective accent), a neutral `background_color`, `display: standalone`, `start_url` and `scope` `/`, icons including a maskable one. The organisation name is serialised as JSON data, never concatenated. | `server/branding/manifest.test.ts` |
 | FR-A-095 | MUST | HTML shell templating: per request the server injects the CSP nonce, the escaped organisation name in `<title>`, the accent and surface tokens for light and dark as CSS variables in a nonce-carrying `<style>`, the icon links, `theme-color`, the font preload and a small nonce-carrying boot script that sets `data-theme` and `lang` before first paint from the stored preference or the system. All values are inserted in one pass by a replacer function (never as a replacement string, whose `$&`, `` $` `` and `$'` patterns would be interpreted), and only the template is cached, never a filled shell (a cached shell would reuse a nonce). The organisation name `"><img src=x onerror=alert(1)>` is inert everywhere (title, manifest, UI, toasts, dialogs), and names such as `$&`, `$'` and `__M365_NONCE__` stay literal text. | `server/branding/html-shell.test.ts`; `e2e/branding-xss.spec.ts` (H-44); `e2e/no-flash.spec.ts` |
 | FR-A-096 | SHOULD | At start every referenced branding file is checked; a missing one logs `branding_asset_missing` (warn), the UI falls back to the monogram and `/readyz` stays 200. | `server/branding/serve-assets.test.ts` |
-| FR-A-097 | SHOULD | At most 2 image jobs run at once with a queue of 4; beyond that 429 `image_processing_busy` with `Retry-After`. Each job runs in a worker thread that is terminated after a 10 s budget (422 `image_processing_timeout`), so a pathological input cannot hold the process. | `server/branding/hostile-uploads.test.ts` (H-39) |
+| FR-A-097 | SHOULD | At most 2 image jobs run at once with a queue of 4; beyond that 429 `image_processing_busy` with `Retry-After`. Each job runs in its own child process (started with an empty environment, talking over IPC only) that is killed with SIGKILL after a 10 s budget (422 `image_processing_timeout`), so a pathological input cannot hold the main process, its libuv thread pool or its memory. A worker thread is not enough: `worker.terminate()` does not stop a native libvips or librsvg call that is already running (plan V-19). | `server/branding/hostile-uploads.test.ts` (H-39); `server/branding/job-runner.test.ts` (the child is gone after the budget, no orphan) |
 
 #### Accent tokens
 
@@ -560,7 +560,7 @@ The repository ships no reverse proxy, CDN or ingress, so it has no limits of it
 | Concurrent image jobs and queue | 2 and 4 | the app | 429 `image_processing_busy` |
 | Staging quota (unreferenced assets) | 32 files and 33,554,432 bytes (32 MiB) | the app | 409 `staging_quota_exceeded` |
 | SVG expanded element instances (`use`, gradient, clip-path and mask references counted transitively) | 100,000 | the app | `svg_too_complex` |
-| Image job time budget | 10 seconds | the app (worker thread terminated) | 422 `image_processing_timeout` |
+| Image job time budget | 10 seconds | the app (child process killed with SIGKILL) | 422 `image_processing_timeout` |
 | Request header size | 16,384 bytes | Node server option, set explicitly | any proxy may be stricter; the app sets no cookies in Phase A |
 | Headers timeout, request timeout, keep-alive timeout | 15 s, 60 s, 65 s | Node server options | keep-alive must exceed the idle timeout of whatever is in front (65 s covers a proxy that idles at 60 s) |
 | Rate limit `read` | capacity 120, refill 2 per second, per client address | the app | 429 `rate_limited` |
@@ -823,10 +823,10 @@ Every fixture is generated inside the test from a template (no malicious file is
 | H-21 | Malformed XML | NUL bytes, invalid characters, unclosed and mismatched tags | Rejected `svg_not_wellformed` |
 | H-22 | Compression | gzip-compressed SVG (`.svgz`) | Rejected `image_type_unsupported` |
 | H-23 | Nothing left | SVG whose content is entirely disallowed | Rejected `image_empty` |
-| H-24 | Reference loops | Gradient `href` cycles, `clip-path` and `mask` self-references, references to missing ids, and an exponential `use` fan-out without any cycle (a chain of groups that each reference the previous one ten times, expanding to far more than 100,000 instances) | Terminates within the time budget; neutralised or rejected `svg_too_complex` |
+| H-24 | Reference loops | Gradient `href` cycles, `clip-path` and `mask` self-references, references to missing ids, and an exponential `use` fan-out without any cycle (a chain of groups that each reference the previous one ten times, expanding to far more than 100,000 instances) | Rejected before rendering or terminated within the time budget (the child is killed); neutralised or rejected `svg_too_complex` |
 | H-25 | Polyglot | Valid PNG followed by HTML and JavaScript after `IEND` | Accepted; re-encoded output contains none of the trailing bytes |
 | H-26 | Metadata payload | JPEG with script text in EXIF and XMP comments, GPS tags and an embedded thumbnail | Accepted; output has no EXIF, XMP, ICC or thumbnail |
-| H-27 | Metadata payload | PNG with `tEXt`, `iTXt`, `zTXt` chunks carrying script text | Accepted; output chunk types limited to the pixel and header chunks |
+| H-27 | Metadata payload | PNG with `tEXt`, `iTXt`, `zTXt` chunks carrying script text | Accepted; output chunk types limited to `IHDR`, `PLTE`, `tRNS`, `IDAT`, `IEND` and `pHYs` (sharp always writes `pHYs`) |
 | H-28 | Pixel bomb | PNG header declaring 60,000 by 60,000 pixels; a small, highly compressible 40,000 by 40,000 image | Rejected `image_pixels_exceeded` before the full decode |
 | H-29 | Corrupt data | PNG and JPEG truncated at half length | Rejected `image_corrupt` |
 | H-30 | Animation | APNG with several frames | Accepted as the first frame, warning `animation_flattened` |
