@@ -1,7 +1,19 @@
 # Bouw-prompt: self-hosted Microsoft 365 beheerpanel (M365Portal)
 
-Gebruik deze prompt als startpunt voor een AI-codeeragent (of als input voor
-`/speckit-specify`). Hij is zelfstandig leesbaar.
+**Gebruik:** kopieer alles onder de kop *Prompt* (tot het einde van het bestand) en
+geef het aan een AI-codeeragent, of gebruik het als input voor `/speckit-specify`.
+De prompt is zelfstandig leesbaar.
+
+## Achtergrond: hostingadvies
+| Optie | Oordeel |
+|---|---|
+| GitHub Pages | Niet geschikt: statisch, geen veilige secrets, geen Exchange-aanroepen |
+| Azure Web App zonder container | Kan, maar Azure-gebonden en lastiger voor certificaten/pwsh |
+| **Docker, alles in 1 container** | **Aanbevolen**: draait overal, ook op Azure |
+
+Kernpunt: Graph kan geen leden aan distributielijsten toevoegen of mailcontacten
+beheren; daarvoor is de Exchange Online Admin API (app-only, certificaat,
+`Exchange.ManageAsApp` + Exchange-rol) nodig.
 
 ---
 
@@ -11,15 +23,30 @@ Je bent een senior full-stack engineer met diepe kennis van Microsoft Entra ID,
 Microsoft Graph en Exchange Online. Bouw **M365Portal**: een self-hosted webpanel
 waarmee een beheerder een Microsoft 365-tenant beheert.
 
+**Aanpak:** stel eerst maximaal 5 gerichte verduidelijkende vragen als iets echt
+onduidelijk is; kies anders zelf verstandige standaardwaarden en noteer ze als
+aannames in de spec. Bouw daarna in vier fasen, elk met werkende, geteste code en
+een eigen commit-reeks:
+- **Fase A:** monorepo, Docker-image, CI, design system en app-shell, branding.
+- **Fase B:** onboarding wizard en authenticatie.
+- **Fase C:** gebruikers en groepen (Graph).
+- **Fase D:** distributielijsten en mailcontacten (Exchange), audit log en
+  beveiligings-hardening, e2e-tests en documentatie.
+
+Verzin geen API's of cmdlet-parameters: controleer ze in de officiële Microsoft
+Learn-documentatie en markeer wat je niet kon verifiëren in `docs/open-points.md`.
+
 ### 0. Werkafspraken
 - Lees eerst `AGENTS.md` en `shared/guidelines/project-baseline.md` (als aanwezig in
   de repo of via App-Guidance) en volg die. Bump `VERSION` bij wijzigingen aan
-  runtime/build/deploy. Geen secrets in de repo of in logs.
+  runtime/build/deploy. Geen secrets in de repo of in logs. Ontbreekt `AGENTS.md`
+  in de repo, maak dan een korte aan met deze werkafspraken.
 - Werk spec-first: schrijf een korte spec (`/speckit-specify`), plan en taken, en
   implementeer daarna in kleine, geteste stappen.
 - Documenteer: README (install in 5 minuten), `docs/architecture.md`,
   `docs/security.md`, `docs/permissions.md` (elke permissie met reden).
-- UI en documentatie in **Nederlands en Engels** (i18n vanaf dag 1).
+- UI en documentatie in **Nederlands en Engels** (i18n vanaf dag 1); code,
+  identifiers, commit-berichten en code-commentaar in het Engels.
 
 ### 1. Hosting en architectuur (vast besluit)
 - **Eén Docker-image, één container**, draait overal (Azure Container Apps /
@@ -52,8 +79,12 @@ waarmee een beheerder een Microsoft 365-tenant beheert.
 - **Aanmelden bij het panel:** OpenID Connect (auth code + PKCE) tegen Entra ID.
   Alleen gebruikers in een in de wizard gekozen beheerdersgroep (of met een app role)
   krijgen toegang. Server-side sessies, CSRF-tokens, strikte cookies, rate limiting.
+- **Eén app-registratie** (confidential client met certificaat) dient voor zowel
+  de panel-login (OIDC) als de app-only toegang; de wizard vraagt de publieke
+  basis-URL van het panel (ook `http://localhost` is toegestaan) en registreert
+  daarvan de redirect-URI.
 - **Toegang tot de tenant (runtime):** app-only (client credentials) met
-  **certificaat** (geen client secret). Privésleutel versleuteld at rest in `/data`
+  **certificaat** (client assertion, geen client secret). Privésleutel versleuteld at rest in `/data`
   (sleutel uit env `APP_KEY` of Docker secret).
 - Least privilege; elke permissie gedocumenteerd.
 
@@ -79,7 +110,7 @@ hervatbaar en toont per stap status/rollback-hint**:
    - Graph application permissions toekennen en admin consent geven
      (minimaal `User.ReadWrite.All`, `Group.ReadWrite.All`,
      `GroupMember.ReadWrite.All`, `Directory.Read.All`, `Organization.Read.All`);
-   - `Exchange.ManageAsApp` toekennen en de service principal de rol
+   - de app role `Exchange.ManageAsApp` (resource Office 365 Exchange Online) toekennen en de service principal de rol
      **Exchange Administrator** (of een custom Exchange-rolgroep met minimaal
      benodigde rechten voor DL's en mailcontacten) geven;
    - redirect-URI's voor panel-login registreren, beheerdersgroep aanmaken/kiezen.
@@ -181,19 +212,21 @@ Weergave*:
 - **RBAC** in het panel (lezer / operator / beheerder) en step-up bevestiging bij
   gevoelige acties.
 - **Geheimen:** certificaat-privésleutel versleuteld met libsodium
-  (XChaCha20-Poly1305, via `libsodium-wrappers`); sleutel via Docker/Azure secret of Key Vault-referentie;
-  nooit in logs, error-pagina's of backups in leesbare vorm.
+  (XChaCha20-Poly1305, via `libsodium-wrappers`); sleutel via Docker/Azure secret of
+  Key Vault-referentie; nooit in logs, error-pagina's of backups in leesbare vorm.
 - **Webbeveiliging:** strikte **CSP met nonces** (geen `unsafe-inline`),
   Trusted Types, HSTS (preload), `Referrer-Policy`, `Permissions-Policy`,
-  COOP/COEP/CORP, `SameSite=Strict` `__Host-`-cookies, CSRF-tokens op elke
+  COOP/COEP/CORP, `__Host-`-cookies (`SameSite=Strict`, behalve de korte `state`-cookie tijdens de
+  OIDC-redirect, die `Lax` moet zijn), CSRF-tokens op elke
   schrijfactie, parametrische queries, uitvoer-escaping, rate limiting en
   brute-force-bescherming, strikte invoervalidatie en uploadbeperkingen.
 - **Least privilege richting Microsoft:** alleen de nodige permissies, bij voorkeur
   een beperkte Exchange-rolgroep in plaats van de volledige Exchange Administrator;
   documenteer per permissie het waarom en bied in de UI een "permissie-audit".
 - **Onveranderbaar audit log** (hash-keten) met wie/wat/wanneer/resultaat/IP.
-- **Supply chain:** vastgepinde dependencies, Dependabot/Renovate, `pnpm audit` in CI, secret scanning, CodeQL, image gebouwd op een minimale
-  (distroless of Alpine) basis, **cosign-handtekening**, **SLSA-provenance** en SBOM
+- **Supply chain:** vastgepinde dependencies, Dependabot/Renovate,
+  `pnpm audit` in CI, secret scanning, CodeQL, image gebouwd op een
+  minimale (distroless of Alpine) basis, **cosign-handtekening**, **SLSA-provenance** en SBOM
   (CycloneDX) bij elke release.
 - **Runtime:** non-root, `read_only` rootfs, `cap_drop: ALL`, `no-new-privileges`,
   seccomp-profiel; voorbeeld-`docker-compose.yml` en Azure-voorbeeld (Bicep) met
@@ -235,14 +268,3 @@ sluit af met een lijst van openstaande risico's en vervolgideeën (fase 2:
 licentiebeheer, shared mailboxes, MFA-overzicht, rollen).
 
 ---
-
-## Advies samengevat
-| Optie | Oordeel |
-|---|---|
-| GitHub Pages | Niet geschikt: statisch, geen veilige secrets, geen Exchange-aanroepen |
-| Azure Web App zonder container | Kan, maar Azure-gebonden en lastiger voor certificaten/pwsh |
-| **Docker, alles in 1 container** | **Aanbevolen**: draait overal, ook op Azure |
-
-Kernpunt: Graph kan geen leden aan distributielijsten toevoegen of mailcontacten
-beheren; daarvoor is de Exchange Online Admin API (app-only, certificaat,
-`Exchange.ManageAsApp` + Exchange-rol) nodig.
