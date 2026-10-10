@@ -163,6 +163,7 @@ An administrator (preview actor in Phase A) sets organisation name, accent colou
 4. **Given** more requests than a bucket allows, **Then** the excess gets 429 with `Retry-After`, and a spoofed `X-Forwarded-For` does not change the bucket unless the peer is a trusted proxy.
 5. **Given** `PREVIEW_MODE=true` with a `PUBLIC_BASE_URL` that is not loopback, **Then** startup refuses unless `PREVIEW_MODE_ALLOW_REMOTE=true` (A-30).
 6. **Given** a database with audit entries, **When** one entry is changed, deleted or reordered through raw SQL, **Then** `verifyChain()` reports the first bad sequence number.
+7. **Given** `PREVIEW_MODE=true` and the default loopback `PUBLIC_BASE_URL`, **When** a request arrives with a non-loopback `Host` header or with `Forwarded` or `X-Forwarded-*` headers (the port was published to a network, or a reverse proxy forwards to it), **Then** it is resolved as the anonymous actor and every write is denied and audited (FR-A-036).
 
 ### US-5 Navigate the application shell (Phase A, P2)
 

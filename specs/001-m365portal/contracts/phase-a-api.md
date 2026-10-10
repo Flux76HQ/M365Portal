@@ -266,7 +266,7 @@ Naming: the schema constant ends in `Schema`; the OpenAPI component id (`.meta({
 |---|---|
 | `permissions.ts` | `PERMISSIONS` (the 15 permissions of brief section 2a, one typed list), `PermissionSchema`, `hasAnyPermission` |
 | `problem.ts` | `PROBLEM_CODES` with status and title, `ProblemCodeSchema`, `ProblemFieldErrorSchema`, `ProblemSchema` (RFC 9457 members plus `code`, `requestId`, optional `errors[]` and, for `origin_not_allowed` only, `expectedOrigin`), `problemType(code)`, `problemMessageKey(code)` |
-| `limits.ts` | The constants of spec section 6.5 plus the staging quota (single source; mirrored to `docs/operations.md`) |
+| `limits.ts` | The constants of spec section 6.5, the staging quota and the SVG expansion cap included (single source; mirrored to `docs/operations.md`) |
 | `schemas/common.ts` | `Sha256HexSchema`, `HexColorSchema` (output, lowercase `#rrggbb`), `AccentInputSchema` (`#rgb` or `#rrggbb`, any case), `IsoTimestampSchema`, `RequestIdSchema` |
 | `schemas/health.ts` | `HealthzResponseSchema`, `ReadinessCheckSchema`, `ReadyzResponseSchema` |
 | `schemas/meta.ts` | `ActorSummarySchema`, `FeaturesSchema`, `MeResponseSchema`, `CsrfResponseSchema` |
