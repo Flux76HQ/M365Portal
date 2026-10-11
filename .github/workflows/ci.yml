@@ -1,0 +1,251 @@
+name: ci
+
+# Continuous integration: job `quality` (every static and unit-level control) and job `e2e`
+# (Playwright, axe, visual regression, Lighthouse). The job and step names are asserted by
+# scripts/test_workflows.py and cited by AGENTS.md and the docs; do not rename one without
+# renaming its citations.
+#
+# Action pins re-resolved on 2026-10-11 with `python scripts/resolve_action_pins.py` (git ls-remote
+# --tags, highest stable tag, annotated tags peeled to their commit). Every third-party action is
+# pinned by full commit SHA with its version in a trailing comment (FR-A-174); Dependabot proposes
+# the bumps. This workflow has not run on GitHub yet: see the first-run risks in the gate note
+# specs/001-m365portal/gate-notes/chunk-s7a.md.
+#
+# Every check step prints the exact remediation command when it fails (plan section 2).
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # corepack reads `packageManager` from package.json, so there is no pnpm action to pin.
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: |
+          pnpm install --frozen-lockfile || {
+            echo "::error::Install failed. Remediation: run 'pnpm install' locally through tools/INSTALL-PROTOCOL.md and commit pnpm-lock.yaml."
+            exit 1
+          }
+
+      - name: Generate route tree
+        run: pnpm routes:generate
+
+      - name: Route tree freshness
+        run: |
+          pnpm routes:check || {
+            echo "::error::The route tree is stale. Remediation: run 'pnpm routes:generate' and commit apps/web/src/routeTree.gen.ts."
+            exit 1
+          }
+
+      - name: Lint
+        run: |
+          pnpm lint || {
+            echo "::error::Lint failed. Remediation: run 'pnpm lint' locally and fix the findings ('pnpm format' fixes formatting only)."
+            exit 1
+          }
+
+      - name: Typecheck
+        run: |
+          pnpm typecheck || {
+            echo "::error::Typecheck failed. Remediation: run 'pnpm typecheck' locally and fix the type errors."
+            exit 1
+          }
+
+      # REQUIRE_DOCKER makes the compose checks of deploy-files.test.ts run, not skip (T-A-232).
+      - name: Unit and integration tests
+        env:
+          REQUIRE_DOCKER: "1"
+        run: |
+          pnpm test || {
+            echo "::error::Tests failed. Remediation: run 'pnpm test' locally; for one package use 'pnpm --filter <package> exec vitest run <file>'."
+            exit 1
+          }
+
+      - name: i18n catalogue checks
+        run: |
+          pnpm i18n:check || {
+            echo "::error::The catalogues are stale or invalid. Remediation: run 'pnpm i18n:merge' and commit packages/shared/src/i18n/locales/; fix the reported keys or values."
+            exit 1
+          }
+
+      - name: Design token freshness
+        run: |
+          pnpm tokens:check || {
+            echo "::error::The generated token CSS is stale. Remediation: run 'pnpm tokens:generate' and commit apps/web/src/styles/tokens.generated.css."
+            exit 1
+          }
+
+      # The committed snapshot must regenerate byte-identically from the migrated database.
+      - name: Schema snapshot check
+        run: |
+          pnpm schema:snapshot
+          git diff --exit-code -- apps/server/schema-snapshots/ || {
+            echo "::error::The schema snapshot is stale. Remediation: run 'pnpm schema:snapshot' and commit apps/server/schema-snapshots/."
+            exit 1
+          }
+
+      - name: Schema drift check
+        run: |
+          pnpm schema:check || {
+            echo "::error::The schema and the migrations disagree. Remediation: run 'pnpm schema:check' locally; generate a new migration instead of editing a shipped one, then run 'pnpm schema:snapshot'."
+            exit 1
+          }
+
+      - name: Build
+        run: |
+          pnpm build || {
+            echo "::error::Build failed. Remediation: run 'pnpm build' locally and fix the first error."
+            exit 1
+          }
+
+      - name: Bundle budget
+        run: |
+          pnpm bundle:check || {
+            echo "::error::A bundle budget is exceeded. Remediation: run 'pnpm build && pnpm bundle:check' locally, reduce the bundle, and never raise scripts/bundle-budget.json (the budget only ratchets down)."
+            exit 1
+          }
+
+      - name: Docs contract
+        run: |
+          pnpm docs:check || {
+            echo "::error::The documentation contract failed. Remediation: run 'pnpm docs:check' locally and update the documents in both languages (AGENTS.md section 5)."
+            exit 1
+          }
+
+      - name: Dependency audit (production)
+        run: |
+          pnpm audit --prod || {
+            echo "::error::A production dependency has a known vulnerability. Remediation: run 'pnpm audit --prod', upgrade through tools/INSTALL-PROTOCOL.md, or record an accepted risk in docs/open-points.md."
+            exit 1
+          }
+
+      - name: Dependency audit (all, high)
+        run: |
+          pnpm audit --audit-level=high || {
+            echo "::error::A dependency has a high or critical vulnerability. Remediation: run 'pnpm audit --audit-level=high' and upgrade through tools/INSTALL-PROTOCOL.md."
+            exit 1
+          }
+
+      - name: Secret scan
+        id: secret_scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          exit-code: "1"
+
+      - name: Secret scan hint
+        if: ${{ failure() && steps.secret_scan.outcome == 'failure' }}
+        run: |
+          echo "::error::A secret-like value was found. Remediation: remove it from the file and from history, rotate the secret, and use a generated throwaway value in tests (AGENTS.md section 4)."
+
+      # actionlint runs from its download script at the pinned commit (rhysd/actionlint v1.7.12).
+      - name: Workflow lint
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12 "${RUNNER_TEMP}" &&
+          "${RUNNER_TEMP}/actionlint" -color || {
+            echo "::error::actionlint found a problem in a workflow. Remediation: fix the reported lines in .github/workflows/ and run 'python -m unittest scripts/test_workflows.py' locally."
+            exit 1
+          }
+
+      # scripts/test_workflows.py reads the workflows with PyYAML.
+      - name: Install PyYAML
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.1
+
+      - name: Python governance and deploy tests
+        run: |
+          python -m unittest discover -s scripts || {
+            echo "::error::A Python test failed. Remediation: run 'python -m unittest discover -s scripts' locally and fix the first failure."
+            exit 1
+          }
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: |
+          pnpm install --frozen-lockfile || {
+            echo "::error::Install failed. Remediation: run 'pnpm install' locally through tools/INSTALL-PROTOCOL.md and commit pnpm-lock.yaml."
+            exit 1
+          }
+
+      - name: Generate route tree
+        run: pnpm routes:generate
+
+      - name: Build
+        run: |
+          pnpm build || {
+            echo "::error::Build failed. Remediation: run 'pnpm build' locally and fix the first error."
+            exit 1
+          }
+
+      # GitHub runners only. The browser of the development sandbox is preinstalled there and
+      # `playwright install` is never run in it.
+      - name: Install Playwright browser
+        run: pnpm --filter @m365portal/e2e exec playwright install --with-deps chromium
+
+      - name: Playwright (e2e, axe, visual)
+        run: |
+          pnpm e2e || {
+            echo "::error::An end-to-end, accessibility or visual check failed. Remediation: download the e2e-artefacts artifact, open the Playwright report; run 'pnpm e2e' locally. A deliberate visual change is refreshed through the visual-baselines workflow and reviewed."
+            exit 1
+          }
+
+      - name: Lighthouse
+        run: |
+          pnpm lighthouse || {
+            echo "::error::A Lighthouse budget failed. Remediation: download the e2e-artefacts artifact (all three runs are kept) and run 'pnpm lighthouse' locally."
+            exit 1
+          }
+
+      # Paths are the outputs of e2e/playwright.config.ts and e2e/lighthouse/run.mjs (S9); a path
+      # that does not exist is ignored.
+      - name: Upload artefacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-artefacts
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+            e2e/lighthouse/results/
+          if-no-files-found: ignore
+          retention-days: 14

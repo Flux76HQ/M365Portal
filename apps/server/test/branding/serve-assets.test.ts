@@ -119,6 +119,10 @@ describe('R12 names that are not a registered hash (H-43)', () => {
     const { app: fixture, service } = await app();
     const hash = service.get().icons.favicon32.hash;
     expect((await fixture.client.get(`/branding/${hash.toUpperCase()}.png`)).status).toBe(404);
+    for (const suffix of ['', '.PNG', '.jpg', '.png.exe', '.png%20', '.pngx', '.png.']) {
+      expect((await fixture.client.get(`/branding/${hash}${suffix}`)).status).toBe(404);
+    }
+    expect((await fixture.client.get(`/branding/${hash}.png`)).status).toBe(200);
     expect((await fixture.client.get(`/branding/x/${hash}.png`)).status).toBe(404);
     expect((await fixture.client.get(`/branding/${hash}.png/`)).status).toBe(404);
   });
