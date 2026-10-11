@@ -98,10 +98,10 @@ function PreviewMark({
   readonly tools: BrandingTools;
 }) {
   // The monogram of the typed name, from the same shared function the server uses for the saved one.
-  const monogram = useMemo(() => tools.monogram.monogramFor(name), [tools, name]);
+  const tile = useMemo(() => tools.monogram.monogramFor(name), [tools, name]);
   return (
     <OrgMarkView
-      branding={{ orgName: name, logos, monogram }}
+      branding={{ orgName: name, logos, monogram: tile }}
       theme={theme}
       variant={variant}
       showName

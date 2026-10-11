@@ -28,13 +28,14 @@ const AssetRefShape = z.custom<AssetRef>(
 
 /** The schema the form validates with. `tools` are the lazily loaded shared normalisers. */
 export function createAppearanceSchema(tools: BrandingTools) {
+  // The judges are the shared normalisers; these only ask them whether they accept the text.
+  const nameIsAccepted = (text: string): boolean =>
+    tools.orgName.tryNormalizeOrgName(text) !== null;
+  const colourIsAccepted = (text: string): boolean =>
+    tools.accent.tryNormalizeAccent(text) !== null;
   return z.object({
-    orgName: z.string().refine((value) => tools.orgName.tryNormalizeOrgName(value) !== null, {
-      error: ORG_NAME_ISSUE,
-    }),
-    accent: z.string().refine((value) => tools.accent.tryNormalizeAccent(value) !== null, {
-      error: ACCENT_ISSUE,
-    }),
+    orgName: z.string().refine(nameIsAccepted, { error: ORG_NAME_ISSUE }),
+    accent: z.string().refine(colourIsAccepted, { error: ACCENT_ISSUE }),
     logos: z.object({
       light: AssetRefShape.nullable(),
       dark: AssetRefShape.nullable(),
