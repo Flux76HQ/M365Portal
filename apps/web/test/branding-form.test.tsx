@@ -488,7 +488,9 @@ describe('problem codes', () => {
       { expectedOrigin: 'https://panel.example.com' },
     ];
     await view.user.click(screen.getByRole('button', { name: en.t('appearance.save') }));
-    expect(await screen.findByText(/https:\/\/panel\.example\.com/)).toBeInTheDocument();
+    // The message is shown in the notice and repeated in the polite live region, so more than one
+    // element carries it, and how many depends on when the announcer has updated.
+    expect((await screen.findAllByText(/https:\/\/panel\.example\.com/)).length).toBeGreaterThan(0);
   });
 });
 
