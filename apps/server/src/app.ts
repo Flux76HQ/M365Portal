@@ -25,7 +25,7 @@ import { spaFallback } from './http/spa-fallback.js';
 import { serviceWorkerRoute, staticFallback } from './http/static.js';
 import type { ReadinessController } from './lifecycle/readiness.js';
 import type { Logger } from './logging/logger.js';
-import type { AppModule, ModuleDeps } from './module.js';
+import { assertModuleAvailability, type AppModule, type ModuleDeps } from './module.js';
 import { healthRoutes } from './routes/health.js';
 import { metaRoutes } from './routes/meta.js';
 import { robotsRoutes } from './routes/robots.js';
@@ -79,6 +79,7 @@ function assertUniqueModules(modules: readonly AppModule[]): void {
   for (const module of modules) {
     if (seen.has(module.id)) throw new Error(`two modules are named "${module.id}"`);
     seen.add(module.id);
+    assertModuleAvailability(module);
   }
 }
 

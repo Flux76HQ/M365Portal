@@ -1224,7 +1224,7 @@ describe('the posture line of the built server (FR-A-015)', () => {
       setupState: 'unknown',
       sealedStorage: 'unknown',
       storageWritable: true,
-      schemaVersion: 0,
+      schemaVersion: 1,
     });
     const text = JSON.stringify(postures[0]);
     for (const value of [dir, String(server.port), '10.1.2.3', '127.0.0.1', 'localhost']) {

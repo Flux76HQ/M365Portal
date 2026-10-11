@@ -110,9 +110,7 @@
       "indexes": {
         "audit_log_hash_uq": {
           "name": "audit_log_hash_uq",
-          "columns": [
-            "hash"
-          ],
+          "columns": ["hash"],
           "isUnique": true
         }
       },
@@ -261,12 +259,8 @@
           "name": "branding_logo_light_branding_asset_sha256_fk",
           "tableFrom": "branding",
           "tableTo": "branding_asset",
-          "columnsFrom": [
-            "logo_light"
-          ],
-          "columnsTo": [
-            "sha256"
-          ],
+          "columnsFrom": ["logo_light"],
+          "columnsTo": ["sha256"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -274,12 +268,8 @@
           "name": "branding_logo_dark_branding_asset_sha256_fk",
           "tableFrom": "branding",
           "tableTo": "branding_asset",
-          "columnsFrom": [
-            "logo_dark"
-          ],
-          "columnsTo": [
-            "sha256"
-          ],
+          "columnsFrom": ["logo_dark"],
+          "columnsTo": ["sha256"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -287,12 +277,8 @@
           "name": "branding_logo_compact_branding_asset_sha256_fk",
           "tableFrom": "branding",
           "tableTo": "branding_asset",
-          "columnsFrom": [
-            "logo_compact"
-          ],
-          "columnsTo": [
-            "sha256"
-          ],
+          "columnsFrom": ["logo_compact"],
+          "columnsTo": ["sha256"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -300,12 +286,8 @@
           "name": "branding_icon_favicon32_branding_asset_sha256_fk",
           "tableFrom": "branding",
           "tableTo": "branding_asset",
-          "columnsFrom": [
-            "icon_favicon32"
-          ],
-          "columnsTo": [
-            "sha256"
-          ],
+          "columnsFrom": ["icon_favicon32"],
+          "columnsTo": ["sha256"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -313,12 +295,8 @@
           "name": "branding_icon_apple180_branding_asset_sha256_fk",
           "tableFrom": "branding",
           "tableTo": "branding_asset",
-          "columnsFrom": [
-            "icon_apple180"
-          ],
-          "columnsTo": [
-            "sha256"
-          ],
+          "columnsFrom": ["icon_apple180"],
+          "columnsTo": ["sha256"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -326,12 +304,8 @@
           "name": "branding_icon_pwa192_branding_asset_sha256_fk",
           "tableFrom": "branding",
           "tableTo": "branding_asset",
-          "columnsFrom": [
-            "icon_pwa192"
-          ],
-          "columnsTo": [
-            "sha256"
-          ],
+          "columnsFrom": ["icon_pwa192"],
+          "columnsTo": ["sha256"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -339,12 +313,8 @@
           "name": "branding_icon_pwa512_branding_asset_sha256_fk",
           "tableFrom": "branding",
           "tableTo": "branding_asset",
-          "columnsFrom": [
-            "icon_pwa512"
-          ],
-          "columnsTo": [
-            "sha256"
-          ],
+          "columnsFrom": ["icon_pwa512"],
+          "columnsTo": ["sha256"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -352,12 +322,8 @@
           "name": "branding_icon_maskable512_branding_asset_sha256_fk",
           "tableFrom": "branding",
           "tableTo": "branding_asset",
-          "columnsFrom": [
-            "icon_maskable512"
-          ],
-          "columnsTo": [
-            "sha256"
-          ],
+          "columnsFrom": ["icon_maskable512"],
+          "columnsTo": ["sha256"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -451,9 +417,7 @@
       "indexes": {
         "branding_asset_unreferenced_idx": {
           "name": "branding_asset_unreferenced_idx",
-          "columns": [
-            "unreferenced_at"
-          ],
+          "columns": ["unreferenced_at"],
           "isUnique": false,
           "where": "unreferenced_at IS NOT NULL"
         }
@@ -549,10 +513,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "app_user_tid_oid_pk": {
-          "columns": [
-            "tid",
-            "oid"
-          ],
+          "columns": ["tid", "oid"],
           "name": "app_user_tid_oid_pk"
         }
       },
@@ -650,25 +611,19 @@
       "indexes": {
         "certificate_one_active": {
           "name": "certificate_one_active",
-          "columns": [
-            "state"
-          ],
+          "columns": ["state"],
           "isUnique": true,
           "where": "`state` = 'active'"
         },
         "certificate_one_pending": {
           "name": "certificate_one_pending",
-          "columns": [
-            "state"
-          ],
+          "columns": ["state"],
           "isUnique": true,
           "where": "`state` = 'pending'"
         },
         "certificate_sha1_uq": {
           "name": "certificate_sha1_uq",
-          "columns": [
-            "thumbprint_sha1"
-          ],
+          "columns": ["thumbprint_sha1"],
           "isUnique": true
         }
       },
@@ -677,12 +632,8 @@
           "name": "certificate_secret_id_secret_id_fk",
           "tableFrom": "certificate",
           "tableTo": "secret",
-          "columnsFrom": [
-            "secret_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["secret_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -794,27 +745,17 @@
       "indexes": {
         "rbac_assignment_unique": {
           "name": "rbac_assignment_unique",
-          "columns": [
-            "principal_type",
-            "principal_id",
-            "role_id",
-            "scope_hash"
-          ],
+          "columns": ["principal_type", "principal_id", "role_id", "scope_hash"],
           "isUnique": true
         },
         "rbac_assignment_principal_idx": {
           "name": "rbac_assignment_principal_idx",
-          "columns": [
-            "principal_type",
-            "principal_id"
-          ],
+          "columns": ["principal_type", "principal_id"],
           "isUnique": false
         },
         "rbac_assignment_role_idx": {
           "name": "rbac_assignment_role_idx",
-          "columns": [
-            "role_id"
-          ],
+          "columns": ["role_id"],
           "isUnique": false
         }
       },
@@ -823,12 +764,8 @@
           "name": "rbac_assignment_role_id_rbac_role_id_fk",
           "tableFrom": "rbac_assignment",
           "tableTo": "rbac_role",
-          "columnsFrom": [
-            "role_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["role_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -915,22 +852,15 @@
           "name": "rbac_assignment_scope_assignment_id_rbac_assignment_id_fk",
           "tableFrom": "rbac_assignment_scope",
           "tableTo": "rbac_assignment",
-          "columnsFrom": [
-            "assignment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["assignment_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "rbac_assignment_scope_assignment_id_position_pk": {
-          "columns": [
-            "assignment_id",
-            "position"
-          ],
+          "columns": ["assignment_id", "position"],
           "name": "rbac_assignment_scope_assignment_id_position_pk"
         }
       },
@@ -1013,10 +943,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "rbac_group_member_cache_user_oid_group_id_pk": {
-          "columns": [
-            "user_oid",
-            "group_id"
-          ],
+          "columns": ["user_oid", "group_id"],
           "name": "rbac_group_member_cache_user_oid_group_id_pk"
         }
       },
@@ -1076,9 +1003,7 @@
       "indexes": {
         "rbac_role_key_uq": {
           "name": "rbac_role_key_uq",
-          "columns": [
-            "key"
-          ],
+          "columns": ["key"],
           "isUnique": true
         }
       },
@@ -1132,22 +1057,15 @@
           "name": "rbac_role_permission_role_id_rbac_role_id_fk",
           "tableFrom": "rbac_role_permission",
           "tableTo": "rbac_role",
-          "columnsFrom": [
-            "role_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["role_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "rbac_role_permission_role_id_permission_pk": {
-          "columns": [
-            "role_id",
-            "permission"
-          ],
+          "columns": ["role_id", "permission"],
           "name": "rbac_role_permission_role_id_permission_pk"
         }
       },
@@ -1422,17 +1340,12 @@
       "indexes": {
         "session_principal_idx": {
           "name": "session_principal_idx",
-          "columns": [
-            "tid",
-            "oid"
-          ],
+          "columns": ["tid", "oid"],
           "isUnique": false
         },
         "session_expiry_idx": {
           "name": "session_expiry_idx",
-          "columns": [
-            "absolute_expires_at"
-          ],
+          "columns": ["absolute_expires_at"],
           "isUnique": false
         }
       },
@@ -1582,10 +1495,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "setup_object_kind_tenant_object_id_pk": {
-          "columns": [
-            "kind",
-            "tenant_object_id"
-          ],
+          "columns": ["kind", "tenant_object_id"],
           "name": "setup_object_kind_tenant_object_id_pk"
         }
       },
@@ -1806,10 +1716,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "setup_step_step_sub_action_pk": {
-          "columns": [
-            "step",
-            "sub_action"
-          ],
+          "columns": ["step", "sub_action"],
           "name": "setup_step_step_sub_action_pk"
         }
       },
@@ -1966,12 +1873,8 @@
           "name": "tenant_connection_certificate_id_certificate_id_fk",
           "tableFrom": "tenant_connection",
           "tableTo": "certificate",
-          "columnsFrom": [
-            "certificate_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["certificate_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }

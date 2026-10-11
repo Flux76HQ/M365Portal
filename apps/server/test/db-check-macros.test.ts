@@ -295,7 +295,7 @@ describe('no CHECK lists a value that later phases extend (FR-B-702, DM-04)', ()
     ['setup_step', phaseB.setupStep, ['step', 'sub_action', 'error_code', 'rollback_hint_key']],
     ['setup_object', phaseB.setupObject, ['kind']],
     ['setup_log', phaseB.setupLog, ['step', 'message_key']],
-    ['rbac_role_permission', phaseB.rbacRolePermission, ['permission']],
+    ['rbac_role_permission', phaseB.rbacRoleGrant, ['permission']],
     ['secret', phaseB.secret, ['purpose']],
   ];
 

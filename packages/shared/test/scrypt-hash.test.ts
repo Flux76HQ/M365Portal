@@ -163,11 +163,7 @@ describe('parseScryptHash: refused values', () => {
 
   it('never echoes the value, whatever the reason', () => {
     const canary = 'canary-hash-9f3e1c7a';
-    for (const value of [
-      `scrypt:131072:8:1:${canary}:${canary}`,
-      `${canary}`,
-      `scrypt:${canary}`,
-    ]) {
+    for (const value of [`scrypt:131072:8:1:${canary}:${canary}`, canary, `scrypt:${canary}`]) {
       const result = parseScryptHash(value);
       expect(result.ok).toBe(false);
       expect(JSON.stringify(result)).not.toContain(canary);

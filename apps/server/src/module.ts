@@ -47,6 +47,21 @@ export interface ModuleDeps {
   readonly isShuttingDown: () => boolean;
 }
 
+/**
+ * The two availability gates of Phase B (CB2): `setupOpen` (the setup routes exist only while the
+ * wizard is open, FR-B-201) and `breakGlass` (the break-glass routes exist only when the account is
+ * configured, FR-B-521). A gate is a predicate on the request; the route wrapper (T-B-237) answers
+ * the standard 404 for a route whose gate is closed. No other name is a gate.
+ */
+export const AVAILABILITY_GATES = ['setupOpen', 'breakGlass'] as const;
+
+export type AvailabilityGate = (typeof AVAILABILITY_GATES)[number];
+
+/** The predicates a module offers, by gate. A module offers the gates it can decide, not all. */
+export type ModuleAvailability = Readonly<
+  Partial<Record<AvailabilityGate, (request: Request) => boolean>>
+>;
+
 export interface AppModule {
   /** Unique, lower case words: `branding`. */
   readonly id: string;
@@ -58,6 +73,30 @@ export interface AppModule {
   start?(ctx: ModuleDeps): Promise<void>;
   /** Stop hook, called once at shutdown. */
   stop?(): Promise<void>;
+  /**
+   * Availability predicates (Phase B, additive): which gates this module can answer. Optional; the
+   * composition root merges them and the route wrapper reads them (`T-B-237`).
+   */
+  readonly availability?: ModuleAvailability;
+}
+
+/** Throws unless the `availability` of `module`, when there is one, names only the two gates, as functions. */
+export function assertModuleAvailability(module: AppModule): void {
+  const { availability } = module as { availability?: unknown };
+  if (availability === undefined) return;
+  if (typeof availability !== 'object' || availability === null || Array.isArray(availability)) {
+    throw new Error(`module "${module.id}": availability must be an object`);
+  }
+  for (const [gate, predicate] of Object.entries(availability)) {
+    if (!(AVAILABILITY_GATES as readonly string[]).includes(gate)) {
+      throw new Error(
+        `module "${module.id}" declares the gate "${gate}", which is not one of ${AVAILABILITY_GATES.join(' and ')}`,
+      );
+    }
+    if (typeof predicate !== 'function') {
+      throw new Error(`module "${module.id}": the gate "${gate}" must be a function`);
+    }
+  }
 }
 
 export type AppModuleFactory = (deps: ModuleDeps) => AppModule;

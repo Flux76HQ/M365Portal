@@ -134,7 +134,9 @@ export const PageQuerySchema = z
   })
   .meta({ id: 'PageQuery' });
 
+export type PageQuery = z.infer<typeof PageQuerySchema>;
+
 /** The page size of a parsed list query. */
-export function pageLimitOf(query: { readonly limit?: string | undefined }): number {
+export function pageLimitOf(query: PageQuery): number {
   return query.limit === undefined ? PAGE_LIMIT_DEFAULT : Number(query.limit);
 }

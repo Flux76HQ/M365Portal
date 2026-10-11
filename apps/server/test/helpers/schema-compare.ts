@@ -79,7 +79,7 @@ export function checksOf(createSql: string): Record<string, string> {
   const found: Record<string, string> = {};
   const header = /CONSTRAINT\s+(?:"([^"]+)"|`([^`]+)`|(\w+))\s+CHECK\s*\(/gi;
   for (const match of createSql.matchAll(header)) {
-    const open = (match.index ?? 0) + match[0].length - 1;
+    const open = match.index + match[0].length - 1;
     let depth = 0;
     let quote: string | undefined;
     for (let position = open; position < createSql.length; position += 1) {

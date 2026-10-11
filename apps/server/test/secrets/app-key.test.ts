@@ -159,7 +159,7 @@ describe('parseAppKeyFileContent: the file named by APP_KEY_FILE', () => {
     ['two trailing newlines', `${BASE64}\n\n`],
     ['a leading newline', `\n${BASE64}`],
     ['a trailing space before the newline', `${BASE64} \n`],
-    ['a byte order mark', `﻿${BASE64}`],
+    ['a byte order mark', `\ufeff${BASE64}`],
     ['empty content', ''],
     ['only a newline', '\n'],
   ])('refuses %s', (_label, content) => {

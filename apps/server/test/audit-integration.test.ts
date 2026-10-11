@@ -712,7 +712,7 @@ function append(
       targetId: '',
       outcome: 'success',
       ...entry,
-    } as Parameters<typeof appendAudit>[1]),
+    }),
   );
 }
 
@@ -757,7 +757,7 @@ describe('the actor kinds of the writer (FR-B-601, DM-05)', () => {
     const database = await auditDatabase();
     // A Phase A install wrote these: a preview row and an anonymous denial with permission_denied.
     append(database, {
-      actorKind: 'preview' as never,
+      actorKind: 'preview',
       actorId: 'preview',
       action: 'branding.apply',
       targetType: 'branding',
@@ -830,11 +830,11 @@ describe('the 19 actions of spec 6.9.6 (SB-21, SB-30)', () => {
       expect(() => {
         append(database, {
           action: name,
-          actorKind: declared.actorKinds[0] ?? 'system',
+          actorKind: declared.actorKinds[0],
           actorId: declared.actorKinds[0] === 'user' ? '00000000-0000-4000-8000-000000000001' : 'x',
           targetType: declared.targetType,
           targetId: '',
-          outcome: declared.outcomes[0] ?? 'success',
+          outcome: declared.outcomes[0],
         });
       }, name).not.toThrow();
     }
@@ -973,8 +973,8 @@ describe('the 38 new detail keys and their value rules (FR-B-601, DM-02)', () =>
   });
 
   it.each(VALID)('accepts %s = %j', (key, value) => {
-    expect(() => buildDetail({ [key]: value } as AuditDetail)).not.toThrow();
-    expect(JSON.parse(buildDetail({ [key]: value } as AuditDetail))).toEqual({ [key]: value });
+    expect(() => buildDetail({ [key]: value })).not.toThrow();
+    expect(JSON.parse(buildDetail({ [key]: value }))).toEqual({ [key]: value });
   });
 
   const INVALID: readonly (readonly [label: string, key: string, value: unknown])[] = [
@@ -1024,7 +1024,7 @@ describe('the 38 new detail keys and their value rules (FR-B-601, DM-02)', () =>
   it.each(INVALID.filter(([label]) => !label.includes('are cut')))(
     'rejects %s',
     (_label, key, value) => {
-      expect(() => buildDetail({ [key]: value } as AuditDetail)).toThrow(AuditDetailError);
+      expect(() => buildDetail({ [key]: value })).toThrow(AuditDetailError);
     },
   );
 
@@ -1047,7 +1047,7 @@ describe('the 38 new detail keys and their value rules (FR-B-601, DM-02)', () =>
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(AuditDetailError);
-    expect(String((thrown as Error).message)).not.toContain('CANARY');
+    expect((thrown as Error).message).not.toContain('CANARY');
   });
 
   it('rejects an unknown key, and a key that is named like a secret, by name', () => {
@@ -1064,7 +1064,7 @@ describe('the 38 new detail keys and their value rules (FR-B-601, DM-02)', () =>
       'Token',
       'KEY',
     ]) {
-      expect(() => buildDetail({ [key]: 'x' } as never), key).toThrow(AuditDetailError);
+      expect(() => buildDetail({ [key]: 'x' }), key).toThrow(AuditDetailError);
     }
     expect(() => buildDetail({ apiKey: 'x' } as never)).toThrow('named like a secret');
   });
@@ -1135,7 +1135,7 @@ describe('the 38 new detail keys and their value rules (FR-B-601, DM-02)', () =>
 
   it('passes the real builder through the guard', () => {
     expect(() => {
-      assertDetailRules((detail) => buildDetail(detail as AuditDetail));
+      assertDetailRules((detail) => buildDetail(detail));
     }).not.toThrow();
   });
 
@@ -1149,7 +1149,7 @@ describe('the 38 new detail keys and their value rules (FR-B-601, DM-02)', () =>
   it('fails a builder that refuses a valid value', () => {
     const strict = (detail: Record<string, unknown>): string => {
       if ('notAfter' in detail) throw new Error('no instants');
-      return buildDetail(detail as AuditDetail);
+      return buildDetail(detail);
     };
     expectGuardFails(assertDetailRules, strict, {
       name: 'detail rules',
@@ -1165,7 +1165,7 @@ describe('the 38 new detail keys and their value rules (FR-B-601, DM-02)', () =>
           typeof value === 'string' && /^[0-9A-F-]{36}$/.test(value) ? value.toLowerCase() : value,
         ]),
       );
-      return buildDetail(lowered as AuditDetail);
+      return buildDetail(lowered);
     };
     expectGuardFails(assertDetailRules, loose, {
       name: 'detail rules',

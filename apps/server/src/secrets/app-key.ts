@@ -61,10 +61,8 @@ function isWeak(key: Uint8Array): boolean {
 
 /** Read the text of `APP_KEY` (or the trimmed content of the key file). */
 export function parseAppKey(text: string): ParseAppKeyResult {
-  let key: Uint8Array | undefined;
-  if (HEX.test(text)) key = new Uint8Array(Buffer.from(text, 'hex'));
-  else key = decodeBase64Text(text);
-  if (key === undefined || key.length !== APP_KEY_BYTES) return { ok: false, reason: 'format' };
+  const key = HEX.test(text) ? new Uint8Array(Buffer.from(text, 'hex')) : decodeBase64Text(text);
+  if (key?.length !== APP_KEY_BYTES) return { ok: false, reason: 'format' };
   return isWeak(key) ? { ok: false, reason: 'weak' } : { ok: true, key };
 }
 

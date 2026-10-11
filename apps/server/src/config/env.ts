@@ -66,12 +66,13 @@ export interface AppConfig {
   readonly publicIsHttps: boolean;
   readonly trustProxy: TrustProxySetting;
   /**
-   * @deprecated Removed by Phase B (FR-B-102). `loadConfig` never sets this; it stays as an
+   * TRANSITIONAL. Removed by Phase B (FR-B-102): `loadConfig` never sets this. It stays as an
    * optional field only so that the Phase A preview resolver keeps compiling until `T-B-240`
-   * deletes it, and so that Phase A tests can hand that resolver a configuration directly.
+   * deletes it (`legacy-preview.ts` sets it at the start), and so that Phase A tests can hand that
+   * resolver a configuration directly.
    */
   readonly previewMode?: boolean;
-  /** @deprecated See `previewMode`. */
+  /** TRANSITIONAL, see `previewMode`. */
   readonly previewModeAllowRemote?: boolean;
   readonly showcase: boolean;
   readonly logLevel: LogLevel;

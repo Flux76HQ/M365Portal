@@ -61,8 +61,9 @@ export class RedirectUriError extends Error {
 }
 
 const FORBIDDEN_CHARACTERS = /[!$'(),;]/;
+// eslint-disable-next-line no-control-regex -- the point is to find control characters
 const CONTROL_OR_SPACE = /[\s\u0000-\u001f\u007f]/;
-// eslint-disable-next-line no-control-regex -- the point is to find anything outside printable ASCII
+// eslint-disable-next-line no-control-regex -- the point is to find anything outside ASCII
 const NON_ASCII = /[^\u0000-\u007f]/;
 
 /** The registered pair: plain http is only ever `localhost`, registered without the port. */

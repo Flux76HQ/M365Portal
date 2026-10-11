@@ -81,7 +81,7 @@ function assertMigrationFile(text: string): void {
   const problems: string[] = [];
   const markerAt = text.indexOf(MARKER);
   if (markerAt < 0) problems.push('the marker line of the hand-written section is missing');
-  if (text.indexOf(MARKER, markerAt + 1) >= 0 && markerAt >= 0)
+  if (text.includes(MARKER, markerAt + 1) && markerAt >= 0)
     problems.push('the marker line occurs twice');
 
   const counts = new Map<string, number>();
@@ -178,7 +178,7 @@ describe('the migration file (FR-B-701)', () => {
     const statements = MIGRATION_TEXT.split(BREAKPOINT);
     expect(statements.length).toBeGreaterThan(50);
     for (const statement of statements) {
-      if (/CREATE TRIGGER/.test(statement)) expect(statement).toMatch(/BEGIN[\s\S]*END;\s*$/);
+      if (statement.includes('CREATE TRIGGER')) expect(statement).toMatch(/BEGIN[\s\S]*END;\s*$/);
     }
   });
 
@@ -256,7 +256,7 @@ describe('the file guard (negative fixtures)', () => {
   });
 
   it('fails when a trigger sits in the generated section', () => {
-    const moved = MIGRATION_TEXT.replace(MARKER, `${MARKER.replace('hand-written', 'moved')}`);
+    const moved = MIGRATION_TEXT.replace(MARKER, MARKER.replace('hand-written', 'moved'));
     expectGuardFails(guard, moved, {
       name: 'file guard',
       reason: 'marker line of the hand-written section is missing',
@@ -647,7 +647,7 @@ const ASSERTIONS: readonly Case[] = [
       run(db, "UPDATE rbac_role_permission SET permission = 'contacts:update' WHERE role_id = 6");
       assert.equal(epochOf(db), ++epoch);
       run(db, 'DELETE FROM rbac_role_permission WHERE role_id = 6');
-      assert.equal(epochOf(db), ++epoch);
+      assert.equal(epochOf(db), epoch + 1);
     },
   },
   {

@@ -1216,7 +1216,7 @@ describe('secrets in the configuration never leave it (AGENTS.md section 4, FR-B
     const secret = new SecretText('canary-1234');
     expect(secret.reveal()).toBe('canary-1234');
     expect(String(secret)).toBe('[redacted]');
-    expect(`${String(secret)}`).not.toContain('canary');
+    expect(String(secret)).not.toContain('canary');
     expect(JSON.stringify({ secret })).toBe('{"secret":"[redacted]"}');
     expect(inspect(secret)).toBe('[redacted]');
     expect(Object.keys(secret)).toEqual([]);
