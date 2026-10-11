@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { AlertDialog } from 'radix-ui';
 import { Button } from './button';
 import {
@@ -18,6 +19,13 @@ export interface ConfirmDialogProps {
    * accessible description, so it is read out when the dialog opens.
    */
   readonly objectName: string;
+  /**
+   * The same sentence as nodes, shown instead of the plain `objectName` when text a person typed (an
+   * organisation name) is part of it: build it with `isolatedMessage` so a right-to-left name sits in
+   * a `<bdi>` and does not reorder the sentence (E-07). `objectName` stays the blank check and the
+   * text equivalent.
+   */
+  readonly objectContent?: ReactNode;
   /** The question or the action, without the object ("Delete contact"). */
   readonly title: string;
   /** What happens, and whether it can be undone. */
@@ -41,6 +49,7 @@ export function ConfirmDialog({
   open,
   onOpenChange,
   objectName,
+  objectContent,
   title,
   description,
   confirmLabel,
@@ -70,7 +79,7 @@ export function ConfirmDialog({
               <AlertDialog.Description asChild>
                 <div className="flex flex-col gap-1 text-body text-fg-secondary">
                   <span data-slot="confirm-object" className="font-semibold break-words text-fg">
-                    {objectName}
+                    {objectContent ?? objectName}
                   </span>
                   {description === undefined ? null : <span>{description}</span>}
                 </div>

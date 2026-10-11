@@ -10,6 +10,7 @@ import { FormField } from '../../components/ui/form-field';
 import { Input } from '../../components/ui/input';
 import { useToast } from '../../components/ui/toast';
 import { type ApiClient, ApiError } from '../../lib/api';
+import { isolatedMessage } from '../../lib/isolate';
 import { useTranslator } from '../../lib/locale';
 import { messageForError, translateProblemCode } from '../../lib/problem';
 import { brandingQueryOptions, queryKeys } from '../../lib/query';
@@ -86,7 +87,11 @@ export function AppearanceForm({ branding, tools, api }: AppearanceFormProps) {
   const values = useWatch({ control: form.control }) as AppearanceValues;
   const dirty = isDirty(values, baseline, compactDerived, tools);
   const objectName = t('appearance.object', { name: baseline.orgName });
-  const guardDialog = useUnsavedGuard({ dirty, objectName });
+  // The organisation name is typed text: in the sentence it sits in a <bdi> (E-07, defect D-3).
+  const objectContent = isolatedMessage(t, 'appearance.object', undefined, {
+    name: baseline.orgName,
+  });
+  const guardDialog = useUnsavedGuard({ dirty, objectName, objectContent });
 
   const adopt = useCallback(
     (next: Branding) => {
@@ -385,6 +390,7 @@ export function AppearanceForm({ branding, tools, api }: AppearanceFormProps) {
         open={confirmReset}
         onOpenChange={setConfirmReset}
         objectName={objectName}
+        objectContent={objectContent}
         title={t('appearance.reset.title')}
         description={t('appearance.reset.description')}
         confirmLabel={t('appearance.reset.confirm')}

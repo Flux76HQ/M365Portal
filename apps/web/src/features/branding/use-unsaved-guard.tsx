@@ -17,10 +17,16 @@ export interface UnsavedGuardOptions {
   readonly dirty: boolean;
   /** The name of the thing that would lose its changes ("Appearance of Contoso"). */
   readonly objectName: string;
+  /** The sentence as nodes (see `ConfirmDialog.objectContent`). */
+  readonly objectContent?: ReactNode;
 }
 
 /** Returns the dialog to render once, anywhere in the page. */
-export function useUnsavedGuard({ dirty, objectName }: UnsavedGuardOptions): ReactNode {
+export function useUnsavedGuard({
+  dirty,
+  objectName,
+  objectContent,
+}: UnsavedGuardOptions): ReactNode {
   const { t } = useTranslator();
   const blocker = useBlocker({
     shouldBlockFn: () => dirty,
@@ -45,6 +51,7 @@ export function useUnsavedGuard({ dirty, objectName }: UnsavedGuardOptions): Rea
         if (!open) blocker.reset?.();
       }}
       objectName={objectName}
+      objectContent={objectContent}
       title={t('appearance.leave.title')}
       description={t('appearance.leave.description')}
       confirmLabel={t('appearance.leave.confirm')}

@@ -1,8 +1,9 @@
 import type { AccentTokenSet } from '@m365portal/shared/branding/accent';
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { OrgMarkView } from '../../components/shell/OrgMark';
 import { Button } from '../../components/ui/button';
 import { Skeleton } from '../../components/ui/skeleton';
+import { isolatedMessage } from '../../lib/isolate';
 import { useTranslator } from '../../lib/locale';
 import { useBrandingTools, type BrandingTools } from './tools';
 import type { AssetRef, LogoVariant } from './types';
@@ -152,19 +153,25 @@ function PreviewPane({
   const variables = useMemo(() => paneVariables(tools, theme, accent), [tools, theme, accent]);
   const reference = useCssProperties<HTMLDivElement>(variables);
   const themeName = t(`preview.theme.${theme}`);
+  const labelId = useId();
 
   return (
     <div
       ref={reference}
       role="group"
-      aria-label={t('preview.paneLabel', { theme: themeName, name })}
+      aria-labelledby={labelId}
       data-preview-theme={theme}
       data-theme={theme}
       className="flex min-w-0 flex-col gap-2 rounded-lg border border-line-subtle bg-surface-page p-3 text-fg"
     >
+      {/* The name is typed text: it sits in a <bdi> in both sentences (E-07, defect D-3). An attribute
+          cannot hold an element, so the group is labelled through this element. */}
+      <span id={labelId} hidden>
+        {isolatedMessage(t, 'preview.paneLabel', { theme: themeName }, { name })}
+      </span>
       <h3 className="text-body-sm font-semibold text-fg">{themeName}</h3>
       <p className="sr-only">
-        {t('preview.summary', { theme: themeName, name, accent: accentHex })}
+        {isolatedMessage(t, 'preview.summary', { theme: themeName, accent: accentHex }, { name })}
       </p>
 
       <div

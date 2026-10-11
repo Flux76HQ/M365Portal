@@ -214,7 +214,10 @@ describe('reset', () => {
     const view = await open();
     await view.user.click(screen.getByRole('button', { name: en.t('appearance.reset.button') }));
     const dialog = await screen.findByRole('alertdialog');
-    expect(within(dialog).getByText('Appearance of Acme')).toBeInTheDocument();
+    // The name sits in a <bdi> inside the sentence (E-07), so the sentence is read from the element.
+    expect(dialog.querySelector('[data-slot="confirm-object"]')).toHaveTextContent(
+      /^Appearance of Acme$/,
+    );
     await view.user.click(
       within(dialog).getByRole('button', { name: en.t('appearance.reset.cancel') }),
     );
@@ -358,7 +361,10 @@ describe('the unsaved-changes guard', () => {
       void view.router.navigate({ to: '/' });
     });
     const dialog = await screen.findByRole('alertdialog');
-    expect(within(dialog).getByText('Appearance of Acme')).toBeInTheDocument();
+    // The name sits in a <bdi> inside the sentence (E-07), so the sentence is read from the element.
+    expect(dialog.querySelector('[data-slot="confirm-object"]')).toHaveTextContent(
+      /^Appearance of Acme$/,
+    );
     expect(view.router.state.location.pathname).toBe('/settings/appearance');
 
     await view.user.click(

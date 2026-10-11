@@ -374,8 +374,10 @@ describe('words', () => {
     expect(screen.getByRole('heading', { name: nl['preview.title']! })).toBeInTheDocument();
     expect(screen.getAllByText(nl['preview.state.hover']!).length).toBeGreaterThan(0);
     expect(
-      screen.getByText(
-        /Licht thema: de zijbalk, de koptekst en knoppen voor de organisatie Acme, met de accentkleur #[0-9a-f]{6}\./,
+      screen.getByText((_, element) =>
+        /^Licht thema: de zijbalk, de koptekst en knoppen voor de organisatie Acme, met de accentkleur #[0-9a-f]{6}\.$/.test(
+          element?.tagName === 'P' ? element.textContent : '',
+        ),
       ),
     ).toBeInTheDocument();
   });
