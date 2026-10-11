@@ -1,0 +1,13 @@
+{
+  "pages.appearance.stub": "The appearance settings are being built.",
+  "pages.backToDashboard": "Back to the dashboard",
+  "pages.noAccess.description": "Your account has none of the permissions this page needs. Ask an administrator if you think this is a mistake.",
+  "pages.noAccess.title": "You do not have access to this page",
+  "pages.notFound.description": "The address does not lead to a page of this panel. Check the address, or go back to the dashboard.",
+  "pages.notFound.title": "Page not found",
+  "pages.settings.appearance.description": "Organisation name, accent colour and logos.",
+  "pages.settings.later": "Connection settings arrive in Phase B, and access management in Phase D.",
+  "pages.settings.lead": "The settings of this panel.",
+  "pages.settings.list": "Available settings",
+  "pages.settings.title": "Settings"
+}

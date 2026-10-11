@@ -1,0 +1,15 @@
+{
+  "shortcuts.action.close": "Het palet of een dialoogvenster sluiten",
+  "shortcuts.action.overview": "Dit overzicht tonen",
+  "shortcuts.action.palette": "Het opdrachtenpalet openen",
+  "shortcuts.action.search": "Zoeken openen",
+  "shortcuts.close": "Sluiten",
+  "shortcuts.description": "Deze sneltoetsen werken op elke pagina.",
+  "shortcuts.key.command": "Cmd",
+  "shortcuts.key.control": "Ctrl",
+  "shortcuts.key.escape": "Esc",
+  "shortcuts.list": "Sneltoetsen",
+  "shortcuts.setting.hint": "Het vraagteken en de schuine streep werken alleen buiten tekstvelden. Zet ze uit als ze spraakbesturing of andere hulpmiddelen in de weg zitten. Ctrl of Cmd plus K werkt altijd.",
+  "shortcuts.setting.label": "Sneltoetsen met één teken",
+  "shortcuts.title": "Sneltoetsen"
+}

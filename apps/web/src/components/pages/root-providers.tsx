@@ -4,6 +4,8 @@ import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import { useEffect, type ReactNode } from 'react';
 import { LanguageProvider, useTranslator, type LanguageController } from '../../lib/locale';
 import { useBranding } from '../../lib/router-context';
+import type { AppStorage } from '../../lib/storage';
+import { StorageProvider } from '../../lib/storage-context';
 import type { AppRouter } from '../../router';
 import { UpdateToast } from '../shell/UpdateToast';
 import { MotionProvider } from '../ui/motion-provider';
@@ -12,6 +14,7 @@ import { ToastProvider } from '../ui/toast';
 // The providers of the application, outermost first (plan 9.1):
 //
 //   Query      the cache that holds `me` and `branding`, seeded from the boot data
+//   storage    where the components remember their choices (sidebar, shortcuts, table columns)
 //   language   the translator and the way to switch language
 //   Motion     LazyMotion and MotionConfig, with the CSP nonce for the styles Motion injects
 //   Router     the routes
@@ -28,16 +31,26 @@ export interface RootProvidersProps {
   readonly language?: LanguageController;
   /** The CSP nonce of the page (src/boot/nonce-shim.ts reads it from the meta tag). */
   readonly nonce?: string;
+  /** The storage the components remember their choices in; defaults to the one of the page. */
+  readonly storage?: AppStorage;
 }
 
-export function RootProviders({ router, queryClient, language, nonce }: RootProvidersProps) {
+export function RootProviders({
+  router,
+  queryClient,
+  language,
+  nonce,
+  storage,
+}: RootProvidersProps) {
   return (
     <QueryClientProvider client={queryClient}>
-      <LanguageProvider controller={language}>
-        <MotionProvider nonce={nonce}>
-          <RouterProvider router={router} />
-        </MotionProvider>
-      </LanguageProvider>
+      <StorageProvider storage={storage}>
+        <LanguageProvider controller={language}>
+          <MotionProvider nonce={nonce}>
+            <RouterProvider router={router} />
+          </MotionProvider>
+        </LanguageProvider>
+      </StorageProvider>
     </QueryClientProvider>
   );
 }

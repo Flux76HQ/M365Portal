@@ -1,0 +1,10 @@
+{
+  "errors.home": "Terug naar het dashboard",
+  "errors.reload": "De pagina opnieuw laden",
+  "errors.requestId": "Aanvraag-id",
+  "errors.retry": "Opnieuw proberen",
+  "errors.root.description": "Het paneel kon niet worden getoond. Probeer het opnieuw. Blijft het gebeuren, meld het dan aan je beheerder en noem het aanvraag-id als dat er is.",
+  "errors.root.title": "Er ging iets mis",
+  "errors.route.description": "Deze pagina kon niet worden getoond. De rest van het paneel werkt nog.",
+  "errors.route.title": "Deze pagina kon niet worden getoond"
+}

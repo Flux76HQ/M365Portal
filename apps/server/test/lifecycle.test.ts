@@ -35,8 +35,22 @@ import {
   type AppDatabase,
 } from '../src/db/index.js';
 import { runHealthcheck } from '../src/healthcheck.js';
+import { defineRoute } from '../src/http/route.js';
+import { ProblemError } from '../src/http/problem.js';
+import type { AppModule, AppModuleFactory, ModuleDeps } from '../src/module.js';
+import type { ShellRenderer } from '../src/shell-port.js';
+import {
+  installShutdownSignals,
+  startServer,
+  StartError,
+  type RunningServer,
+} from '../src/start.js';
 import { createReadiness, READINESS_CACHE_MS } from '../src/lifecycle/readiness.js';
-import { checkpointAndClose, createShutdown, type ClosableServer } from '../src/lifecycle/shutdown.js';
+import {
+  checkpointAndClose,
+  createShutdown,
+  type ClosableServer,
+} from '../src/lifecycle/shutdown.js';
 import { createStorageProbe, ensureDataDir } from '../src/lifecycle/storage-probe.js';
 import {
   createSweeperRegistry,
@@ -45,6 +59,7 @@ import {
 } from '../src/lifecycle/sweepers.js';
 import {
   buildLayout,
+  freePort,
   httpRequest,
   spawnServer,
   type BuiltLayout,
@@ -454,7 +469,9 @@ describe('the sweeper registry (plan 7.1 step 10)', () => {
 // ---------------------------------------------------------------------------------------------
 
 describe('shutdown (FR-A-014, plan 7.4)', () => {
-  function harness(options: { abort?: () => void | Promise<void>; closeDatabase?: () => void } = {}) {
+  function harness(
+    options: { abort?: () => void | Promise<void>; closeDatabase?: () => void } = {},
+  ) {
     const scheduler = createFakeScheduler();
     const capture = createLogCapture();
     const events: string[] = [];
@@ -492,7 +509,15 @@ describe('shutdown (FR-A-014, plan 7.4)', () => {
           events.push('database');
         }),
     });
-    return { shutdown, scheduler, events, capture, finish: () => finish() };
+    return {
+      shutdown,
+      scheduler,
+      events,
+      capture,
+      finish: () => {
+        finish();
+      },
+    };
   }
 
   it('stops accepting, closes idle connections, aborts work, drains, then closes the database: exit 0', async () => {
@@ -588,6 +613,30 @@ describe('shutdown (FR-A-014, plan 7.4)', () => {
       n: number;
     };
     expect(count.n).toBeGreaterThan(0);
+  });
+
+  it('truncates the WAL itself: with another connection still open the file is left empty, not full', async () => {
+    const { database, dataDir } = await migratedDatabase();
+    withTransaction(database, (tx) =>
+      appendAudit(tx, {
+        ts: '2026-10-10T12:00:00.000Z',
+        actorKind: 'system',
+        actorId: 'system',
+        action: 'branding.init',
+        outcome: 'success',
+      }),
+    );
+    const other = openDatabase({ path: databasePathOf(dataDir) });
+    onTestFinished(() => {
+      other.close();
+    });
+    const wal = join(dataDir, `${DATABASE_FILE_NAME}-wal`);
+    expect(statSync(wal).size).toBeGreaterThan(0);
+
+    checkpointAndClose(database);
+
+    // SQLite only checkpoints on its own when the LAST connection closes; this is the explicit one.
+    expect(statSync(wal).size).toBe(0);
   });
 
   it('checkpointAndClose on a closed database does nothing and does not throw', async () => {
@@ -719,7 +768,7 @@ describe('the built server (FR-A-012 to FR-A-016, FR-A-163, FR-A-187)', () => {
   // -- the build ---------------------------------------------------------------------------------
 
   describe('the build (TA-09)', () => {
-    it('bundles index, cli, healthcheck and every src/**/*-worker.ts as dist/<name>.js', async () => {
+    it('bundles index, cli, healthcheck and every src/**/*-worker.ts as dist/<name>.js', () => {
       const workers = readdirSync(join(SERVER_ROOT, 'src'), { recursive: true, encoding: 'utf8' })
         .filter((path) => path.endsWith('-worker.ts'))
         .map((path) => basename(path, '.ts'));
@@ -735,7 +784,9 @@ describe('the built server (FR-A-012 to FR-A-016, FR-A-163, FR-A-187)', () => {
     it('keeps the dependencies external and inlines the workspace package', () => {
       const index = readFileSync(join(layout.dist, 'index.js'), 'utf8');
       for (const name of ['hono', 'pino', 'better-sqlite3', 'drizzle-orm', 'zod']) {
-        expect(index, name).toMatch(new RegExp(`from ["']${name.replace('/', '\\/')}(/[^"']*)?["']`));
+        expect(index, name).toMatch(
+          new RegExp(`from ["']${name.replace('/', '\\/')}(/[^"']*)?["']`),
+        );
       }
       expect(index).not.toContain('@m365portal/shared');
     });
@@ -793,29 +844,6 @@ describe('the built server (FR-A-012 to FR-A-016, FR-A-163, FR-A-187)', () => {
       ]);
       const events = server.lines().map((line) => line.event);
       expect(events.indexOf('listening')).toBeGreaterThan(events.lastIndexOf('start_step') - 1);
-    });
-
-    it('logs the posture once at info, with the facts of FR-A-015 and no value or address', async () => {
-      const dir = await dataDirectory('posture');
-      const server = await start({
-        env: { DATA_DIR: dir, SHOWCASE: 'true', TRUST_PROXY: '10.1.2.3' },
-      });
-      const postures = server.lines().filter((line) => line.event === 'posture');
-      expect(postures).toHaveLength(1);
-      expect(postures[0]).toMatchObject({
-        level: 'info',
-        msg: 'posture',
-        preview: 'off',
-        trustProxy: 'list',
-        hsts: 'plain',
-        showcase: true,
-        storageWritable: true,
-        schemaVersion: 0,
-      });
-      const text = JSON.stringify(postures[0]);
-      for (const value of [dir, String(server.port), '10.1.2.3', '127.0.0.1', 'localhost']) {
-        expect(text, value).not.toContain(value);
-      }
     });
 
     it('applies umask 0077: the data directory is 0700 and the database 0600', async () => {
@@ -1165,3 +1193,349 @@ function runCli(
     });
   });
 }
+
+// ---------------------------------------------------------------------------------------------
+// The start sequence in process (T-A-045)
+// ---------------------------------------------------------------------------------------------
+
+describe('the start sequence (plan 7.1)', () => {
+  const WEB = join(SERVER_ROOT, 'test', 'fixtures', 'web-dist');
+
+  interface Started {
+    readonly running: RunningServer;
+    readonly port: number;
+    readonly dataDir: string;
+    readonly logs: ReturnType<typeof createLogCapture>;
+    readonly stderr: ReturnType<typeof createLogCapture>;
+  }
+
+  async function startIn(
+    modules: readonly AppModuleFactory[],
+    options: { dataDir?: string; env?: Record<string, string> } = {},
+  ): Promise<Started> {
+    const dataDir = options.dataDir ?? (await createTempDataDir()).path;
+    const port = await freePort();
+    const logs = createLogCapture();
+    const stderr = createLogCapture();
+    const running = await startServer({
+      env: {
+        PORT: String(port),
+        HOST: '127.0.0.1',
+        DATA_DIR: dataDir,
+        PUBLIC_BASE_URL: `http://localhost:${String(port)}`,
+        LOG_LEVEL: 'debug',
+        ...options.env,
+      },
+      stderr,
+      logDestination: logs,
+      modules,
+      paths: { webRoot: WEB, migrationsFolder: MIGRATIONS },
+      umask: () => undefined,
+    });
+    onTestFinished(async () => {
+      await running.stop();
+    });
+    return { running, port, dataDir, logs, stderr };
+  }
+
+  /** A start that is expected to be refused; the log and the error are returned. */
+  async function refused(
+    modules: readonly AppModuleFactory[],
+    options: { env?: Record<string, string>; dataDir?: string } = {},
+  ) {
+    const dataDir = options.dataDir ?? (await createTempDataDir()).path;
+    const port = await freePort();
+    const logs = createLogCapture();
+    const stderr = createLogCapture();
+    const failure = await startServer({
+      env: {
+        PORT: String(port),
+        HOST: '127.0.0.1',
+        DATA_DIR: dataDir,
+        PUBLIC_BASE_URL: `http://localhost:${String(port)}`,
+        ...options.env,
+      },
+      stderr,
+      logDestination: logs,
+      modules,
+      paths: { webRoot: WEB, migrationsFolder: MIGRATIONS },
+      umask: () => undefined,
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    return { failure, port, logs, stderr, dataDir };
+  }
+
+  function recorder(
+    id: string,
+    events: string[],
+    extra: Partial<AppModule> = {},
+  ): AppModuleFactory {
+    return (deps) => ({
+      id,
+      routes: () => {
+        events.push(`${id}.routes`);
+        return [];
+      },
+      start: async () => {
+        events.push(`${id}.start`);
+        // The database is migrated by the time a module starts (step 6 before step 7).
+        if (deps.database() !== undefined) {
+          deps.requireDatabase().sqlite.prepare('SELECT COUNT(*) FROM audit_log').get();
+        }
+        await Promise.resolve();
+      },
+      stop: () => {
+        events.push(`${id}.stop`);
+        return Promise.resolve();
+      },
+      ...extra,
+    });
+  }
+
+  it('starts the modules after the migrations and before the routes are built, then listens', async () => {
+    const events: string[] = [];
+    const { logs, port } = await startIn([recorder('a', events), recorder('b', events)]);
+    expect(events).toEqual(['a.start', 'b.start', 'a.routes', 'b.routes']);
+    const steps = logs
+      .lines()
+      .filter((line) => line.event === 'start_step')
+      .map((line) => line.step);
+    expect(steps).toEqual([
+      'config',
+      'web',
+      'storage',
+      'database',
+      'migrate',
+      'modules',
+      'routes',
+      'listen',
+    ]);
+    expect((await httpRequest(port, '/healthz')).status).toBe(200);
+  });
+
+  it('stops the modules in reverse order at shutdown and exits 0', async () => {
+    const events: string[] = [];
+    const { running } = await startIn([recorder('a', events), recorder('b', events)]);
+    events.length = 0;
+    await expect(running.stop('SIGTERM')).resolves.toBe(0);
+    expect(events).toEqual(['b.stop', 'a.stop']);
+    await expect(running.stop('SIGINT')).resolves.toBe(0);
+    expect(events).toEqual(['b.stop', 'a.stop']);
+    expect(running.isShuttingDown()).toBe(true);
+  });
+
+  it('a module whose start throws ends the start with exit code 1 before listening, naming the module', async () => {
+    const events: string[] = [];
+    const broken: AppModuleFactory = () => ({
+      id: 'broken',
+      routes: () => [],
+      start: () =>
+        Promise.reject(Object.assign(new Error('canary-secret text'), { name: 'SharpError' })),
+    });
+    const { failure, port, logs } = await refused([recorder('a', events), broken]);
+    expect(failure).toBeInstanceOf(StartError);
+    expect(failure).toMatchObject({ code: 'module_start_failed', exitCode: 1 });
+    expect(logs.lines().find((line) => line.event === 'start_failed')).toMatchObject({
+      module: 'broken',
+      error: 'SharpError',
+    });
+    expect(logs.text()).not.toContain('canary-secret');
+    // The module that had started is stopped again; the routes were never built.
+    expect(events).toEqual(['a.start', 'a.stop']);
+    await expect(httpRequest(port, '/healthz')).rejects.toMatchObject({ code: 'ECONNREFUSED' });
+  });
+
+  it('a route table that does not hold ends the start with exit code 1 and nothing listens', async () => {
+    const events: string[] = [];
+    const clash: AppModuleFactory = () => ({
+      id: 'clash',
+      routes: () => [
+        defineRoute({
+          id: 'health.live',
+          method: 'GET',
+          path: '/api/v1/clash',
+          access: { public: true },
+          rateLimit: 'read',
+          responses: { 200: { description: 'x' } },
+          handler: (c) => c.json({}),
+        }),
+      ],
+    });
+    const { failure, port } = await refused([recorder('a', events), clash]);
+    expect(failure).toMatchObject({ code: 'route_table_invalid', exitCode: 1 });
+    expect(events).toContain('a.stop');
+    await expect(httpRequest(port, '/healthz')).rejects.toMatchObject({ code: 'ECONNREFUSED' });
+  });
+
+  it('two modules with one id are refused', async () => {
+    const { failure } = await refused([recorder('same', []), recorder('same', [])]);
+    expect(failure).toMatchObject({ code: 'route_table_invalid' });
+  });
+
+  it('degraded mode skips the module start hooks but still builds their routes', async () => {
+    const events: string[] = [];
+    const blocked = await unwritableDataDir();
+    const { running, port } = await startIn([recorder('a', events)], { dataDir: blocked.path });
+    expect(running.storageAvailable).toBe(false);
+    expect(events).toEqual(['a.routes']);
+    expect((await httpRequest(port, '/readyz')).status).toBe(503);
+    expect((await httpRequest(port, '/healthz')).status).toBe(200);
+  });
+
+  it('degraded mode gives a module no database, and requireDatabase is the 503 of storage', async () => {
+    const blocked = await unwritableDataDir();
+    let seen: ModuleDeps | undefined;
+    await startIn(
+      [
+        (deps) => {
+          seen = deps;
+          return { id: 'probe', routes: () => [] };
+        },
+      ],
+      { dataDir: blocked.path },
+    );
+    expect(seen?.database()).toBeUndefined();
+    expect(seen?.storageAvailable()).toBe(false);
+    expect(() => seen?.requireDatabase()).toThrow(ProblemError);
+  });
+
+  it('uses the shell of the first module that has one, in place of the placeholder', async () => {
+    const shell: ShellRenderer = {
+      render: ({ nonce }) =>
+        Promise.resolve(`<!doctype html><title>module shell</title><i>${nonce}</i>`),
+    };
+    const { port } = await startIn([recorder('plain', []), recorder('with-shell', [], { shell })]);
+    const page = await httpRequest(port, '/', { headers: { accept: 'text/html' } });
+    expect(page.status).toBe(200);
+    expect(page.body).toContain('module shell');
+  });
+
+  it('the placeholder shell serves when no module has one', async () => {
+    const { port } = await startIn([]);
+    const page = await httpRequest(port, '/', { headers: { accept: 'text/html' } });
+    expect(page.status).toBe(200);
+    expect(page.body).toContain('__M365_TITLE__');
+    expect(page.body).not.toContain('__M365_NONCE__');
+  });
+
+  it('a module can register a sweeper, which runs once the server is up', async () => {
+    let swept = 0;
+    await startIn([
+      (deps) => ({
+        id: 'sweeping',
+        routes: () => [],
+        start: () => {
+          deps.sweepers.register({
+            name: 'sweeping.old',
+            run: () => {
+              swept += 1;
+            },
+          });
+          return Promise.resolve();
+        },
+      }),
+    ]);
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    expect(swept).toBe(1);
+  });
+
+  it('sets umask 0077 before it touches the data directory, and not at all for a bad configuration', async () => {
+    const masks: number[] = [];
+    const port = await freePort();
+    const dir = await createTempDataDir();
+    const running = await startServer({
+      env: { PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dir.path },
+      stderr: createLogCapture(),
+      logDestination: createLogCapture(),
+      modules: [],
+      paths: { webRoot: WEB, migrationsFolder: MIGRATIONS },
+      umask: (mask) => masks.push(mask),
+    });
+    onTestFinished(async () => {
+      await running.stop();
+    });
+    expect(masks).toEqual([0o077]);
+
+    const bad: number[] = [];
+    const stderr = createLogCapture();
+    await expect(
+      startServer({
+        env: { PORT: '80' },
+        stderr,
+        logDestination: createLogCapture(),
+        modules: [],
+        umask: (mask) => bad.push(mask),
+      }),
+    ).rejects.toMatchObject({ code: 'config_invalid', exitCode: 1 });
+    expect(bad).toEqual([]);
+    expect(stderr.text()).toContain('PORT');
+  });
+
+  it('a storage failure that a request meets is told to readiness: corruption shows in /readyz at once', async () => {
+    const corrupting: AppModuleFactory = () => ({
+      id: 'corrupting',
+      routes: () => [
+        defineRoute({
+          id: 'corrupting.read',
+          method: 'GET',
+          path: '/api/v1/corrupting',
+          access: { public: true },
+          rateLimit: 'read',
+          responses: { 200: { description: 'x' } },
+          handler: () => {
+            throw Object.assign(new Error('canary-secret'), { code: 'SQLITE_CORRUPT' });
+          },
+        }),
+      ],
+    });
+    const { port, logs } = await startIn([corrupting]);
+    expect(JSON.parse((await httpRequest(port, '/readyz')).body)).toMatchObject({
+      status: 'ready',
+    });
+
+    const failed = await httpRequest(port, '/api/v1/corrupting');
+    expect(failed.status).toBe(503);
+    expect(failed.body).not.toContain('canary-secret');
+
+    // The cache of /readyz is 2 s on the real clock; the report made the next answer a fresh one.
+    const ready = await httpRequest(port, '/readyz');
+    expect(ready.status).toBe(503);
+    expect(ReadyzResponseSchema.parse(JSON.parse(ready.body)).checks[1]).toEqual({
+      name: 'database',
+      ok: false,
+      code: 'database_corrupt',
+    });
+    expect(logs.text()).not.toContain('canary-secret');
+  });
+
+  it('installShutdownSignals runs the sequence once per signal and exits with its code', async () => {
+    const handlers = new Map<string, () => void>();
+    const exits: number[] = [];
+    const stops: string[] = [];
+    installShutdownSignals(
+      {
+        stop: (signal) => {
+          stops.push(signal ?? '');
+          return Promise.resolve(1);
+        },
+      },
+      {
+        once: (signal, handler) => handlers.set(signal, handler),
+        exit: ((code: number) => {
+          exits.push(code);
+        }) as (code: number) => never,
+      },
+    );
+    expect([...handlers.keys()].sort()).toEqual(['SIGINT', 'SIGTERM']);
+    handlers.get('SIGTERM')?.();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    expect(stops).toEqual(['SIGTERM']);
+    expect(exits).toEqual([1]);
+  });
+});

@@ -1,0 +1,14 @@
+{
+  "dashboard.card.contacts": "Mail contacts",
+  "dashboard.card.distributionLists": "Distribution lists",
+  "dashboard.card.empty": "Not connected yet",
+  "dashboard.card.error": "Could not be loaded",
+  "dashboard.card.groups": "Groups",
+  "dashboard.card.loading": "Loading {name}",
+  "dashboard.card.users": "Users",
+  "dashboard.cards": "Counters",
+  "dashboard.empty.description": "The counters fill in once a Microsoft 365 tenant is connected. Connecting a tenant arrives in Phase B; until then this panel shows no numbers rather than made-up ones.",
+  "dashboard.empty.title": "No tenant connected yet",
+  "dashboard.lead": "An overview of your Microsoft 365 tenant.",
+  "dashboard.title": "Dashboard"
+}

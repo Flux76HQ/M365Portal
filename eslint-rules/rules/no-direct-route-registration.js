@@ -24,14 +24,6 @@
 //   - by name, always: the identifier `app`, a member named `app` (`this.app`, `c.app`), a
 //     `new Hono()` expression, and a call chain on any of those (`app.use(mw).get(...)`)
 //
-// TEMPORARY EXEMPTION. The scaffold's apps/server/src/app.ts registers `GET /healthz` directly.
-// That one call, in that one file, is excused so that the repository stays green until the stream
-// that owns the file replaces it (T-A-042 declares the health routes with defineRoute, T-A-045
-// builds the application in the composition root). Any other route in app.ts, and /healthz
-// anywhere else, is refused. Once app.ts no longer contains the call, delete LEGACY_HEALTH_ROUTE,
-// `isLegacyHealthRoute` and the matching cases of the test; nothing else changes. The test of this
-// rule reads app.ts and goes red the moment the call is gone, so the exemption cannot be forgotten.
-//
 // A receiver of type `any` is not recognised (nothing can be said about it); typescript-eslint's
 // no-unsafe-call and no-unsafe-member-access, on in the typed configuration, report it.
 import { posix, sep } from 'node:path';
@@ -77,7 +69,6 @@ const HONO_CLASSES = new Set(['Hono', 'OpenAPIHono']);
 /** Modules the Hono classes come from: `hono`, `hono/tiny`, `@hono/zod-openapi`. */
 const HONO_PACKAGE = /^(?:hono(?:\/.*)?|@hono\/.+)$/;
 const APPLICATION_FILE = 'apps/server/src/app.ts';
-const LEGACY_HEALTH_ROUTE = { method: 'get', path: '/healthz' };
 
 /** True when the type is Hono or OpenAPIHono, or derives from, contains or is constrained by one. */
 function isHonoType(type, seen = new Set(), depth = 0) {
@@ -163,16 +154,6 @@ export function create(context) {
     return type?.getSymbol()?.getName() ?? 'Hono';
   }
 
-  function isLegacyHealthRoute(method, call) {
-    const first = call?.arguments[0];
-    return (
-      inApplicationFile &&
-      method === LEGACY_HEALTH_ROUTE.method &&
-      first?.type === 'Literal' &&
-      first.value === LEGACY_HEALTH_ROUTE.path
-    );
-  }
-
   /** The call a member expression is the callee of, or undefined (it is only referenced). */
   function callOf(member) {
     const outer = member.parent.type === 'ChainExpression' ? member.parent : member;
@@ -207,7 +188,7 @@ export function create(context) {
         context.report({ node: node.property, messageId: 'directRoute', data: { method: label } });
         return;
       }
-      if (!ROUTE_METHODS.has(method) || isLegacyHealthRoute(method, call)) return;
+      if (!ROUTE_METHODS.has(method)) return;
       context.report({ node: node.property, messageId: 'directRoute', data: { method } });
     },
 

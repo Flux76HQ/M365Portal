@@ -1,0 +1,13 @@
+{
+  "shell.actor.anonymous": "Not signed in",
+  "shell.actor.label": "Acting as: {name}",
+  "shell.actor.preview": "Preview administrator",
+  "shell.org.fallback": "Organisation",
+  "shell.search.label": "Search or run a command",
+  "shell.sidebar.close": "Close menu",
+  "shell.sidebar.collapse": "Collapse sidebar",
+  "shell.sidebar.drawerTitle": "Navigation menu",
+  "shell.sidebar.expand": "Expand sidebar",
+  "shell.sidebar.open": "Open menu",
+  "shell.version": "Version {version}"
+}

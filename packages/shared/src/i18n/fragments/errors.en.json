@@ -1,0 +1,10 @@
+{
+  "errors.home": "Back to the dashboard",
+  "errors.reload": "Reload the page",
+  "errors.requestId": "Request id",
+  "errors.retry": "Try again",
+  "errors.root.description": "The panel could not be shown. Try again. If it keeps happening, tell your administrator and mention the request id when there is one.",
+  "errors.root.title": "Something went wrong",
+  "errors.route.description": "This page could not be shown. The rest of the panel still works.",
+  "errors.route.title": "This page could not be shown"
+}

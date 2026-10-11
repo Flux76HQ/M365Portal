@@ -1,0 +1,13 @@
+{
+  "pages.appearance.stub": "De uiterlijkinstellingen worden gebouwd.",
+  "pages.backToDashboard": "Terug naar het dashboard",
+  "pages.noAccess.description": "Je account heeft geen van de rechten die deze pagina nodig heeft. Vraag het een beheerder als je denkt dat dit niet klopt.",
+  "pages.noAccess.title": "Je hebt geen toegang tot deze pagina",
+  "pages.notFound.description": "Het adres leidt niet naar een pagina van dit paneel. Controleer het adres of ga terug naar het dashboard.",
+  "pages.notFound.title": "Pagina niet gevonden",
+  "pages.settings.appearance.description": "Organisatienaam, accentkleur en logo's.",
+  "pages.settings.later": "Verbindingsinstellingen komen in fase B en toegangsbeheer in fase D.",
+  "pages.settings.lead": "De instellingen van dit paneel.",
+  "pages.settings.list": "Beschikbare instellingen",
+  "pages.settings.title": "Instellingen"
+}

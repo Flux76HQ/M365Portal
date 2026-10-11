@@ -12,7 +12,12 @@
 import { z } from 'zod';
 import { defineRoute } from '../../src/http/route.js';
 import type { AppModuleFactory } from '../../src/module.js';
-import { installShutdownSignals, StartError, startServer, type RunningServer } from '../../src/start.js';
+import {
+  installShutdownSignals,
+  StartError,
+  startServer,
+  type RunningServer,
+} from '../../src/start.js';
 
 const Ok = z.strictObject({ ok: z.literal(true) }).meta({ id: 'LifecycleFixtureOk' });
 const okResponse = {

@@ -1,0 +1,13 @@
+{
+  "shell.actor.anonymous": "Niet aangemeld",
+  "shell.actor.label": "Actief als: {name}",
+  "shell.actor.preview": "Voorbeeldbeheerder",
+  "shell.org.fallback": "Organisatie",
+  "shell.search.label": "Zoeken of een opdracht uitvoeren",
+  "shell.sidebar.close": "Menu sluiten",
+  "shell.sidebar.collapse": "Zijbalk invouwen",
+  "shell.sidebar.drawerTitle": "Navigatiemenu",
+  "shell.sidebar.expand": "Zijbalk uitvouwen",
+  "shell.sidebar.open": "Menu openen",
+  "shell.version": "Versie {version}"
+}

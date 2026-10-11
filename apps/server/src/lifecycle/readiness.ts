@@ -31,10 +31,8 @@ export interface ReadinessOptions {
   /** The open database, or `undefined` in degraded mode. Read on every fresh answer. */
   readonly database: () => DatabaseHandle | undefined;
   /** Why there is no database, as recorded at start; `undefined` when there is one. */
-  readonly startFailure: () => Extract<
-    ReadinessFailureCode,
-    'database_unavailable' | 'database_corrupt'
-  > | undefined;
+  readonly startFailure: () =>
+    Extract<ReadinessFailureCode, 'database_unavailable' | 'database_corrupt'> | undefined;
   /** The folder with the shipped migrations, for the `schema` check. */
   readonly migrationsFolder: string;
 }
@@ -100,8 +98,10 @@ export function createReadiness(options: ReadinessOptions): ReadinessController 
       ? undefined
       : 'data_dir_not_writable';
     const { database, schema } = checkDatabase();
-    const entry = (name: 'data_dir' | 'database' | 'schema', code: ReadinessFailureCode | undefined) =>
-      code === undefined ? { name, ok: true } : { name, ok: false, code };
+    const entry = (
+      name: 'data_dir' | 'database' | 'schema',
+      code: ReadinessFailureCode | undefined,
+    ) => (code === undefined ? { name, ok: true } : { name, ok: false, code });
     const checks = [
       entry('data_dir', dataDir),
       entry('database', database),

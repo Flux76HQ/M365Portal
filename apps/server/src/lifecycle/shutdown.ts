@@ -109,7 +109,10 @@ export function createShutdown(options: ShutdownOptions): Shutdown {
     // 4. The database goes last: nothing can write after this.
     await guarded('database', options.closeDatabase);
 
-    options.log.info({ event: 'shutdown_complete', drained: outcome === 'drained' }, 'shutdown_complete');
+    options.log.info(
+      { event: 'shutdown_complete', drained: outcome === 'drained' },
+      'shutdown_complete',
+    );
     return outcome === 'drained' ? 0 : 1;
   }
 

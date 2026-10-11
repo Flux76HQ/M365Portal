@@ -39,3 +39,6 @@ e2e/.auth/
 .DS_Store
 __pycache__/
 *.pyc
+
+# Vitest local cache
+.vitest/

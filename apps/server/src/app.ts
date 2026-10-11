@@ -67,7 +67,7 @@ type FetchEnv = Parameters<HttpApp['app']['fetch']>[1];
 
 export interface BuiltApp {
   /** Handles a request; during shutdown every answer carries `Connection: close`. */
-  fetch(request: Request, env?: FetchEnv): Promise<Response>;
+  readonly fetch: (request: Request, env?: FetchEnv) => Promise<Response>;
   /** The route table and the OpenAPI document, for the checks that read them. */
   readonly http: HttpApp;
   /** The shell in use: the first module's renderer, or the placeholder. */

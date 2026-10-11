@@ -22,7 +22,10 @@ import type { RouterContext } from './router-context';
 export type Access = 'allowed' | 'denied';
 
 /** Does the actor hold at least one of the permissions? Deny by default (an empty list denies). */
-export function hasAccess(me: MeResponse, anyOf: readonly Permission[]): boolean {
+export function hasAccess(
+  me: Pick<MeResponse, 'permissions'>,
+  anyOf: readonly Permission[],
+): boolean {
   return hasAnyPermission(me.permissions, anyOf);
 }
 

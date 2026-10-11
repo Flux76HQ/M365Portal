@@ -63,7 +63,9 @@ export interface AppModule {
 export type AppModuleFactory = (deps: ModuleDeps) => AppModule;
 
 /** `deps.requireDatabase` for a composition root: the handle, or the 503 of degraded mode. */
-export function requireDatabaseOf(database: () => DatabaseHandle | undefined): () => DatabaseHandle {
+export function requireDatabaseOf(
+  database: () => DatabaseHandle | undefined,
+): () => DatabaseHandle {
   return () => {
     const handle = database();
     if (handle === undefined) throw new ProblemError('storage_unavailable');

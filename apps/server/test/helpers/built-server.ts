@@ -49,7 +49,9 @@ export async function buildLayout(): Promise<BuiltLayout> {
     });
   });
 
-  const manifest = (await import(join(SERVER_ROOT, 'package.json'), { with: { type: 'json' } })) as {
+  const manifest = (await import(join(SERVER_ROOT, 'package.json'), {
+    with: { type: 'json' },
+  })) as {
     default: { dependencies: Record<string, string> };
   };
   await build({
@@ -186,8 +188,8 @@ export async function spawnServer(options: SpawnOptions): Promise<SpawnedServer>
   });
   let out = '';
   let err = '';
-  child.stdout?.on('data', (chunk: Buffer) => (out += chunk.toString()));
-  child.stderr?.on('data', (chunk: Buffer) => (err += chunk.toString()));
+  child.stdout.on('data', (chunk: Buffer) => (out += chunk.toString()));
+  child.stderr.on('data', (chunk: Buffer) => (err += chunk.toString()));
   const exited = new Promise<ExitResult>((resolve) => {
     child.once('exit', (code, signal) => {
       resolve({ code, signal });

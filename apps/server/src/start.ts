@@ -36,7 +36,12 @@ import { checkpointAndClose, createShutdown, type Shutdown } from './lifecycle/s
 import { createStorageProbe, ensureDataDir } from './lifecycle/storage-probe.js';
 import { createSweeperRegistry, type Scheduler } from './lifecycle/sweepers.js';
 import { createLogger, logPosture, type LogDestination } from './logging/logger.js';
-import { requireDatabaseOf, type AppModule, type AppModuleFactory, type ModuleDeps } from './module.js';
+import {
+  requireDatabaseOf,
+  type AppModule,
+  type AppModuleFactory,
+  type ModuleDeps,
+} from './module.js';
 import { appModules } from './modules.js';
 import { announcePreviewMode } from './policy/index.js';
 import { readShellTemplate, ShellTemplateError } from './shell-port.js';
@@ -99,7 +104,7 @@ function hereDirectory(): string {
 /** The image puts the frontend next to `dist/`; the repository keeps it in `apps/web/dist`. */
 export function defaultWebRoot(here = hereDirectory()): string {
   const candidates = [join(here, '..', 'web'), join(here, '..', '..', 'web', 'dist')];
-  return candidates.find((path) => existsSync(join(path, 'index.html'))) ?? (candidates[0] ?? '');
+  return candidates.find((path) => existsSync(join(path, 'index.html'))) ?? candidates[0] ?? '';
 }
 
 export function defaultMigrationsFolder(here = hereDirectory()): string {
@@ -175,7 +180,9 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
       database = openDatabase({ path: databasePathOf(config.dataDir) });
     } catch (error) {
       startFailure =
-        classifyStorageError(error)?.kind === 'corrupt' ? 'database_corrupt' : 'database_unavailable';
+        classifyStorageError(error)?.kind === 'corrupt'
+          ? 'database_corrupt'
+          : 'database_unavailable';
       log.warn({ event: 'degraded', code: startFailure }, 'degraded');
     }
     step('database');
@@ -210,20 +217,24 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     log,
     ...(options.scheduler === undefined ? {} : { scheduler: options.scheduler }),
   });
-  let shutdown: Shutdown | undefined;
+  const lifecycle: { shutdown?: Shutdown } = {};
   const moduleDeps: ModuleDeps = {
     config,
     log,
     now: () => clock.now(),
     database: () => (database?.sqlite.open === true ? database : undefined),
-    requireDatabase: requireDatabaseOf(() => (database?.sqlite.open === true ? database : undefined)),
+    requireDatabase: requireDatabaseOf(() =>
+      database?.sqlite.open === true ? database : undefined,
+    ),
     storageAvailable: () => readiness.storageAvailable(),
     webRoot,
     shellTemplate,
     sweepers,
-    isShuttingDown: () => shutdown?.isShuttingDown() ?? false,
+    isShuttingDown: () => lifecycle.shutdown?.isShuttingDown() ?? false,
   };
-  const modules: AppModule[] = (options.modules ?? appModules).map((factory) => factory(moduleDeps));
+  const modules: AppModule[] = (options.modules ?? appModules).map((factory) =>
+    factory(moduleDeps),
+  );
 
   const stopModules = async (): Promise<void> => {
     for (const module of [...modules].reverse()) {
@@ -232,7 +243,11 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
       } catch (error) {
         const code = (error as { code?: unknown } | null)?.code;
         log.warn(
-          { event: 'module_stop_failed', module: module.id, ...(typeof code === 'string' ? { code } : {}) },
+          {
+            event: 'module_stop_failed',
+            module: module.id,
+            ...(typeof code === 'string' ? { code } : {}),
+          },
           'module_stop_failed',
         );
       }
@@ -255,7 +270,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
         await abandon();
         throw fail('module_start_failed', {
           module: module.id,
-          error: (error as { name?: unknown } | null)?.name === undefined ? 'unknown' : String((error as Error).name),
+          error: error instanceof Error ? error.name : 'unknown',
         });
       }
     }
@@ -275,7 +290,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
       moduleDeps,
       webRoot,
       shellTemplate,
-      shutdown: { isShuttingDown: moduleDeps.isShuttingDown },
+      shutdown: { isShuttingDown: () => moduleDeps.isShuttingDown() },
     });
   } catch (error) {
     await abandon();
@@ -309,7 +324,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   // 10. The hourly sweepers.
   void sweepers.start();
 
-  shutdown = createShutdown({
+  const shutdown = createShutdown({
     server,
     log,
     ...(options.scheduler === undefined ? {} : { scheduler: options.scheduler }),
@@ -325,6 +340,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
       }
     },
   });
+  lifecycle.shutdown = shutdown;
   const running = shutdown;
 
   return {
@@ -343,7 +359,10 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
  */
 export function installShutdownSignals(
   running: Pick<RunningServer, 'stop'>,
-  host: { once(signal: 'SIGTERM' | 'SIGINT', handler: () => void): unknown; exit(code: number): never } = process,
+  host: {
+    once(signal: 'SIGTERM' | 'SIGINT', handler: () => void): unknown;
+    exit(code: number): never;
+  } = process,
 ): void {
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     host.once(signal, () => {

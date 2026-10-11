@@ -1,0 +1,14 @@
+{
+  "dashboard.card.contacts": "E-mailcontacten",
+  "dashboard.card.distributionLists": "Distributielijsten",
+  "dashboard.card.empty": "Nog niet verbonden",
+  "dashboard.card.error": "Kon niet worden geladen",
+  "dashboard.card.groups": "Groepen",
+  "dashboard.card.loading": "{name} wordt geladen",
+  "dashboard.card.users": "Gebruikers",
+  "dashboard.cards": "Tellers",
+  "dashboard.empty.description": "De tellers worden gevuld zodra een Microsoft 365-tenant is gekoppeld. Het koppelen van een tenant komt in fase B; tot die tijd toont dit paneel geen cijfers in plaats van verzonnen cijfers.",
+  "dashboard.empty.title": "Nog geen tenant gekoppeld",
+  "dashboard.lead": "Een overzicht van je Microsoft 365-tenant.",
+  "dashboard.title": "Dashboard"
+}

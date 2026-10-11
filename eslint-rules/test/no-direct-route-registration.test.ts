@@ -6,8 +6,6 @@
 // Two suites: the first has no type information and recognises an app by its name (`app`) and by
 // how it is built; the second has types and recognises a Hono instance by its type, whatever it is
 // called, through subclasses, unions and generic constraints.
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import type { RuleTester } from 'eslint';
 import { describe, expect, it } from 'vitest';
 import {
@@ -124,16 +122,10 @@ createRuleTester().run('local/no-direct-route-registration (names)', rule, {
       'a renamed import of another class',
     ),
 
-    // app.ts builds the application: it may construct Hono, and (until /healthz moves into
-    // defineRoute, T-A-042) it still registers that one scaffold route.
+    // app.ts is the composition root: it may construct Hono. It registers no route.
     validCase('const app = new Hono();', 'app.ts constructs the application', APP_FILE),
     validCase('const app = new OpenAPIHono();', 'app.ts constructs the application', APP_FILE),
     validCase("app.use('*', mw);", 'middleware in app.ts', APP_FILE),
-    validCase(
-      "app.get('/healthz', (c) => c.json({ status: 'ok' }));",
-      'the scaffold health route in app.ts (to be removed with T-A-042 and T-A-045)',
-      APP_FILE,
-    ),
     validCase(
       'const app = new Hono();',
       'app.ts is recognised wherever the repository sits, and from any working directory',
@@ -154,19 +146,14 @@ createRuleTester().run('local/no-direct-route-registration (names)', rule, {
     direct("c.app.get('/x', handler);", 'get', 'the context app'),
     direct("app.use(middleware).get('/x', handler);", 'get', 'after middleware in a chain'),
     direct("app.basePath('/api').post('/x', handler);", 'post', 'after basePath in a chain'),
+    direct("app.get('/other', handler);", 'get', 'app.ts: no route is excused', APP_FILE),
     direct(
-      "app.get('/other', handler);",
+      "app.get('/healthz', handler);",
       'get',
-      'app.ts: any route but the scaffold one',
+      'app.ts: not even the old scaffold route',
       APP_FILE,
     ),
-    direct(
-      "app.post('/healthz', handler);",
-      'post',
-      'app.ts: only GET /healthz is excused',
-      APP_FILE,
-    ),
-    direct("app.get('/healthz', handler);", 'get', 'the scaffold route is excused in app.ts only'),
+    direct("app.get('/healthz', handler);", 'get', 'the health route goes through defineRoute'),
     // Handlers that answer from use() are routes without a declaration (G0 defect D14).
     answers("app.use('/open', (c) => c.text('ok'));", 'a handler without next'),
     answers("app.use('/open', async (c, next) => c.text('ok'));", 'a next that is never used'),
@@ -399,24 +386,5 @@ describe('local/no-direct-route-registration: scope', () => {
 
     expect(scope.files).toEqual(['apps/server/src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}']);
     expect(scope.ignores).toEqual(['apps/server/src/http/route.ts']);
-  });
-});
-
-// The /healthz exemption is temporary: it exists because the scaffold's app.ts registers the route
-// by hand until T-A-042 declares the health routes with defineRoute and T-A-045 replaces app.ts.
-// This assertion goes red the moment app.ts stops needing it, so the exemption cannot outlive its
-// reason (G0 defect D14). When it does: delete LEGACY_HEALTH_ROUTE and isLegacyHealthRoute in the
-// rule, the three cases of this suite that name APP_FILE and /healthz, and this test.
-describe('local/no-direct-route-registration: the temporary /healthz exemption', () => {
-  it('is still needed: apps/server/src/app.ts registers GET /healthz by hand', () => {
-    const appSource = readFileSync(
-      fileURLToPath(new URL('../../apps/server/src/app.ts', import.meta.url)),
-      'utf8',
-    );
-
-    expect(
-      /\.get\(\s*['"]\/healthz['"]/.test(appSource),
-      'apps/server/src/app.ts no longer registers GET /healthz by hand: delete LEGACY_HEALTH_ROUTE and isLegacyHealthRoute from eslint-rules/rules/no-direct-route-registration.js, the cases that name them in this suite and in tools/lint-canary, and this assertion',
-    ).toBe(true);
   });
 });

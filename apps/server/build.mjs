@@ -35,8 +35,7 @@ const outdirAt = argumentList.indexOf('--outdir');
 if (outdirAt >= 0 && argumentList[outdirAt + 1] === undefined) {
   throw new Error('--outdir needs a directory');
 }
-const outdir =
-  outdirAt >= 0 ? resolve(argumentList[outdirAt + 1]) : join(packageDirectory, 'dist');
+const outdir = outdirAt >= 0 ? resolve(argumentList[outdirAt + 1]) : join(packageDirectory, 'dist');
 
 /** Every `*-worker.ts` below src/, as { 'image-worker': 'src/branding/image-worker.ts' }. */
 function workerEntries(directory, found = {}) {
@@ -45,7 +44,8 @@ function workerEntries(directory, found = {}) {
     if (entry.isDirectory()) workerEntries(path, found);
     else if (entry.name.endsWith('-worker.ts')) {
       const name = basename(entry.name, '.ts');
-      if (name in found) throw new Error(`two workers are named ${name}: ${found[name]} and ${path}`);
+      if (name in found)
+        throw new Error(`two workers are named ${name}: ${found[name]} and ${path}`);
       found[name] = path;
     }
   }

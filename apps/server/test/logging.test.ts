@@ -3,16 +3,19 @@
 // posture line), FR-A-074 (the shape of the audit head log line), E-15 (the trust-proxy mode is
 // logged, never an address).
 //
-// T-A-045 adds the spawn-level posture assertions to this file; the unit part is here.
+// T-A-045 added the spawn-level posture assertions at the end of this file (the built server, run as
+// a process); the unit part is above them.
 //
 // Negative fixtures (tasks.md section 0.3): the redaction guard is proven by running it on
 // redactors that are wrong in each way a redactor can be wrong. A guard that has never been seen
 // to fail is an assumption.
 import { spawnSync } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { Hono } from 'hono';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest';
 import { loadConfigOrThrow } from '../src/config/index.js';
 import { createErrorHandler, errorBoundary, notFoundHandler } from '../src/http/error-handler.js';
 import { requestContext, type AppEnv } from '../src/http/request-context.js';
@@ -27,6 +30,7 @@ import {
   REDACTED,
 } from '../src/logging/redact.js';
 import { createRequestLogger } from '../src/logging/request-logger.js';
+import { buildLayout, spawnServer, type BuiltLayout } from './helpers/built-server.js';
 import { createFakeClock } from './helpers/fake-clock.js';
 import { createLogCapture } from './helpers/log-capture.js';
 import { createTestApp, type TestAppContext } from './helpers/test-app.js';
@@ -1137,5 +1141,83 @@ describe('the audit head line (FR-A-074)', () => {
     const [line] = capture.lines();
     expect(line).toMatchObject({ seq: 7, hash, msg: 'audit_head' });
     expect(Object.keys(line ?? {}).sort()).toEqual(['hash', 'level', 'msg', 'seq', 'time']);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The posture line of the built server (T-A-045, FR-A-015)
+// ---------------------------------------------------------------------------------------------
+
+describe('the posture line of the built server (FR-A-015)', () => {
+  let layout: BuiltLayout;
+
+  beforeAll(async () => {
+    layout = await buildLayout();
+  }, 120_000);
+
+  afterAll(async () => {
+    await layout.remove();
+  });
+
+  it('appears once at info, with the facts of FR-A-015 and no value or address', async () => {
+    const dir = join(layout.root, 'data-posture');
+    await mkdir(dir);
+    const server = await spawnServer({
+      layout,
+      env: { DATA_DIR: dir, SHOWCASE: 'true', TRUST_PROXY: '10.1.2.3' },
+    });
+    onTestFinished(async () => {
+      server.kill();
+      await server.exited;
+    });
+    await server.listening();
+
+    const postures = server.lines().filter((line) => line.event === 'posture');
+    expect(postures).toHaveLength(1);
+    expect(postures[0]).toEqual({
+      level: 'info',
+      time: expect.any(String) as string,
+      msg: 'posture',
+      event: 'posture',
+      preview: 'off',
+      trustProxy: 'list',
+      hsts: 'plain',
+      showcase: true,
+      storageWritable: true,
+      schemaVersion: 0,
+    });
+    const text = JSON.stringify(postures[0]);
+    for (const value of [dir, String(server.port), '10.1.2.3', '127.0.0.1', 'localhost']) {
+      expect(text, value).not.toContain(value);
+    }
+  });
+
+  it('says that storage is not writable and the schema version unknown in degraded mode', async () => {
+    const blocker = join(layout.root, 'not-a-directory');
+    await writeFile(blocker, 'a regular file where a directory would have to be');
+    const server = await spawnServer({ layout, env: { DATA_DIR: join(blocker, 'data') } });
+    onTestFinished(async () => {
+      server.kill();
+      await server.exited;
+    });
+    await server.listening();
+    const postures = server.lines().filter((line) => line.event === 'posture');
+    expect(postures).toHaveLength(1);
+    expect(postures[0]).toMatchObject({ storageWritable: false, schemaVersion: null });
+  });
+
+  it('names preview mode that refuses requests outside loopback, and the warning goes to stderr too', async () => {
+    const dir = join(layout.root, 'data-preview');
+    await mkdir(dir);
+    const server = await spawnServer({ layout, env: { DATA_DIR: dir, PREVIEW_MODE: 'true' } });
+    onTestFinished(async () => {
+      server.kill();
+      await server.exited;
+    });
+    await server.listening();
+    expect(server.lines().find((line) => line.event === 'posture')).toMatchObject({
+      preview: 'loopback-only',
+    });
+    expect(server.stderr()).toMatch(/preview/i);
   });
 });
