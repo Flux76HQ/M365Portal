@@ -1,0 +1,12 @@
+# libssl3 in the distroless base: Debian has the fix, the digest-pinned base is not rebuilt yet (2026-10-11); remove when the digest is bumped.
+CVE-2026-31789 exp:2026-10-25
+# libssl3 in the distroless base: Debian has the fix, the digest-pinned base is not rebuilt yet (2026-10-11); remove when the digest is bumped.
+CVE-2026-28387 exp:2026-10-25
+# libssl3 in the distroless base: Debian has the fix, the digest-pinned base is not rebuilt yet (2026-10-11); remove when the digest is bumped.
+CVE-2026-28388 exp:2026-10-25
+# libssl3 in the distroless base: Debian has the fix, the digest-pinned base is not rebuilt yet (2026-10-11); remove when the digest is bumped.
+CVE-2026-28389 exp:2026-10-25
+# libssl3 in the distroless base: Debian has the fix, the digest-pinned base is not rebuilt yet (2026-10-11); remove when the digest is bumped.
+CVE-2026-28390 exp:2026-10-25
+# libssl3 in the distroless base: Debian has the fix, the digest-pinned base is not rebuilt yet (2026-10-11); remove when the digest is bumped.
+CVE-2026-45447 exp:2026-10-25
