@@ -12,15 +12,18 @@
 //   - `healthcheck.ts`: `PORT`, `/readyz` on 127.0.0.1, a 3-second abort, exit 0 only on 200
 //
 // Timing is never tested with a sleep: the clock and the scheduler are the test's own.
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { cp, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_PORT, LIMITS } from '@m365portal/shared/limits';
 import { ReadyzResponseSchema } from '@m365portal/shared/schemas/health';
-import { describe, expect, it, onTestFinished } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest';
 import { appendAudit } from '../src/audit/index.js';
 import { classifyStorageError } from '../src/db/errors.js';
 import { runMigrations } from '../src/db/migrate.js';
@@ -40,6 +43,15 @@ import {
   SWEEP_INTERVAL_MS,
   type Sweeper,
 } from '../src/lifecycle/sweepers.js';
+import {
+  buildLayout,
+  httpRequest,
+  spawnServer,
+  type BuiltLayout,
+  type HttpResult,
+  type SpawnedServer,
+  type SpawnOptions,
+} from './helpers/built-server.js';
 import { createFakeClock } from './helpers/fake-clock.js';
 import { createFakeScheduler } from './helpers/fake-scheduler.js';
 import { createCaptureLogger } from './helpers/capture-logger.js';
@@ -47,7 +59,8 @@ import { createLogCapture } from './helpers/log-capture.js';
 import { createTempDataDir } from './helpers/temp-data-dir.js';
 import { unwritableDataDir } from './helpers/unwritable-data-dir.js';
 
-const MIGRATIONS = fileURLToPath(new URL('../drizzle', import.meta.url));
+const SERVER_ROOT = fileURLToPath(new URL('../', import.meta.url));
+const MIGRATIONS = join(SERVER_ROOT, 'drizzle');
 
 /** A data directory with a migrated database in it; the connection is closed when the test ends. */
 async function migratedDatabase(): Promise<{ dataDir: string; database: AppDatabase }> {
@@ -664,3 +677,491 @@ describe('healthcheck.ts (FR-A-016, FR-A-162 script)', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// The built server as a process (T-A-045)
+// ---------------------------------------------------------------------------------------------
+
+describe('the built server (FR-A-012 to FR-A-016, FR-A-163, FR-A-187)', () => {
+  let layout: BuiltLayout;
+
+  beforeAll(async () => {
+    layout = await buildLayout();
+  }, 120_000);
+
+  afterAll(async () => {
+    await layout.remove();
+  });
+
+  /** A data directory of its own below the layout, so that tests do not share a database. */
+  async function dataDirectory(name: string): Promise<string> {
+    const path = join(layout.root, 'data-' + name);
+    await mkdir(path, { recursive: true });
+    return path;
+  }
+
+  async function start(
+    options: Omit<SpawnOptions, 'layout'> = {},
+    wait = true,
+  ): Promise<SpawnedServer> {
+    const server = await spawnServer({ layout, ...options });
+    onTestFinished(async () => {
+      server.kill();
+      await server.exited;
+    });
+    if (wait) await server.listening();
+    return server;
+  }
+
+  const sha256 = (path: string): string =>
+    createHash('sha256').update(readFileSync(path)).digest('hex');
+
+  // -- the build ---------------------------------------------------------------------------------
+
+  describe('the build (TA-09)', () => {
+    it('bundles index, cli, healthcheck and every src/**/*-worker.ts as dist/<name>.js', async () => {
+      const workers = readdirSync(join(SERVER_ROOT, 'src'), { recursive: true, encoding: 'utf8' })
+        .filter((path) => path.endsWith('-worker.ts'))
+        .map((path) => basename(path, '.ts'));
+      expect(workers).toContain('image-worker');
+      const built = readdirSync(layout.dist)
+        .filter((name) => name.endsWith('.js'))
+        .map((name) => basename(name, '.js'))
+        .filter((name) => name !== 'lifecycle-server')
+        .sort();
+      expect(built).toEqual(['cli', 'healthcheck', 'index', ...workers].sort());
+    });
+
+    it('keeps the dependencies external and inlines the workspace package', () => {
+      const index = readFileSync(join(layout.dist, 'index.js'), 'utf8');
+      for (const name of ['hono', 'pino', 'better-sqlite3', 'drizzle-orm', 'zod']) {
+        expect(index, name).toMatch(new RegExp(`from ["']${name.replace('/', '\\/')}(/[^"']*)?["']`));
+      }
+      expect(index).not.toContain('@m365portal/shared');
+    });
+
+    it('embeds the version of the VERSION file and reads no file at run time', () => {
+      const version = readFileSync(join(SERVER_ROOT, '..', '..', 'VERSION'), 'utf8').trim();
+      const index = readFileSync(join(layout.dist, 'index.js'), 'utf8');
+      expect(index).toContain(JSON.stringify(version));
+      expect(index).not.toContain('__APP_VERSION__');
+      expect(existsSync(join(layout.root, 'VERSION'))).toBe(false);
+    });
+  });
+
+  // -- a normal start ----------------------------------------------------------------------------
+
+  describe('a normal start', () => {
+    it('serves /healthz with the embedded version and /readyz ready, and the shell with a nonce', async () => {
+      const version = readFileSync(join(SERVER_ROOT, '..', '..', 'VERSION'), 'utf8').trim();
+      const server = await start({
+        env: { DATA_DIR: await dataDirectory('normal') },
+      });
+      const health = await server.get('/healthz');
+      expect(health.status).toBe(200);
+      expect(JSON.parse(health.body)).toEqual({ status: 'ok', version });
+      expect(health.headers['cache-control']).toBe('no-store');
+
+      const ready = await server.get('/readyz');
+      expect(ready.status).toBe(200);
+      expect(ReadyzResponseSchema.parse(JSON.parse(ready.body)).status).toBe('ready');
+
+      const shell = await server.get('/', { accept: 'text/html' });
+      expect(shell.status).toBe(200);
+      expect(shell.body).not.toContain('__M365_NONCE__');
+      const me = await server.get('/api/v1/me');
+      expect(JSON.parse(me.body)).toMatchObject({ storageAvailable: true });
+    });
+
+    it('runs the steps in the order of plan 7.1: config, web, storage, database, migrate, modules, routes, listen', async () => {
+      const server = await start({
+        env: { DATA_DIR: await dataDirectory('order'), LOG_LEVEL: 'debug' },
+      });
+      const steps = server
+        .lines()
+        .filter((line) => line.event === 'start_step')
+        .map((line) => line.step);
+      expect(steps).toEqual([
+        'config',
+        'web',
+        'storage',
+        'database',
+        'migrate',
+        'modules',
+        'routes',
+        'listen',
+      ]);
+      const events = server.lines().map((line) => line.event);
+      expect(events.indexOf('listening')).toBeGreaterThan(events.lastIndexOf('start_step') - 1);
+    });
+
+    it('logs the posture once at info, with the facts of FR-A-015 and no value or address', async () => {
+      const dir = await dataDirectory('posture');
+      const server = await start({
+        env: { DATA_DIR: dir, SHOWCASE: 'true', TRUST_PROXY: '10.1.2.3' },
+      });
+      const postures = server.lines().filter((line) => line.event === 'posture');
+      expect(postures).toHaveLength(1);
+      expect(postures[0]).toMatchObject({
+        level: 'info',
+        msg: 'posture',
+        preview: 'off',
+        trustProxy: 'list',
+        hsts: 'plain',
+        showcase: true,
+        storageWritable: true,
+        schemaVersion: 0,
+      });
+      const text = JSON.stringify(postures[0]);
+      for (const value of [dir, String(server.port), '10.1.2.3', '127.0.0.1', 'localhost']) {
+        expect(text, value).not.toContain(value);
+      }
+    });
+
+    it('applies umask 0077: the data directory is 0700 and the database 0600', async () => {
+      const dir = join(await dataDirectory('umask'), 'nested', 'data');
+      await start({ env: { DATA_DIR: dir } });
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(join(dir, DATABASE_FILE_NAME)).mode & 0o777).toBe(0o600);
+    });
+
+    it('the healthcheck script exits 0 against it and 1 against a port nobody listens on', async () => {
+      const server = await start({ env: { DATA_DIR: await dataDirectory('hc') } });
+      const run = (port: number): Promise<number | null> =>
+        new Promise((resolve) => {
+          const child = spawn(process.execPath, [join(layout.dist, 'healthcheck.js')], {
+            env: { PORT: String(port), PATH: process.env.PATH ?? '' },
+            stdio: 'ignore',
+          });
+          child.once('exit', resolve);
+        });
+      await expect(run(server.port)).resolves.toBe(0);
+      server.signal('SIGTERM');
+      await server.exited;
+      await expect(run(server.port)).resolves.toBe(1);
+    });
+  });
+
+  // -- a start that must not happen --------------------------------------------------------------
+
+  describe('a start that is refused', () => {
+    async function migratedDirectory(name: string): Promise<{ dir: string; file: string }> {
+      const dir = await dataDirectory(name);
+      const file = join(dir, DATABASE_FILE_NAME);
+      const database = openDatabase({ path: file });
+      await runMigrations(database.sqlite, {
+        migrationsFolder: MIGRATIONS,
+        backupsDir: join(dir, 'backups'),
+      });
+      database.close();
+      return { dir, file };
+    }
+
+    async function portStaysClosed(port: number): Promise<void> {
+      await expect(httpRequest(port, '/healthz')).rejects.toMatchObject({ code: 'ECONNREFUSED' });
+    }
+
+    it('an invalid configuration exits 1 naming the variable and never its value; the port stays closed', async () => {
+      const server = await start({ env: { PORT: 'abc-canary-value' } }, false);
+      const exit = await server.exited;
+      expect(exit.code).toBe(1);
+      expect(server.stderr()).toContain('PORT');
+      expect(server.stderr() + server.stdout()).not.toContain('abc-canary-value');
+      expect(server.lines().some((line) => line.event === 'listening')).toBe(false);
+    });
+
+    it('a checksum mismatch exits non-zero before listening and the port never opens', async () => {
+      const { dir, file } = await migratedDirectory('checksum');
+      const database = openDatabase({ path: file });
+      database.sqlite.prepare('UPDATE "__drizzle_migrations" SET "hash" = ?').run('0'.repeat(64));
+      database.close();
+      const server = await start({ env: { DATA_DIR: dir } }, false);
+      const exit = await server.exited;
+      expect(exit.code).toBe(1);
+      expect(server.lines().some((line) => line.event === 'listening')).toBe(false);
+      expect(server.lines().find((line) => line.event === 'start_failed')).toMatchObject({
+        code: 'migration_checksum_mismatch',
+      });
+      await portStaysClosed(server.port);
+    });
+
+    it('schema_newer_than_app exits non-zero with the database untouched', async () => {
+      const { dir, file } = await migratedDirectory('newer');
+      const database = openDatabase({ path: file });
+      database.sqlite
+        .prepare('INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES (?, ?)')
+        .run('f'.repeat(64), Date.now() + 86_400_000);
+      database.close();
+      const before = { hash: sha256(file), files: readdirSync(dir).sort() };
+
+      const server = await start({ env: { DATA_DIR: dir } }, false);
+      const exit = await server.exited;
+
+      expect(exit.code).toBe(1);
+      expect(server.lines().find((line) => line.event === 'start_failed')).toMatchObject({
+        code: 'schema_newer_than_app',
+      });
+      expect({ hash: sha256(file), files: readdirSync(dir).sort() }).toEqual(before);
+      await portStaysClosed(server.port);
+    });
+
+    it('a web build without index.html exits 1 (a broken build), never serving a page without a shell', async () => {
+      const bare = await mkdtemp(join(tmpdir(), 'm365portal-bare-'));
+      onTestFinished(async () => {
+        await rm(bare, { recursive: true, force: true });
+      });
+      await cp(layout.dist, join(bare, 'dist'), { recursive: true });
+      await symlink(join(layout.root, 'drizzle'), join(bare, 'drizzle'), 'dir');
+      await symlink(join(layout.root, 'node_modules'), join(bare, 'node_modules'), 'dir');
+      const server = await spawnServer({
+        layout: { ...layout, root: bare, dist: join(bare, 'dist') },
+        env: { DATA_DIR: await dataDirectory('noshell') },
+      });
+      onTestFinished(async () => {
+        server.kill();
+        await server.exited;
+      });
+      const exit = await server.exited;
+      expect(exit.code).toBe(1);
+      expect(server.lines().find((line) => line.event === 'start_failed')).toMatchObject({
+        code: 'shell_template_missing',
+      });
+      expect(server.stdout() + server.stderr()).not.toContain(bare);
+      await portStaysClosed(server.port);
+    });
+
+    it('a port that is taken exits 1 with listen_failed', async () => {
+      const first = await start({ env: { DATA_DIR: await dataDirectory('taken-a') } });
+      const second = await start(
+        { env: { DATA_DIR: await dataDirectory('taken-b') }, port: first.port },
+        false,
+      );
+      const exit = await second.exited;
+      expect(exit.code).toBe(1);
+      expect(second.lines().find((line) => line.event === 'start_failed')).toMatchObject({
+        code: 'listen_failed',
+      });
+    });
+  });
+
+  // -- degraded mode -----------------------------------------------------------------------------
+
+  describe('degraded mode (A-35, FR-A-013)', () => {
+    async function degraded(env: Record<string, string>): Promise<SpawnedServer> {
+      return start({ entry: 'lifecycle-server.js', env });
+    }
+
+    it('a data directory below a regular file: listens, /healthz 200, /readyz 503 with codes, /me says so', async () => {
+      const blocked = await unwritableDataDir();
+      const server = await degraded({ DATA_DIR: blocked.path });
+
+      expect((await server.get('/healthz')).status).toBe(200);
+      const ready = await server.get('/readyz');
+      expect(ready.status).toBe(503);
+      const body = ReadyzResponseSchema.parse(JSON.parse(ready.body));
+      expect(body.status).toBe('unavailable');
+      expect(body.checks.find((check) => check.name === 'data_dir')).toMatchObject({
+        ok: false,
+        code: 'data_dir_not_writable',
+      });
+      expect(body.checks.find((check) => check.name === 'database')).toMatchObject({
+        ok: false,
+        code: 'database_unavailable',
+      });
+      expect(ready.body).not.toContain(blocked.path);
+
+      expect(JSON.parse((await server.get('/api/v1/me')).body)).toMatchObject({
+        storageAvailable: false,
+      });
+      const storage = await server.get('/api/v1/fixture/storage');
+      expect(storage.status).toBe(503);
+      expect(JSON.parse(storage.body)).toMatchObject({ code: 'storage_unavailable' });
+
+      const shell = await server.get('/', { accept: 'text/html' });
+      expect(shell.status).toBe(200);
+      expect((await server.get('/assets/app-abc123.js')).status).toBe(200);
+      expect(server.lines().find((line) => line.event === 'posture')).toMatchObject({
+        storageWritable: false,
+        schemaVersion: null,
+      });
+      // No module started: they all need storage.
+      expect(server.lines().some((line) => line.event === 'fixture_start')).toBe(false);
+
+      server.signal('SIGTERM');
+      await expect(server.exited).resolves.toMatchObject({ code: 0 });
+    });
+
+    it('a file that is not a database: /readyz says database_corrupt, nothing is repaired', async () => {
+      const dir = await dataDirectory('garbage');
+      const file = join(dir, DATABASE_FILE_NAME);
+      writeFileSync(file, 'this is not a database, canary-garbage');
+      const before = sha256(file);
+      const server = await degraded({ DATA_DIR: dir });
+      const ready = await server.get('/readyz');
+      expect(ready.status).toBe(503);
+      expect(ReadyzResponseSchema.parse(JSON.parse(ready.body)).checks).toEqual([
+        { name: 'data_dir', ok: true },
+        { name: 'database', ok: false, code: 'database_corrupt' },
+        { name: 'schema', ok: false, code: 'database_corrupt' },
+      ]);
+      expect(ready.body).not.toContain('canary-garbage');
+      server.signal('SIGTERM');
+      await server.exited;
+      expect(sha256(file)).toBe(before);
+    });
+
+    it('a directory where the database file belongs: database_unavailable', async () => {
+      const dir = await dataDirectory('dirfile');
+      await mkdir(join(dir, DATABASE_FILE_NAME));
+      const server = await degraded({ DATA_DIR: dir });
+      const ready = await server.get('/readyz');
+      expect(ready.status).toBe(503);
+      expect(ReadyzResponseSchema.parse(JSON.parse(ready.body)).checks[1]).toEqual({
+        name: 'database',
+        ok: false,
+        code: 'database_unavailable',
+      });
+    });
+
+    it('a write route is refused with the 503 of storage, not the 403: the denial cannot be audited', async () => {
+      const blocked = await unwritableDataDir();
+      const server = await degraded({ DATA_DIR: blocked.path });
+      const response = await writeRequest(server);
+      expect(response.status).toBe(503);
+      expect(JSON.parse(response.body)).toMatchObject({ code: 'storage_unavailable' });
+    });
+  });
+
+  // -- shutdown ----------------------------------------------------------------------------------
+
+  describe('shutdown (FR-A-014)', () => {
+    it('SIGTERM exits 0 and leaves no -wal file', async () => {
+      const dir = await dataDirectory('term');
+      const server = await start({ env: { DATA_DIR: dir } });
+      const wal = join(dir, `${DATABASE_FILE_NAME}-wal`);
+      expect(existsSync(wal)).toBe(true);
+      server.signal('SIGTERM');
+      const exit = await server.exited;
+      expect(exit).toEqual({ code: 0, signal: null });
+      expect(existsSync(wal)).toBe(false);
+      expect(existsSync(`${wal.slice(0, -4)}-shm`)).toBe(false);
+      const lines = server.lines().map((line) => line.event);
+      expect(lines.slice(-2)).toEqual(['shutdown_started', 'shutdown_complete']);
+    });
+
+    it('SIGINT does the same', async () => {
+      const server = await start({ env: { DATA_DIR: await dataDirectory('int') } });
+      server.signal('SIGINT');
+      await expect(server.exited).resolves.toEqual({ code: 0, signal: null });
+    });
+
+    it('SIGTERM waits for a request in flight, which is answered with Connection: close', async () => {
+      const server = await start({
+        entry: 'lifecycle-server.js',
+        env: { DATA_DIR: await dataDirectory('inflight') },
+      });
+      const slow = server.get('/api/v1/fixture/slow?ms=1500');
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+      // The request has to be in the handler before the signal; a status call proves the loop is idle.
+      expect((await server.get('/healthz')).status).toBe(200);
+      server.signal('SIGTERM');
+      const answer = await slow;
+      expect(answer.status).toBe(200);
+      expect(answer.headers.connection).toBe('close');
+      await expect(server.exited).resolves.toEqual({ code: 0, signal: null });
+      expect(server.lines().some((line) => line.event === 'fixture_stop')).toBe(true);
+      await expect(httpRequest(server.port, '/healthz')).rejects.toMatchObject({
+        code: 'ECONNREFUSED',
+      });
+    }, 30_000);
+
+    it('a request that outlives the 10 s drain is cut and the exit code is 1', async () => {
+      const server = await start({
+        entry: 'lifecycle-server.js',
+        env: { DATA_DIR: await dataDirectory('drain') },
+      });
+      const slow = server.get('/api/v1/fixture/slow?ms=60000').catch((error: unknown) => error);
+      expect((await server.get('/healthz')).status).toBe(200);
+      const signalled = Date.now();
+      server.signal('SIGTERM');
+      const exit = await server.exited;
+      const waited = Date.now() - signalled;
+      expect(exit).toEqual({ code: 1, signal: null });
+      expect(waited).toBeGreaterThanOrEqual(LIMITS.shutdownDrainMs - 500);
+      expect(waited).toBeLessThan(LIMITS.shutdownDrainMs + 8000);
+      expect(await slow).toBeInstanceOf(Error);
+      expect(server.lines().some((line) => line.event === 'drain_timeout')).toBe(true);
+    }, 40_000);
+  });
+
+  // -- the audited denial (gate G1) --------------------------------------------------------------
+
+  describe('an anonymous write (FR-A-034, SC-A-009)', () => {
+    it('is refused with 403 and leaves an audit row that `node dist/cli.js verify-audit` accepts', async () => {
+      const dir = await dataDirectory('denial');
+      const server = await start({ entry: 'lifecycle-server.js', env: { DATA_DIR: dir } });
+      const response = await writeRequest(server);
+      expect(response.status).toBe(403);
+      expect(JSON.parse(response.body)).toMatchObject({ code: 'permission_denied' });
+
+      server.signal('SIGTERM');
+      await server.exited;
+
+      const verdict = await runCli(layout, dir, ['verify-audit']);
+      expect(verdict.code).toBe(0);
+      const parsed = JSON.parse(verdict.stdout) as { ok: boolean; checked: number };
+      expect(parsed.ok).toBe(true);
+      expect(parsed.checked).toBeGreaterThanOrEqual(1);
+
+      const database = openDatabase({ path: join(dir, DATABASE_FILE_NAME), readonly: true });
+      onTestFinished(() => {
+        database.close();
+      });
+      const rows = database.sqlite
+        .prepare('SELECT action, outcome, reason_code AS reason FROM audit_log WHERE outcome = ?')
+        .all('denied');
+      expect(rows).toEqual([
+        { action: 'fixture.thing.create', outcome: 'denied', reason: 'permission_denied' },
+      ]);
+    });
+  });
+});
+
+/** An anonymous write with a correct Origin and a valid CSRF token, as a browser would send it. */
+async function writeRequest(server: SpawnedServer): Promise<HttpResult> {
+  const origin = `http://localhost:${String(server.port)}`;
+  const csrf = await server.get('/api/v1/csrf');
+  const { token } = JSON.parse(csrf.body) as { token: string };
+  return httpRequest(server.port, '/api/v1/fixture/things', {
+    method: 'POST',
+    headers: {
+      origin,
+      host: `localhost:${String(server.port)}`,
+      'x-csrf-token': token,
+      'content-type': 'application/json',
+    },
+    body: '{}',
+  });
+}
+
+function runCli(
+  layout: BuiltLayout,
+  dataDir: string,
+  args: readonly string[],
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [join(layout.dist, 'cli.js'), ...args], {
+      env: { DATA_DIR: dataDir, PATH: process.env.PATH ?? '' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
+    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+    child.once('exit', (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+}

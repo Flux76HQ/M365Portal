@@ -335,3 +335,21 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     stop: (signal = 'SIGTERM') => running.run(signal),
   };
 }
+
+/**
+ * Tie SIGTERM and SIGINT to the shutdown sequence and exit with its code. Installed explicitly: the
+ * process is PID 1 in the container, and PID 1 gets no default action for a signal. The first signal
+ * starts the sequence; a second one is left to the default action (a developer's second Ctrl+C).
+ */
+export function installShutdownSignals(
+  running: Pick<RunningServer, 'stop'>,
+  host: { once(signal: 'SIGTERM' | 'SIGINT', handler: () => void): unknown; exit(code: number): never } = process,
+): void {
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    host.once(signal, () => {
+      void running.stop(signal).then((code) => {
+        host.exit(code);
+      });
+    });
+  }
+}

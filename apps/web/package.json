@@ -18,6 +18,7 @@
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-table": "catalog:",
     "class-variance-authority": "catalog:",
+    "cmdk": "catalog:",
     "cn": "catalog:",
     "lucide-react": "catalog:",
     "motion": "catalog:",
