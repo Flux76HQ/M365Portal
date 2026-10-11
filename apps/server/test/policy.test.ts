@@ -394,7 +394,7 @@ describe('every write route answers the anonymous actor 403 permission_denied (F
     const app = await createFixtureApp({ env: { PREVIEW_MODE: 'true' } });
     const response = await app.client.post('/api/v1/fixture/things', {
       json: { name: 'x' },
-      host: '192.168.1.10:8080',
+      host: '192.168.1.10:9300',
     });
     expect(response.status).toBe(403);
     expect(app.calls.total()).toBe(0);
@@ -497,7 +497,7 @@ describe('GET /api/v1/me (R4, FR-A-027)', () => {
   });
 
   it.each([
-    ['a LAN Host', { host: '192.168.1.10:8080' }],
+    ['a LAN Host', { host: '192.168.1.10:9300' }],
     ['a public Host', { host: 'panel.example.com' }],
     ['no Host', { host: null }],
     ['X-Forwarded-For', { headers: { 'x-forwarded-for': '203.0.113.9' } }],

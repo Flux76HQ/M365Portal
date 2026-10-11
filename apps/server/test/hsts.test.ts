@@ -91,7 +91,7 @@ const SCENARIOS: readonly Scenario[] = [
     ['internal', YEAR],
     ['localhost', YEAR],
     ['localhost.', YEAR],
-    ['LOCALHOST:8080', YEAR],
+    ['LOCALHOST:9300', YEAR],
     ['sub.panel.example.com', YEAR],
     ['deep.sub.panel.example.com', YEAR],
     ['xpanel.example.com', YEAR],
@@ -164,7 +164,7 @@ const SCENARIOS: readonly Scenario[] = [
     'http, defaults',
     {},
     [
-      ['localhost:8080', undefined],
+      ['localhost:9300', undefined],
       [null, undefined],
     ],
     false,

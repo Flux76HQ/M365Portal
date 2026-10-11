@@ -46,7 +46,7 @@ import { inProcessImages } from './branding-fixture.js';
 const SERVER_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const WEB = join(SERVER_ROOT, 'test', 'fixtures', 'web-dist');
 const MIGRATIONS = join(SERVER_ROOT, 'drizzle');
-const ORIGIN = 'http://localhost:8080';
+const ORIGIN = 'http://localhost:9300';
 const FOREIGN = 'https://evil.example';
 
 /** What `@hono/node-server` hands the application for a socket peer (see `test-app.ts`). */

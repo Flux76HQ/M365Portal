@@ -45,32 +45,32 @@ function requestWith(
 
 const LOOPBACK_HOSTS = [
   'localhost',
-  'localhost:8080',
-  'LOCALHOST:8080',
+  'localhost:9300',
+  'LOCALHOST:9300',
   'Localhost',
   'localhost.',
   'localhost.:9090',
   '127.0.0.1',
-  '127.0.0.1:8080',
-  '127.0.0.2:8080',
+  '127.0.0.1:9300',
+  '127.0.0.2:9300',
   '127.255.255.254',
   '127.1.2.3:4000',
   '[::1]',
-  '[::1]:8080',
+  '[::1]:9300',
   '[::1]:80',
 ] as const;
 
 const OTHER_HOSTS = [
-  '192.168.1.10:8080',
+  '192.168.1.10:9300',
   '192.168.1.10',
   '10.0.0.5',
-  '172.16.0.1:8080',
+  '172.16.0.1:9300',
   '8.8.8.8',
   'panel.example.com',
-  'panel.example.com:8080',
+  'panel.example.com:9300',
   'example.com',
   'localhost.attacker.example',
-  'localhost.attacker.example:8080',
+  'localhost.attacker.example:9300',
   'localhost-evil.example',
   'xlocalhost',
   'notlocalhost',
@@ -78,11 +78,11 @@ const OTHER_HOSTS = [
   '127.0.0.1.example.com',
   'sub.localhost.example.com',
   '0.0.0.0',
-  '0.0.0.0:8080',
+  '0.0.0.0:9300',
   '[::]',
-  '[::]:8080',
+  '[::]:9300',
   '[::2]',
-  '[2001:db8::1]:8080',
+  '[2001:db8::1]:9300',
   '[::ffff:127.0.0.1]',
   '[::ffff:7f00:1]',
   '127.1',
@@ -95,7 +95,7 @@ const OTHER_HOSTS = [
   'localhost@evil.example',
   'evil.example#localhost',
   'evil.example/localhost',
-  'localhost:8080@evil.example',
+  'localhost:9300@evil.example',
   'localhost:80:80',
   'localhost%00',
   'local host',
@@ -108,7 +108,7 @@ const FORWARDING_HEADERS: readonly (readonly [string, string])[] = [
   ['X-FORWARDED-FOR', ''],
   ['X-Forwarded-Host', 'localhost'],
   ['X-Forwarded-Proto', 'http'],
-  ['X-Forwarded-Port', '8080'],
+  ['X-Forwarded-Port', '9300'],
   ['X-Forwarded-Prefix', '/'],
   ['X-Forwarded-Server', 'proxy'],
   ['X-Forwarded-Anything-Else', '1'],
@@ -134,7 +134,7 @@ describe('resolveActor: preview mode on, a loopback Host, no forwarding header (
   });
 
   it('has the actor id "preview" (FR-A-032), which is what the audit entries name', () => {
-    const actor = resolveActor(ON, requestWith('localhost:8080'));
+    const actor = resolveActor(ON, requestWith('localhost:9300'));
     expect(actor.id).toBe('preview');
     expect(actor.kind).toBe('preview');
   });
@@ -146,7 +146,7 @@ describe('resolveActor: preview mode on, a loopback Host, no forwarding header (
       '/api/v1/branding?actor=anonymous',
       '/x?preview=false',
     ]) {
-      expect(resolveActor(ON, requestWith('localhost:8080', {}, path))).toBe(PREVIEW_ACTOR);
+      expect(resolveActor(ON, requestWith('localhost:9300', {}, path))).toBe(PREVIEW_ACTOR);
     }
     const noise = {
       'x-actor': 'anonymous',
@@ -160,7 +160,7 @@ describe('resolveActor: preview mode on, a loopback Host, no forwarding header (
       'content-type': 'application/json',
       'x-csrf-token': 'v1.1.2.3.4',
     };
-    expect(resolveActor(ON, requestWith('localhost:8080', noise))).toBe(PREVIEW_ACTOR);
+    expect(resolveActor(ON, requestWith('localhost:9300', noise))).toBe(PREVIEW_ACTOR);
   });
 });
 
@@ -176,10 +176,10 @@ describe('resolveActor: every other request is anonymous (FR-A-036)', () => {
   it.each(FORWARDING_HEADERS)(
     'gives the anonymous actor for a loopback Host with %s: %j (the request came through a proxy)',
     (name, value) => {
-      expect(resolveActor(ON, requestWith('localhost:8080', { [name]: value }))).toBe(
+      expect(resolveActor(ON, requestWith('localhost:9300', { [name]: value }))).toBe(
         ANONYMOUS_ACTOR,
       );
-      expect(resolveActor(ON, requestWith('[::1]:8080', { [name]: value }))).toBe(ANONYMOUS_ACTOR);
+      expect(resolveActor(ON, requestWith('[::1]:9300', { [name]: value }))).toBe(ANONYMOUS_ACTOR);
     },
   );
 
@@ -193,12 +193,12 @@ describe('resolveActor: every other request is anonymous (FR-A-036)', () => {
       'X-Real-IP': '1.2.3.4',
       ...all,
     };
-    expect(resolveActor(ON, requestWith('localhost:8080', headers))).toBe(ANONYMOUS_ACTOR);
+    expect(resolveActor(ON, requestWith('localhost:9300', headers))).toBe(ANONYMOUS_ACTOR);
   });
 
   it('does not take a header that only resembles a forwarding header for one', () => {
     for (const name of ['x-forward', 'forwarded-for', 'x-real', 'x-real-ip-x', 'x-original-host']) {
-      expect(resolveActor(ON, requestWith('localhost:8080', { [name]: '1' })), name).toBe(
+      expect(resolveActor(ON, requestWith('localhost:9300', { [name]: '1' })), name).toBe(
         PREVIEW_ACTOR,
       );
     }
@@ -235,15 +235,15 @@ describe('without PREVIEW_MODE=true nothing is reachable (FR-A-032, FR-A-036: ne
   const requests: Request[] = [
     ...[...LOOPBACK_HOSTS, ...OTHER_HOSTS].map((host) => requestWith(host)),
     requestWith(null),
-    ...FORWARDING_HEADERS.map(([name, value]) => requestWith('localhost:8080', { [name]: value })),
-    requestWith('localhost:8080', {
+    ...FORWARDING_HEADERS.map(([name, value]) => requestWith('localhost:9300', { [name]: value })),
+    requestWith('localhost:9300', {
       'x-actor': 'preview',
       'x-preview': 'true',
       'x-preview-mode': '1',
       authorization: 'Bearer preview',
       cookie: 'actor=preview; preview=1',
     }),
-    requestWith('localhost:8080', {}, '/api/v1/me?actor=preview&preview=true&kind=preview'),
+    requestWith('localhost:9300', {}, '/api/v1/me?actor=preview&preview=true&kind=preview'),
   ];
 
   it.each([
@@ -256,12 +256,12 @@ describe('without PREVIEW_MODE=true nothing is reachable (FR-A-032, FR-A-036: ne
   });
 
   it('is the anonymous configuration: Host is ignored, never read as an upgrade', () => {
-    expect(resolveActor(OFF, requestWith('localhost:8080'))).toBe(ANONYMOUS_ACTOR);
+    expect(resolveActor(OFF, requestWith('localhost:9300'))).toBe(ANONYMOUS_ACTOR);
     expect(resolveActor(OFF, requestWith('127.0.0.1'))).toBe(ANONYMOUS_ACTOR);
   });
 
   it('gives an actor with no permission at all', () => {
-    const actor = resolveActor(OFF, requestWith('localhost:8080'));
+    const actor = resolveActor(OFF, requestWith('localhost:9300'));
     expect(actor.permissions.size).toBe(0);
   });
 });
@@ -271,7 +271,7 @@ describe('nothing in a request chooses or upgrades the actor (FR-A-032)', () => 
     const everything: Request[] = [
       ...[...LOOPBACK_HOSTS, ...OTHER_HOSTS].map((host) => requestWith(host)),
       ...FORWARDING_HEADERS.map(([name, value]) =>
-        requestWith('localhost:8080', { [name]: value }),
+        requestWith('localhost:9300', { [name]: value }),
       ),
     ];
     for (const config of [OFF, ON, ON_REMOTE, OFF_BUT_REMOTE]) {
@@ -294,21 +294,21 @@ describe('nothing in a request chooses or upgrades the actor (FR-A-032)', () => 
   });
 
   it('is a function of the request alone: the same request gets the same actor every time', () => {
-    const request = requestWith('localhost:8080');
+    const request = requestWith('localhost:9300');
     expect(resolveActor(ON, request)).toBe(resolveActor(ON, request));
   });
 
   it('is built once from the configuration by createActorResolver', () => {
     const resolve = createActorResolver(ON);
-    expect(resolve(requestWith('localhost:8080'))).toBe(PREVIEW_ACTOR);
+    expect(resolve(requestWith('localhost:9300'))).toBe(PREVIEW_ACTOR);
     expect(resolve(requestWith('192.168.1.10'))).toBe(ANONYMOUS_ACTOR);
-    expect(createActorResolver(OFF)(requestWith('localhost:8080'))).toBe(ANONYMOUS_ACTOR);
+    expect(createActorResolver(OFF)(requestWith('localhost:9300'))).toBe(ANONYMOUS_ACTOR);
   });
 
   it('works on the real configuration object too', () => {
     const config = loadConfigOrThrow({ PREVIEW_MODE: 'true' });
-    expect(resolveActor(config, requestWith('localhost:8080'))).toBe(PREVIEW_ACTOR);
-    expect(resolveActor(config, requestWith('192.168.1.10:8080'))).toBe(ANONYMOUS_ACTOR);
+    expect(resolveActor(config, requestWith('localhost:9300'))).toBe(PREVIEW_ACTOR);
+    expect(resolveActor(config, requestWith('192.168.1.10:9300'))).toBe(ANONYMOUS_ACTOR);
   });
 });
 
@@ -417,12 +417,12 @@ function assertHostMatrix(resolve: Resolver): void {
   const fail = (message: string): never => {
     throw new Error(message);
   };
-  for (const host of ['localhost:8080', '127.0.0.2:8080', '[::1]:8080']) {
+  for (const host of ['localhost:9300', '127.0.0.2:9300', '[::1]:9300']) {
     if (resolve(ON, requestWith(host)) !== PREVIEW_ACTOR)
       fail(`a loopback Host is refused: ${host}`);
   }
   for (const host of [
-    '192.168.1.10:8080',
+    '192.168.1.10:9300',
     'panel.example.com',
     'localhost.attacker.example',
     '127.0.0.1.nip.io',
@@ -438,18 +438,18 @@ function assertHostMatrix(resolve: Resolver): void {
     ['Forwarded', 'for=203.0.113.5'],
     ['X-Real-IP', '203.0.113.5'],
   ] as const) {
-    if (resolve(ON, requestWith('localhost:8080', { [name]: value })) !== ANONYMOUS_ACTOR) {
+    if (resolve(ON, requestWith('localhost:9300', { [name]: value })) !== ANONYMOUS_ACTOR) {
       fail(`a forwarded request is let in: ${name}`);
     }
   }
-  if (resolve(ON_REMOTE, requestWith('192.168.1.10:8080')) !== PREVIEW_ACTOR)
+  if (resolve(ON_REMOTE, requestWith('192.168.1.10:9300')) !== PREVIEW_ACTOR)
     fail('the override does not lift the rule');
-  if (resolve(OFF, requestWith('localhost:8080')) !== ANONYMOUS_ACTOR)
+  if (resolve(OFF, requestWith('localhost:9300')) !== ANONYMOUS_ACTOR)
     fail('preview is reachable with preview mode off');
   if (resolve(OFF_BUT_REMOTE, requestWith('192.168.1.10')) !== ANONYMOUS_ACTOR) {
     fail('the override alone enables preview mode');
   }
-  if (resolve(OFF, requestWith('localhost:8080', { 'x-actor': 'preview' })) !== ANONYMOUS_ACTOR) {
+  if (resolve(OFF, requestWith('localhost:9300', { 'x-actor': 'preview' })) !== ANONYMOUS_ACTOR) {
     fail('a header selects the actor');
   }
 }
@@ -489,7 +489,7 @@ describe('the Host matrix guard', () => {
   it('fails for a resolver that lets a header choose the actor', () => {
     const header: Resolver = (config, request) =>
       request.headers.get('x-actor') === 'preview' ||
-      (config.previewMode && request.headers.get('host') === 'localhost:8080')
+      (config.previewMode && request.headers.get('host') === 'localhost:9300')
         ? PREVIEW_ACTOR
         : ANONYMOUS_ACTOR;
     expectGuardFails(assertHostMatrix, header, {});

@@ -575,11 +575,11 @@ function requestWithHost(host: string | null): Request {
 describe('requestHost', () => {
   it.each([
     ['localhost', 'localhost'],
-    ['LOCALHOST:8080', 'localhost'],
+    ['LOCALHOST:9300', 'localhost'],
     ['Panel.Example.COM', 'panel.example.com'],
     ['panel.example.com.', 'panel.example.com'],
     ['panel.example.com.:8443', 'panel.example.com'],
-    ['[::1]:8080', '[::1]'],
+    ['[::1]:9300', '[::1]'],
     ['[::1]', '[::1]'],
     ['127.0.0.1:80', '127.0.0.1'],
   ])('reads Host %j as %j', (host, expected) => {
@@ -590,7 +590,7 @@ describe('requestHost', () => {
     expect(requestHost(requestWithHost('panel.example.com..'))).toBeUndefined();
   });
 
-  it.each([null, '', ' ', ':8080', 'a b', 'a/b', 'user@host', 'host:port', '::1', 'a..b', 'café'])(
+  it.each([null, '', ' ', ':9300', 'a b', 'a/b', 'user@host', 'host:port', '::1', 'a..b', 'café'])(
     'returns nothing for Host %j',
     (host) => {
       expect(requestHost(requestWithHost(host))).toBeUndefined();

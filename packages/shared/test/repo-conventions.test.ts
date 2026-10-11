@@ -963,13 +963,13 @@ const checkRawColours: Check = (tree) => {
 // ---------------------------------------------------------------------------------------------
 
 const PORT_HOMES: Readonly<Record<string, readonly string[]>> = {
-  '8080': ['packages/shared/src/limits.ts', 'Dockerfile', '.env.example', 'docker-compose.yml'],
+  '9300': ['packages/shared/src/limits.ts', 'Dockerfile', '.env.example', 'docker-compose.yml'],
   '4173': ['e2e/playwright.config.ts'],
   '4174': ['e2e/playwright.config.ts'],
   '5173': ['apps/web/vite.config.ts'],
 };
-// `8_080` is the same number in JavaScript and TypeScript.
-const PORT_PATTERN = /(?<![\w.])(8_?080|4_?173|4_?174|5_?173)(?!\w|\.\d)/g;
+// `9_300` is the same number in JavaScript and TypeScript.
+const PORT_PATTERN = /(?<![\w.])(9_?300|4_?173|4_?174|5_?173)(?!\w|\.\d)/g;
 // Source and configuration. Not .env itself: that is a developer's private, ignored file.
 const PORT_SCANNED_FILE =
   /(?:\.(?:[cm]?[jt]sx?|json|css|html|mdx|ya?ml|toml|ini|cfg|conf|py|sh|mk)|(?:^|\/)(?:[Mm]akefile|Dockerfile(?:\.[\w.-]+)?|\.dockerignore|\.env\.(?:example|sample|template)))$/;
@@ -1635,7 +1635,7 @@ describe('repository conventions: every check really looks at the tree', () => {
     // The ports exist in the tree, so a scan that found none would be reading nothing.
     expect(portsFound.get('e2e/playwright.config.ts')).toContain('4173');
     expect(portsFound.get('apps/web/vite.config.ts')).toContain('5173');
-    expect(portsFound.get('packages/shared/src/limits.ts')).toContain('8080');
+    expect(portsFound.get('packages/shared/src/limits.ts')).toContain('9300');
   });
 });
 
@@ -1723,9 +1723,9 @@ describe('repository conventions: negative fixtures fail on purpose', () => {
       /suppressed\.ts:1: "eslint-disable-next-line local\/no-raw-colour" switches off a local rule[\s\S]*suppressed\.ts:3: "eslint-disable local\/no-literal-ui-strings" switches off a local rule[\s\S]*suppressed\.ts:5: "eslint-disable-next-line" without a rule name/,
     ],
     [
-      'port-8080.ts.txt',
+      'port-9300.ts.txt',
       checkStrayPorts,
-      /stray-port\.ts:1: literal port 8080 may only appear in packages\/shared\/src\/limits\.ts, Dockerfile/,
+      /stray-port\.ts:1: literal port 9300 may only appear in packages\/shared\/src\/limits\.ts, Dockerfile/,
     ],
     [
       'port-5173.ts.txt',
@@ -2382,13 +2382,13 @@ describe('repository conventions: what must stay allowed (the guards are not ove
         withFile(
           realTree,
           'apps/server/src/numbers.ts',
-          'export const n = [18080, 48080, 80800, 1.8080, 8080.5, "a8080b"];\n',
+          'export const n = [19300, 49300, 93000, 1.9300, 9300.5, "a9300b"];\n',
         ),
         'apps/server/test/ports.test.ts',
-        'expect(port).toBe(8080);\n',
+        'expect(port).toBe(9300);\n',
       ),
       'deploy/caddy/Caddyfile.example',
-      'reverse_proxy m365portal:8080\n',
+      'reverse_proxy m365portal:9300\n',
     );
 
     expect(problemsAt(checkStrayPorts, tree, 'apps/server/src/numbers.ts')).toEqual([]);
@@ -2635,7 +2635,7 @@ describe('repository conventions: the file walker, test paths and file size (G0 
     'e2e/lib/fixtures/second.ts',
   ])('treats %s as source: a test-like folder name deeper in the tree exempts nothing', (path) => {
     expect(isTestPath(path)).toBe(false);
-    const tree = withFile(realTree, path, 'export const port = 8080;\n');
+    const tree = withFile(realTree, path, 'export const port = 9300;\n');
     expect(problemsAt(checkStrayPorts, tree, path), path).toHaveLength(1);
   });
 
@@ -2655,12 +2655,12 @@ describe('repository conventions: the file walker, test paths and file size (G0 
   });
 
   it.each([
-    ['Makefile', 'run:\n\tnode server --port 8080\n'],
-    ['ops/nginx.conf', 'proxy_pass http://app:8080;\n'],
-    ['Dockerfile.dev', 'ENV PORT=8080\n'],
+    ['Makefile', 'run:\n\tnode server --port 9300\n'],
+    ['ops/nginx.conf', 'proxy_pass http://app:9300;\n'],
+    ['Dockerfile.dev', 'ENV PORT=9300\n'],
     ['apps/web/notes.mdx', 'Open <a href="http://localhost:5173">the app</a>\n'],
-    ['apps/server/src/limit.ts', 'export const port = 8_080;\n'],
-    ['.env.sample', 'PORT=8080\n'],
+    ['apps/server/src/limit.ts', 'export const port = 9_300;\n'],
+    ['.env.sample', 'PORT=9300\n'],
   ])('check 5 reads %s', (path, text) => {
     expect(problemsAt(checkStrayPorts, withFile(realTree, path, text), path), path).toHaveLength(1);
   });

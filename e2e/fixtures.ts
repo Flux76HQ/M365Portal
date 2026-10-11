@@ -20,6 +20,7 @@ import {
   type Page,
   type Response,
 } from '@playwright/test';
+import { relativeLuminanceOfChannels } from '@m365portal/shared/branding/contrast';
 import { originOf, restartServer, startServer, stopServer, type InstanceName } from './servers.js';
 
 export { expect };
@@ -191,16 +192,13 @@ export interface App {
 }
 
 /** Relative luminance of a `rgb()` / `rgba()` / `color(srgb ...)` string, 0 (black) to 1 (white). */
-export function luminanceOf(color: string): number {
+export function cssColourBrightness(color: string): number {
   const numbers = (color.match(/-?\d*\.?\d+/g) ?? []).map(Number);
   if (numbers.length < 3) throw new Error(`cannot read the colour ${color}`);
   const isSrgbFloat = color.startsWith('color(');
   const [r = 0, g = 0, b = 0] = numbers.slice(isSrgbFloat ? 1 : 0, isSrgbFloat ? 4 : 3);
-  const channels = (isSrgbFloat ? [r, g, b] : [r / 255, g / 255, b / 255]).map((c) =>
-    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4),
-  );
-  const [lr = 0, lg = 0, lb = 0] = channels;
-  return 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
+  const scale = isSrgbFloat ? 255 : 1;
+  return relativeLuminanceOfChannels(r * scale, g * scale, b * scale);
 }
 
 async function bodyBackground(page: Page): Promise<string> {
@@ -255,7 +253,7 @@ export const test = base.extend<AppOptions & { guard: Guard; app: App }>({
       url: (path, instance = 'preview') => `${originOf(instance)}${path}`,
       async expectTheme(theme) {
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-        const luminance = luminanceOf(await bodyBackground(page));
+        const luminance = cssColourBrightness(await bodyBackground(page));
         if (theme === 'dark')
           expect(luminance, 'the dark theme paints a dark body').toBeLessThan(0.2);
         else expect(luminance, 'the light theme paints a light body').toBeGreaterThan(0.6);

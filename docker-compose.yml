@@ -7,7 +7,7 @@
 # HOST_PORT and PUBLIC_BASE_URL are the only ones you normally change. HOST_PORT is read by
 # Compose only: it is the port the browser connects to. PUBLIC_BASE_URL is the origin the browser
 # uses, and every write is compared with it, so it must match: by default it follows HOST_PORT.
-# The panel then answers on http://localhost:8080 .
+# The panel then answers on http://localhost:9300 .
 
 name: m365portal
 
@@ -17,17 +17,17 @@ services:
     # an update is a decision of yours and a rollback is a one-line change.
     image: ghcr.io/flux76hq/m365portal:latest
     restart: unless-stopped
-    # The host port on the left, the port inside the container on the right (PORT, default 8080).
+    # The host port on the left, the port inside the container on the right (PORT, default 9300).
     # With PREVIEW_MODE=true publish on loopback only, which means this mapping instead:
-    # 127.0.0.1:${HOST_PORT:-8080}:${PORT:-8080}
+    # 127.0.0.1:${HOST_PORT:-9300}:${PORT:-9300}
     ports:
-      - '${HOST_PORT:-8080}:${PORT:-8080}'
+      - '${HOST_PORT:-9300}:${PORT:-9300}'
     # What the application reads (see .env.example). A setting that .env leaves out stays unset
     # here, so the default of the application is the only default there is. HOST and DATA_DIR are
     # not passed on: the image fixes them, and DATA_DIR must match the volume below.
     environment:
-      PORT: ${PORT:-8080}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:${HOST_PORT:-8080}}
+      PORT: ${PORT:-9300}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:${HOST_PORT:-9300}}
       TRUST_PROXY:
       PREVIEW_MODE:
       PREVIEW_MODE_ALLOW_REMOTE:

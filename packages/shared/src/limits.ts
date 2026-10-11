@@ -14,11 +14,11 @@
 // time to refill one token; `refillPerSecond` gives the per-second figure the spec states.
 
 /**
- * The port the process listens on inside the container (FR-A-016). The literal `8080` is defined
+ * The port the process listens on inside the container (FR-A-016). The literal `9300` is defined
  * here once for source files; the `Dockerfile`, `.env.example` and `docker-compose.yml` each define
  * it once for their own kind.
  */
-export const DEFAULT_PORT = 8080;
+export const DEFAULT_PORT = 9300;
 
 /**
  * The one Trusted Types policy of the web app (plan 8.2, FR-A-042). The server lists it in the

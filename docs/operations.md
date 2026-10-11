@@ -17,7 +17,7 @@ docker compose up -d     # pulls the image and starts it
 docker compose ps        # "healthy" after about half a minute (the first health check)
 ```
 
-The panel answers on `http://localhost:8080`. To build the image from a checkout, pass the version
+The panel answers on `http://localhost:9300`. To build the image from a checkout, pass the version
 (without it the version label says `unknown` on purpose and the contents check and smoke test refuse
 the image):
 
@@ -35,10 +35,10 @@ browser reaches the panel on the **host** port, and every write is compared with
 
 | Situation | Settings |
 |---|---|
-| Default | `docker run -p 8080:8080 ...`, nothing else |
-| Another host port, plain `docker run` | `docker run -p 9090:8080 -e PUBLIC_BASE_URL=http://localhost:9090 ...` |
+| Default | `docker run -p 9300:9300 ...`, nothing else |
+| Another host port, plain `docker run` | `docker run -p 9090:9300 -e PUBLIC_BASE_URL=http://localhost:9090 ...` |
 | Another container port | `docker run -p 9090:9090 -e PORT=9090 -e PUBLIC_BASE_URL=http://localhost:9090 ...` |
-| Compose | `HOST_PORT=9090` in `.env`; the mapping is `'${HOST_PORT:-8080}:${PORT:-8080}'` and `PUBLIC_BASE_URL` defaults to `http://localhost:${HOST_PORT:-8080}` |
+| Compose | `HOST_PORT=9090` in `.env`; the mapping is `'${HOST_PORT:-9300}:${PORT:-9300}'` and `PUBLIC_BASE_URL` defaults to `http://localhost:${HOST_PORT:-9300}` |
 | Low host port (80, 443) | `HOST_PORT=80`, never a low `PORT` |
 | `network_mode: host` | `PORT` is the host port |
 
@@ -53,8 +53,8 @@ invalid value stops the start and names the variable, never its value. Do not co
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `HOST_PORT` | `8080` | Compose only, not read by the application: the port published on the Docker host. With `docker run` publish with `-p <host port>:<PORT>`. |
-| `PORT` | `8080` | The port the process listens on inside the container, an integer from 1024 to 65535. Anything else (0, below 1024, above 65535, empty, with whitespace, non-numeric) stops the start. |
+| `HOST_PORT` | `9300` | Compose only, not read by the application: the port published on the Docker host. With `docker run` publish with `-p <host port>:<PORT>`. |
+| `PORT` | `9300` | The port the process listens on inside the container, an integer from 1024 to 65535. Anything else (0, below 1024, above 65535, empty, with whitespace, non-numeric) stops the start. |
 | `HOST` | `0.0.0.0` | The address the process binds to inside the container. A published port needs `0.0.0.0`. Compose does not pass it on. The image health check asks 127.0.0.1, so a single non-loopback address makes the check fail although the server is fine. |
 | `DATA_DIR` | `/data` | Where the database and files live; must match the volume mount. Compose does not pass it on. |
 | `PUBLIC_BASE_URL` | `http://localhost:<PORT>` (Compose: with `HOST_PORT`) | The origin the browser uses: an absolute `http` or `https` origin without path, query or credentials. Every write is compared with it. Leave it unset in `.env` while the panel is reached on `http://localhost:<HOST_PORT>`; set it behind a reverse proxy (for example `https://panel.example.com`). |
@@ -75,12 +75,12 @@ undone (baseline section 13). Turn them on only for hosts you own and have put u
 ### Run with docker run
 
 ```sh
-docker run -d --name m365portal -p 8080:8080 -v m365:/data --stop-timeout 15 \
+docker run -d --name m365portal -p 9300:9300 -v m365:/data --stop-timeout 15 \
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
   ghcr.io/flux76hq/m365portal:latest
 ```
 
-For preview mode publish on loopback only: `-p 127.0.0.1:8080:8080 -e PREVIEW_MODE=true`. A named
+For preview mode publish on loopback only: `-p 127.0.0.1:9300:9300 -e PREVIEW_MODE=true`. A named
 volume inherits the ownership of the image's `/data` (uid 65532). A bind mount must be prepared:
 `chown 65532:65532 /path/to/data`. If the process cannot write `DATA_DIR`, the panel starts in degraded
 mode (below) and `/readyz` says `data_dir_not_writable`.
@@ -293,7 +293,7 @@ Je hebt Docker nodig (Compose v2 aanbevolen). De image is `ghcr.io/flux76hq/m365
 op GitHub bouwt en publiceert hem en heeft bij het schrijven nog niet gedraaid, dus bouw de image tot die tijd
 zelf met `docker build --build-arg VERSION="$(cat VERSION)" -t m365portal:local .` (zonder het argument
 staat het versielabel bewust op `unknown`). Daarna: `cp .env.example .env` (optioneel) en
-`docker compose up -d`. Het paneel antwoordt op `http://localhost:8080`; `docker compose ps` toont
+`docker compose up -d`. Het paneel antwoordt op `http://localhost:9300`; `docker compose ps` toont
 "healthy" na ongeveer een halve minuut. De container draait als uid 65532 zonder capabilities en zonder shell.
 
 ### Poorten en omgevingsvariabelen
@@ -302,7 +302,7 @@ staat het versielabel bewust op `unknown`). Daarna: `cp .env.example .env` (opti
 Compose en `.env.example`; de applicatie leest hem nooit) en `PUBLIC_BASE_URL` de oorsprong die de browser
 gebruikt. Elke schrijfactie wordt daarmee vergeleken, dus bij een andere hostpoort hoort een passende
 `PUBLIC_BASE_URL`: met Compose volgt hij `HOST_PORT` zolang je hem niet zelf instelt; met `docker run`
-gebruik je `-p 9090:8080 -e PUBLIC_BASE_URL=http://localhost:9090`. Een lage hostpoort (80, 443) haal je via
+gebruik je `-p 9090:9300 -e PUBLIC_BASE_URL=http://localhost:9090`. Een lage hostpoort (80, 443) haal je via
 `HOST_PORT`, nooit via een lage `PORT`. Bij `network_mode: host` is `PORT` de hostpoort. Een fout hier geeft
 `403 origin_not_allowed`, met de verwachte oorsprong in de melding.
 

@@ -89,10 +89,10 @@ def good_inspect() -> dict:
             "Env": [
                 "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                 "NODE_ENV=production",
-                "PORT=8080",
+                "PORT=9300",
                 "DATA_DIR=/data",
             ],
-            "ExposedPorts": {"8080/tcp": {}},
+            "ExposedPorts": {"9300/tcp": {}},
             "Volumes": None,
             "Healthcheck": {
                 "Test": ["CMD", "/nodejs/bin/node", "dist/healthcheck.js"],
@@ -350,8 +350,8 @@ class Configuration(unittest.TestCase):
     def test_the_healthcheck_runs_the_node_script_without_a_shell(self):
         self.assertOnly(self.planted(lambda c: c.pop("Healthcheck")), "healthcheck", "no health check")
         for test in (
-            ["CMD-SHELL", "curl -f http://localhost:8080/readyz"],
-            ["CMD", "curl", "-f", "http://localhost:8080/readyz"],
+            ["CMD-SHELL", "curl -f http://localhost:9300/readyz"],
+            ["CMD", "curl", "-f", "http://localhost:9300/readyz"],
             ["CMD", "/bin/sh", "-c", "exit 0"],
             ["CMD", "/nodejs/bin/node", "-e", "process.exit(0)"],
             ["NONE"],
@@ -376,9 +376,9 @@ class Configuration(unittest.TestCase):
         self.assertOnly(self.planted(lambda c: c.update(ExposedPorts={"9090/tcp": {}})), "port", "PORT")
         self.assertOnly(self.planted(lambda c: c.update(ExposedPorts=None)), "port", "exposed")
         self.assertOnly(
-            self.planted(lambda c: c.update(ExposedPorts={"8080/tcp": {}, "8081/tcp": {}})), "port", "exactly one"
+            self.planted(lambda c: c.update(ExposedPorts={"9300/tcp": {}, "8081/tcp": {}})), "port", "exactly one"
         )
-        self.assertOnly(self.planted(lambda c: c.update(ExposedPorts={"8080/udp": {}})), "port", "tcp")
+        self.assertOnly(self.planted(lambda c: c.update(ExposedPorts={"9300/udp": {}})), "port", "tcp")
 
     def test_a_port_other_than_the_default_is_fine_when_both_agree(self):
         def change(config):

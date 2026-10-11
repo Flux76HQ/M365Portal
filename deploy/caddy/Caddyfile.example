@@ -16,7 +16,7 @@
 #   TRUST_PROXY      1, because exactly one proxy (this one) sits in front of the panel
 # and publish the panel on loopback only, so nobody can bypass the proxy, with this mapping in the
 # ports list of docker-compose.yml (instead of the default one):
-#   127.0.0.1:${HOST_PORT:-8080}:${PORT:-8080}
+#   127.0.0.1:${HOST_PORT:-9300}:${PORT:-9300}
 #
 # The numbers are those of docs/operations.md (limits outside the repository). Whatever you use in
 # place of Caddy has to honour the same numbers.
@@ -29,14 +29,14 @@ panel.example.com {
     max_size 9437184
   }
 
-  # The panel serves plain HTTP on the host port (HOST_PORT, default 8080). If Caddy runs in the
-  # same Compose network, use the service name instead: m365portal:8080 .
+  # The panel serves plain HTTP on the host port (HOST_PORT, default 9300). If Caddy runs in the
+  # same Compose network, use the service name instead: m365portal:9300 .
   #
   # Caddy passes the Host header on unchanged by default, which the panel needs for its HSTS rule,
   # and it sets X-Forwarded-For, X-Forwarded-Proto and X-Forwarded-Host itself, ignoring what the
   # client sent. Nothing has to be configured for either. Do not add a caching layer here: the
   # HTML of the panel carries a per-request nonce, so a cached page is a broken page.
-  reverse_proxy 127.0.0.1:8080 {
+  reverse_proxy 127.0.0.1:9300 {
     transport http {
       # The panel closes an idle connection after 65 seconds. Caddy keeps idle upstream connections
       # for 2 minutes by default, which would reuse connections the panel has already closed and

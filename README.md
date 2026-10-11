@@ -47,11 +47,11 @@ layer): `--secret id=extra_ca,src=/path/to/ca-bundle.crt`. Where Docker has no b
 Run it (evaluation in preview mode, loopback only):
 
 ```sh
-docker run -d --name m365portal -p 127.0.0.1:8080:8080 -v m365:/data \
+docker run -d --name m365portal -p 127.0.0.1:9300:9300 -v m365:/data \
   -e PREVIEW_MODE=true m365portal:local
 ```
 
-Open <http://localhost:8080>. For the published image replace `m365portal:local` by
+Open <http://localhost:9300>. For the published image replace `m365portal:local` by
 `ghcr.io/flux76hq/m365portal`. Without `PREVIEW_MODE` the panel starts too, but shows only the "no access" page.
 
 With Docker Compose:
@@ -65,18 +65,18 @@ The Compose file pulls the published image; before the first publish run, build 
 `image: m365portal:local` in `docker-compose.yml`. With host networking (`docker run --network host`) `PORT` is
 the host port.
 
-**Ports.** `PORT` is the port inside the container (1024 to 65535, default 8080). `HOST_PORT` exists in Compose only
-and is the port the browser uses (default 8080). Every write is compared with `PUBLIC_BASE_URL`, so it **must equal
+**Ports.** `PORT` is the port inside the container (1024 to 65535, default 9300). `HOST_PORT` exists in Compose only
+and is the port the browser uses (default 9300). Every write is compared with `PUBLIC_BASE_URL`, so it **must equal
 the address in the browser's address bar** (without path). Change the host port with Compose by `HOST_PORT=9090` in
-`.env` (`PUBLIC_BASE_URL` follows); with `docker run` by `-p 9090:8080 -e PUBLIC_BASE_URL=http://localhost:9090`.
+`.env` (`PUBLIC_BASE_URL` follows); with `docker run` by `-p 9090:9300 -e PUBLIC_BASE_URL=http://localhost:9090`.
 A mismatch shows as `403 origin_not_allowed`, and the message names the variable.
 
 ### Configuration
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `HOST_PORT` | `8080` | Compose only: the port published on the Docker host |
-| `PORT` | `8080` | The port the process listens on inside the container (1024 to 65535) |
+| `HOST_PORT` | `9300` | Compose only: the port published on the Docker host |
+| `PORT` | `9300` | The port the process listens on inside the container (1024 to 65535) |
 | `HOST` | `0.0.0.0` | Bind address inside the container |
 | `DATA_DIR` | `/data` | Database and files; must match the volume |
 | `PUBLIC_BASE_URL` | `http://localhost:<port>` | The origin the browser uses; every write is compared with it |
@@ -107,16 +107,16 @@ version bump.
 
 ### What to check after the start
 
-1. `http://localhost:8080/healthz` answers 200 with the version (the process lives).
-2. `http://localhost:8080/readyz` answers 200 (the data directory is writable, the database is open). A 503
+1. `http://localhost:9300/healthz` answers 200 with the version (the process lives).
+2. `http://localhost:9300/readyz` answers 200 (the data directory is writable, the database is open). A 503
    names the failing check.
 3. `docker ps` shows `healthy` after about half a minute.
 4. In preview mode: Settings, Appearance: change the name or the accent colour, save, reload. The change stays.
 5. Stop and start the container: the branding is still there (it lives in the volume).
 
 ```sh
-curl -s http://127.0.0.1:8080/healthz
-curl -s http://127.0.0.1:8080/readyz
+curl -s http://127.0.0.1:9300/healthz
+curl -s http://127.0.0.1:9300/readyz
 ```
 
 What was run, and where: see [the gate note of the documentation](specs/001-m365portal/gate-notes/G8.md).
@@ -194,11 +194,11 @@ imagelaag): `--secret id=extra_ca,src=/pad/naar/ca-bundle.crt`. Waar Docker geen
 Start hem (beoordelen in previewmodus, alleen loopback):
 
 ```sh
-docker run -d --name m365portal -p 127.0.0.1:8080:8080 -v m365:/data \
+docker run -d --name m365portal -p 127.0.0.1:9300:9300 -v m365:/data \
   -e PREVIEW_MODE=true m365portal:local
 ```
 
-Open <http://localhost:8080>. Voor de gepubliceerde image vervang je `m365portal:local` door
+Open <http://localhost:9300>. Voor de gepubliceerde image vervang je `m365portal:local` door
 `ghcr.io/flux76hq/m365portal`. Zonder `PREVIEW_MODE` start het paneel ook, maar het toont alleen "geen toegang".
 
 Met Docker Compose:
@@ -212,11 +212,11 @@ Het Compose-bestand haalt de gepubliceerde image op; bouw vóór de eerste publi
 `image: m365portal:local` in `docker-compose.yml`. Met hostnetwerk (`docker run --network host`) is `PORT` de
 hostpoort.
 
-**Poorten.** `PORT` is de poort in de container (1024 tot 65535, standaard 8080). `HOST_PORT` bestaat alleen in
-Compose en is de poort die de browser gebruikt (standaard 8080). Elke schrijfactie wordt vergeleken met
+**Poorten.** `PORT` is de poort in de container (1024 tot 65535, standaard 9300). `HOST_PORT` bestaat alleen in
+Compose en is de poort die de browser gebruikt (standaard 9300). Elke schrijfactie wordt vergeleken met
 `PUBLIC_BASE_URL`, dus die **moet gelijk zijn aan het adres in de adresbalk** (zonder pad). Wijzig de hostpoort met
 Compose via `HOST_PORT=9090` in `.env` (`PUBLIC_BASE_URL` volgt); met `docker run` via
-`-p 9090:8080 -e PUBLIC_BASE_URL=http://localhost:9090`. Een verschil geeft `403 origin_not_allowed`, met de naam van
+`-p 9090:9300 -e PUBLIC_BASE_URL=http://localhost:9090`. Een verschil geeft `403 origin_not_allowed`, met de naam van
 de variabele in de melding.
 
 ### Configuratie
@@ -242,8 +242,8 @@ versieverhoging.
 
 ### Wat je na de start controleert
 
-1. `http://localhost:8080/healthz` geeft 200 met de versie (het proces leeft).
-2. `http://localhost:8080/readyz` geeft 200 (de datamap is schrijfbaar, de database is open). Bij 503 staat de
+1. `http://localhost:9300/healthz` geeft 200 met de versie (het proces leeft).
+2. `http://localhost:9300/readyz` geeft 200 (de datamap is schrijfbaar, de database is open). Bij 503 staat de
    falende controle in het antwoord.
 3. `docker ps` toont na ongeveer een halve minuut `healthy`.
 4. In previewmodus: Instellingen, Uiterlijk: wijzig de naam of de accentkleur, sla op, laad opnieuw. De wijziging blijft.

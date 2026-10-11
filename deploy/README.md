@@ -22,7 +22,7 @@ docker compose up -d     # pulls ghcr.io/flux76hq/m365portal and starts it
 docker compose ps        # "healthy" after about half a minute (the first health check)
 ```
 
-The panel answers on `http://localhost:8080`. Stop it with `docker compose down`; the data stays in
+The panel answers on `http://localhost:9300`. Stop it with `docker compose down`; the data stays in
 the named volume `data`, which Compose creates as `m365portal_data`. To update, run
 `docker compose pull` and then `docker compose up -d`.
 
@@ -30,25 +30,25 @@ The image is not built by Compose. In production, replace `latest` in `docker-co
 version tag or, better, a digest, so that an update is a decision of yours.
 
 Without Compose, the same image runs with
-`docker run -p 8080:8080 -v m365:/data ghcr.io/flux76hq/m365portal`.
+`docker run -p 9300:9300 -v m365:/data ghcr.io/flux76hq/m365portal`.
 
 ## Two ports, two meanings
 
 | Setting | Meaning | Default |
 |---|---|---|
-| `PORT` | The port the process listens on **inside** the container (1024 to 65535: the container is unprivileged) | `8080` |
-| `HOST_PORT` | The port published on the Docker host, the one the browser connects to. Compose reads it; the application never does | `8080` |
+| `PORT` | The port the process listens on **inside** the container (1024 to 65535: the container is unprivileged) | `9300` |
+| `HOST_PORT` | The port published on the Docker host, the one the browser connects to. Compose reads it; the application never does | `9300` |
 | `PUBLIC_BASE_URL` | The origin the browser uses. Every write is compared with it, so it must match | `http://localhost:` followed by `HOST_PORT` |
 
 - Another host port with Compose: set `HOST_PORT=9090` in `.env`. `PUBLIC_BASE_URL` follows, as long
   as `.env` leaves it unset.
-- Another host port with `docker run`: `-p 9090:8080 -e PUBLIC_BASE_URL=http://localhost:9090`.
+- Another host port with `docker run`: `-p 9090:9300 -e PUBLIC_BASE_URL=http://localhost:9090`.
 - A low host port (80, 443) is reached with `HOST_PORT`, never with a low `PORT`.
 - With `network_mode: host` there is no mapping, and `PORT` is the host port.
 - A host port that was changed without `PUBLIC_BASE_URL` shows up as `403 origin_not_allowed`; the
   problem names the expected origin and the variable.
 - With `PREVIEW_MODE=true` (unauthenticated administration, for evaluation only) publish the port on
-  loopback only: `127.0.0.1:${HOST_PORT:-8080}:${PORT:-8080}` in the `ports` list.
+  loopback only: `127.0.0.1:${HOST_PORT:-9300}:${PORT:-9300}` in the `ports` list.
 
 ## HTTPS and a reverse proxy
 
@@ -95,7 +95,7 @@ Hoe je M365Portal draait vanaf de gepubliceerde image, en wat waar moet zijn voo
 voor zet. De volledige beheerhandleiding staat in [docs/operations.md](../docs/operations.md).
 
 - **Starten**: `cp .env.example .env` (optioneel) en `docker compose up -d`. Het paneel luistert op
-  `http://localhost:8080`. Stoppen met `docker compose down`; de gegevens blijven in het volume.
+  `http://localhost:9300`. Stoppen met `docker compose down`; de gegevens blijven in het volume.
 - **Poorten**: `PORT` is de poort in de container, `HOST_PORT` de poort op de Docker-host (alleen
   Compose leest die), `PUBLIC_BASE_URL` de oorsprong die de browser gebruikt. Wijzig je `HOST_PORT`,
   dan volgt `PUBLIC_BASE_URL` vanzelf zolang je die niet zelf instelt. Een lage hostpoort (80, 443)

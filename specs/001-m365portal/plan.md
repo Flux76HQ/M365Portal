@@ -440,7 +440,7 @@ Each decision becomes `docs/adr/NNNN-<slug>.md` (FR-A-185): D1 to D26 are ADR-00
 
 | Variable | Default | Validation |
 |---|---|---|
-| `PORT` | `8080` | the port the process listens on **inside the container**: digits only, integer 1024 to 65535 (the container is unprivileged with all capabilities dropped); `0`, a value below 1024 or above 65535, an empty value, whitespace (`8080 `) and non-numeric input are a configuration error that names `PORT` (FR-A-016) |
+| `PORT` | `9300` | the port the process listens on **inside the container**: digits only, integer 1024 to 65535 (the container is unprivileged with all capabilities dropped); `0`, a value below 1024 or above 65535, an empty value, whitespace (`9300 `) and non-numeric input are a configuration error that names `PORT` (FR-A-016) |
 | `HOST` | `0.0.0.0` | non-empty host or IP |
 | `DATA_DIR` | `/data` | absolute path |
 | `PUBLIC_BASE_URL` | `http://localhost:<PORT>` | absolute `http` or `https` origin; path only `/`; no query, fragment or credentials; normalised to the serialised origin |
@@ -459,14 +459,14 @@ Cross-field rules: `PREVIEW_MODE=true` with a non-loopback `PUBLIC_BASE_URL` hos
 
 | Situation | Settings |
 |---|---|
-| Default | `docker run -p 8080:8080 ...`, nothing else |
-| Another host port, plain `docker run` | `docker run -p 9090:8080 -e PUBLIC_BASE_URL=http://localhost:9090 ...` |
+| Default | `docker run -p 9300:9300 ...`, nothing else |
+| Another host port, plain `docker run` | `docker run -p 9090:9300 -e PUBLIC_BASE_URL=http://localhost:9090 ...` |
 | Another container port | `docker run -p 9090:9090 -e PORT=9090 -e PUBLIC_BASE_URL=http://localhost:9090 ...` |
-| Compose | `HOST_PORT=9090` in `.env`; the mapping is `"${HOST_PORT:-8080}:${PORT:-8080}"` and `PUBLIC_BASE_URL` defaults to `http://localhost:${HOST_PORT:-8080}` (nested default expansion: UNVERIFIED, proven by `docker compose config` in `server/deploy-files.test.ts`) |
+| Compose | `HOST_PORT=9090` in `.env`; the mapping is `"${HOST_PORT:-9300}:${PORT:-9300}"` and `PUBLIC_BASE_URL` defaults to `http://localhost:${HOST_PORT:-9300}` (nested default expansion: UNVERIFIED, proven by `docker compose config` in `server/deploy-files.test.ts`) |
 | Low host port (80, 443) | `HOST_PORT=80`, never a low `PORT` |
 | `network_mode: host` | `PORT` is the host port |
 
-The literal default `8080` is defined once per file kind (the config default constant, the `Dockerfile` `ENV`, `.env.example`, the Compose defaults); the `HEALTHCHECK` script, the Vite dev proxy, the e2e `webServer` (variable `E2E_PORT`, default 4173) and all documentation examples derive from the same variables, and `shared/repo-conventions.test.ts` fails on a stray literal port in source files. The `origin_not_allowed` problem names the expected origin (member `expectedOrigin`) and the variable `PUBLIC_BASE_URL`, so a host port changed without it is diagnosable from the error alone (contract section 6).
+The literal default `9300` is defined once per file kind (the config default constant, the `Dockerfile` `ENV`, `.env.example`, the Compose defaults); the `HEALTHCHECK` script, the Vite dev proxy, the e2e `webServer` (variable `E2E_PORT`, default 4173) and all documentation examples derive from the same variables, and `shared/repo-conventions.test.ts` fails on a stray literal port in source files. The `origin_not_allowed` problem names the expected origin (member `expectedOrigin`) and the variable `PUBLIC_BASE_URL`, so a host port changed without it is diagnosable from the error alone (contract section 6).
 
 ### 7.4 Degraded mode, readiness and shutdown
 
@@ -725,7 +725,7 @@ Two stages; both `FROM` lines carry literal digests (the pin check parses them):
 
 - **Build stage.** `corepack enable`; copy `VERSION`, root manifests, lockfile and every workspace `package.json` (including `e2e/`, so the frozen lockfile matches); `pnpm install --frozen-lockfile --filter "@m365portal/server..." --filter "@m365portal/web..."` with a BuildKit cache mount; if `--build-arg VERSION` is given it must equal `VERSION` or the build fails; build the web (Vite, precompress) and the server (esbuild: `index`, `cli`, `healthcheck`, `image-worker`); `pnpm --filter @m365portal/server deploy --prod --legacy /out`; copy only `node_modules`, `package.json`, `dist`, `drizzle` and the web output to `/app`; delete `better-sqlite3/{deps,src,binding.gyp}` and every prebuild except `linux-x64` (amd64) or `linux-arm64` (arm64) chosen from `TARGETARCH` (probe P9); create an empty `/data`.
 - **Behind a TLS-inspecting proxy** (such as this sandbox): the install step mounts an optional BuildKit secret `extra_ca` and exports `NODE_EXTRA_CA_CERTS` only if it is present. The CA never enters a layer and the Dockerfile has no sandbox-specific line.
-- **Runtime stage.** `COPY --chown=65532:65532` of `/app` and `/data`; `WORKDIR /app`; `ENV NODE_ENV=production PORT=8080 DATA_DIR=/data`; `USER 65532:65532`; `EXPOSE 8080`; OCI labels (`title`, `description`, `source`, `version`, `revision`, `created`; no `licenses` until OD-01); `HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["/nodejs/bin/node","dist/healthcheck.js"]`; `CMD ["dist/index.js"]` on the base image's Node entrypoint. No shell, no `curl`, no `VOLUME` (an anonymous volume on a plain `docker run` would silently lose data).
+- **Runtime stage.** `COPY --chown=65532:65532` of `/app` and `/data`; `WORKDIR /app`; `ENV NODE_ENV=production PORT=9300 DATA_DIR=/data`; `USER 65532:65532`; `EXPOSE 9300`; OCI labels (`title`, `description`, `source`, `version`, `revision`, `created`; no `licenses` until OD-01); `HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["/nodejs/bin/node","dist/healthcheck.js"]`; `CMD ["dist/index.js"]` on the base image's Node entrypoint. No shell, no `curl`, no `VOLUME` (an anonymous volume on a plain `docker run` would silently lose data).
 - **Healthcheck script.** Dependency-free: `fetch('http://127.0.0.1:' + PORT + '/readyz')` with a 3-second abort; exit 0 on 200, 1 otherwise. It uses `/readyz` (A-34), so an unusable volume shows as unhealthy; an orchestrator that restarts on liveness should use `/healthz`.
 - `.dockerignore` excludes everything the build does not copy (`.git`, `node_modules`, `dist`, `e2e`, `docs`, `specs`, test output, `.env*`).
 - **Checks.** `py/test_check_dockerfile_pins.py` (digests in every `FROM`, no `latest`), `py/check_image_contents.py` (no `.env`, `.git`, test files, source maps or dev dependencies; user 65532; labels; healthcheck; exposed port), `scripts/image-smoke.ts` (below), image size ceiling 400 MB (probe: 197 MB).
@@ -734,7 +734,7 @@ Two stages; both `FROM` lines carry literal digests (the pin check parses them):
 
 ### 12.2 Compose example (FR-A-166)
 
-`docker-compose.yml`: one service from `ghcr.io/flux76hq/m365portal:latest` (a comment says to pin a version tag or digest in production), the mapping `"${HOST_PORT:-8080}:${PORT:-8080}"`, `PORT` passed to the container, named volume at `/data`, `read_only: true`, `tmpfs: [/tmp]`, `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, `mem_limit: 512m`, `cpus: 1.0`, `pids_limit: 128`, `stop_grace_period: 15s`, `restart: unless-stopped`, the `HEALTHCHECK` equivalent (the same Node script, which reads `PORT`), and `PUBLIC_BASE_URL` defaulting to `http://localhost:${HOST_PORT:-8080}`; `HOST_PORT` and `PUBLIC_BASE_URL` are the only settings an operator normally changes. The image is not built by compose. `server/deploy-files.test.ts` parses the file, resolves the mapping and the default for several `.env` inputs with `docker compose config`, and compares `.env.example` with the config schema plus `HOST_PORT`; the `image` job runs `docker compose config -q`.
+`docker-compose.yml`: one service from `ghcr.io/flux76hq/m365portal:latest` (a comment says to pin a version tag or digest in production), the mapping `"${HOST_PORT:-9300}:${PORT:-9300}"`, `PORT` passed to the container, named volume at `/data`, `read_only: true`, `tmpfs: [/tmp]`, `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, `mem_limit: 512m`, `cpus: 1.0`, `pids_limit: 128`, `stop_grace_period: 15s`, `restart: unless-stopped`, the `HEALTHCHECK` equivalent (the same Node script, which reads `PORT`), and `PUBLIC_BASE_URL` defaulting to `http://localhost:${HOST_PORT:-9300}`; `HOST_PORT` and `PUBLIC_BASE_URL` are the only settings an operator normally changes. The image is not built by compose. `server/deploy-files.test.ts` parses the file, resolves the mapping and the default for several `.env` inputs with `docker compose config`, and compares `.env.example` with the config schema plus `HOST_PORT`; the `image` job runs `docker compose config -q`.
 
 ### 12.3 Workflows and pinned actions
 

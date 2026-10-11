@@ -150,7 +150,7 @@ Priorities: P1 needed for the gate, P2 expected, P3 desirable.
 2. **Given** the panel is unconfigured, **When** any client calls any setup or connection route except `status` and `unlock`, **Then** it gets 401 `unauthenticated` and no tenant data, step state or log line is returned.
 3. **Given** a client, **When** it sends 5 wrong tokens within 15 minutes, **Then** it gets 429 `setup_token_locked` with `Retry-After`, and a correct token during the lock is also refused.
 4. **Given** the right token, **When** I submit it, **Then** I get a setup session (cookie, idle 60 minutes) and the wizard shows step 1.
-5. **Given** `PUBLIC_BASE_URL=http://localhost:8080` and a request with a non-loopback `Host` or forwarding headers, **Then** setup routes answer 404 (accidental-exposure guard; the token is the boundary).
+5. **Given** `PUBLIC_BASE_URL=http://localhost:9300` and a request with a non-loopback `Host` or forwarding headers, **Then** setup routes answer 404 (accidental-exposure guard; the token is the boundary).
 
 ### US-B2 The wizard configures the tenant (P1)
 

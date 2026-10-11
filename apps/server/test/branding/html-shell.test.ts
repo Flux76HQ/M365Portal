@@ -16,7 +16,7 @@ import { createBrandingStorage, type BrandingStorage } from './branding-fixture.
 import type { z } from 'zod';
 
 const TEMPLATE = readFileSync(new URL('../fixtures/shell-template.html', import.meta.url), 'utf8');
-const REQUEST = new Request('http://localhost:8080/users');
+const REQUEST = new Request('http://localhost:9300/users');
 const STAFF = { actor: { kind: 'preview', id: 'preview' } } as const;
 
 type Me = z.infer<typeof MeResponseSchema>;
@@ -26,7 +26,7 @@ const me = (storageAvailable = true): Me => ({
   permissions: ['settings:branding'],
   features: { showcase: false, preview: true },
   version: '1.2.3-test',
-  publicOrigin: 'http://localhost:8080',
+  publicOrigin: 'http://localhost:9300',
   storageAvailable,
 });
 

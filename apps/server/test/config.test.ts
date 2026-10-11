@@ -142,7 +142,7 @@ describe('defaults', () => {
 // ---------------------------------------------------------------------------------------------
 
 const PORT_MESSAGE = 'PORT must be an integer between 1024 and 65535';
-const PORT_ACCEPTED = ['1024', '1025', '8080', '18080', '49152', '65535'];
+const PORT_ACCEPTED = ['1024', '1025', '9300', '18080', '49152', '65535'];
 const PORT_REJECTED = [
   '0',
   '80',
@@ -157,10 +157,10 @@ const PORT_REJECTED = [
   '80.5',
   '0x1F90',
   '1e4',
-  ' 8080',
-  '8080 ',
+  ' 9300',
+  '9300 ',
   '08080',
-  '+8080',
+  '+9300',
   '8_080',
   '８０８０',
 ];
@@ -620,7 +620,7 @@ describe('isLoopbackHost', () => {
     '[::ffff:127.0.0.1]',
     '[0:0:0:0:0:0:0:1]',
     'panel.example.com',
-    'localhost:8080',
+    'localhost:9300',
   ])('%j is not loopback', (host) => {
     expect(isLoopbackHost(host)).toBe(false);
   });
@@ -632,7 +632,7 @@ describe('normalizeHost, the one host normaliser', () => {
     ['LocalHost:9090', 'localhost'],
     ['panel.example.com.', 'panel.example.com'],
     ['Panel.Example.COM.:8443', 'panel.example.com'],
-    ['[::1]:8080', '[::1]'],
+    ['[::1]:9300', '[::1]'],
     ['[::1]', '[::1]'],
     ['[2001:DB8::1]:443', '[2001:db8::1]'],
     ['127.0.0.1:80', '127.0.0.1'],
@@ -644,7 +644,7 @@ describe('normalizeHost, the one host normaliser', () => {
   it.each([
     '',
     ' ',
-    ':8080',
+    ':9300',
     'host:',
     'host:port',
     'host:123456',
@@ -786,7 +786,7 @@ describe('reporting an invalid configuration', () => {
   it('replaces a message of a library, so that no text but ours reaches the report', () => {
     // A value of the wrong type (not possible from `process.env`, possible from a caller) makes Zod
     // write a message of its own. It is not one of ours, so it is not passed on.
-    const issues = issuesOf({ PORT: 8080 as unknown as string });
+    const issues = issuesOf({ PORT: 9300 as unknown as string });
     expect(issues).toEqual([{ variable: 'PORT', message: 'PORT is invalid' }]);
   });
 

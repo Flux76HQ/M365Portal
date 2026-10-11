@@ -127,6 +127,35 @@ state of a checked control visible; the components in `components/ui/` were gene
 shadcn CLI (`shadcn@4.21.4 init -t vite -b radix -p nova`, `add`, then ejected and restyled: PD-28) and
 are owned code, so the next component is generated the same way.
 
+## Performance architecture
+
+The first screen must paint before the application's JavaScript has run (ADR-0053, ADR-0056). What carries that:
+
+- **Static shell.** `apps/web/index.html` holds the sidebar, the preview banner and the header bar as markup inside `#root`, with text from the catalogues (build-time `{en:key}` and `{nl:key}`), both languages, the one that matches `html[lang]` shown by a small inline script. It carries no `main`, `header`, `nav` or control and is `hidden`, `aria-hidden` and `inert`, so assistive technology and the keyboard never meet it. The organisation name and the preview flag come from the boot data embedded in the HTML, so the first render makes no request.
+- **Deferred and staged start.** `build/plugins/defer-entry.ts` takes the module script and the `modulepreload` links out of the head. After two frames (a timer of 1.5 s covers a hidden tab) an inline script adds the preload links in one go and `import()`s the entry; what to load is listed in `<script type="application/json" id="m365-start">`. `main.tsx` then imports React, the data layer, the router and the component tree one after the other (`boot/stage-*.ts`), yielding between them, and renders as a transition after `router.load()`, so no task blocks the main thread for long.
+- **Route chunk preloads.** The same block lists, per URL path, the chunks of the route files on the way to it (root, layout, page). The loader adds the entry for `location.pathname`; for example `/` has 4 files, `/users` 7, `/settings/appearance` 9. They download beside the others and not one round trip after them.
+- **Build-time `cn` tables.** `build/plugins/cn-tables.ts` compiles the class-merge tables from the class names found in the sources; the `cn` chunk went from 71 KB to 20 KB raw. A parity test proves the same merges on 4,000 seeded class strings. A class name built at run time is not seen (the rule Tailwind has too).
+- **Caching and compression.** Assets answer `br`, `cache-control: public, max-age=31536000, immutable`; the HTML is compressed per request because it carries a nonce. The entry CSS (45,491 B raw) is inlined with the nonce.
+
+**Bundle budgets and the ratchet** (`scripts/bundle-budget.json`, `pnpm bundle:check`, which reads the files of the `m365-start` block so the deferred start cannot hide weight). A budget only goes down.
+
+| Number | Spec target | Budget | Measured (T-A-173 calibration) |
+|---|---|---|---|
+| Initial JavaScript, gzip | 250 KiB (256,000 B) | 237,500 B | 236,309 B |
+| Entry CSS, raw | 80 KiB (81,920 B) | 45,500 B | 45,491 B |
+| First load, Brotli | 150 KiB (153,600 B), a SHOULD (FR-A-155) | 269,000 B | about 262 KiB: **target not met** |
+
+**Measured Lighthouse numbers** (Lighthouse 13.5.0, Chromium 141, production build served by the real server, 2026-10-11, version 0.2.40; `pnpm lighthouse`, 44 cells and 66 measurements, verdict pass with 11 accepted misses):
+
+| Instance and preset | Performance (first run) | LCP | CLS |
+|---|---|---|---|
+| preview, mobile (the instance of the e2e suite) | 98 to 100 | 1.06 to 1.51 s | 0.000 |
+| preview, desktop | 100 | 0.36 to 0.40 s | 0.000 |
+| default, desktop | 100 | 0.71 to 0.78 s | 0.000 |
+| default, mobile (3 runs each) | 84 to 90 | **3.55 to 3.80 s, not below 2.0 s** | 0.000 |
+
+The default instance misses because its largest first-screen element is page content that exists only after the JavaScript ran, and the static shell cannot hold it without guessing the actor's permissions. The rule that accepts this miss is ADR-0056; the decision stays with the owner (OD-15, PR-01). Before the work the same page measured LCP 3.50 s and Performance 76 to 80 on mobile.
+
 ## Conditional requests
 
 The branding routes answer a strong quoted `ETag` (the revision) and `Cache-Control: no-store,
@@ -269,6 +298,10 @@ validatie, handler, foutafhandeling. De tabel hierboven noemt per stap het doel 
 De tabel `Dependency | Reason | Mark` hierboven bevat elke directe productie-afhankelijkheid met de reden
 en de markering hergebruiken (reuse), aanpassen (adapt) of vervangen (replace). `pnpm docs:check` faalt
 als er een afhankelijkheid zonder rij bijkomt. Ontwikkelafhankelijkheden staan in de tweede tabel.
+
+### Prestatie-architectuur
+
+Het eerste scherm moet getekend zijn voordat de JavaScript van de applicatie draait (ADR-0053, ADR-0056). Dat dragen: een statische schil in `index.html` (zijbalk, previewbanner en kopbalk als markup, beide talen, `hidden`, `aria-hidden` en `inert`), een uitgestelde en getrapte start (de ingang wordt na twee frames met `import()` geladen; het blok `m365-start` somt de bestanden op), voorladen van de chunks per route, `cn`-tabellen die bij het bouwen worden samengesteld en Brotli met onveranderlijke cache. De budgetten staan in `scripts/bundle-budget.json` en gaan alleen omlaag: eerste JavaScript 237.500 B gzip, ingangs-CSS 45.500 B, eerste lading 269.000 B Brotli. De streefwaarde van 150 KiB voor de eerste lading wordt **niet** gehaald (ongeveer 262 KiB). Gemeten (Lighthouse 13.5.0, 2026-10-11): previewinstantie mobiel LCP 1,06 tot 1,51 s en Performance 98 tot 100; standaardinstantie mobiel LCP 3,55 tot 3,80 s en Performance 84 tot 90, dus niet onder 2,0 s. De regel die dat accepteert is ADR-0056; de eigenaar beslist (OD-15, PR-01).
 
 ### Testlagen en vertalingen
 

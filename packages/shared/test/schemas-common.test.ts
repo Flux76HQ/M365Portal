@@ -142,7 +142,7 @@ describe('IsoTimestampSchema (UTC with milliseconds)', () => {
 
 describe('OriginSchema (the serialised origin of an http or https URL)', () => {
   it.each([
-    'http://localhost:8080',
+    'http://localhost:9300',
     'https://panel.example.org',
     'http://localhost:18080',
     'http://127.0.0.1:18080',
@@ -153,20 +153,20 @@ describe('OriginSchema (the serialised origin of an http or https URL)', () => {
   });
 
   it.each([
-    ['a trailing slash', 'http://localhost:8080/'],
-    ['a path', 'http://localhost:8080/panel'],
-    ['a query', 'http://localhost:8080?x=1'],
-    ['a fragment', 'http://localhost:8080#top'],
-    ['credentials', 'http://user:pw@localhost:8080'],
-    ['upper-case host letters (not the serialised form)', 'http://LOCALHOST:8080'],
+    ['a trailing slash', 'http://localhost:9300/'],
+    ['a path', 'http://localhost:9300/panel'],
+    ['a query', 'http://localhost:9300?x=1'],
+    ['a fragment', 'http://localhost:9300#top'],
+    ['credentials', 'http://user:pw@localhost:9300'],
+    ['upper-case host letters (not the serialised form)', 'http://LOCALHOST:9300'],
     ['the default port written out', 'http://localhost:80'],
     ['a script URL', 'javascript:alert(1)'],
     ['a data URL', 'data:text/html,x'],
     ['the opaque origin', 'null'],
-    ['a host without a scheme', 'localhost:8080'],
+    ['a host without a scheme', 'localhost:9300'],
     ['a bare host', 'localhost'],
     ['the empty string', ''],
-    ['a number', 8080],
+    ['a number', 9300],
   ])('rejects %s', (_label, value) => {
     expect(accepts(OriginSchema, value)).toBe(false);
   });
@@ -288,7 +288,7 @@ describe('MeResponseSchema and its parts (R4, FR-A-027)', () => {
     permissions: [],
     features: { showcase: false, preview: false },
     version: '0.2.1',
-    publicOrigin: 'http://localhost:8080',
+    publicOrigin: 'http://localhost:9300',
     storageAvailable: true,
   };
   const preview = {
@@ -329,11 +329,11 @@ describe('MeResponseSchema and its parts (R4, FR-A-027)', () => {
     ['permissions as a set-like object', { permissions: { 'users:read': true } }],
     ['features without preview', { features: { showcase: false } }],
     ['features with a non-boolean', { features: { showcase: 'no', preview: false } }],
-    ['an origin with a path', { publicOrigin: 'http://localhost:8080/panel' }],
-    ['an origin with a trailing slash', { publicOrigin: 'http://localhost:8080/' }],
+    ['an origin with a path', { publicOrigin: 'http://localhost:9300/panel' }],
+    ['an origin with a trailing slash', { publicOrigin: 'http://localhost:9300/' }],
     ['an origin that is not a URL', { publicOrigin: 'localhost' }],
     ['a script URL as origin', { publicOrigin: 'javascript:alert(1)' }],
-    ['an origin with credentials', { publicOrigin: 'http://user:pw@localhost:8080' }],
+    ['an origin with credentials', { publicOrigin: 'http://user:pw@localhost:9300' }],
     ['an empty version', { version: '' }],
     ['storageAvailable as text', { storageAvailable: 'yes' }],
     ['an extra member', { token: 'x' }],

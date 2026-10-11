@@ -233,7 +233,7 @@ Warning codes (successful upload): `svg_content_removed` (with `categories`: `sc
 
 ```http
 PUT /api/v1/branding HTTP/1.1
-Origin: http://localhost:8080
+Origin: http://localhost:9300
 X-CSRF-Token: v1.1760000000.1760028800.Q3x1...fA.7bK...Zk
 If-Match: "3"
 Content-Type: application/json
