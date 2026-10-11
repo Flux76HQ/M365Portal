@@ -11,6 +11,7 @@
     "build": "node -e \"console.log('@m365portal/e2e has nothing to build')\""
   },
   "devDependencies": {
+    "@axe-core/playwright": "catalog:",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:"
   }

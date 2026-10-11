@@ -26,7 +26,7 @@ const read = (relative: string): string => readFileSync(new URL(relative, import
 const readFragment = (language: 'en' | 'nl'): Record<string, string> =>
   JSON.parse(read(`../src/i18n/fragments/problem.${language}.json`)) as Record<string, string>;
 
-/** Contract section 6, in its order: the 31 codes with their status. */
+/** Contract section 6, in its order: the 34 codes with their status. */
 const CONTRACT_6: readonly (readonly [string, number])[] = [
   ['permission_denied', 403],
   ['origin_not_allowed', 403],
@@ -59,6 +59,9 @@ const CONTRACT_6: readonly (readonly [string, number])[] = [
   ['storage_unavailable', 503],
   ['storage_busy', 503],
   ['shutting_down', 503],
+  ['bad_request', 400],
+  ['request_timeout', 408],
+  ['request_header_fields_too_large', 431],
 ];
 
 const CODES = Object.keys(PROBLEM_CODES) as ProblemCode[];
@@ -68,10 +71,16 @@ const without = (value: Readonly<Record<string, unknown>>, key: string): Record<
   Object.fromEntries(Object.entries(value).filter(([name]) => name !== key));
 
 describe('PROBLEM_CODES: the registry', () => {
-  it('holds exactly the 31 codes of contract section 6, with their status', () => {
-    expect(CONTRACT_6).toHaveLength(31);
+  it('holds exactly the 34 codes of contract section 6, with their status', () => {
+    expect(CONTRACT_6).toHaveLength(34);
     const actual = Object.entries(PROBLEM_CODES).map(([code, entry]) => [code, entry.status]);
     expect(actual.sort()).toEqual([...CONTRACT_6].sort());
+  });
+
+  it('includes the three codes of the Node parser errors (amendment): bad_request 400, request_timeout 408, request_header_fields_too_large 431', () => {
+    expect(PROBLEM_CODES.bad_request.status).toBe(400);
+    expect(PROBLEM_CODES.request_timeout.status).toBe(408);
+    expect(PROBLEM_CODES.request_header_fields_too_large.status).toBe(431);
   });
 
   it('includes the two codes the plan added: staging_quota_exceeded 409 and shutting_down 503', () => {
@@ -85,7 +94,7 @@ describe('PROBLEM_CODES: the registry', () => {
     const rows = [...section.matchAll(/^\| `([a-z_]+)`(?: \(\*\*new\*\*\))? \| (\d{3}) \|/gm)].map(
       (match) => [match[1], Number(match[2])],
     );
-    expect(rows).toHaveLength(31);
+    expect(rows).toHaveLength(34);
     expect(rows.sort()).toEqual([...CONTRACT_6].sort());
   });
 
@@ -98,7 +107,7 @@ describe('PROBLEM_CODES: the registry', () => {
       match[1],
       Number(match[2]),
     ]);
-    expect(rows).toHaveLength(31);
+    expect(rows).toHaveLength(34);
     expect(rows.sort()).toEqual([...CONTRACT_6].sort());
   });
 
@@ -398,7 +407,7 @@ describe('the problem fragments (en and nl)', () => {
     expect(() => {
       assertFragmentMatchesRegistry(fragment);
     }).not.toThrow();
-    expect(Object.keys(fragment)).toHaveLength(32);
+    expect(Object.keys(fragment)).toHaveLength(35);
   });
 
   it('every key starts with the namespace problem and a dot (C11)', () => {

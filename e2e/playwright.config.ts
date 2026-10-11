@@ -1,73 +1,106 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@playwright/test';
+import type { AppOptions } from './fixtures.js';
+import { originOf, previewPort } from './servers.js';
 
-// The end-to-end tests run against the PRODUCTION build: `pnpm build` must have been run first.
-// Playwright does not build anything itself; it only starts `node apps/server/dist/index.js`.
-// Fail here, with the fix in the message, instead of letting the web server die with a raw
-// MODULE_NOT_FOUND and Playwright's "Process from config.webServer was not able to start".
-for (const output of ['apps/server/dist/index.js', 'apps/web/dist/index.html']) {
-  if (!existsSync(fileURLToPath(new URL(`../${output}`, import.meta.url)))) {
-    throw new Error(
-      `${output} is missing: run pnpm build first (the e2e tests need the production build)`,
-    );
-  }
+// The end-to-end tests run against the PRODUCTION build: `pnpm build` must have been run first
+// (global-setup.ts says so when it did not). Two instances are started by global-setup.ts and
+// stopped by global-teardown.ts (FR-A-157, contract C14):
+//   preview    E2E_PORT      (default 4173)  PREVIEW_MODE=true, SHOWCASE=true
+//   anonymous  E2E_PORT + 1  (default 4174)  neither
+// Both have a fresh temporary DATA_DIR and PUBLIC_BASE_URL=http://localhost:<port>.
+previewPort(); // validates E2E_PORT early, with a readable message
+
+const DESKTOP = { width: 1440, height: 900 };
+const MOBILE = { width: 390, height: 844 };
+const ULTRAWIDE = { width: 3440, height: 1440 };
+
+/**
+ * Which projects run which spec file. A spec that is not listed here runs in `desktop-light` only.
+ * One table, so adding a spec never needs a second edit in this file.
+ */
+const FOUR_THEMES_AND_SIZES = ['desktop-light', 'desktop-dark', 'mobile-light', 'mobile-dark'];
+export const SPEC_PROJECTS: Readonly<Record<string, readonly string[]>> = {
+  'a11y.spec.ts': FOUR_THEMES_AND_SIZES,
+  'visual.spec.ts': [...FOUR_THEMES_AND_SIZES, 'ultrawide'],
+  'responsive.spec.ts': ['desktop-light', 'ultrawide'],
+  'i18n-theme.spec.ts': ['desktop-light', 'storage-blocked'],
+  'forced-colors.spec.ts': ['forced-colors'],
+  'reduced-motion.spec.ts': ['reduced-motion'],
+};
+
+function projectFor(
+  name: string,
+  options: Partial<AppOptions> & { viewport: { width: number; height: number } },
+  extra: Record<string, unknown> = {},
+) {
+  const owned = Object.entries(SPEC_PROJECTS)
+    .filter(([, projects]) => projects.includes(name))
+    .map(([file]) => file);
+  const claimed = Object.keys(SPEC_PROJECTS);
+  return {
+    name,
+    use: { browserName: 'chromium' as const, ...options, ...extra },
+    // `desktop-light` is the default home of every spec that is not listed in SPEC_PROJECTS.
+    testMatch:
+      name === 'desktop-light'
+        ? ['**/*.spec.ts']
+        : owned.map((file) => new RegExp(`${file.replace(/\./g, '\\.')}$`)),
+    testIgnore:
+      name === 'desktop-light'
+        ? claimed
+            .filter((file) => !owned.includes(file))
+            .map((file) => new RegExp(`${file.replace(/\./g, '\\.')}$`))
+        : undefined,
+  };
 }
-
-// The port the server listens on during the tests (FR-A-016): E2E_PORT, default 4173.
-const rawPort = process.env.E2E_PORT ?? '4173';
-const PORT = Number(rawPort);
-if (!/^\d{1,5}$/.test(rawPort) || PORT < 1024 || PORT > 65535) {
-  throw new Error('E2E_PORT must be an integer between 1024 and 65535');
-}
-const baseURL = `http://127.0.0.1:${String(PORT)}`;
-
-// One fresh DATA_DIR per run. The config is evaluated by the runner and again by every worker;
-// workers inherit the variable, so only the first evaluation (the runner process) creates the
-// directory and registers its removal. The `exit` hook, not a Playwright global teardown, owns the
-// cleanup: it also runs when the run is aborted or the config is merely loaded (`--list`), and it
-// runs after the web server has stopped, which a file still in use needs on some platforms.
-const dataDir = (process.env.E2E_DATA_DIR ??= (() => {
-  const created = mkdtempSync(join(tmpdir(), 'm365portal-e2e-'));
-  process.once('exit', () => {
-    rmSync(created, { recursive: true, force: true });
-  });
-  // Playwright handles SIGINT (Ctrl+C) itself; a plain SIGTERM (CI cancel, timeout) would end the
-  // process without an `exit` event. Turn it into a normal exit so the hooks above still run.
-  process.once('SIGTERM', () => {
-    process.exit(143);
-  });
-  return created;
-})());
 
 export default defineConfig({
   testDir: './tests',
-  fullyParallel: true,
+  // One worker: the two servers, the stop/start helper and the service worker tests share state.
+  workers: 1,
+  fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   reporter: [['list']],
+  timeout: 60_000,
+  expect: { timeout: 10_000 },
+  globalSetup: './global-setup.ts',
+  globalTeardown: './global-teardown.ts',
   use: {
-    baseURL,
+    baseURL: originOf('preview'),
     // The Chromium preinstalled in the image (PLAYWRIGHT_BROWSERS_PATH) is used; nothing is
     // downloaded. Chromium refuses to start its sandbox as root, which is how CI containers run.
     launchOptions: { args: process.getuid?.() === 0 ? ['--no-sandbox'] : [] },
+    locale: 'en-US',
+    timezoneId: 'UTC',
   },
-  projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
-  webServer: {
-    command: 'node apps/server/dist/index.js',
-    cwd: '..',
-    url: `${baseURL}/healthz`,
-    // A leftover server on the port must fail the run, not silently serve a stale build.
-    reuseExistingServer: false,
-    env: {
-      PORT: String(PORT),
-      HOST: '127.0.0.1',
-      // Must equal the origin the browser uses: writes are only accepted from PUBLIC_BASE_URL (A-31).
-      PUBLIC_BASE_URL: baseURL,
-      DATA_DIR: dataDir,
-      SHOWCASE: 'true',
-      PREVIEW_MODE: 'true',
-    },
-  },
+  projects: [
+    projectFor('desktop-light', { appTheme: 'light', viewport: DESKTOP }, { colorScheme: 'light' }),
+    projectFor('desktop-dark', { appTheme: 'dark', viewport: DESKTOP }, { colorScheme: 'dark' }),
+    projectFor(
+      'mobile-light',
+      { appTheme: 'light', viewport: MOBILE },
+      { colorScheme: 'light', hasTouch: true },
+    ),
+    projectFor(
+      'mobile-dark',
+      { appTheme: 'dark', viewport: MOBILE },
+      { colorScheme: 'dark', hasTouch: true },
+    ),
+    projectFor('ultrawide', { appTheme: 'light', viewport: ULTRAWIDE }, { colorScheme: 'light' }),
+    projectFor(
+      'storage-blocked',
+      { appTheme: 'system', viewport: DESKTOP, blockStorage: true },
+      { colorScheme: 'light' },
+    ),
+    projectFor(
+      'forced-colors',
+      { appTheme: 'light', viewport: DESKTOP },
+      { colorScheme: 'light', forcedColors: 'active' },
+    ),
+    projectFor(
+      'reduced-motion',
+      { appTheme: 'light', viewport: DESKTOP },
+      { colorScheme: 'light', reducedMotion: 'reduce' },
+    ),
+  ],
 });

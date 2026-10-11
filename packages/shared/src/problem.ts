@@ -31,8 +31,10 @@ interface ProblemCodeEntry {
 }
 
 /**
- * Spec section 6.4 and contract section 6: 31 codes. `staging_quota_exceeded` (409) and
- * `shutting_down` (503) are the two the plan added to the spec's seed list.
+ * Spec section 6.4 and contract section 6: 34 codes. `staging_quota_exceeded` (409) and
+ * `shutting_down` (503) are the two the plan added to the spec's seed list; `bad_request` (400),
+ * `request_timeout` (408) and `request_header_fields_too_large` (431) are the three that Node's HTTP
+ * parser errors get (the `clientError` handler, amendment 1).
  */
 export const PROBLEM_CODES = deepFreeze({
   permission_denied: {
@@ -190,6 +192,21 @@ export const PROBLEM_CODES = deepFreeze({
     status: 503,
     title: 'Server is shutting down',
     detail: 'The server is shutting down.',
+  },
+  bad_request: {
+    status: 400,
+    title: 'Bad request',
+    detail: 'The request could not be parsed.',
+  },
+  request_timeout: {
+    status: 408,
+    title: 'Request timeout',
+    detail: 'The request was not received in time.',
+  },
+  request_header_fields_too_large: {
+    status: 431,
+    title: 'Request header fields too large',
+    detail: 'The request line or the headers are larger than the limit.',
   },
 } as const satisfies Record<string, ProblemCodeEntry>);
 

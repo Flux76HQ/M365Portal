@@ -188,7 +188,7 @@ A GET or HEAD whose `Accept` includes `text/html`, outside `/api`, `/branding` a
 
 ## 6. Problem codes
 
-Stable machine codes; each has a Dutch and an English message under the catalogue key `problem.<code>` (FR-A-112). The registry lives in `packages/shared/src/problem.ts`. Codes added to the spec's list by this plan are marked **new** (SA-06).
+Stable machine codes; each has a Dutch and an English message under the catalogue key `problem.<code>` (FR-A-112). The registry lives in `packages/shared/src/problem.ts`. Codes added to the spec's list by this plan, or by the clientError amendment, are marked **new** (SA-06).
 
 | Code | Status | Typical source | Retry-After |
 |---|---|---|---|
@@ -223,6 +223,9 @@ Stable machine codes; each has a Dutch and an English message under the catalogu
 | `storage_unavailable` | 503 | read-only, full or I/O error; degraded mode | |
 | `storage_busy` | 503 | `SQLITE_BUSY` | 1 |
 | `shutting_down` (**new**) | 503 | request or job aborted by shutdown | 5 |
+| `bad_request` (**new**) | 400 | the HTTP parser rejected the request before routing (Node `clientError`) | |
+| `request_timeout` (**new**) | 408 | the request was not received in time (Node `clientError`) | |
+| `request_header_fields_too_large` (**new**) | 431 | request line or headers over the parser limit (Node `clientError`) | |
 
 Warning codes (successful upload): `svg_content_removed` (with `categories`: `script`, `event_handler`, `external_reference`, `foreign_object`, `style`, `animation`, `filter`, `unknown_element`, `unknown_attribute`, `processing_instruction`, `unresolved_reference`), `animation_flattened`. Readiness failure codes: `data_dir_not_writable`, `database_unavailable`, `database_corrupt`, `schema_newer_than_app`. Start-up failure codes (logged, not HTTP): `config_invalid`, `migration_checksum_mismatch`, `schema_newer_than_app`.
 
