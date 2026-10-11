@@ -1,0 +1,50 @@
+name: codeql
+
+# Static analysis of the JavaScript and TypeScript sources (FR-A-173). Job `analyze` is the only
+# job in the repository that holds `security-events: write`; the workflow itself is read-only.
+#
+# Action pins re-resolved on 2026-10-11 with `python scripts/resolve_action_pins.py` (git ls-remote
+# --tags, highest stable tag, annotated tags peeled to their commit). `init` and `analyze` are
+# sub-actions of the same repository and the same tag. This workflow has not run on GitHub yet:
+# see the first-run risks in specs/001-m365portal/gate-notes/G7.md.
+#
+# No build step: JavaScript and TypeScript need none (`build-mode` is not set). Results appear
+# under Security, Code scanning. Remediation when it fails: open the alert, fix the code, or
+# dismiss it there with a reason; never silence it in this file.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    # Weekly, Monday 04:17 UTC (off the hour so the scheduled run is not queued behind the rush).
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: javascript-typescript
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          category: "/language:javascript-typescript"

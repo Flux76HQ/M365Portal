@@ -1,0 +1,73 @@
+# Dependabot (FR-A-173, PD-26). Weekly, grouped, so one pull request per ecosystem and week.
+# `npm` covers the pnpm workspace (root, apps/*, packages/*, e2e); versions live in the catalog of
+# pnpm-workspace.yaml. UNVERIFIED until the first run: that Dependabot rewrites catalog entries
+# and keeps pnpm-lock.yaml consistent; if it does not, bump by hand through
+# tools/INSTALL-PROTOCOL.md. `github-actions` proposes new SHA pins with the version comment;
+# `docker` proposes new base-image digests for the Dockerfile.
+# Every ignore rule below is also recorded in docs/open-points.md (S8).
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directories:
+      - "/"
+      - "/apps/*"
+      - "/packages/*"
+      - "/e2e"
+    schedule:
+      interval: weekly
+    groups:
+      npm-weekly:
+        patterns:
+          - "*"
+    ignore:
+      # TypeScript 6.1 and later: the stack is probed and pinned on 6.0 (stack-probe.md); a
+      # compiler major moves typed lint rules and declaration output.
+      - dependency-name: typescript
+        versions:
+          - ">=6.1"
+      # ESLint 11 and later: the plugins (typescript-eslint, react-hooks, jsx-a11y) are verified
+      # against ESLint 10 only.
+      - dependency-name: eslint
+        versions:
+          - ">=11"
+      # Playwright and its helpers move together with the Chromium revision the sandbox and the
+      # visual baselines are built on (R-17); a bump is a deliberate baseline refresh.
+      - dependency-name: "@playwright/test"
+        update-types:
+          - version-update:semver-major
+      # Same browser-revision pin as @playwright/test (R-17).
+      - dependency-name: playwright-core
+        update-types:
+          - version-update:semver-major
+      # Same browser-revision pin as @playwright/test (R-17).
+      - dependency-name: "@axe-core/playwright"
+        update-types:
+          - version-update:semver-major
+      # Drizzle 1.0 changes the migration folder format and would orphan the checksummed
+      # migrations (PR-07).
+      - dependency-name: drizzle-orm
+        update-types:
+          - version-update:semver-major
+      # Same migration-format reason as drizzle-orm (PR-07).
+      - dependency-name: drizzle-kit
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      docker-weekly:
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions-weekly:
+        patterns:
+          - "*"

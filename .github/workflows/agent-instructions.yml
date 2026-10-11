@@ -1,5 +1,8 @@
 name: agent-instructions
 
+# Action pins re-resolved on 2026-10-11 with `python scripts/resolve_action_pins.py` (full commit
+# SHA, version in the trailing comment; FR-A-174). Job and file names are unchanged (FR-A-175).
+
 on:
   pull_request:
 
@@ -14,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Tests of the validator first: if the script fails, you want to know
       # whether the script is broken or the documents are.

@@ -4,9 +4,7 @@
 // What is proven here:
 //   - the module is the one registered in `modules.ts` (seam X1) and brings R6 to R15 into the table
 //     and into the OpenAPI document;
-//   - the table-driven tests of `policy.test.ts` and `audit-integration.test.ts` hold over the REAL
-//     table (s1e-6): every write route refuses the anonymous actor with 403 and an audit row that
-//     verifies;
+//   (the table-driven policy and audit checks over the real table are in `real-table.test.ts`);
 //   - `branding.init` runs at start (one audit row, once, also after a second start);
 //   - the start hook sweeps `.tmp`, registers the three sweepers and runs the asset check;
 //   - the stop hook shuts the image runner down;
@@ -17,16 +15,14 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { appModules } from '../../src/modules.js';
-import { verifyChain } from '../../src/audit/index.js';
 import { brandingModule } from '../../src/branding/index.js';
-import type { ImageJobRunner } from '../../src/branding/pipeline/job-runner.js';
+import { createImageJobRunner, type ImageJobRunner } from '../../src/branding/pipeline/job-runner.js';
 import { openDatabase, DATABASE_FILE_NAME } from '../../src/db/index.js';
-import type { AppModuleFactory } from '../../src/module.js';
+import type { AppModule, AppModuleFactory } from '../../src/module.js';
 import { startServer, type RunningServer } from '../../src/start.js';
 import { freePort } from '../helpers/built-server.js';
 import { createHttpClient, readJson } from '../helpers/http-client.js';
 import { createLogCapture } from '../helpers/log-capture.js';
-import { requestBodyFor } from '../helpers/http-app.js';
 import { createTempDataDir } from '../helpers/temp-data-dir.js';
 import { unwritableDataDir } from '../helpers/unwritable-data-dir.js';
 
@@ -105,26 +101,19 @@ describe('the branding module is registered in modules.ts (seam X1)', () => {
   });
 
   it('the module id is "branding" and it has a shell, a start and a stop hook', async () => {
-    const started = await start({ modules: [brandingModule] });
-    expect(started.running.storageAvailable).toBe(true);
-    const module = brandingModule({
-      config: undefined as never,
-      log: undefined as never,
-      now: Date.now,
-      database: () => undefined,
-      requireDatabase: () => {
-        throw new Error('unused');
-      },
-      storageAvailable: () => false,
-      webRoot: WEB,
-      shellTemplate: '',
-      sweepers: { register: () => undefined },
-      isShuttingDown: () => false,
+    let built: AppModule | undefined;
+    await start({
+      modules: [
+        (deps) => {
+          built = brandingModule(deps);
+          return built;
+        },
+      ],
     });
-    expect(module.id).toBe('branding');
-    expect(module.shell).toBeDefined();
-    expect(module.start).toBeTypeOf('function');
-    expect(module.stop).toBeTypeOf('function');
+    expect(built?.id).toBe('branding');
+    expect(built?.shell).toBeDefined();
+    expect(built?.start).toBeTypeOf('function');
+    expect(built?.stop).toBeTypeOf('function');
   });
 });
 
@@ -152,49 +141,6 @@ describe('the routes of R6 to R15 are in the real table and the OpenAPI document
       'get',
       'put',
     ]);
-  });
-});
-
-describe('the table-driven checks over the real table (s1e-6)', () => {
-  it('every write route refuses the anonymous actor with 403 and leaves a denial row that verifies', async () => {
-    const started = await start({ modules: [brandingModule] });
-    const document = await readJson<{
-      paths: Record<
-        string,
-        Record<string, { 'x-route-id'?: string; operationId?: string }>
-      >;
-    }>(await started.client.get('/api/v1/openapi.json'));
-    const writes: { id: string; method: string; path: string }[] = [];
-    for (const [path, operations] of Object.entries(document.paths)) {
-      for (const [method, operation] of Object.entries(operations)) {
-        if (['post', 'put', 'patch', 'delete'].includes(method)) {
-          writes.push({
-            id: operation.operationId ?? operation['x-route-id'] ?? `${method} ${path}`,
-            method: method.toUpperCase(),
-            path: path.replace(/\{[^}]+\}/g, 'x'),
-          });
-        }
-      }
-    }
-    expect(writes.length).toBeGreaterThanOrEqual(4);
-    for (const route of writes) {
-      const response = await started.client.request(route.method, route.path, {
-        ...requestBodyFor({ method: route.method, path: route.path } as never),
-      });
-      expect(response.status, `${route.method} ${route.path}`).toBe(403);
-      expect((await readJson<{ code: string }>(response)).code).toBe('permission_denied');
-    }
-    const denied = rows(
-      started.dataDir,
-      "SELECT action FROM audit_log WHERE outcome = 'denied' ORDER BY seq",
-    );
-    expect(denied).toHaveLength(writes.length);
-    const database = openDatabase({ path: join(started.dataDir, DATABASE_FILE_NAME) });
-    try {
-      expect(verifyChain(database.sqlite)).toMatchObject({ ok: true });
-    } finally {
-      database.close();
-    }
   });
 });
 
@@ -228,6 +174,22 @@ describe('start and stop', () => {
     );
   });
 
+  it('the start hook logs a referenced file that is gone and still starts (branding_asset_missing)', async () => {
+    const first = await start({ modules: [brandingModule] });
+    await first.running.stop();
+    const { readdir, rm } = await import('node:fs/promises');
+    const files = (await readdir(join(first.dataDir, 'branding'))).filter((name) =>
+      name.endsWith('.png'),
+    );
+    expect(files.length).toBeGreaterThan(0);
+    await rm(join(first.dataDir, 'branding', files[0] ?? ''));
+    const second = await start({ modules: [brandingModule], dataDir: first.dataDir });
+    expect(
+      second.logs.lines().filter((line) => line.event === 'branding_asset_missing'),
+    ).toHaveLength(1);
+    expect((await second.client.get('/readyz')).status).toBe(200);
+  });
+
   it('registers the three sweepers with the server registry', async () => {
     const registered: string[] = [];
     const started = await start({
@@ -249,25 +211,55 @@ describe('start and stop', () => {
   });
 
   it('the stop hook shuts the image runner down', async () => {
+    const real = createImageJobRunner();
     let shutdowns = 0;
     const images: ImageJobRunner = {
-      process: () => Promise.reject(new Error('unused')),
-      deriveVariants: () => Promise.reject(new Error('unused')),
-      shutdown: () => {
+      process: (input) => real.process(input),
+      deriveVariants: (input) => real.deriveVariants(input),
+      shutdown: async () => {
         shutdowns += 1;
-        return Promise.resolve();
+        await real.shutdown();
       },
-      stats: () => ({ running: 0, queued: 0, started: 0, peakRunning: 0 }),
+      stats: () => real.stats(),
     };
-    const started = await start({
-      modules: [(deps) => brandingModule(deps, { images })],
-    });
-    // The default row is made by the real service, whose derive step needs the runner: a stand-in
-    // that refuses would end the start. The module must therefore fall back to its own runner only
-    // when none is given; with one given, start has used it.
-    expect(started.running.storageAvailable).toBe(true);
+    const started = await start({ modules: [(deps) => brandingModule(deps, { images })] });
+    expect(shutdowns).toBe(0);
+    expect(real.stats().started).toBeGreaterThan(0); // the default row was derived by the runner
     await started.running.stop();
     expect(shutdowns).toBe(1);
+  });
+});
+
+describe('the ETag of the revision stays strong over a real connection that accepts gzip', () => {
+  // The compression layer makes any strong ETag weak when it compresses the body. A client that
+  // reads `W/"1"` and sends it back in If-Match is refused (422): the contract says the tag is strong.
+  // The branding documents are over 1 KiB, so they would be compressed; they are marked no-transform.
+  it('GET, PUT and DELETE answer a strong tag, without a content coding', async () => {
+    const { client } = await start({ modules: [brandingModule], env: { PREVIEW_MODE: 'true' } });
+    const headers = { 'accept-encoding': 'gzip, br' };
+    const read = await client.get('/api/v1/branding', { headers });
+    expect(read.headers.get('content-encoding')).toBeNull();
+    expect(read.headers.get('etag')).toBe('"1"');
+    expect(read.headers.get('cache-control')).toBe('no-store, no-transform');
+    const body = (await readJson<Record<string, unknown>>(read)) as {
+      orgName: string;
+      accent: string;
+    };
+    const request = { orgName: 'Strong Tag', accent: body.accent, logos: {} as unknown };
+    request.logos = { light: null, dark: null, compact: null };
+    const put = await client.put('/api/v1/branding', {
+      headers: { ...headers, 'if-match': read.headers.get('etag') ?? '' },
+      json: request,
+    });
+    expect(put.status).toBe(200);
+    expect(put.headers.get('etag')).toBe('"2"');
+    expect(put.headers.get('content-encoding')).toBeNull();
+    const del = await client.request('DELETE', '/api/v1/branding', {
+      headers: { ...headers, 'if-match': put.headers.get('etag') ?? '' },
+    });
+    expect(del.status).toBe(200);
+    expect(del.headers.get('etag')).toBe('"3"');
+    expect(del.headers.get('content-encoding')).toBeNull();
   });
 });
 

@@ -11,12 +11,11 @@
 import {
   ApplyBrandingRequestSchema,
   BrandingSchema,
-  revisionEtag,
 } from '@m365portal/shared/schemas/branding';
 import { z } from 'zod';
 import { defineRoute, type RouteDefinition } from '../../http/route.js';
 import type { BrandingService } from '../service.js';
-import { changeContextOf, ifMatchRevisionOf } from './request-support.js';
+import { changeContextOf, ifMatchRevisionOf, revisionHeaders } from './request-support.js';
 
 export interface BrandingRoutesDeps {
   readonly service: BrandingService;
@@ -54,7 +53,7 @@ export function brandingRoutes(deps: BrandingRoutesDeps): RouteDefinition[] {
       responses: { 200: brandingResponse('The applied branding.') },
       handler: (c) => {
         const branding = service.get();
-        return c.json(branding, 200, { ETag: revisionEtag(branding.revision) });
+        return c.json(branding, 200, revisionHeaders(branding.revision));
       },
     }),
 
@@ -79,7 +78,7 @@ export function brandingRoutes(deps: BrandingRoutesDeps): RouteDefinition[] {
       handler: async (c, input) => {
         const revision = ifMatchRevisionOf(c);
         const branding = await service.apply(input.body, revision, changeContextOf(c));
-        return c.json(branding, 200, { ETag: revisionEtag(branding.revision) });
+        return c.json(branding, 200, revisionHeaders(branding.revision));
       },
     }),
 
@@ -98,7 +97,7 @@ export function brandingRoutes(deps: BrandingRoutesDeps): RouteDefinition[] {
       handler: async (c) => {
         const revision = ifMatchRevisionOf(c);
         const branding = await service.reset(revision, changeContextOf(c));
-        return c.json(branding, 200, { ETag: revisionEtag(branding.revision) });
+        return c.json(branding, 200, revisionHeaders(branding.revision));
       },
     }),
   ];

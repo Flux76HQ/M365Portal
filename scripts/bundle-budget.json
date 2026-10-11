@@ -1,0 +1,6 @@
+{
+  "initialJsGzipBytes": 240000,
+  "entryCssRawBytes": 45500,
+  "firstLoadBrotliBytes": 270000,
+  "note": "Calibrated 2026-10-11 on a real `vite build` of apps/web (S4 shell, before T-A-173): initial JS 237,250 B gzip, entry CSS 44,681 B raw, first load 266,197 B Brotli, each plus about 1.5 percent headroom. The spec targets are 250 KiB (256,000 B) gzip JS, 80 KiB (81,920 B) CSS and 150 KiB (153,600 B) Brotli first load: the first two are met, the third is NOT (about 260 KiB measured); T-A-173 lowers the numbers as the entry shrinks, and T-A-334 recalibrates on the final build. The budget only ratchets down."
+}

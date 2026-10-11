@@ -1,7 +1,7 @@
 // What the branding routes read out of a request (T-A-086, T-A-087): who is acting and the revision
 // the client says it is changing. Shared by the upload, apply, reset and import routes, so the
 // spelling of `If-Match` handling exists once.
-import { parseRevisionEtag } from '@m365portal/shared/schemas/branding';
+import { parseRevisionEtag, revisionEtag } from '@m365portal/shared/schemas/branding';
 import { ProblemError } from '../../http/problem.js';
 import type { RouteContext } from '../../http/route.js';
 import type { ChangeContext } from '../service.js';
@@ -33,4 +33,15 @@ export function ifMatchRevisionOf(c: RouteContext): number {
     });
   }
   return revision;
+}
+
+/**
+ * The headers of an answer that names a revision: the strong `ETag` the client sends back in
+ * `If-Match`, and `no-transform`. The compression layer turns every strong tag into a weak one when
+ * it compresses a body (the tag no longer names those bytes), and a client that reads `W/"3"` and
+ * sends it back is refused (`If-Match` takes a strong tag only). The documents are small and are
+ * read when the page loads and after a change; they are therefore not compressed (open point s2g-1).
+ */
+export function revisionHeaders(revision: number): Record<string, string> {
+  return { ETag: revisionEtag(revision), 'Cache-Control': 'no-store, no-transform' };
 }

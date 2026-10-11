@@ -9,7 +9,6 @@
 // duplicate, `__proto__` and depth rules need the text, which a parsed body no longer has. The body
 // limit (9,437,184 bytes) is the wrapper's, applied while the body streams.
 import type { RouteConfig } from '@hono/zod-openapi';
-import { revisionEtag } from '@m365portal/shared/schemas/branding';
 import {
   BrandingExportSchema,
   ImportQuerySchema,
@@ -18,7 +17,7 @@ import {
 import { z } from 'zod';
 import { defineRoute, type RouteDefinition } from '../../http/route.js';
 import { createBrandingTransfer, type BrandingTransferDeps } from '../export-import.js';
-import { changeContextOf, ifMatchRevisionOf } from './request-support.js';
+import { changeContextOf, ifMatchRevisionOf, revisionHeaders } from './request-support.js';
 
 export type ExportImportRoutesDeps = BrandingTransferDeps;
 
@@ -123,7 +122,7 @@ export function exportImportRoutes(deps: ExportImportRoutesDeps): RouteDefinitio
           context: changeContextOf(c),
         });
         const headers: Record<string, string> =
-          result.branding === null ? {} : { ETag: revisionEtag(result.branding.revision) };
+          result.branding === null ? {} : revisionHeaders(result.branding.revision);
         return c.json(result, 200, headers);
       },
     }),

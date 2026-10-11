@@ -1,0 +1,72 @@
+name: visual-baselines
+
+# Manual refresh of the visual regression baselines (A-51, PA-17, R-01). The baselines are PNGs
+# that depend on the browser build and its fonts, so they are produced by the same GitHub runner
+# image that CI uses, never by a developer laptop. The owner runs this workflow, downloads the
+# artefact, LOOKS at every changed PNG, and commits the accepted ones by hand. Nothing here
+# commits, pushes or opens a pull request, and the token is read-only on purpose.
+#
+# Action pins re-resolved on 2026-10-11 with `python scripts/resolve_action_pins.py` (git ls-remote
+# --tags, highest stable tag, annotated tags peeled to their commit). This workflow has not run on
+# GitHub yet: see the first-run risks in specs/001-m365portal/gate-notes/G7.md.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: |
+          pnpm install --frozen-lockfile || {
+            echo "::error::Install failed. Remediation: run 'pnpm install' locally through tools/INSTALL-PROTOCOL.md and commit pnpm-lock.yaml."
+            exit 1
+          }
+
+      - name: Generate route tree
+        run: pnpm routes:generate
+
+      - name: Build
+        run: |
+          pnpm build || {
+            echo "::error::Build failed. Remediation: run 'pnpm build' locally and fix the first error."
+            exit 1
+          }
+
+      # The browser revision is the one the pinned @playwright/test expects.
+      - name: Install Playwright browser
+        run: pnpm --filter @m365portal/e2e exec playwright install --with-deps chromium
+
+      - name: Update visual baselines
+        run: |
+          pnpm --filter @m365portal/e2e exec playwright test visual.spec.ts --update-snapshots || {
+            echo "::error::The visual spec failed while updating. Remediation: read the log, fix e2e/tests/visual.spec.ts, then run this workflow again."
+            exit 1
+          }
+
+      # Download this artefact, review every PNG, then commit the accepted ones under
+      # e2e/tests/visual.spec.ts-snapshots/ in a pull request.
+      - name: Upload baselines for review
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: visual-baselines
+          path: e2e/tests/visual.spec.ts-snapshots/
+          if-no-files-found: error
+          retention-days: 14

@@ -25,16 +25,6 @@ import yaml
 REPOSITORY = Path(__file__).resolve().parent.parent
 WORKFLOWS = REPOSITORY / ".github" / "workflows"
 
-# T-A-256 lands codeql.yml and T-A-257 re-pins the two governance workflows. Until then the
-# checks that need them are skipped with a printed reason; the owner of those tasks deletes these
-# two constants (the skip conditions) in the same commit.
-CODEQL_PENDING = not (WORKFLOWS / "codeql.yml").exists()
-GOVERNANCE_REPIN_PENDING = any(
-    re.search(r"uses:\s*actions/checkout@v\d", (WORKFLOWS / name).read_text(encoding="utf-8"))
-    for name in ("agent-instructions.yml", "version-guardrails.yml")
-    if (WORKFLOWS / name).exists()
-)
-
 # Plan Appendix C. The steps listed must appear in this order; a workflow may add steps between
 # them (hint steps, setup steps) but may not drop, rename or reorder one.
 REQUIRED_STEPS: dict[tuple[str, str], list[str]] = {
@@ -514,6 +504,105 @@ def check_header_date(file: str, text: str) -> list[str]:
     return []
 
 
+
+DEPENDABOT = REPOSITORY / ".github" / "dependabot.yml"
+# Majors Dependabot must not propose, each with its reason as a comment (T-A-256, plan 5.6).
+DEPENDABOT_IGNORED = {
+    "typescript": ">=6.1", "eslint": ">=11", "@playwright/test": None, "playwright-core": None,
+    "@axe-core/playwright": None, "drizzle-orm": None, "drizzle-kit": None,
+}
+
+
+def check_codeql_triggers(workflow: dict[str, Any]) -> list[str]:
+    on = triggers(workflow)
+    problems = []
+    if "pull_request" not in on:
+        problems.append("codeql.yml must run on pull requests")
+    if (on.get("push") or {}).get("branches") != ["main"]:
+        problems.append("codeql.yml must run on pushes to main only")
+    if not on.get("schedule"):
+        problems.append("codeql.yml must run weekly (schedule)")
+    steps = steps_of(workflow, "analyze")
+    init = next((s for s in steps if s.get("name") == "Initialize CodeQL"), {})
+    languages = str((init.get("with") or {}).get("languages", ""))
+    if "javascript-typescript" not in languages:
+        problems.append("codeql.yml must analyze javascript-typescript")
+    return problems
+
+
+def check_dependabot(text: str) -> list[str]:
+    """Ecosystems, schedule, grouping and the ignore rules, each ignore with a reason comment."""
+    config = yaml.safe_load(text)
+    problems = []
+    if not isinstance(config, dict) or config.get("version") != 2:
+        return ["dependabot.yml: version 2 is required"]
+    updates = config.get("updates") or []
+    ecosystems = {u.get("package-ecosystem") for u in updates}
+    for wanted in ("npm", "docker", "github-actions"):
+        if wanted not in ecosystems:
+            problems.append(f"dependabot.yml: ecosystem {wanted} is missing")
+    for update in updates:
+        name = update.get("package-ecosystem")
+        if (update.get("schedule") or {}).get("interval") != "weekly":
+            problems.append(f"dependabot.yml: {name} must be updated weekly")
+        if not update.get("groups"):
+            problems.append(f"dependabot.yml: {name} updates must be grouped")
+    npm = [u for u in updates if u.get("package-ecosystem") == "npm"]
+    if npm:
+        directories = set()
+        for update in npm:
+            directories.update(update.get("directories") or [update.get("directory")])
+        for wanted in ("/", "/apps/*", "/packages/*", "/e2e"):
+            if wanted not in directories:
+                problems.append(f"dependabot.yml: npm must cover {wanted}")
+    ignored = {}
+    for update in npm:
+        for rule in update.get("ignore") or []:
+            ignored[rule.get("dependency-name")] = (
+                rule.get("versions") or rule.get("update-types"))
+    for name, versions in DEPENDABOT_IGNORED.items():
+        if name not in ignored:
+            problems.append(f"dependabot.yml: major updates of {name} must be ignored")
+        elif versions is None and ignored[name] != ["version-update:semver-major"]:
+            problems.append(f"dependabot.yml: {name} must ignore semver-major updates, found "
+                            f"{ignored[name]!r}")
+        elif versions is not None and ignored[name] != [versions]:
+            problems.append(f"dependabot.yml: {name} must ignore {versions!r}, found "
+                            f"{ignored[name]!r}")
+        if name in ignored and not re.search(
+                rf"^\s*#.*\S.*\n(?:\s*#.*\n)*\s*-\s*dependency-name:\s*[\"']?{re.escape(name)}"
+                rf"[\"']?\s*$", text, re.M):
+            problems.append(f"dependabot.yml: the ignore rule for {name} has no reason comment")
+    return problems
+
+
+def check_visual_baselines(workflow: dict[str, Any], text: str) -> list[str]:
+    problems = []
+    on = triggers(workflow)
+    if set(on) != {"workflow_dispatch"}:
+        problems.append(f"visual-baselines.yml: only workflow_dispatch may trigger it, found "
+                        f"{sorted(on)}")
+    if workflow.get("permissions") != {"contents": "read"}:
+        problems.append("visual-baselines.yml: permissions must be exactly {contents: read}")
+    for job_name, job in workflow.get("jobs", {}).items():
+        if job.get("permissions") is not None:
+            problems.append(f"visual-baselines.yml job {job_name}: no job-level permissions")
+    code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    for forbidden in ("git push", "git commit", "git add", "gh pr", "secrets.", "contents: write",
+                      "stefanzweifel", "peter-evans", "auto-commit"):
+        if forbidden in code:
+            problems.append(f"visual-baselines.yml: must not commit or push ({forbidden!r})")
+    steps = [s for job in workflow.get("jobs", {}).values() for s in job.get("steps", [])]
+    if not any("visual.spec.ts" in str(s.get("run")) and "--update-snapshots" in str(s.get("run"))
+               for s in steps):
+        problems.append("visual-baselines.yml: must run 'playwright test visual.spec.ts "
+                        "--update-snapshots'")
+    if not any(str(s.get("uses", "")).startswith("actions/upload-artifact@") for s in steps):
+        problems.append("visual-baselines.yml: must upload the PNGs as an artefact")
+    if not any("playwright install" in str(s.get("run")) for s in steps):
+        problems.append("visual-baselines.yml: must install the pinned Playwright Chromium")
+    return problems
+
 # ---------------------------------------------------------------------------------------------
 # Tests on the real workflows.
 # ---------------------------------------------------------------------------------------------
@@ -535,7 +624,6 @@ class RealWorkflowTests(unittest.TestCase):
         for file in ("ci.yml", "image.yml"):
             self.assertClean(check_names(file, self.workflows[file]))
 
-    @unittest.skipIf(CODEQL_PENDING, "codeql.yml lands with T-A-256")
     def test_codeql_names_and_permissions(self):
         self.assertClean(check_names("codeql.yml", self.workflows["codeql.yml"]))
 
@@ -544,17 +632,10 @@ class RealWorkflowTests(unittest.TestCase):
 
     def test_every_action_is_pinned_by_sha_with_version_comment(self):
         for file in self.files:
-            if GOVERNANCE_REPIN_PENDING and file in GOVERNANCE_JOBS:
-                continue
             self.assertClean(check_pins(file, raw(file)))
 
-    @unittest.skipUnless(GOVERNANCE_REPIN_PENDING, "governance workflows are already re-pinned")
-    def test_governance_repin_is_pending_until_t_a_257(self):
-        self.skipTest("TA-10: agent-instructions.yml and version-guardrails.yml are re-pinned by "
-                      "T-A-257; delete GOVERNANCE_REPIN_PENDING there")
-
     def test_header_comment_records_the_pin_date(self):
-        for file in ("ci.yml", "image.yml"):
+        for file in self.files:
             self.assertClean(check_header_date(file, raw(file)))
 
     def test_permissions_are_least_privilege(self):
@@ -595,6 +676,20 @@ class RealWorkflowTests(unittest.TestCase):
 
     def test_ci_triggers(self):
         self.assertClean(check_triggers_ci(self.workflows["ci.yml"]))
+
+    def test_codeql_triggers(self):
+        self.assertClean(check_codeql_triggers(self.workflows["codeql.yml"]))
+
+    def test_dependabot_config(self):
+        self.assertClean(check_dependabot(DEPENDABOT.read_text(encoding="utf-8")))
+
+    def test_visual_baselines_workflow(self):
+        self.assertClean(check_visual_baselines(self.workflows["visual-baselines.yml"],
+                                                raw("visual-baselines.yml")))
+
+    def test_bundle_budget_script_is_wired(self):
+        package = (REPOSITORY / "package.json").read_text(encoding="utf-8")
+        self.assertIn('"bundle:check": "tsx scripts/bundle-budget.ts"', package)
 
     def test_sbom_is_cyclonedx(self):
         for job, step in trivy_steps(self.workflows["image.yml"]):
@@ -806,6 +901,45 @@ class NegativeFixtureTests(unittest.TestCase):
 
     def test_missing_pin_date_header_fails(self):
         self.assertTrue(check_header_date("x.yml", "name: x\n"))
+
+
+    def test_codeql_without_schedule_fails(self):
+        workflow = copy.deepcopy(load("codeql.yml"))
+        del workflow[True]["schedule"]
+        self.assertTrue(check_codeql_triggers(workflow))
+
+    def test_codeql_write_on_workflow_level_fails(self):
+        workflow = copy.deepcopy(load("codeql.yml"))
+        workflow["permissions"] = {"contents": "read", "security-events": "write"}
+        self.assertTrue(check_permissions("codeql.yml", workflow))
+
+    def test_dependabot_without_docker_fails(self):
+        text = DEPENDABOT.read_text(encoding="utf-8").replace("package-ecosystem: docker",
+                                                              "package-ecosystem: pip")
+        self.assertTrue(check_dependabot(text))
+
+    def test_dependabot_ignore_without_reason_fails(self):
+        text = re.sub(r"^\s*#.*\n", "", DEPENDABOT.read_text(encoding="utf-8"), flags=re.M)
+        self.assertTrue(check_dependabot(text))
+
+    def test_dependabot_without_typescript_ignore_fails(self):
+        text = DEPENDABOT.read_text(encoding="utf-8").replace("dependency-name: typescript",
+                                                              "dependency-name: tsx")
+        self.assertTrue(check_dependabot(text))
+
+    def test_visual_baselines_with_push_trigger_fails(self):
+        workflow = copy.deepcopy(load("visual-baselines.yml"))
+        workflow[True]["push"] = {"branches": ["main"]}
+        self.assertTrue(check_visual_baselines(workflow, raw("visual-baselines.yml")))
+
+    def test_visual_baselines_that_commits_fails(self):
+        text = raw("visual-baselines.yml") + "      - run: git commit -am baselines\n"
+        self.assertTrue(check_visual_baselines(load("visual-baselines.yml"), text))
+
+    def test_visual_baselines_write_permission_fails(self):
+        workflow = copy.deepcopy(load("visual-baselines.yml"))
+        workflow["permissions"] = {"contents": "write"}
+        self.assertTrue(check_visual_baselines(workflow, raw("visual-baselines.yml")))
 
 
 if __name__ == "__main__":

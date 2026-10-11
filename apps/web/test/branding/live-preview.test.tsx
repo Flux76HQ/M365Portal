@@ -335,7 +335,7 @@ describe('the organisation name', () => {
   it('is text in an isolating, truncating element with the full name for assistive technology', async () => {
     const long = 'Wolfeschlegelsteinhausenbergerdorff Consulting Group Intl';
     await mount({ orgName: long });
-    const names = pane('light').querySelectorAll<HTMLElement>('[data-preview-name]');
+    const names = pane('light').querySelectorAll<HTMLElement>('[data-slot="org-name"]');
     expect(names.length).toBeGreaterThan(0);
     for (const name of names) {
       expect(name.tagName).toBe('BDI');
@@ -394,7 +394,7 @@ describe('it reuses the shell components', () => {
   );
   it('takes its logo choice from the shell mark and its buttons from the design system', () => {
     expect(source).toMatch(/from '\.\.\/\.\.\/components\/shell\/OrgMark'/);
-    expect(source).toMatch(/pickLogo/);
+    expect(source).toMatch(/OrgMarkView/);
     expect(source).toMatch(/from '\.\.\/\.\.\/components\/ui\/button'/);
   });
 });

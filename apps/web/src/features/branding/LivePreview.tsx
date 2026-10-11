@@ -1,9 +1,8 @@
 import type { AccentTokenSet } from '@m365portal/shared/branding/accent';
 import { useMemo, useState } from 'react';
-import { pickLogo } from '../../components/shell/OrgMark';
+import { OrgMarkView } from '../../components/shell/OrgMark';
 import { Button } from '../../components/ui/button';
 import { Skeleton } from '../../components/ui/skeleton';
-import { cn } from '../../lib/cn';
 import { useTranslator } from '../../lib/locale';
 import { useBrandingTools, type BrandingTools } from './tools';
 import type { AssetRef, LogoVariant } from './types';
@@ -21,8 +20,9 @@ import { useCssProperties } from './use-css-properties';
 // The panes also carry `data-theme`, which the `dark:` variant reads. The window inside is decoration:
 // hidden from assistive technology, its buttons out of the tab order; a text summary stands in for it.
 //
-// The logo is chosen with `pickLogo` of the shell mark (one logo serves both themes, A-39), sits on a
-// plate where `logoPlateFor` says so and is never recoloured. With no logo the monogram tile shows.
+// The mark is the shell's own `OrgMarkView` (components/shell/OrgMark.tsx), drawn for the pane's theme: the
+// logo of that theme (one logo serves both themes, A-39), on a plate where `logoPlateFor` says so and
+// never recoloured, else the monogram tile. The shell and the preview cannot drift apart.
 
 export interface LivePreviewProps {
   /** The organisation name as typed. A name the rules refuse previews as the default name. */
@@ -77,71 +77,7 @@ function paneVariables(
   return variables;
 }
 
-/** The tile of the saved name: the glyph layout of the shared monogram, drawn in the accent. */
-function MonogramTile({ name, tools }: { readonly name: string; readonly tools: BrandingTools }) {
-  const { glyphs } = tools.monogram.monogramFor(name);
-  const last = glyphs[glyphs.length - 1];
-  const width = last === undefined ? 1000 : last.x + last.advance;
-  const margin = 360;
-  return (
-    <span
-      aria-hidden="true"
-      data-slot="monogram-tile"
-      className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-accent text-on-accent forced-colors:border"
-    >
-      <svg
-        aria-hidden="true"
-        focusable="false"
-        viewBox={`${String(-margin)} ${String(-margin)} ${String(width + 2 * margin)} ${String(1000 + 2 * margin)}`}
-        className="size-full fill-current"
-      >
-        {glyphs.map((glyph) => (
-          <path
-            key={`${glyph.key}-${String(glyph.x)}`}
-            d={glyph.path}
-            transform={`translate(${String(glyph.x)} 0)`}
-          />
-        ))}
-      </svg>
-    </span>
-  );
-}
-
-function PreviewLogo({
-  logo,
-  theme,
-  tools,
-}: {
-  readonly logo: AssetRef;
-  readonly theme: PreviewTheme;
-  readonly tools: BrandingTools;
-}) {
-  const plate = tools.logoPlate.logoPlateFor(logo.luminance, theme);
-  const reference = useCssProperties<HTMLSpanElement>({
-    'background-color': plate === 'none' ? '' : tools.logoPlate.logoPlateColour(plate),
-  });
-  return (
-    <span
-      ref={reference}
-      data-slot="logo"
-      data-plate={plate}
-      className={cn(
-        'inline-flex h-8 max-w-32 shrink-0 items-center rounded-md',
-        plate === 'none' ? '' : 'px-1.5 py-1',
-      )}
-    >
-      <img
-        src={logo.url}
-        alt=""
-        width={logo.width}
-        height={logo.height}
-        className="h-full max-h-8 w-auto max-w-full object-contain"
-      />
-    </span>
-  );
-}
-
-/** The mark of the shell: the logo of this theme (or the compact one), else the monogram, and the name. */
+/** The mark of the shell for the draft: the shell's own `OrgMarkView`, drawn for this pane's theme. */
 function PreviewMark({
   name,
   logos,
@@ -155,23 +91,16 @@ function PreviewMark({
   readonly variant: 'full' | 'compact';
   readonly tools: BrandingTools;
 }) {
-  const logo = pickLogo(logos, theme, variant);
+  // The monogram of the typed name, from the same shared function the server uses for the saved one.
+  const monogram = useMemo(() => tools.monogram.monogramFor(name), [tools, name]);
   return (
-    <span className="flex min-w-0 items-center gap-2">
-      {logo !== null ? (
-        <PreviewLogo logo={logo} theme={theme} tools={tools} />
-      ) : (
-        <MonogramTile name={name} tools={tools} />
-      )}
-      {/* Isolated from the text around it, cut with an ellipsis; the full name stays in the DOM. */}
-      <bdi
-        data-preview-name
-        title={name}
-        className="block min-w-0 truncate text-body-sm font-semibold text-fg"
-      >
-        {name}
-      </bdi>
-    </span>
+    <OrgMarkView
+      branding={{ orgName: name, logos, monogram }}
+      theme={theme}
+      variant={variant}
+      showName
+      className="gap-2"
+    />
   );
 }
 

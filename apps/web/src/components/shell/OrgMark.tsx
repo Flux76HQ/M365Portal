@@ -10,6 +10,7 @@ import { useBranding } from '../../lib/router-context';
 import { useTheme, type ResolvedTheme } from '../../lib/theme';
 
 type Logo = NonNullable<Branding['logos']['light']>;
+type MonogramGlyph = Branding['monogram']['glyphs'][number];
 
 export interface OrgMarkProps {
   /** `full` is the logo (or tile) and the name; `compact` is the compact logo (or tile) and, if asked, the name. */
@@ -36,7 +37,7 @@ function MonogramTile({
   monogram,
   label,
 }: {
-  readonly monogram: Branding['monogram'];
+  readonly monogram: OrgMarkSource['monogram'];
   /** The accessible name; null when the name is written beside the tile, so it is not read twice. */
   readonly label: string | null;
 }) {
@@ -100,16 +101,40 @@ function LogoImage({
   );
 }
 
+/** What the mark draws: the name, the logos and the monogram of a branding (or of a draft of one). */
+export interface OrgMarkSource {
+  readonly orgName: string;
+  readonly logos: Branding['logos'];
+  readonly monogram: { readonly glyphs: readonly MonogramGlyph[] };
+}
+
+export interface OrgMarkViewProps {
+  /** The branding to draw, or undefined while it is not loaded (the name of the product, no mark). */
+  readonly branding: OrgMarkSource | undefined;
+  /** The theme to draw it for: the shell passes the resolved theme, the live preview one pane each. */
+  readonly theme: ResolvedTheme;
+  readonly variant: OrgMarkProps['variant'];
+  readonly showName?: boolean;
+  readonly className?: string;
+}
+
 /**
  * The organisation mark (FR-A-092, US-2): the uploaded logo, on a plate where it would be illegible on
  * the sidebar and never recoloured, or the monogram tile of the saved name. The name is data and is never
  * translated; a long one is cut with an ellipsis and keeps its full text for assistive technology.
+ *
+ * Pure: it reads nothing from the application. The shell mark (`OrgMark`) feeds it the saved branding and
+ * the resolved theme; the live preview of the Appearance page feeds it a draft and one theme per pane.
  */
-export function OrgMark({ variant, showName = variant === 'full', className }: OrgMarkProps) {
-  const branding = useBranding();
-  const { resolved } = useTheme();
+export function OrgMarkView({
+  branding,
+  theme,
+  variant,
+  showName = variant === 'full',
+  className,
+}: OrgMarkViewProps) {
   const name = branding?.orgName ?? PRODUCT_NAME;
-  const logo = branding === undefined ? null : pickLogo(branding.logos, resolved, variant);
+  const logo = branding === undefined ? null : pickLogo(branding.logos, theme, variant);
   const nameShown = showName || branding === undefined;
   // The mark names the organisation only when no text does.
   const markName = nameShown ? null : name;
@@ -117,19 +142,35 @@ export function OrgMark({ variant, showName = variant === 'full', className }: O
   return (
     <span data-slot="org-mark" className={cn('flex min-w-0 items-center gap-3', className)}>
       {logo !== null ? (
-        <LogoImage
-          logo={logo}
-          label={markName ?? ''}
-          plate={logoPlateFor(logo.luminance, resolved)}
-        />
+        <LogoImage logo={logo} label={markName ?? ''} plate={logoPlateFor(logo.luminance, theme)} />
       ) : branding !== undefined ? (
         <MonogramTile monogram={branding.monogram} label={markName} />
       ) : null}
       {nameShown ? (
-        <span title={name} className="truncate text-subtitle font-semibold text-fg">
+        // `bdi` isolates a name in the other direction from the text around it.
+        <bdi
+          data-slot="org-name"
+          title={name}
+          className="block min-w-0 truncate text-subtitle font-semibold text-fg"
+        >
           {name}
-        </span>
+        </bdi>
       ) : null}
     </span>
+  );
+}
+
+/** The mark of the saved branding in the theme that is applied (the shell: sidebar and header). */
+export function OrgMark({ variant, showName, className }: OrgMarkProps) {
+  const branding = useBranding();
+  const { resolved } = useTheme();
+  return (
+    <OrgMarkView
+      branding={branding}
+      theme={resolved}
+      variant={variant}
+      {...(showName === undefined ? {} : { showName })}
+      {...(className === undefined ? {} : { className })}
+    />
   );
 }

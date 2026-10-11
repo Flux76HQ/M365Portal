@@ -98,7 +98,7 @@ function RetryButton({
   );
 }
 
-function Warnings({
+export function Warnings({
   warnings,
   label,
 }: {

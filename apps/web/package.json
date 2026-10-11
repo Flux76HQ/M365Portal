@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@fontsource-variable/inter": "catalog:",
+    "@hookform/resolvers": "catalog:",
     "@m365portal/shared": "workspace:*",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",
@@ -25,6 +26,7 @@
     "radix-ui": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "react-hook-form": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
