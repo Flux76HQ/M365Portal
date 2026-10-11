@@ -2,7 +2,7 @@
 // starts and restarts one of them on the same DATA_DIR (offline tests stop the server; they never
 // use `context.setOffline`, plan V-16).
 //
-//   preview    PREVIEW_MODE=true, SHOWCASE=true, port E2E_PORT (default 4173)
+//   preview    PREVIEW_MODE=true, SHOWCASE=true, port E2E_PORT
 //   anonymous  neither, port E2E_PORT + 1
 //
 // `global-setup.ts` creates both with a fresh temporary DATA_DIR each and records them in a state
@@ -18,9 +18,12 @@ export const INSTANCE_NAMES: readonly InstanceName[] = ['preview', 'anonymous'];
 
 export const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
-/** E2E_PORT (1024-65535, default 4173). Throws on anything else (FR-A-016). */
+/**
+ * E2E_PORT, 1024 to 65534. `playwright.config.ts` sets the default before anything else runs (the one
+ * place a literal port may appear, FR-A-016); anything else throws.
+ */
 export function previewPort(env: NodeJS.ProcessEnv = process.env): number {
-  const raw = env.E2E_PORT ?? '4173';
+  const raw = env.E2E_PORT ?? '';
   const port = Number(raw);
   if (!/^\d{1,5}$/.test(raw) || port < 1024 || port > 65534) {
     throw new Error(

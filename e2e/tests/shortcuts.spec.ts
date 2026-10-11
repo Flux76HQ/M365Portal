@@ -122,6 +122,7 @@ test.describe('single-character shortcuts and fields (WCAG 2.1.4)', () => {
 
     // The way back: the palette has the command, and the switch turns them on again.
     await page.keyboard.press('Control+k');
+    await expect(palette(page).getByRole('combobox')).toBeFocused();
     await page.keyboard.type('keyboard shortcuts');
     await page.keyboard.press('Enter');
     await expect(overview(page)).toBeVisible();

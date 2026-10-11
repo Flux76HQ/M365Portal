@@ -254,16 +254,32 @@ test.describe('DataTable by keyboard', () => {
     await department.focus();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('listbox')).toBeVisible();
+    await expect(page.getByRole('option', { name: 'All departments' })).toBeFocused();
     await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('ArrowDown');
+    await expect(page.getByRole('option', { name: 'Design' })).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('listbox')).toHaveCount(0);
     await expect(page).toHaveURL(/f\.department=/);
     await expect(department).toBeFocused();
-    await expect(page.getByRole('button', { name: 'Clear filters' }).first()).toBeVisible();
-    await page.getByRole('button', { name: 'Clear filters' }).first().focus();
+    // Back to "All departments" with the keyboard.
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('listbox')).toBeVisible();
+    await page.keyboard.press('Home');
+    await expect(page.getByRole('option', { name: 'All departments' })).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(page).not.toHaveURL(/f\.department=/);
+
+    // No results: the empty state offers "Clear filters", which works by keyboard.
+    await search.focus();
+    await page.keyboard.type('zzzzzz');
+    await page.keyboard.press('Enter');
+    const live = page.getByRole('region', { name: 'Sample people (live demo)' });
+    const clearFilters = live.getByRole('button', { name: 'Clear filters' });
+    await expect(clearFilters).toBeVisible();
+    await clearFilters.focus();
+    await page.keyboard.press('Enter');
+    await expect(page).not.toHaveURL(/q=/);
+    await expect.poll(async () => (await names()).length).toBe(25);
 
     // Paginate.
     const status = page.getByText(/^Page \d+ of \d+$/);
@@ -280,7 +296,9 @@ test.describe('DataTable by keyboard', () => {
     await size.focus();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('listbox')).toBeVisible();
+    await expect(page.getByRole('option', { name: '25 per page' })).toBeFocused();
     await page.keyboard.press('ArrowUp');
+    await expect(page.getByRole('option', { name: '10 per page' })).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(status).toHaveText(/^Page 1 of \d+$/);
     await expect(status).not.toHaveText('Page 1 of 5');
@@ -310,10 +328,15 @@ test.describe('DataTable by keyboard', () => {
     app,
   }) => {
     await app.goto('/design');
-    const table = page.getByRole('table', { name: 'Sample people (live demo)' });
+    const table = page.getByRole('table', {
+      name: 'Sample people (live demo)',
+      includeHidden: true,
+    });
     await expect(table.getByRole('columnheader', { name: 'Email' })).toHaveCount(0);
-    // The first table of the page is the live one.
-    const columns = page.getByRole('button', { name: 'Columns' }).first();
+    // The Columns button of the live table: the one after its Department filter.
+    const columns = page
+      .getByRole('combobox', { name: 'Department' })
+      .locator('xpath=following::button[normalize-space()="Columns"][1]');
     await columns.focus();
     await page.keyboard.press('Enter');
     const dialog = page.getByRole('dialog', { name: 'Choose columns' });
@@ -323,7 +346,10 @@ test.describe('DataTable by keyboard', () => {
       .or(dialog.getByRole('checkbox', { name: /Email/ }));
     await email.first().focus();
     await page.keyboard.press('Space');
-    await expect(table.getByRole('columnheader', { name: 'Email' })).toBeVisible();
+    // The table sits behind the modal dialog (hidden from the accessibility tree): look at the DOM.
+    await expect(
+      table.getByRole('columnheader', { name: 'Email', includeHidden: true }),
+    ).toHaveCount(1);
     // The non-drag way to reorder: move buttons.
     const moveLeft = dialog.getByRole('button', { name: 'Move Email left' });
     await moveLeft.focus();
@@ -368,9 +394,9 @@ test.describe('Appearance form by keyboard', () => {
     await page.keyboard.press('Control+a');
     await page.keyboard.type('Keyboard Org');
     await page.keyboard.press('Tab');
-    await expect(page.locator('[data-preview-theme="light"] [data-slot="org-name"]')).toHaveText(
-      'Keyboard Org',
-    );
+    await expect(
+      page.locator('[data-preview-theme="light"] [data-slot="org-name"]').first(),
+    ).toHaveText('Keyboard Org');
 
     const save = page.getByRole('button', { name: 'Save', exact: true });
     await tabTo(page, save, 80);
@@ -450,7 +476,7 @@ async function focusIndicatorContrast(
     } else if (style.boxShadow !== 'none') {
       // The ring drawn as a shadow: `<colour> 0px 0px 0px <spread>px`, not inset.
       for (const layer of style.boxShadow.split(/,(?![^(]*\))/)) {
-        if (/inset/.test(layer)) continue;
+        if (layer.includes('inset')) continue;
         const spread = /(-?[\d.]+)px\s*$/.exec(layer.trim());
         const colourText = layer
           .replace(/(-?[\d.]+px\s*){2,4}/, '')
@@ -482,6 +508,14 @@ test.describe('focus appearance and visibility (WCAG 2.4.7, 2.4.11, 1.4.11)', ()
       const failures: string[] = [];
       for (let i = 0; i < 90; i += 1) {
         await page.keyboard.press('Tab');
+        // The outline colour is transitioned (it starts at currentColor): measure the settled ring.
+        await page.evaluate(() =>
+          Promise.all(
+            (document.activeElement?.getAnimations() ?? []).map((animation) =>
+              animation.finished.catch(() => undefined),
+            ),
+          ),
+        );
         const info = await focusIndicatorContrast(page);
         if (info === null) break;
         if (seen.has(info.label + String(i))) continue;
@@ -509,31 +543,34 @@ test.describe('focus appearance and visibility (WCAG 2.4.7, 2.4.11, 1.4.11)', ()
     });
   }
 
-  test('a focused control far down the page is scrolled out from under the sticky header', async ({
+  test('Shift+Tab up a long page never leaves the focus under the sticky header', async ({
     page,
     app,
   }) => {
     await app.goto('/design');
-    const last = page.getByRole('button', { name: 'Next page' });
-    await last.focus();
-    const geometry = await page.evaluate(() => {
-      const header = document.querySelector('header');
-      const active = document.activeElement;
-      return {
-        headerBottom: header?.getBoundingClientRect().bottom ?? 0,
-        activeTop: active?.getBoundingClientRect().top ?? 0,
-      };
+    await page.evaluate(() => {
+      window.scrollTo(0, document.documentElement.scrollHeight);
     });
-    expect(geometry.activeTop).toBeGreaterThanOrEqual(geometry.headerBottom);
-    // Shift+Tab upwards through many stops: each lands below the header.
-    for (let i = 0; i < 25; i += 1) {
+    await page.getByRole('button', { name: 'Next page' }).focus();
+    const covered: string[] = [];
+    let stops = 0;
+    for (let i = 0; i < 160; i += 1) {
       await page.keyboard.press('Shift+Tab');
-      const { top, bottom } = await page.evaluate(() => ({
-        top: document.activeElement?.getBoundingClientRect().top ?? 0,
-        bottom: document.querySelector('header')?.getBoundingClientRect().bottom ?? 0,
-      }));
-      const inHeader = await page.evaluate(() => document.activeElement?.closest('header') != null);
-      if (!inHeader) expect(top, `Shift+Tab ${String(i + 1)}`).toBeGreaterThanOrEqual(bottom - 1);
+      const state = await page.evaluate(() => {
+        const active = document.activeElement;
+        const header = document.querySelector('header');
+        return {
+          inMain: active?.closest('main') != null,
+          top: active?.getBoundingClientRect().top ?? 0,
+          bottom: header?.getBoundingClientRect().bottom ?? 0,
+          label: `${active?.tagName.toLowerCase() ?? '?'} ${active?.getAttribute('aria-label') ?? active?.textContent.trim().slice(0, 30) ?? ''}`,
+        };
+      });
+      if (!state.inMain) break;
+      stops += 1;
+      if (state.top < state.bottom - 1) covered.push(`${state.label} at ${String(state.top)}`);
     }
+    expect(stops, 'the showcase has many focusable elements above the table').toBeGreaterThan(60);
+    expect(covered).toEqual([]);
   });
 });

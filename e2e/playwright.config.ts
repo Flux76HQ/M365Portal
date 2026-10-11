@@ -8,6 +8,10 @@ import { originOf, previewPort } from './servers.js';
 //   preview    E2E_PORT      (default 4173)  PREVIEW_MODE=true, SHOWCASE=true
 //   anonymous  E2E_PORT + 1  (default 4174)  neither
 // Both have a fresh temporary DATA_DIR and PUBLIC_BASE_URL=http://localhost:<port>.
+// The default is set here, the only file where a literal port may appear (FR-A-016); the runner,
+// the workers and servers.ts all read E2E_PORT.
+const DEFAULT_PORT = '4173';
+process.env.E2E_PORT ??= DEFAULT_PORT;
 previewPort(); // validates E2E_PORT early, with a readable message
 
 const DESKTOP = { width: 1440, height: 900 };
@@ -60,7 +64,7 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
-  reporter: [['list']],
+  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
   timeout: 60_000,
   expect: { timeout: 10_000 },
   globalSetup: './global-setup.ts',

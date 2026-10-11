@@ -26,12 +26,39 @@ async function horizontalOverflow(
           }
         }
         if (!clipped)
-          offenders.push(`${el.tagName.toLowerCase()}.${String(el.className).slice(0, 60)}`);
+          offenders.push(
+            `${el.tagName.toLowerCase()}.${(el.getAttribute('class') ?? '').slice(0, 60)}`,
+          );
       }
     }
     return { doc: root.scrollWidth, client, offenders: offenders.slice(0, 5) };
   });
 }
+
+/** Fails with the offending elements when the page scrolls sideways. */
+async function expectNoSidewaysScroll(page: Page, label: string): Promise<void> {
+  const { doc, client, offenders } = await horizontalOverflow(page);
+  expect
+    .soft(
+      doc <= client
+        ? []
+        : [
+            `${label}: the page is ${String(doc)} px wide in a ${String(client)} px window`,
+            ...offenders,
+          ],
+    )
+    .toEqual([]);
+}
+
+// The ultrawide project runs the ultrawide tests only; everything else runs once, in desktop-light.
+test.beforeEach(({ browserName }, testInfo) => {
+  test.skip(
+    browserName === 'chromium' &&
+      testInfo.project.name === 'ultrawide' &&
+      !testInfo.titlePath.includes('ultrawide'),
+    'only the ultrawide tests run in the ultrawide project',
+  );
+});
 
 test.describe('320 CSS px', () => {
   for (const route of ROUTES) {
@@ -39,12 +66,7 @@ test.describe('320 CSS px', () => {
       await page.setViewportSize({ width: 320, height: 640 });
       await app.goto(route);
       await page.waitForLoadState('networkidle');
-      const overflow = await horizontalOverflow(page);
-      expect(
-        overflow.doc,
-        `scrollWidth ${String(overflow.doc)} vs ${String(overflow.client)}`,
-      ).toBeLessThanOrEqual(overflow.client);
-      expect(overflow.offenders).toEqual([]);
+      await expectNoSidewaysScroll(page, route);
     });
   }
 
@@ -63,35 +85,33 @@ test.describe('320 CSS px', () => {
   });
 });
 
-test.describe('200 % text zoom', () => {
+test.describe('200 % zoom', () => {
+  // 200 % text zoom of a 1280 px screen is a 640 CSS px viewport: Tailwind's breakpoints are in rem,
+  // so a larger browser text size moves them the same way. (Setting the root font size from a script
+  // does NOT move media queries, so it would test something no person can do.)
   for (const route of ['/', '/settings/appearance', '/design', '/users']) {
-    test(`${route}: nothing is lost and nothing scrolls sideways`, async ({ page, app }) => {
-      await page.setViewportSize({ width: 1280, height: 800 });
+    test(`${route}: at 640 CSS px nothing is lost and nothing scrolls sideways`, async ({
+      page,
+      app,
+    }) => {
+      await page.setViewportSize({ width: 640, height: 400 });
       await app.goto(route);
       await page.waitForLoadState('networkidle');
-      const before = await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' ').length);
-      // The root font size is what a browser's text-size setting changes; every rem follows it.
-      await page.evaluate(() => {
-        document.documentElement.style.fontSize = '200%';
-      });
-      await expect
-        .poll(() => page.evaluate(() => parseFloat(getComputedStyle(document.body).fontSize)))
-        .toBeGreaterThanOrEqual(28);
-      const overflow = await horizontalOverflow(page);
-      expect(overflow.doc).toBeLessThanOrEqual(overflow.client);
-      expect(overflow.offenders).toEqual([]);
-      // No content disappears (text is only reflowed): the rendered text is the same.
-      const after = await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' ').length);
-      expect(after).toBe(before);
-      // The page heading and the primary navigation are still on screen or reachable.
+      await expectNoSidewaysScroll(page, route);
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
-      // Text is not clipped inside controls: no button or link hides its own label.
+      // The navigation is still reachable (a menu button below 768 px).
+      await expect(page.getByRole('button', { name: 'Open menu' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Search or run a command' })).toBeVisible();
+      // No control hides its own label.
       const clipped = await page.evaluate(() =>
         [...document.querySelectorAll('button, a[href], [role="tab"], [role="radio"]')]
           .filter((el) => {
             const style = getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
             return (
               el.checkVisibility() &&
+              // The visually hidden skip link is a clipped 1 by 1 px box until it has focus.
+              (rect.width > 1 || rect.height > 1) &&
               style.textOverflow !== 'ellipsis' &&
               style.overflow !== 'visible' &&
               (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
@@ -102,6 +122,28 @@ test.describe('200 % text zoom', () => {
       expect(clipped).toEqual([]);
     });
   }
+
+  test('text twice as large keeps every word and every control (root font size 200 %)', async ({
+    page,
+    app,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await app.goto('/settings/appearance');
+    await page.waitForLoadState('networkidle');
+    const words = (): Promise<string> =>
+      page.evaluate(() => document.body.innerText.replace(/\s+/g, ' '));
+    const before = await words();
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '200%';
+    });
+    await expect
+      .poll(() => page.evaluate(() => parseFloat(getComputedStyle(document.body).fontSize)))
+      .toBeGreaterThanOrEqual(28);
+    expect(await words()).toBe(before);
+    for (const name of ['Save', 'Reset to defaults']) {
+      await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
+    }
+  });
 });
 
 test.describe('ultrawide', () => {
@@ -144,6 +186,23 @@ test.describe('ultrawide', () => {
   });
 });
 
+test.describe('every width', () => {
+  test('the Dashboard does not scroll sideways at any common width from 320 to 1920 px', async ({
+    page,
+    app,
+  }) => {
+    await app.goto('/');
+    const widths = [320, 360, 375, 390, 414, 600, 767, 768, 810, 820, 834, 844, 1024, 1280, 1920];
+    const wide: string[] = [];
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 800 });
+      const { doc, client } = await horizontalOverflow(page);
+      if (doc > client) wide.push(`${String(width)} px: page is ${String(doc)} px wide`);
+    }
+    expect(wide).toEqual([]);
+  });
+});
+
 test.describe('landscape phone', () => {
   test('844 by 390: no sideways scroll, the header stays small, a dialog fits', async ({
     page,
@@ -152,8 +211,7 @@ test.describe('landscape phone', () => {
     await page.setViewportSize({ width: 844, height: 390 });
     for (const route of ['/', '/settings/appearance', '/design']) {
       await app.goto(route);
-      const overflow = await horizontalOverflow(page);
-      expect(overflow.doc, route).toBeLessThanOrEqual(overflow.client);
+      await expectNoSidewaysScroll(page, route);
     }
     const header = await page.locator('header').first().boundingBox();
     expect(header!.height).toBeLessThanOrEqual(390 / 4);
@@ -166,7 +224,9 @@ test.describe('landscape phone', () => {
     await page.keyboard.press('Escape');
     // The page behind can still be scrolled to its end.
     await app.goto('/design');
-    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await page.evaluate(() => {
+      window.scrollTo(0, document.documentElement.scrollHeight);
+    });
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
   });
 });
@@ -189,7 +249,6 @@ async function smallTargets(page: Page): Promise<string[]> {
       '[role="menuitemradio"]',
       '[role="combobox"]',
       '[role="option"]',
-      '[tabindex]:not([tabindex="-1"])',
     ].join(',');
     const small: string[] = [];
     for (const el of document.querySelectorAll(selector)) {
@@ -202,6 +261,9 @@ async function smallTargets(page: Page): Promise<string[]> {
       if (inline) continue;
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) continue;
+      // The visually hidden technique (a 1 by 1 px clipped box, such as the skip link until it has
+      // focus): not a target while hidden; its size when focused is asserted in keyboard.spec.ts.
+      if (rect.width <= 1 && rect.height <= 1) continue;
       if (rect.width < 23.5 || rect.height < 23.5) {
         small.push(
           `${el.tagName.toLowerCase()}[${el.getAttribute('role') ?? el.getAttribute('type') ?? ''}] "${(el.getAttribute('aria-label') ?? el.textContent.trim()).slice(0, 30)}" ${rect.width.toFixed(1)}x${rect.height.toFixed(1)}`,

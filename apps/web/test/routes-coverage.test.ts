@@ -57,24 +57,39 @@ describe('e2e/routes.ts against the route tree', () => {
   describe('negative fixtures', () => {
     it('a route the router has but the list lacks fails', () => {
       const withoutAudit = CLIENT_ROUTES.filter((path) => path !== '/audit');
-      expectGuardFails(() => assertSameRoutes(withoutAudit, routerPaths()), {
-        name: 'assertSameRoutes (missing entry)',
-        reason: 'the router has /audit, e2e/routes.ts does not list it',
-      });
+      expectGuardFails(
+        () => {
+          assertSameRoutes(withoutAudit, routerPaths());
+        },
+        {
+          name: 'assertSameRoutes (missing entry)',
+          reason: 'the router has /audit, e2e/routes.ts does not list it',
+        },
+      );
     });
 
     it('a listed route the router does not have fails', () => {
-      expectGuardFails(() => assertSameRoutes([...CLIENT_ROUTES, '/ghost'], routerPaths()), {
-        name: 'assertSameRoutes (listed route does not exist)',
-        reason: 'e2e/routes.ts lists /ghost, the router has no such route',
-      });
+      expectGuardFails(
+        () => {
+          assertSameRoutes([...CLIENT_ROUTES, '/ghost'], routerPaths());
+        },
+        {
+          name: 'assertSameRoutes (listed route does not exist)',
+          reason: 'e2e/routes.ts lists /ghost, the router has no such route',
+        },
+      );
     });
 
     it('the unknown path listed as a route fails', () => {
-      expectGuardFails(() => assertSameRoutes([...CLIENT_ROUTES, UNKNOWN_ROUTE], routerPaths()), {
-        name: 'assertSameRoutes (unknown path)',
-        reason: UNKNOWN_ROUTE,
-      });
+      expectGuardFails(
+        () => {
+          assertSameRoutes([...CLIENT_ROUTES, UNKNOWN_ROUTE], routerPaths());
+        },
+        {
+          name: 'assertSameRoutes (unknown path)',
+          reason: UNKNOWN_ROUTE,
+        },
+      );
     });
   });
 });

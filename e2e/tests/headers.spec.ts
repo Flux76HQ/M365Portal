@@ -20,10 +20,10 @@ async function fetchInPage(
   const [response, bodyText] = await Promise.all([
     page.waitForResponse((r) => new URL(r.url()).pathname === path.split('?')[0]),
     // The body is read in the page: the runner cannot fetch the body of every kind of response.
-    page.evaluate(
-      ([target, method]) => fetch(target ?? '', { method: method ?? 'GET' }).then((r) => r.text()),
-      [path, init?.method] as const,
-    ),
+    page.evaluate(({ target, method }) => fetch(target, { method }).then((r) => r.text()), {
+      target: path,
+      method: init?.method ?? 'GET',
+    }),
   ]);
   return Object.assign(response, { bodyText });
 }
@@ -35,7 +35,7 @@ async function expectUniversalHeaders(response: Response): Promise<Record<string
   expect(headers['x-content-type-options']).toBe('nosniff');
   expect(headers['x-robots-tag']).toBe('noindex, nofollow');
   expect(headers['cross-origin-resource-policy']).toBe('same-origin');
-  expect(headers['server']).toBeUndefined();
+  expect(headers.server).toBeUndefined();
   expect(headers['x-powered-by']).toBeUndefined();
   expect(Object.keys(headers).filter((name) => name.startsWith('access-control-'))).toEqual([]);
   // Plain http: HSTS is only for https (FR-A-043).
@@ -68,7 +68,7 @@ test.describe('HTML shell', () => {
     const csp = headers['content-security-policy'] ?? '';
     const nonce = /script-src 'self' 'nonce-([A-Za-z0-9+/=]{22,})'/.exec(csp)?.[1];
     expect(nonce, 'a nonce of at least 128 bits (22 base64 characters)').toBeDefined();
-    expect(csp).toContain(`style-src 'self' 'nonce-${nonce}'`);
+    expect(csp).toContain(`style-src 'self' 'nonce-${nonce ?? ''}'`);
     const directives = Object.fromEntries(
       csp
         .split(';')
@@ -146,7 +146,7 @@ test.describe('other response types', () => {
     expect(headers['content-security-policy']).toBe(WORKER_CSP);
     expect(headers['cross-origin-embedder-policy']).toBe('require-corp');
     expect(headers['cache-control']).toBe('no-cache');
-    expect(headers['etag']).toBeTruthy();
+    expect(headers.etag).toBeTruthy();
     expect(headers['content-type']).toMatch(/javascript/);
   });
 
@@ -199,7 +199,7 @@ test.describe('other response types', () => {
     const response = await fetchInPage(page, '/manifest.webmanifest');
     const headers = await expectUniversalHeaders(response);
     expect(headers['cache-control']).toBe('no-cache');
-    expect(headers['etag']).toBeTruthy();
+    expect(headers.etag).toBeTruthy();
     expect(headers['content-type']).toMatch(/^application\/manifest\+json/);
   });
 

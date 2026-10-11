@@ -46,7 +46,9 @@ test('at first paint only inter-latin-wght-normal*.woff2 is fetched, and it is l
   const faces = await page.evaluate(() =>
     [...document.fonts].map((face) => ({ family: face.family, status: face.status })),
   );
-  expect(faces.some((face) => /Inter/.test(face.family) && face.status === 'loaded')).toBe(true);
+  expect(faces.some((face) => face.family.includes('Inter') && face.status === 'loaded')).toBe(
+    true,
+  );
 });
 
 test('the font is self-hosted: preloaded, font-display swap, with a size-adjusted fallback (FR-A-123)', async ({
@@ -77,13 +79,13 @@ test('the font is self-hosted: preloaded, font-display swap, with a size-adjuste
     }
     return found;
   });
-  const inter = rules.filter((rule) => /Inter Variable/.test(rule.family));
+  const inter = rules.filter((rule) => rule.family.includes('Inter Variable'));
   expect(inter.length).toBeGreaterThanOrEqual(1);
   for (const rule of inter) {
     expect(rule.display).toBe('swap');
     expect(rule.src).not.toMatch(/https?:\/\//);
   }
-  const fallback = rules.find((rule) => /Inter Fallback/.test(rule.family));
+  const fallback = rules.find((rule) => rule.family.includes('Inter Fallback'));
   expect(fallback?.sizeAdjust).toMatch(/%$/);
 });
 

@@ -51,7 +51,7 @@ export function loadWaivers(raw: unknown, today: string): readonly Waiver[] {
       rule,
       reason,
       expires,
-      ...(routes === undefined ? {} : { routes: routes as string[] }),
+      ...(routes === undefined ? {} : { routes }),
     });
   });
   return waivers;

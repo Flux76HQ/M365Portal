@@ -177,7 +177,6 @@ test.describe('the policy is enforced', () => {
     await page.evaluate(() => {
       setTimeout(() => {
         try {
-          // eslint-disable-next-line no-eval
           (0, eval)('1 + 1');
           (window as unknown as Record<string, string>).__evalResult = 'allowed';
         } catch (error) {
