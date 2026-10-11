@@ -453,6 +453,17 @@ describe('the form field', () => {
 describe('the DataTable demo', () => {
   const liveName = en.t('showcase.table.live');
   const live = () => screen.getByRole('table', { name: liveName });
+  /**
+   * The table is there (loading) before its rows are: the answer of the source reaches the table as a
+   * transition (TableSection, T-A-173), a render after the one that shows the state. Wait for the rows.
+   */
+  const liveRows = async (): Promise<void> => {
+    await screen.findByRole('table', { name: liveName });
+    await waitFor(() => {
+      // Skeleton rows are rows too; a row with text is a row of data.
+      expect(within(live()).getAllByRole('row')[1]).toHaveTextContent(/\S/);
+    });
+  };
   /** Everything of the live demo (the static state specimens have toolbars of their own). */
   const area = () => within(specimen('data-table', 'ready')!);
   const firstNames = (count: number): string[] =>
@@ -463,7 +474,7 @@ describe('the DataTable demo', () => {
 
   it('is labelled as sample data, with an origin on every row', async () => {
     await renderShowcase();
-    await screen.findByRole('table', { name: liveName });
+    await liveRows();
 
     expect(screen.getAllByText(en.t('showcase.sample.badge')).length).toBeGreaterThan(0);
     const rows = within(live()).getAllByRole('row').slice(1);
@@ -520,7 +531,7 @@ describe('the DataTable demo', () => {
 
   it('sorts on the server: the order of the source is the order shown', async () => {
     const { user, router } = await renderShowcase();
-    await screen.findByRole('table', { name: liveName });
+    await liveRows();
     const ascending = [...SAMPLE_PEOPLE]
       .sort((a, b) => a.name.localeCompare(b.name, 'en'))
       .slice(0, 3)
@@ -585,7 +596,7 @@ describe('the DataTable demo', () => {
 
   it('pages and changes the page size', async () => {
     const { user, router } = await renderShowcase();
-    await screen.findByRole('table', { name: liveName });
+    await liveRows();
     const pager = area().getByRole('navigation', { name: en.t('common.table.pagination') });
 
     await user.click(within(pager).getByRole('button', { name: en.t('common.table.nextPage') }));
@@ -626,7 +637,7 @@ describe('the DataTable demo', () => {
 
   it('selects rows on this page and, explicitly, all results; a bulk action is told which', async () => {
     const { user } = await renderShowcase();
-    await screen.findByRole('table', { name: liveName });
+    await liveRows();
 
     await user.click(area().getByRole('checkbox', { name: en.t('common.table.selectAllRows') }));
     expect(
@@ -655,7 +666,7 @@ describe('the DataTable demo', () => {
 
   it('opens the details of a row in a panel', async () => {
     const { user } = await renderShowcase();
-    await screen.findByRole('table', { name: liveName });
+    await liveRows();
     const first = [...SAMPLE_PEOPLE].sort((a, b) => a.name.localeCompare(b.name, 'en'))[0]!.name;
 
     await user.click(

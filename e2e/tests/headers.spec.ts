@@ -182,10 +182,11 @@ test.describe('other response types', () => {
 
   test('a hashed build asset: immutable caching and the generic profile', async ({ page, app }) => {
     await app.goto('/');
-    const entry = await page
-      .locator('script[type="module"][src^="/assets/"]')
-      .first()
-      .getAttribute('src');
+    // The application starts after the first paint, from the `m365-start` block (no module script in
+    // the document): its `entry` is the hashed build file.
+    const start = await page.locator('script#m365-start').textContent();
+    const entry = (JSON.parse(start ?? '{}') as { entry?: string }).entry;
+    expect(entry).toMatch(/^\/assets\/index-[\w-]+\.js$/);
     const response = await fetchInPage(page, entry ?? '');
     expect(response.status()).toBe(200);
     const headers = await expectUniversalHeaders(response);

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Staged } from '../../components/pages/staged';
 import { useTranslator } from '../../lib/locale';
 import { componentById, STATE_KEYS, type ShowcaseState } from './registry';
 
@@ -45,19 +46,25 @@ export function ComponentSection({ id, children, stacked = false }: ComponentSec
   const headingId = `showcase-${id}`;
   const component = componentById(id);
   return (
-    <section aria-labelledby={headingId} data-showcase-section={id} className="flex flex-col gap-3">
-      <h3 id={headingId} className="text-subtitle font-semibold text-fg">
-        {t(component.nameKey)}
-      </h3>
-      <div
-        className={
-          stacked
-            ? 'flex flex-col gap-6'
-            : 'grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2 xl:grid-cols-3'
-        }
+    <Staged>
+      <section
+        aria-labelledby={headingId}
+        data-showcase-section={id}
+        className="flex flex-col gap-3"
       >
-        {children}
-      </div>
-    </section>
+        <h3 id={headingId} className="text-subtitle font-semibold text-fg">
+          {t(component.nameKey)}
+        </h3>
+        <div
+          className={
+            stacked
+              ? 'flex flex-col gap-6'
+              : 'grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2 xl:grid-cols-3'
+          }
+        >
+          {children}
+        </div>
+      </section>
+    </Staged>
   );
 }

@@ -41,7 +41,9 @@ test.describe('zero violations', () => {
     // Command palette: Ctrl+K opens, Esc closes.
     await page.keyboard.press('Control+k');
     await expect(page.getByRole('dialog')).toBeVisible();
-    await expect(page.getByRole('combobox')).toBeFocused();
+    // Inside the dialog: the demo table's "Rows per page" select is a combobox too, and it appears when
+    // the sample data arrives, at a moment that depends on how fast the page got here.
+    await expect(page.getByRole('dialog').getByRole('combobox')).toBeFocused();
     await page.keyboard.type('appear');
     await expect(page.getByRole('option', { name: /Appearance/ })).toBeVisible();
     await page.keyboard.press('Escape');

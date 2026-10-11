@@ -1,6 +1,6 @@
 import { getRouteApi } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import {
   DataTable,
   resolveDefaults,
@@ -154,12 +154,15 @@ function LiveTable({ source }: { readonly source: SampleSource }) {
     };
   }, [search, defaults, scenario]);
 
-  const result = useQuery({
+  const query = useQuery({
     queryKey: ['showcase', 'people', request],
     queryFn: ({ signal }) => source.fetchPage(request, signal),
     // A failure is shown, not retried behind the person's back: Retry is the table's own button.
     retry: false,
   });
+  // The answer reaches the table as a transition: Query's store updates are synchronous, and drawing the
+  // rows of a page in one task is what blocks the main thread (T-A-173). Status and rows change together.
+  const result = useDeferredValue(query);
 
   const bulkActions: DataTableBulkAction[] = [
     {
@@ -228,7 +231,7 @@ function LiveTable({ source }: { readonly source: SampleSource }) {
             },
           ]}
           onRetry={() => {
-            void result.refetch();
+            void query.refetch();
           }}
           bulkActions={bulkActions}
           rowActions={rowActions}

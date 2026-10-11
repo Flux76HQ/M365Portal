@@ -409,6 +409,8 @@ describe('the static app shell', () => {
   it('is inside #root, hidden from assistive technology and inert: a picture, not a page', () => {
     const markup = shell();
     expect(markup).toContain('data-slot="static-shell"');
+    // Hidden in the markup, shown by its own script: a browser without scripting draws none of it.
+    expect(markup).toMatch(/data-slot="static-shell"\s+hidden\s/);
     expect(markup).toMatch(/aria-hidden="true"/);
     expect(markup).toMatch(/\sinert[\s>]/);
     // No landmark and nothing to focus or follow: the real shell brings those (and the end-to-end
@@ -435,7 +437,7 @@ describe('the static app shell', () => {
     // React's createRoot clears the container at the first commit. The test pins the two facts that
     // make that work: one #root, and nothing of the shell outside it.
     expect(occurrences(html, 'id="root"')).toBe(1);
-    expect(occurrences(html, 'data-slot="static-shell"')).toBe(1);
+    expect(html.match(/<div\s+data-slot="static-shell"/g)).toHaveLength(1);
   });
 
   it('has its own small inline script right after the shell', () => {
@@ -462,8 +464,12 @@ describe('the deferred start of the application', () => {
     const block = tagsOf(html, ['script']).find((tag) => tag.attributes.get('id') === 'm365-start');
     expect(block?.attributes.get('type')).toBe('application/json');
     expect(block?.attributes.get('nonce')).toBe(NONCE);
-    const data = JSON.parse(contentAfter(html, block!)) as { entry: string; preload: string[] };
-    return { entry: data.entry, preloads: data.preload };
+    const data = JSON.parse(contentAfter(html, block!)) as {
+      entry: string;
+      preload: string[];
+      routes: Record<string, string[]>;
+    };
+    return { entry: data.entry, preloads: data.preload, routes: data.routes };
   };
 
   it('starts the entry with import() after two frames, with a timer as the fallback', () => {
@@ -497,6 +503,27 @@ describe('the deferred start of the application', () => {
       .map((chunk) => `/${chunk.file}`);
     expect(routeChunks.length).toBeGreaterThan(0);
     for (const chunk of routeChunks) expect(preloads, chunk).not.toContain(chunk);
+  });
+
+  it('lists the chunks of each route by URL path, so the first render does not wait for a round trip', () => {
+    const { routes, preloads } = listed();
+    const emitted = new Set(files.map((file) => `/${relative(outDir, file).split(sep).join('/')}`));
+    for (const path of [
+      '/',
+      '/users',
+      '/settings',
+      '/settings/appearance',
+      '/design',
+      '/no-access',
+    ]) {
+      expect(routes[path], path).toBeDefined();
+    }
+    const appearance = routes['/settings/appearance']!;
+    expect(appearance.length).toBeGreaterThan(0);
+    for (const url of Object.values(routes).flat()) expect(emitted.has(url), url).toBe(true);
+    // What the start-up preloads anyway is not listed twice, and a page does not pull another's chunks.
+    for (const url of appearance) expect(preloads).not.toContain(url);
+    expect(routes['/users']).not.toEqual(expect.arrayContaining(appearance));
   });
 
   it('is a classic inline script with the nonce, and the last script of the page', () => {

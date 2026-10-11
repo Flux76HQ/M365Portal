@@ -329,6 +329,7 @@ test.describe('JavaScript disabled', () => {
     const response = await page.goto(app.url('/settings/appearance'));
     expect(response?.status()).toBe(200);
     await expect(page.locator('noscript p[lang="en"]')).toBeVisible();
-    await expect(page.locator('#root')).toBeEmpty();
+    // The static shell is in #root but hidden until its script has run: nothing of it is drawn.
+    await expect(page.locator('#root *:visible')).toHaveCount(0);
   });
 });

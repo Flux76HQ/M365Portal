@@ -262,6 +262,10 @@ export const test = base.extend<AppOptions & { guard: Guard; app: App }>({
       },
       async ready() {
         await page.locator('main').first().waitFor();
+        // A long page (the showcase) mounts in parts and says so until the last part is in.
+        await page.waitForFunction(
+          () => document.querySelector('[data-progressive="pending"]') === null,
+        );
         // P21: the host has Inter installed system-wide, so a loaded font face must be proven.
         await page.waitForFunction(() =>
           [...document.fonts].some(
