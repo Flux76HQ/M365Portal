@@ -50,7 +50,10 @@ const ROWS: readonly RowSpec[] = [
   { label: 'Input pixels per image', sources: ['image.inputPixels'] },
   { label: 'SVG elements and depth', sources: ['image.svgElements', 'image.svgDepth'] },
   { label: 'Master sizes', sources: ['image.logoMasterPx', 'image.compactMasterPx'] },
-  { label: 'Concurrent image jobs and queue', sources: ['image.concurrentJobs', 'image.queuedJobs'] },
+  {
+    label: 'Concurrent image jobs and queue',
+    sources: ['image.concurrentJobs', 'image.queuedJobs'],
+  },
   { label: 'Staging quota', sources: ['staging.quotaFiles', 'staging.quotaBytes'] },
   { label: 'SVG expanded element instances', sources: ['image.svgExpandedInstances'] },
   { label: 'Image job time budget', sources: [['image.jobTimeBudgetMs', toSeconds]] },
@@ -139,7 +142,7 @@ function allowedLargeNumbers(): Set<number> {
 
 const normalise = (label: string): string => stripMarkup(label).toLowerCase().replace(/\s+/g, ' ');
 
-export function assertLimitsDocument(markdown: string): void {
+function assertLimitsDocument(markdown: string): void {
   const section = sectionOf(markdown, /^limits outside the repository$/i);
   if (section === undefined) {
     throw new Error('operations.md has no heading "Limits outside the repository"');
@@ -162,8 +165,10 @@ export function assertLimitsDocument(markdown: string): void {
   const matchedRows = new Set<number>();
   for (const spec of ROWS) {
     const wanted = normalise(spec.label).replace(/`/g, '');
-    const index = table.rows.findIndex(
-      (row) => normalise(row[0] ?? '').replace(/`/g, '').startsWith(wanted),
+    const index = table.rows.findIndex((row) =>
+      normalise(row[0] ?? '')
+        .replace(/`/g, '')
+        .startsWith(wanted),
     );
     const row = table.rows[index];
     if (row === undefined) throw new Error(`limits table has no row "${spec.label}"`);
@@ -192,7 +197,9 @@ export function assertLimitsDocument(markdown: string): void {
   }
   const unknown = table.rows.findIndex((_, index) => !matchedRows.has(index));
   if (unknown !== -1) {
-    throw new Error(`limits table has a row that spec 6.5 does not have: "${table.rows[unknown]?.[0] ?? ''}"`);
+    throw new Error(
+      `limits table has a row that spec 6.5 does not have: "${table.rows[unknown]?.[0] ?? ''}"`,
+    );
   }
   for (const path of leafPaths(LIMITS)) {
     if (!claimed.has(path)) throw new Error(`LIMITS.${path} is stated by no row of this test`);
@@ -200,10 +207,7 @@ export function assertLimitsDocument(markdown: string): void {
 
   const flat = markdown.replace(/\s+/g, ' ');
   const largest = LIMITS.body.importRequestBytes.toLocaleString('en-US');
-  const sentence = new RegExp(
-    `in front[^.]*\\ballow\\b[^.]*at least ${largest.replace(/,/g, ',')} bytes`,
-    'i',
-  );
+  const sentence = new RegExp(`in front[^.]*\\ballow\\b[^.]*at least ${largest} bytes`, 'i');
   if (!sentence.test(flat)) {
     throw new Error(
       `operations.md lacks the sentence that whatever sits in front must allow request bodies of at least ${largest} bytes`,
@@ -277,7 +281,11 @@ describe('limits-doc guard (negative fixtures, tasks.md section 0.3)', () => {
     const altered = buildDocument((rows) => {
       const row = rows[3];
       if (row === undefined) throw new Error('fixture error');
-      row[1] = row[1]?.replace(group(LIMITS.body.importRequestBytes), group(LIMITS.body.importRequestBytes - 1)) ?? '';
+      row[1] =
+        row[1]?.replace(
+          group(LIMITS.body.importRequestBytes),
+          group(LIMITS.body.importRequestBytes - 1),
+        ) ?? '';
     });
     expectGuardFails(assertLimitsDocument, altered, { reason: /does not state 9437184/ });
   });
@@ -288,7 +296,9 @@ describe('limits-doc guard (negative fixtures, tasks.md section 0.3)', () => {
       if (row === undefined) throw new Error('fixture error');
       row[3] = 'and 123,456 more';
     });
-    expectGuardFails(assertLimitsDocument, altered, { reason: /123456, which is no value of LIMITS/ });
+    expectGuardFails(assertLimitsDocument, altered, {
+      reason: /123456, which is no value of LIMITS/,
+    });
   });
 
   it('fails when a rate is stated per refill interval instead of per second', () => {
@@ -304,7 +314,9 @@ describe('limits-doc guard (negative fixtures, tasks.md section 0.3)', () => {
     const altered = buildDocument((rows) => {
       rows.splice(10, 1);
     });
-    expectGuardFails(assertLimitsDocument, altered, { reason: /has no row "Image job time budget"/ });
+    expectGuardFails(assertLimitsDocument, altered, {
+      reason: /has no row "Image job time budget"/,
+    });
   });
 
   it('fails on a row spec 6.5 does not have', () => {

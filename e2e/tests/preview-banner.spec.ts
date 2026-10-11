@@ -10,10 +10,12 @@ test.describe('preview instance', () => {
   for (const route of ROUTES) {
     test(`shows the banner on ${route}`, async ({ page, app }) => {
       await app.goto(route);
-      const banner = page.locator('[data-slot="banner"][data-tone="warning"]');
+      // The showcase page draws demo banners of its own: the preview banner is the one that says so.
+      const banner = page
+        .locator('[data-slot="banner"][data-tone="warning"]')
+        .filter({ hasText: 'nothing here is protected by a sign-in' });
       await expect(banner).toHaveCount(1);
       await expect(banner).toContainText('Preview mode');
-      await expect(banner).toContainText('nothing here is protected by a sign-in');
       await expect(banner).toBeVisible();
     });
   }
@@ -23,7 +25,9 @@ test.describe('preview instance', () => {
     app,
   }) => {
     await app.goto('/');
-    const banner = page.locator('[data-slot="banner"]');
+    const banner = page
+      .locator('[data-slot="banner"]')
+      .filter({ hasText: 'nothing here is protected by a sign-in' });
     await expect(banner).toBeVisible();
     // No close control inside it, and Escape does not remove it.
     await expect(banner.getByRole('button')).toHaveCount(0);
@@ -73,7 +77,7 @@ test.describe('anonymous instance', () => {
   for (const route of ROUTES) {
     test(`never shows the banner on ${route}`, async ({ page, app }) => {
       await app.goto(route, { instance: 'anonymous' });
-      await expect(page.locator('[data-slot="banner"][data-tone="warning"]')).toHaveCount(0);
+      await expect(page.getByText('nothing here is protected by a sign-in')).toHaveCount(0);
       await expect(page.getByText('Preview mode')).toHaveCount(0);
     });
   }
