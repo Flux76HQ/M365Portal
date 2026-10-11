@@ -1,0 +1,4 @@
+{
+  "$comment": "Axe waivers (FR-A-150). Each entry needs a rule id, a reason and an expiry date (YYYY-MM-DD, the last day it is valid); an expired or reason-less entry fails e2e/tests/a11y.spec.ts. `routes` limits a waiver to those paths. No waiver is in use.",
+  "waivers": []
+}

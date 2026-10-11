@@ -54,10 +54,12 @@ test('the font is self-hosted: preloaded, font-display swap, with a size-adjuste
   app,
 }) => {
   await app.goto('/');
-  const preload = await page.locator('head link[rel="preload"][as="font"]').evaluateAll((links) =>
-    links.map((link) => link.getAttribute('href')),
-  );
-  expect(preload).toEqual([expect.stringMatching(/^\/assets\/inter-latin-wght-normal[^/]*\.woff2$/)]);
+  const preload = await page
+    .locator('head link[rel="preload"][as="font"]')
+    .evaluateAll((links) => links.map((link) => link.getAttribute('href')));
+  expect(preload).toEqual([
+    expect.stringMatching(/^\/assets\/inter-latin-wght-normal[^/]*\.woff2$/),
+  ]);
 
   const rules = await page.evaluate(() => {
     const found: { family: string; display: string; sizeAdjust: string; src: string }[] = [];

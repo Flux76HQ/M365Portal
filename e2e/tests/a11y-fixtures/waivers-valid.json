@@ -1,0 +1,10 @@
+{
+  "waivers": [
+    {
+      "rule": "color-contrast",
+      "reason": "fixture: a valid waiver",
+      "expires": "2999-01-01",
+      "routes": ["/design"]
+    }
+  ]
+}

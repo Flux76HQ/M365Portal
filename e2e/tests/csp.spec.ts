@@ -22,7 +22,9 @@ test.describe('zero violations', () => {
       await page.getByRole('button', { name: 'Language' }).click();
       await page.getByRole('menuitemradio', { name: 'Nederlands' }).click();
       await expect(page.locator('html')).toHaveAttribute('lang', 'nl');
+      await expect(page.getByRole('menu')).toHaveCount(0);
       await page.getByRole('button', { name: 'Taal' }).click();
+      await expect(page.getByRole('menu')).toBeVisible();
       await page.getByRole('menuitemradio', { name: 'English' }).click();
       await expect(page.locator('html')).toHaveAttribute('lang', 'en');
       expect(guard.problems).toEqual([]);
@@ -83,13 +85,18 @@ test.describe('zero violations', () => {
     for (const name of ['Success toast', 'Info toast', 'Warning toast', 'Error toast']) {
       await page.getByRole('button', { name }).click();
     }
-    await expect(page.getByText('A toast reports the result of something you did.').first()).toBeVisible();
+    await expect(
+      page.getByText('A toast reports the result of something you did.').first(),
+    ).toBeVisible();
 
     await page.getByRole('button', { name: 'Open a menu' }).click();
     await expect(page.getByRole('menu')).toBeVisible();
     await page.keyboard.press('Escape');
 
-    await page.getByRole('combobox', { name: /Field label/ }).first().click();
+    await page
+      .getByRole('combobox', { name: /Field label/ })
+      .first()
+      .click();
     await expect(page.getByRole('listbox')).toBeVisible();
     await page.keyboard.press('Escape');
 
@@ -151,7 +158,11 @@ test.describe('the policy is enforced', () => {
     const results = await page.evaluate(() => {
       const out: Record<string, string> = {};
       try {
-        window.trustedTypes?.createPolicy('not-on-the-list', { createHTML: (s) => s });
+        (
+          window as unknown as {
+            trustedTypes?: { createPolicy(name: string, rules: object): unknown };
+          }
+        ).trustedTypes?.createPolicy('not-on-the-list', { createHTML: (value: string) => value });
         out.policy = 'allowed';
       } catch (error) {
         out.policy = (error as Error).name;

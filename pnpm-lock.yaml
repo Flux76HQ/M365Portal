@@ -384,6 +384,9 @@ importers:
       '@axe-core/playwright':
         specifier: 'catalog:'
         version: 4.13.0(playwright-core@1.56.1)
+      '@m365portal/shared':
+        specifier: workspace:*
+        version: link:../packages/shared
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.56.1

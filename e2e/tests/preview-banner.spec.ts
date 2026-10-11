@@ -6,6 +6,12 @@ import { expect, test } from '../fixtures.js';
 
 const ROUTES = [...CLIENT_ROUTES, UNKNOWN_ROUTE];
 
+interface MeBody {
+  actor: { kind: string };
+  permissions: string[];
+  features: { preview: boolean; showcase: boolean };
+}
+
 test.describe('preview instance', () => {
   for (const route of ROUTES) {
     test(`shows the banner on ${route}`, async ({ page, app }) => {
@@ -43,7 +49,7 @@ test.describe('preview instance', () => {
   });
 
   test('/api/v1/me reports the preview actor for a loopback Host', async ({ request, app }) => {
-    const me = await (await request.get(app.url('/api/v1/me'))).json();
+    const me = (await (await request.get(app.url('/api/v1/me'))).json()) as MeBody;
     expect(me.features.preview).toBe(true);
     expect(me.actor.kind).toBe('preview');
     expect(me.permissions.length).toBeGreaterThan(0);
@@ -57,7 +63,7 @@ test.describe('preview instance', () => {
       headers: { Host: 'panel.example.com' },
     });
     expect(response.status()).toBe(200);
-    const me = await response.json();
+    const me = (await response.json()) as MeBody;
     expect(me.permissions).toEqual([]);
     expect(me.features.preview).toBe(false);
     expect(me.actor.kind).toBe('anonymous');
@@ -67,7 +73,7 @@ test.describe('preview instance', () => {
     const response = await request.get(app.url('/api/v1/me'), {
       headers: { 'X-Forwarded-For': '203.0.113.9' },
     });
-    const me = await response.json();
+    const me = (await response.json()) as MeBody;
     expect(me.permissions).toEqual([]);
     expect(me.features.preview).toBe(false);
   });
@@ -83,7 +89,7 @@ test.describe('anonymous instance', () => {
   }
 
   test('/api/v1/me has no permissions and features.preview false', async ({ request, app }) => {
-    const me = await (await request.get(app.url('/api/v1/me', 'anonymous'))).json();
+    const me = (await (await request.get(app.url('/api/v1/me', 'anonymous'))).json()) as MeBody;
     expect(me.features.preview).toBe(false);
     expect(me.permissions).toEqual([]);
   });

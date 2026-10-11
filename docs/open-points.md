@@ -1,31 +1,450 @@
 # Open points, assumptions and risks
 
-> **Status:** started in Phase A governance bootstrap; maintained at the end of every phase.
-> Nederlandse samenvatting onderaan.
+> **Status:** consolidated for Phase A on 2026-10-11 by the documentation stream (task T-A-278) from
+> the gate notes in [`specs/001-m365portal/gate-notes/`](../specs/001-m365portal/gate-notes/), the spec
+> (sections 10, 11 and 12), the plan (sections 16 to 18) and
+> [`research-microsoft.md`](../specs/001-m365portal/research-microsoft.md). Maintained at the end of
+> every phase; only the documentation stream edits this file. Nederlandse samenvatting onderaan:
+> [Nederlands](#nederlands).
 
-Every Microsoft API, permission or cmdlet parameter used by this project is checked
-against Microsoft Learn. Anything that could not be verified is listed here with the
-date, what was tried and what is still needed.
+Every Microsoft API, permission or cmdlet parameter used by this project is checked against Microsoft
+Learn. Anything that could not be verified is listed here with the date, what was tried and what is still
+needed.
+
+How to read the tables. Every table row starts with a stable id; other documents cite these ids.
+**Status** is `open` (needs an action or a decision), `owner` (waits for an owner decision), `recorded`
+(a decision, assumption or limitation that is simply true and needs no action), or `closed` (with the
+evidence). Ids of gate-note points are the ids the chunk notes use (`s1c-9`: stream S1, chunk c, point
+9); where two chunks reuse `OP-n`, the id is prefixed with the chunk (`s3b-OP4`). Gate notes of the
+end-to-end, Lighthouse and media stream (S9, tasks T-A-320 to T-A-334) did not exist when this file was
+consolidated; their points are added when they land (row `S9-pending`).
 
 ## Unverified Microsoft claims
 
+Date of the register: 2026-10-10 (Microsoft Learn only). U1 to U17 are copied from the research; U18 is
+an addition of this stream. `docs/permissions.md` refers to these ids.
+
 | # | Claim | Where used | Tried | Needed to close |
 |---|---|---|---|---|
-| — | _(none recorded yet)_ | | | |
+| U1 | `GroupMember.ReadWrite.All` alone lists groups (`GET /groups`) | permissions.md (Graph set) | The Learn list-groups and get-group pages print `Group-NestingSupport.ReadWrite.All` as least privileged and omit `GroupMember.ReadWrite.All`; the overview says `GroupMember.Read.All` | A dev-tenant call with only `GroupMember.ReadWrite.All` |
+| U2 | The default client of `Connect-MgGraph` is `14d82eec-204b-4c2f-b7e8-296a70dab67e` and is a public client | Wizard step 2 | The sign-in report page lists `14d82eec`; the `Get-MgContext` sample shows `615e6e7c-aa11-4402-91a1-6234967405d5` | Run device code against a dev tenant with each id; keep `BOOTSTRAP_CLIENT_ID` |
+| U3 | Behaviour for non-admins and the exact consent errors with the Microsoft client | Wizard error handling | Not on the pages read | A dev-tenant test with a non-admin and with consent disabled |
+| U4 | Delay between an Entra role assignment and a working Exchange app-only token | Wizard retry and backoff | Learn is silent; "Directory Role ... returned in the access token" | Measure in a dev tenant; keep the retry loop |
+| U5 | Minimal Exchange role set for distribution-list membership and mail contacts (Exchange Recipient Administrator, or a custom role group including Security Group Creation and Membership) | permissions.md, security.md | Role and cmdlet pages read; no statement of sufficiency | A dev-tenant run of all nine cmdlets under each candidate role |
+| U6 | `New-ServicePrincipal` parameter set (is `-ServiceId` mandatory?); app role id of `Exchange.ManageAsAppV2` | Wizard step 3 | The reference and the how-to disagree; the Admin API page names both `ManageAsApp` and `ManageAsAppV2` | Read the tenant service principal's `appRoles` for `00000002-0000-0ff1-ce00-000000000000`; run the cmdlet |
+| U7 | Exchange Online throttling limits for app-only PowerShell and REST | security.md, `ExchangeClient` design | Searched Learn | None; design for unknown limits |
+| U8 | Graph behaviour when adding members to an on-premises-synced security group | Groups UI | Not on the pages read | A dev-tenant test; use `onPremisesSyncEnabled` to show read-only |
+| U9 | The Exchange module on Debian, Alpine or distroless | Dockerfile if a PowerShell worker is chosen | Learn lists Ubuntu LTS only | Owner decision OD-07; test the chosen base |
+| U10 | Uniqueness of `ExternalEmailAddress` is enforced by Exchange | Contacts validation | The `New-MailContact` page is silent | App-side uniqueness check (`Get-MailContact -Filter`) |
+| U11 | Cmdlet and parameters for listing dynamic distribution groups | Distribution-list screen | Only the Admin API endpoint `DynamicDistributionGroupMember` is documented; the cmdlet page was not read | Read the `Get-DynamicDistributionGroup` page when Phase D starts |
+| U12 | Output property name `IsDirSynced` on `Get-DistributionGroup` and `Get-MailContact` | Read-only display of synced objects | Only the filterable property is documented | Inspect the output in a dev tenant |
+| U13 | `max_age` is honoured by the Entra v2.0 `/authorize` endpoint | Step-up sign-in | Only the consumer-account reference shows it | Use `prompt=login` plus an application timestamp |
+| U14 | Graph accepts `http://127.0.0.1` in `web.redirectUris` | Wizard redirect URIs | Learn says the portal cannot; the manifest can | A dev-tenant PATCH test; default to `http://localhost` |
+| U15 | `Set-Contact` parameters for first and last name, and that it works app-only with the chosen Exchange role | Contacts edit, CSV export | `Set-MailContact` has no `-FirstName` or `-LastName`; the `Set-Contact` page was not read | Read the `Set-Contact` page when Phase D starts |
+| U16 | The identity-and-access throttling limits (write quota 3,000 per 2 min 30 s) cover users and group memberships | `GraphClient` and `ExchangeClient` backoff | The limits table was read; the resource list was not | Read the resource list under "Identity and access service limits" |
+| U17 | Permission and shape for reading licence assignments app-only (`assignedLicenses`, beta `cloudLicensing` APIs) | Users list "licenties" column | `licenseDetails` documents "Application: Not supported"; the other APIs were seen only as search snippets | Read the `user` resource page and the `cloudLicensing` pages in Phase C |
+| U18 | Which OWASP ASVS version (4.0.3 or 5.0) the level 2 mapping targets, and the control identifiers | security.md | The ASVS text was not read for the Phase A documents; the mapping is at chapter level | Choose the version, read its text, copy the control ids (Phase D, FR-D-006) |
 
-## Assumptions
+### Other unverified items (not Microsoft)
 
-| # | Assumption | Phase | Decided by |
-|---|---|---|---|
-| — | _(recorded in `specs/` and copied here)_ | | |
+Date 2026-10-11. These are claims of the CI and runtime work that could not be run in the build
+environment.
+
+| # | Claim | Where | Tried | Needed to close |
+|---|---|---|---|---|
+| UV1 | All GitHub workflows run as written (`ci.yml`, `image.yml`, `codeql.yml`, `visual-baselines.yml`) | G7, `chunk-s7a.md` | `actionlint` 1.7.12 clean on 7 files (shellcheck skipped: not installed); `py/test_workflows.py` 64 tests; every command run locally that could run | The first run on GitHub (PR-12) |
+| UV2 | cosign 3.x flags, multi-arch digest output, `push-to-registry`, CycloneDX predicate type `https://cyclonedx.org/bom` in `gh attestation verify`, extra permissions of the attest actions, `--verify-tag` in `gh release create`, Trivy DB download and GHCR digest scan | `chunk-s7a.md` | Static checks only | First `publish` run |
+| UV3 | Trivy ignore format (a `# reason` comment above and `exp:YYYY-MM-DD` on the entry in `.trivyignore`) | `chunk-s7a.md` | Defined by the test; no entry exists | Verify against Trivy documentation at the first entry |
+| UV4 | Dependabot accepts glob `directories` and updates entries in the pnpm `catalog:` of `pnpm-workspace.yaml` keeping the lockfile consistent | `chunk-s7c.md` | Glob support is documented by GitHub; no run | First Dependabot run |
+| UV5 | arm64 build and run (`TARGETARCH` prune, `better-sqlite3` and `sharp` prebuilds, ICU data), QEMU smoke | PR-06, G6, `s1d` R1 | Never built or run: amd64 only | The `publish` job |
+| UV6 | Compose nested default `${PUBLIC_BASE_URL:-http://localhost:${HOST_PORT:-8080}}` on older Compose v2 plugins | PA-16, `s6a-6` | Proven with Compose v5.6.0 only | CI runner plugin; `REQUIRE_DOCKER=1` |
+| UV7 | The Caddy example works | `s6a-8` | Directive names checked against Caddy's documentation on 2026-10-10; not executed | `caddy validate --config deploy/caddy/Caddyfile.example` with a real name |
+| UV8 | Service worker, COEP, Trusted Types and Permissions-Policy names in Firefox and Safari | PR-09 | Chromium 141 only | A manual pass in those browsers |
+| UV9 | Public scanner grades (securityheaders.com, Mozilla Observatory) and whether the HSTS opt-ins are needed for them | BC-01 | Scanner rules not read; needs a public host | A run on a public host |
+| UV10 | Docker bridge networking, `docker compose up` itself, GHCR, SBOM, Trivy | G6 | The sandbox has no bridge network; compose flags were exercised through `docker run` | CI `image` job |
+| UV11 | Screen readers, text spacing and zoom to 400 % | architecture.md Accessibility | Manual checklist; not run in Phase A | The pass before the phase gate |
+| UV12 | Real tenant behaviour of anything in Part 2 of permissions.md | R-15 | No tenant in the build environment | Owner tests after Phases B and D |
+
+## Owner decisions and brief conflicts
+
+Defaults apply if the owner stays silent; nothing in Phase A is blocked by any of them.
+
+| # | Decision | Default | Needed by | Status |
+|---|---|---|---|---|
+| OD-01 | Licence of repository and image, and public or private repository and GHCR image. Sharpened by the plan: cosign keyless runs only for a public repository; a private repository gets GitHub attestations | No licence label; `licenses` OCI label absent (FR-A-163) | Phase A gate | owner |
+| OD-02 | Integration branch name and channel tag policy | `main`; tags `latest`, `v<VERSION>`, `sha-<short>` | Phase A gate | owner (AGENTS.md already says `main`) |
+| OD-03 | Fate of preview mode in Phase B | Removed in Phase B | Phase B gate | owner |
+| OD-04 | Phase A deviations and additions: import limit 9 MiB (A-36), SVG `<text>` refused (A-38), 403 not 401 for anonymous writes (A-29), the remote guard and the loopback `Host` rule for preview mode (A-30, SA-15), HSTS defaults (A-46), ESLint 10 (SA-02), staging quota and its error code (SA-06), icon priority (SA-11), SVG allowlist and expansion cap (SA-13, SA-19), the wider organisation-name rejection (SA-18) | As written | Phase A gate | owner |
+| OD-05 | Version scheme 0.2.0 for Phase A to 0.5.0 for Phase D, 1.0.0 after acceptance | A-47 | Phase A gate | owner |
+| OD-06 | Graph application permission set: the brief's five or the smaller four | The smaller set | Phase B gate | owner (shown in permissions.md) |
+| OD-07 | Exchange execution path and runtime base: PowerShell worker (documented, Ubuntu-based runtime), Admin API Preview for reads only, or the undocumented `InvokeCommand` route | None can be assumed: ask early | Phase B gate at the latest | owner |
+| OD-08 | Service-principal role, the wizard user's role, the bootstrap fallback when device code is blocked, and the MFA policy | Exchange Administrator now, narrower later; both wizard roles accepted; `BOOTSTRAP_CLIENT_ID` override; `amr` check on | Phase B gate | owner |
+| OD-09 | Add root configuration files (`tsconfig*.json`, `eslint.config.*`, `.nvmrc`, `.npmrc`) and `patches/` to `scripts/version_guard_paths.py` | Proposed in the phase report | Phase A gate | owner |
+| OD-10 | Retention of audit entries (they hold client addresses) | Keep everything until Phase D | Phase D | owner |
+| OD-11 | Pin actions by commit SHA | Answered in the plan: SHA pins | Phase A gate | closed (SA-01, V-07) |
+| OD-12 | Release gate: the literal rule (default) or the refinement that lets a re-run of a failed `publish` write the version tag (SA-23) | Literal rule | Phase A gate | owner |
+| OD-13 | A global cap on audit rows written for denied requests (per-client buckets do not bound many source addresses, R-09) | Not built in Phase A; decide with OD-10 | Phase D | owner |
+| OD-14 | Mid-tone accents get black text by default; offer an option that darkens the colour until white text passes (s3a-OP3) | Default as designed (plan 10.4) | Phase A gate | owner |
+| OD-15 | If mobile LCP stays at or above 2.0 s after the tactics, accept a measured gate or approve more work (PR-01, plan 14.3). Current budget: first load 260 KiB Brotli against a 150 KiB target (s7c) | Report the numbers, change nothing | Phase A gate | owner |
+
+Brief conflicts and ambiguities (spec section 10). Resolutions are in the spec; they are listed so that
+none is lost.
+
+| # | Conflict | Resolution and status |
+|---|---|---|
+| BC-01 | HSTS with preload against baseline section 13 | Plain `max-age` over https; `includeSubDomains` and `preload` are operator opt-ins on the declared host. recorded (scanner grade: UV9) |
+| BC-02 | The brief's "minimaal" Graph set is the broadest, against least privilege | Not decided; OD-06; permissions.md shows both. owner |
+| BC-03 | `__Host-` cookies on `http://localhost` | Phase A sets no cookies; Phase B proposal needs owner confirmation. owner |
+| BC-04 | Sanitise or rasterise SVG | Both (D17). recorded |
+| BC-05 | 2 MB against 2 MiB; 8 MiB import is too small | 2 MiB; import 9 MiB (A-36). recorded |
+| BC-06 | CSP without `unsafe-inline` and Trusted Types against UI libraries | CSSOM for styles, nonce for `<style>`, e2e violation guard; a dependency is replaced rather than the policy weakened (R-05). recorded |
+| BC-07 | One CI job cannot both run for forks and push, sign and attest | Two jobs, `image` and `publish`. recorded |
+| BC-08 | Exchange "REST `InvokeCommand`" is not documented | OD-07. owner |
+| BC-09 | MFA via `amr`/`acr` | `amr` through the optional claim (OD-08). owner |
+| BC-10 | Distroless runtime cannot hold PowerShell | Distroless in Phase A; possible base change recorded in an ADR. owner (OD-07) |
+| BC-11 | Wizard scopes include `Directory.Read.All`; "temporary Global Administrator" | Phase B gate (OD-08). owner |
+| BC-12 | Exchange Administrator against a narrow role group | Phase B gate (OD-08, U5, U6). owner |
+| BC-13 | Users list "licenties" | Only if an app-only source is verified (U17). open |
+| BC-14 | Audit with IP address against logs without personal data | The audit table keeps it (personal data); logs never do. recorded (OD-10) |
+| BC-15 | NAS volumes and SQLite WAL | Unsupported; documented (E-24, A-57). recorded |
+| BC-16 | TypeScript 7 and ESLint versions against the registry | Pins in A-27 and A-28. recorded |
+| BC-17 | `Get-DistributionGroup -ResultSize 1` as verification call | Decided with OD-07. owner |
+| BC-18 | E-mails with the organisation name | No mail in any phase so far. recorded |
+| BC-19 | Which endpoint the container health check uses | `/readyz` (A-34). recorded |
+
+## Plan assumptions
+
+| # | Assumption | Status |
+|---|---|---|
+| PA-01 | Global search in Phase A is the palette's trigger (PD-18) | recorded |
+| PA-02 | Schema snapshots are keyed by schema version, not application version (PD-05) | recorded |
+| PA-03 | Icon source priority and plates as in PD-11 | recorded |
+| PA-04 | A derived compact variant is stored and flagged `logo_compact_derived`; export contains only an explicit compact | recorded |
+| PA-05 | The rate-limit client key is the IPv4 address or the IPv6 /64 prefix | recorded (clients behind one /64 share a bucket: s1c R4) |
+| PA-06 | `TRUST_PROXY=<N>` means N proxies, client at entry N from the right of `X-Forwarded-For` | recorded |
+| PA-07 | A default branding row is created at start by the `system` actor, audit action `branding.init` (PD-12) | recorded |
+| PA-08 | The upload route accepts `multipart/form-data` only | recorded |
+| PA-09 | An SVG with neither `viewBox` nor `width` and `height` is refused as `svg_not_wellformed` | recorded |
+| PA-10 | A dry-run import is audited (`branding.import`, `dryRun: true`) | recorded |
+| PA-11 | Staging quota: 32 unreferenced files and 32 MiB | recorded (refined by s2e decision 2 and `chunk-s2fix.md`: only waiting assets count) |
+| PA-12 | `If-Match` and `ETag` use a strong quoted revision; a malformed `If-Match` is 422, a missing one 428 | recorded (s2g-1: compression weakens strong ETags unless `no-transform`) |
+| PA-13 | `/favicon.ico` and `/apple-touch-icon.png` redirect (307) to the hashed icon | recorded |
+| PA-14 | Unknown page paths receive the shell with 200; the client renders Not-found | recorded |
+| PA-15 | A denied permissioned read (branding export) is not audited; denied writes are | recorded |
+| PA-16 | The Compose and `docker run` stop timeout is 15 s | recorded (UV6) |
+| PA-17 | Visual baselines are refreshed by a manual workflow that produces an artefact for owner review | recorded |
+| PA-18 | The offline page is a static file in both languages; navigations are never cached | recorded (s4d A-6: it does not pick the browser language) |
 
 ## Risks
 
-| # | Risk | Mitigation | Owner |
-|---|---|---|---|
-| — | _(none recorded yet)_ | | |
+Spec risks (section 12) and plan risks. Status is as at 2026-10-11.
 
-## Nederlandse samenvatting
+| # | Risk | Mitigation and status |
+|---|---|---|
+| R-01 | Visual baselines from the sandbox Chromium may differ from the GitHub runner | Same Chromium revision, self-hosted font, manual refresh workflow. open until the first CI run |
+| R-02 | Lighthouse scores vary with the runner | Best of 3 for timing, all kept. open (S9) |
+| R-03 | Workflows cannot run here | Static checks and local runs; see UV1. open |
+| R-04 | A pinned SHA must be re-resolved on each bump | Pins checked 2026-10-11 (G7); the test asserts the format. recorded |
+| R-05 | A dependency may not work under Trusted Types or strict CSP | e2e violation guard; the Radix Select sink was found and patched (s3fix). open: the guard runs in S9 |
+| R-06 | sharp on distroless: SVG shapes rasterise, text does not | Answered: yes, the distroless image rasterises SVG (G6); text refused (A-38). closed |
+| R-07 | arm64 cannot be tested here | UV5. open |
+| R-08 | Preview mode on a reachable network is unauthenticated administration | Remote guard, loopback `Host` rule, banner, loopback publishing, removal in Phase B (OD-03). The `Host` rule is not a boundary (security.md). open |
+| R-09 | A hostile client can grow the audit table through denied writes | Write bucket per client; 429 not audited; retention in Phase D (OD-10, OD-13). Residual: many source addresses. open |
+| R-10 | NAS or network volumes break SQLite WAL | Documented unsupported. recorded |
+| R-11 | The version guard does not cover root configuration files | OD-09. owner |
+| R-12 | `eslint-plugin-jsx-a11y` is unmaintained and caps ESLint at 9 | axe in e2e is the primary control; the peer is forced for ESLint 10 for that plugin only (PR-04). recorded |
+| R-13 | Keyless signing through the public Sigstore writes the identity to a public log | Only for public repositories (OD-01). recorded |
+| R-14 | Rate-limit buckets and the CSRF key are in memory | Single instance is a documented rule. recorded |
+| R-15 | Phases B to D rest on UNVERIFIED Microsoft claims | U1 to U17 above; the owner tests against a real tenant after B and D. open |
+| R-16 | The registry is ahead of the brief's assumptions | Exact pins, frozen lockfile. recorded |
+| R-17 | Playwright pinned to 1.56.x is behind the registry | Dependabot ignore rule DR-3. recorded |
+| PR-01 | Mobile LCP below 2.0 s is unproven; first load is 260 KiB Brotli against the 150 KiB target | Budgets, tactics, decision rule (OD-15); `T-A-173`, `T-A-331`, `T-A-334`. open |
+| PR-02 | TanStack Table 9 is a new major; known conflict with `exactOptionalPropertyTypes` | The DataTable wrapper hides the API; the option stays off, guarded by a test. recorded |
+| PR-03 | A UI dependency violates CSP or Trusted Types in a way static inspection did not show | e2e guard; shim for the Radix scroll-lock nonce; the Radix Select patch. open |
+| PR-04 | `eslint-plugin-jsx-a11y` forced onto ESLint 10 | axe in e2e; fallback ESLint 9 or drop the plugin. recorded |
+| PR-05 | Sanitised SVG is still rasterised natively in a child process with the container's privileges | Allowlist rebuild, caps, SIGKILL at 10 s, empty environment, Dependabot and Trivy; Phase D may add a sandbox. open |
+| PR-06 | Worker path, native pruning and arm64 on distroless | The amd64 smoke covers the worker bundle; arm64 is UV5. open |
+| PR-07 | Drizzle 1.0 changes the migration folder format | Exact pin; Dependabot ignore rule DR-4. recorded |
+| PR-08 | Visual baselines differ between sandbox and runner | R-01 mitigations. open |
+| PR-09 | Service worker, COEP and Trusted Types in Firefox and Safari | UV8. open |
+| PR-10 | `Request.formData()` buffers the bounded body and relies on undici's parser | H-38 and the hostile corpus pass; hand-written parser as fallback. recorded |
+| PR-11 | `serveStatic` may mishandle an encoding of traversal | Path guard and fixtures; the guard is an allow-list. recorded |
+| PR-12 | Workflows have never run | UV1, UV2. open |
+| PR-13 | The monogram covers A to Z and 0 to 9 with Latin transliteration; other scripts get a pictogram | Documented (A-40); widening is an owner request. recorded |
+| PR-14 | A sweeper bug deletes a referenced asset | `ON DELETE RESTRICT`, sweeper selects only unreferenced rows, invariant tests. recorded |
+| PR-15 | Two concurrent 16-megapixel decodes exceed the 512 MiB limit | Measured in the image smoke: idle RSS 116 to 129 MB, peak 147 to 167 MB after two concurrent maximum-pixel uploads (G6). closed |
+| PR-16 | ICU or `Intl.Segmenter` differences in the distroless Node | The image smoke checks the segmenter and Dutch plural rules. closed |
+| PR-17 | Per-request Brotli of an 80 KiB HTML costs CPU under load | Rate limit bounds it; measure in S9. open |
+| PR-18 | Real-world logos are refused (SVG without size, SVG text) | Clear messages; README (T-A-279). open |
 
-Dit bestand bundelt onverifieerde Microsoft-aannames, projectaannames en risico's.
-Het wordt aan het einde van elke fase bijgewerkt.
+## Dependency and supply chain rules
+
+| # | Rule or advisory | Reason and status |
+|---|---|---|
+| DR-1 | Dependabot ignores `typescript` `>=6.1` | The stack is probed and pinned on 6.0; `typescript-eslint` 8.71.1 accepts `<6.1`. recorded |
+| DR-2 | Dependabot ignores `eslint` `>=11` | The plugins are verified against ESLint 10 only. recorded |
+| DR-3 | Dependabot ignores majors of `@playwright/test`, `playwright-core` and `@axe-core/playwright` | They move with the Chromium revision of the sandbox and the baselines (R-17). recorded |
+| DR-4 | Dependabot ignores majors of `drizzle-orm` and `drizzle-kit` | Drizzle 1.0 changes the migration folder format (PR-07). recorded |
+| DR-5 | Everything else is grouped weekly per ecosystem (`npm`, `docker`, `github-actions`) | The `docker` ecosystem has nothing to watch until a Dockerfile exists; it exists now. UV4 for catalog handling. recorded |
+| SA-10 | `pnpm audit` lists one moderate advisory: `esbuild <= 0.24.2` through `drizzle-kit > @esbuild-kit/*`, dev-only | `pnpm audit --prod` is clean and `--audit-level=high` passes; below the threshold, listed here. open (re-check when `drizzle-kit` moves) |
+| RP-1 | The Radix Select patch (`patches/@radix-ui__react-select@2.3.8.patch`) removes an inline style that is a Trusted Types sink; the same rule is in `app.css` | On a Radix upgrade re-check: whether the sink is gone upstream (drop the patch), the guard `apps/web/test/csp-sinks.test.ts`, `react-scroll-area` (same sink, unused), and that the Dockerfile copies `patches/` before the frozen install. recorded |
+| RP-2 | `ignoredBuiltDependencies: esbuild, better-sqlite3` and `strictDepBuilds: true` | esbuild's postinstall only swaps in a faster shim; `better-sqlite3` ships prebuilds and needs no compiler. recorded |
+| RP-3 | `autoInstallPeers` puts `@types/better-sqlite3`, `@types/node` and `undici-types` into the production tree | The Dockerfile deletes them after the copy; the cleaner fix is `autoInstallPeers: false` (s6b-2). open |
+| RP-4 | The third-party notice for Inter (SIL OFL 1.1) | The glyph table is a derived work with the notice in its header; the README must list it (s2a-5). open (T-A-279) |
+
+## Gate-note open points
+
+Consolidated 2026-10-11. For each point: what was tried or found is in the Point cell; "needed" is in
+the Status cell when it is not obvious. Points that only concern the orchestrator's commit are one row,
+`commit-chores`.
+
+### Stream S0 (repository, guards)
+
+| # | Point | Status |
+|---|---|---|
+| G0-O2 | The `LEGACY_HEALTH_ROUTE` exemption in `no-direct-route-registration` | closed: removed with `buildApp` (s1f-4 decision 11); the remaining allowance for `new Hono()` in `app.ts` is s1f-6 |
+| G0-O3 | `tsr generate` prints a Node warning ("Accessing non-existent property 'replaceRouteChunk'"); harmless | recorded; re-check when the router CLI is bumped |
+| G0-O4 | `VERSION` has no trailing newline | recorded, optional |
+| G0-O5 | Lint-rule gotchas for other streams: no SQL-looking strings for `run`, `all`, `get`, `query`; catalogue calls for every JSX text and the seven checked attributes; exempt modules; rule ids under `local/` | recorded |
+| G0-O6 | eslint-rules suites import `expectGuardFails` by relative path because the root has no dependency on `@m365portal/shared` | recorded, optional |
+| G0-O7/O8 | Rules deliberately stricter (`pragma`, `openapi`, `document.writeln`, `bg-[red]`, palette utilities) or softer (SQL rule follows one `const` hop) than the task text | recorded |
+| G0-O9 | `pnpm audit` and the moderate `esbuild` chain were not part of G0 | closed: G7 ran both; see SA-10 |
+| G0-W1 | The list of stubs behind wildcard subpaths is not frozen (deleting `accent.ts` or `meta.ts` stays green until a consumer imports it) | recorded; fix: an `EXPECTED_STUBS` list with a negative fixture |
+| G0-W2 | An unanchored hex "extractor" outside `packages/shared` is not seen by `single-implementation.test.ts` | recorded; backstop `no-raw-colour` and review |
+| G0-R1 | Port literals in e2e helpers: only `e2e/playwright.config.ts` may hold `4173`/`4174`; contract C14 wants `e2e/routes.ts` and the Lighthouse runner to read `E2E_PORT` | open (S9); proposal: one allowed home `e2e/ports.mjs` |
+| G0-R3 | Names of homes are pinned by the single-implementation table; other spellings need S0 to extend it | recorded |
+| G0-R7 | Shared source is compiled twice (NodeNext and bundler); a `node:fs` import fails `exports.test.ts` | recorded |
+| G0-R8/R9 | Scan scopes: the scans walk the filesystem, not git; a stray copy or package-local store inside the tree would be scanned | recorded |
+| G0-R10 | "Clean checkout" means a copy of tracked and untracked files; no GitHub runner was exercised | recorded (UV1) |
+
+### Guard limitations
+
+From `chunk-g0-guard-review.md` (adversarial review, accepted as known limitations, not fixed in Phase A).
+The backstops are the Trusted Types CSP in e2e, the boot-time route-table check, the server policy layer
+and review. Severity as the review rated it. Fix hints are in that file.
+
+| # | Evasion | Status |
+|---|---|---|
+| GR-1 | MUST: a nested `apps/web/eslint.config.js` replaces the root configuration for its files | recorded |
+| GR-2 | MUST: narrow switch-offs in the root ESLint config, `globalIgnores`, or `reportUnusedDisableDirectives` off are invisible to the canary | recorded |
+| GR-3 | MUST: `eslint-disable` of a non-local rule needs no reason (FR-A-003 says "with a reason") | recorded |
+| GR-4 | MUST: guards can be neutered silently (`describe.skip`, vitest `exclude`, removed `CHECKS` entry, `.only`) | recorded |
+| GR-5 | MUST: checks assert that script names exist, not what they run (`"lint":"echo skipped"`, a tsconfig `include` without `test`) | recorded |
+| GR-6 | MUST: `no-literal-ui-strings` follows only `const x = 'literal'`; lookups, defaults, helpers and imported tables escape | recorded |
+| GR-7 | SHOULD: component props such as `label`, `hint`, `tooltip` are not inspected (C12 makes props the real leak channel); `document.title`, `toast('...')` pass | recorded |
+| GR-8 | MUST: `no-string-built-sql` misses `.call/.apply`, `Reflect.apply` and aliased Drizzle `sql.raw` | recorded |
+| GR-9 | MUST: a raw colour as percent-encoded hex in a data URI, or a named colour through `setProperty`/`setAttribute`, evades both colour controls | recorded |
+| GR-10 | MUST: org-name look-alikes (`trimOrgName`, `formatOrgName`, `validateOrgName`, `normalizeCompanyName`) pass the single-implementation scan | recorded |
+| GR-11 | MUST: tell-tale holes (`const { languages } = navigator`, `documentElement.lang`, `resolvedOptions().locale`, `'problem' + '.' + code`) | recorded |
+| GR-12 | MUST: nothing but the exact table names is checked inside `packages/shared/src`, so a second implementation inside shared passes | recorded |
+| GR-13 | SHOULD: look-alike detection sees functions and names only (object tables, switch statements, split permission lists, name-less inline code) | recorded |
+| GR-14 | MEDIUM: the outline check misses assignments, `setProperty`, template tags and `initial`/`unset` | recorded (e2e keyboard spec is the other control) |
+| GR-15 | LOW: `no-dangerous-html` misses `document.write` through other receivers, `execCommand('insertHTML')`; `eval` and `new Function` are not rules | recorded (runtime Trusted Types is the control) |
+| GR-16 | LOW: `no-direct-storage` misses `parent.localStorage`, `cookieStore`, `caches`, `navigator.storage` | recorded |
+| GR-17 | LOW: `no-trusted-types-policy-elsewhere` misses aliases; `@types/trusted-types` is not installed so the type branch is dead | recorded |
+| GR-18 | LOW: `no-direct-route-registration` misses `app.use` handlers that answer | recorded (route-table test is the other control) |
+| GR-19 | LOW: the file walker ignores symlinks | recorded |
+| GR-20 | LOW: `routeTree.gen.ts` exemption matches any file with that name | recorded |
+| GR-21 | LOW: the port scan checks by extension, so `:8080` in a `Caddyfile` or `.service` is not seen | recorded |
+| GR-22 | False positives: `requirePermission(have, need)` and `storeLocalePreference` are flagged; CSS id selectors read as hex; `'tracked in issue #123'` flagged | recorded; S4 renamed (`requireAnyOf`, `selectMessage`, s4b A-11) |
+| GR-23 | Carry-over: `documentElement.lang` reader and a `detectLocale`-like inline script in `index.html` still evade | recorded |
+
+### Stream S1 (server core)
+
+| # | Point | Status |
+|---|---|---|
+| s1a-4 | The Dutch of the 32 `problem.*` messages and the English titles are unreviewed by the owner (also G1a risk R2: the check cannot judge Dutch quality) | owner |
+| s1a-5 | Production `Clock` interface: closed, each consumer takes `now: () => number` (s1c) | closed |
+| s1a-6 | The retry hints (`storage_busy` 1 s, `shutting_down` 5 s) are not in the registry | open: owned by `T-A-027`; not re-verified by the documentation stream |
+| s1a-8 | `hasAnyPermission(held, [])` is false; "no requirement" must be handled separately by the web gating | recorded |
+| s1a-11 | A socket test cannot spoof `Host` through `fetch`; HSTS and preview matrices run in process or with `node:http` | recorded |
+| s1b-3 | `rejectOptions` needs the route table's method list for a real `Allow` | closed by the route table (s1e); not re-verified here |
+| s1c-9 | A global budget for buffered request bodies (up to 9 MiB, 2 MiB, 256 KiB each, for at most the 60 s request timeout, bounded per client by the buckets; many addresses multiply it). Not taken at G1 | owner; remedy: refuse with 503 above N bytes in flight |
+| s1c-11 | The English texts of `PREVIEW_WARNING` and the generic problem wording are unreviewed | owner |
+| s1c-13 | `.vitest/` is not in `.gitignore`; a JSON-reporter report was once committed (s1f-2) | open (S0/orchestrator) |
+| s1c-14 | The label of `ANONYMOUS_ACTOR` is pinned by no test | open (Phase B) |
+| s1d-3 | Install protocol gap: after a failed `pnpm add` of a native dependency `node_modules/.modules.yaml` keeps `ignoredBuilds` and every later install fails | open: `tools/INSTALL-PROTOCOL.md` should say so for the next native dependency |
+| s1d-12 | A destructive migration (dropped column or table) will fail the upgrade harness until it gets an explicit allowance and an ADR; version 2 needs `REAL_SEEDS[1]` | recorded |
+| s1d-13 | The moderate dev-only `esbuild` chain through `drizzle-kit` | see SA-10 |
+| s1e-11 | `serveStatic` makes three synchronous file calls per asset request | recorded; revisit only if `T-A-330` or `T-A-331` shows it |
+| s1f-1 | Four red tests in `single-implementation.test.ts` (`values.ts` hex pattern, `replyLuminance`, `offline.js` `navigator.languages`) | closed for the S2 parts by the renames of `chunk-s2e.md`; the `offline.js` part by s4d A-6 (the offline page no longer reads the language) |
+| s1f-2 | `apps/server/.vitest/json/output.json` tracked and not ignored | open (see s1c-13) |
+| s1f-6 | The rule `no-direct-route-registration` still allows `new Hono()` in `app.ts`, which nothing needs now | open (S0, optional) |
+| s1f-8 | The image health check asks 127.0.0.1; with `HOST` set to a single non-loopback address it fails although the server is fine. Documented in operations.md | owner: document only, or let the script read `HOST` |
+| s1f-9 | Not exercised: the process as PID 1 (covered later by the image smoke), arm64, a bind-mounted volume, a real EROFS turn during run | recorded (UV5) |
+| s1-fix-1 | The parser-level errors `bad_request` (400), `request_timeout` (408) and `request_header_fields_too_large` (431) are not in the 31-code registry; their bodies are shaped like a problem | owner: register them (a contract amendment) or keep |
+| s1-fix-2 | Anonymous denied writes can grow the audit table without bound | see R-09, OD-13 |
+| s1-fix-3 | Residual of preview mode: a client that reaches the port directly can send `Host: localhost` without forwarding headers | recorded (R-08) |
+| s1-fix-4 | The migration runner re-implements the stock migrator's loop (about 20 lines); a Drizzle change of the bookkeeping table fails `verifyApplied` and the upgrade tests loudly | recorded |
+| s1-risk | Risks of S1 chunks kept for reference: `TRUST_PROXY=1` without a proxy lets a client choose its address; `style-src` without `unsafe-inline` blocks inline style attributes (BC-06; e2e is the control); compression buffers whole responses (up to the 8 MiB export); the rate limiter can sweep 10,000 entries per insertion in the worst case; clients behind one IPv6 /64 share a bucket; the shutdown drain test takes 10 real seconds; `verify-audit` on a WAL database needs write access to the directory for `-shm` unless the writer's files exist; no browser run for S1 (`T-A-322` is the control) | recorded |
+| s1-pending | Closed-state of the S1 hand-off items: `T-A-045` wiring, `T-A-044` readiness, `T-A-041` denial audit and the S2 table-driven tests were delivered in G1 and G2 | closed (G1, G2) |
+
+### Stream S2 (branding backend)
+
+| # | Point | Status |
+|---|---|---|
+| s2a-4 | Logo plate thresholds: dark theme plates below luminance 0.113, light theme above 0.248 (3:1 against the sidebar surface); plates white and `#161b22`. 3:1 plates some readable mid-tones; a mean is a proxy (a half-white half-black logo is not plated). Per-asset min and max would be a data-model change | owner (design review at the Appearance acceptance) |
+| s2a-6 | Organisation-name edge cases for FR-A-081: tab and newline refused; the England, Scotland and Wales flag emoji (tag characters) refused; Mongolian variation selectors U+180B to U+180D refused; ZWJ emoji, ZWNJ and keycap sequences accepted; refusal happens before trimming | open (spec sentence) |
+| s2a-7 | FR-A-092 wording: the code draws the drawable initials when only some can be drawn ("Zoë 日本" shows Z); the spec says "otherwise one fixed generic pictogram" | owner |
+| s2a-9 | The default-ignorable table is pinned to Unicode data; a Node upgrade that changes it fails `shared/org-name.test.ts` | recorded; re-check on a Node upgrade |
+| s2a-risk | `Intl.Segmenter` in older browsers may count a new emoji differently from the server (show the server's `org_name_invalid`); `@types/opentype.js` pulls the DOM lib into the shared program (`exports.test.ts` still catches DOM globals in `src`); `Base64PngSchema` decodes up to 2.8 million characters per image on the main thread; the code point sweeps take about 1.5 s; the Write tool of the build environment turns `\uXXXX` escapes into characters | recorded |
+| s2b-1 | The server test run was red by design until `T-A-083` | closed (G2) |
+| s2b-6/8 | Category expectations of the corpus beyond H-01 and H-13; H-19 accepts an out-of-range declared size with or without a warning | closed by `T-A-080` per its task; not re-verified here |
+| s2b-9 | libvips prints a `GLib-GObject-CRITICAL` line on stderr for `width="1e9"` raw SVG; the pipeline sizes from the `viewBox` first; the child has no stderr (s2c-3) | recorded |
+| s2b-risk | Hand-built HEIC and PDF fixtures; sharp output is part of the bytes of raster fixtures (a sharp upgrade may change bytes, not meaning); the corpus asserts `metadata()` calibration, the rendering claims are `T-A-081`'s | recorded |
+| s2c-risk | `failOn: 'warning'` is also used when rendering the rebuilt SVG: a librsvg warning on our own output would be refused as `image_corrupt`; relax to `error` for SVG if the Appearance acceptance shows it. The value grammar is ours: `calc()`, `var()` and `env()` lose their attributes with `unknown_attribute` | open (Appearance acceptance `T-A-216`) |
+| s2e-risk | File modification times drive the orphan and `.tmp` sweepers (a restore resets them: harmless); the directory is not fsynced after the rename, so a power loss can lose the newest file while its row survives (start logs `branding_asset_missing`, the UI shows the monogram) | recorded |
+| s2e-3 | Quota order deviates from plan 8.5 (stage 4 after the image job, again under the lock); derived variants retire already expired; the quota counts waiting assets only (I-5 wording in `chunk-s2fix.md`). The data-model I-5 text and the "retired assets keep 24 hours" sentences in the spec still need the rewording given there | open (wording carried by the orchestrator) |
+| s2f-risk | An import holds about 40 MB at peak; three images are processed one after the other (up to 30 s of image time); `prototype` is refused as a key too (not in FR-A-093's list) | recorded |
+| s2g-1 | `compress.ts` weakens every strong ETag when it compresses; branding avoids it with `Cache-Control: no-transform`. Phase B routes that use `If-Match` (secrets, setup, RBAC) will meet the same trap | open (S1/Phase B): each route sets `no-transform`, or compression leaves such ETags alone |
+| s2g-2 | `routes/meta.ts` exports no builder for the `me` body; `module.ts` has a tested copy | open (S1, any time) |
+| s2g-risk | The HTTP corpus takes about 90 s on 4 shared CPUs (one process per fixture); `no-transform` costs about 1.5 KB per branding read; the H-37 preload wraps `http.createServer` and fails loudly if `@hono/node-server` imports `http` differently | recorded |
+| s2-fix-1 | SVG containers `<a>` and `<switch>` are unsupported; import `schemaVersion` 1.0 acceptance is a nit | recorded |
+| s6b-4 | H-42 `body-9437185-bytes` once saw a closed connection instead of the 413 under load (a race between the server closing the socket and the client reading the answer, inherent to answering before the body is read) | recorded; if it recurs the runner should accept `closed` as it does for `cutOff` |
+
+### Stream S3 (shared core and design system)
+
+| # | Point | Status |
+|---|---|---|
+| s3a-OP1 | The 3 % margin band: FR-A-101 says a colour that meets the bounds is used unchanged; plan 10.4 uses the bounds with a 3 % margin (3.09:1, 4.635:1, 4.502:1), so a colour at 3.00 to 3.09:1 is adjusted. The test encodes the plan | owner: add the sentence to the spec row or drop the margin |
+| s3a-OP2 | A near-black accent in the light theme gets hover `#010101` and active `#020202` (0.045 OKLab lightness is below one 8-bit step); 3 of 24,096 sampled colours; AA unaffected | owner (design) |
+| s3a-OP3 | 63 % of random colours get black text on the accent; 52 % (light) and 31 % (dark) are adjusted | owner (OD-14) |
+| s3a-OP4 | Default accent `#0078d4` equals a well-known vendor blue | owner; one constant (`DEFAULT_ACCENT`) and a regenerated stylesheet |
+| s3a-OP5 | `T-A-078`/`T-A-082` should list `T-A-122` under Needs; optional `"sideEffects": false` in `packages/shared/package.json` if the bundle check shows the tokens barrel in the entry chunk (also s4a-8) | open (orchestrator, at `T-A-259`) |
+| s3a-OP6 | `RADIUS_FULL_USES` is a list, not a control; nothing scans for `rounded-full` | open (S3, a source scan in `styles.test.ts`) |
+| s3a-OP7 | The exhaustive 16,777,216-colour sweep is a one-off; CI runs the 24,630-colour property test | recorded; re-run after a change of a surface, `accent.ts` or `contrast.ts` |
+| s3a-OP9 | Spec wording: FR-A-120 says the tokens are "defined once as CSS variables through the Tailwind v4 theme"; as built they are defined in TypeScript and emitted as CSS variables (PD-13) | open (spec sentence) |
+| s3a-OP10 | `pnpm tokens:check` is not a CI step by name | closed: G7 added a "Design token freshness" step |
+| s3a-risk | Engine rounding: the exact hex can differ by one 8-bit level on another engine (the guarantee holds per engine); bundle weight of the tokens barrel (unmeasured until `T-A-259`); injection order solved by `:where` defaults; a surface change can make the derivation throw a named error | recorded |
+| s3b-OP2 | The Radix scroll-lock `<style>` needs a nonce (`__webpack_nonce__` set before the first render) | closed by `T-A-164` per the S4 notes; the e2e guard is the control |
+| s3b-OP3 | The Latin font must be preloaded; its hashed name is known only after the build | closed by the build plugin (s4b); not re-verified here |
+| s3b-OP4 | axe reports `aria-hidden-focus` on `#root` while a Radix Select is open (a static false positive) | open (S9: do not scan with a Select open, or exempt that one rule in that state) |
+| s3b-OP5 | Focus after a dialog opened from a menu item falls to `<body>` unless the caller hands focus to the menu trigger | recorded; on first use |
+| s3b-OP6 | The radio uses `rounded-full`, beyond the three documented uses (avatar, switch thumb, status dot) | owner: add `'radio'` to `RADIUS_FULL_USES` or make it a rounded square |
+| s3b-OP7 | No looping animation exists (skeleton, spinner): FR-A-122 caps every animation at 200 ms | owner: read the rule as "per transition" (a spec amendment) or keep static |
+| s3b-OP8 | `CommandBar` overflow is the caller's decision (`maxVisible`), not measured | recorded |
+| s3b-OP11 | Spec section 2 should list `web/ui/cn.test.ts` and the `web/ui/*.test.tsx` files as additional controls (TA-08) | open (spec pass) |
+| s3b-risk | `cn@0.4.0` is a young package (fallback `clsx` plus `tailwind-merge`, one file); Radix 1.7 attribute names (`data-[state=checked]`); forced colours reviewed by eye on one screenshot (`forced-colors.spec.ts` is the control); happy-dom has no layout; `styles.test.ts` runs four Vite builds into a git-ignored folder; modal Radix components lock the body scroll | recorded |
+| s3b-A | Assumptions of the design system: `Button` defaults to `secondary`; popups sit on the `dialog` layer; font fallback `size-adjust` 106.7 % measured against Liberation Sans in Chromium 141; `prefers-contrast: more` raises two aliases and the focus ring to 3 px; toasts: at most five, 5 s, announced by the Radix announcer; each `Tooltip` has its own provider | recorded |
+| s3c-OP1 | `tokens.generated.css` must never be reformatted by hand or by a formatter that ignores `.prettierignore` | recorded |
+| s3c-OP2 | DataTable wiring is S4's (labels from the catalogue, `columnStorage`, router search params) | closed (S4, G4) |
+| s3c-OP3 | `getRowLabel` must be what the first visible cell shows (WCAG 2.5.3) | recorded; on first use |
+| s3c-OP4 | Lazy-load the DataTable; its JS size was not measured alone | open (`T-A-173`, `T-A-259`) |
+| s3c-OP6 | e2e coverage happy-dom cannot give: sticky header, skeleton height, keyboard walk, visual baselines of the table | open (S9) |
+| s3c-risk | TanStack Table 9.2.8 is a new major (PR-02); the column picker is a modal dialog; focus after a column move was proven in happy-dom only; `exactOptionalPropertyTypes` stays off | recorded |
+| s3fix-1 | The `/design` showcase toast covers the DataTable page-size select at a 900 px viewport (a pointer click is intercepted; keyboard works) | open (S4, showcase) |
+| s3fix-2 | `scripts/version_guard_paths.py` should list `patches/` as a protected path | open (OD-09) |
+| G3-1 | Palette flag: the neutral blue-grey palette, accent default `#0078d4` and the 3 px focus ring under high contrast are for the owner's review with the screenshots of `T-A-332` | owner |
+
+### Stream S4 (web foundation, shell, PWA, i18n)
+
+| # | Point | Status |
+|---|---|---|
+| s4a-1 | `single-implementation.test.ts` treats functions named with the word "locale" outside shared as look-alikes | closed: S4 used other names (G4) |
+| s4a-2 | Every commit that edits a fragment must run `pnpm i18n:merge` and commit the generated catalogues; on a conflict regenerate | recorded (architecture.md) |
+| s4a-4 | A key whose last segment is `zero`, `one`, `two`, `few`, `many` or `other` is a plural form | recorded |
+| s4a-5 | Interpolation formats numbers (1.234 in Dutch, 1,234 in English); pass a string to keep digits untouched | recorded |
+| s4a-6 | The Dutch of the i18n fixtures and of the 32 problem messages is unreviewed | owner |
+| s4a-risk | The catalogue checks' blind spots (nl and en are both Latin, so the third-script check can only pass on real catalogues; a catalogue shifted wholesale); a Japanese catalogue would be judged too strictly; `Intl` data of the distroless Node was not asked about `nl` in Phase A; import attributes; generated-file conflicts; the type-derived key union grows with the catalogue | recorded |
+| s4b-OP1 | `schemas/meta.ts` exports no `MeResponse` type; the web derives it | open (S1, any time) |
+| s4b-OP3 | `apps/web/build` reads `../../VERSION`; the Docker build context needs it | closed (Dockerfile, G6) |
+| s4b-OP4 | `precompress` also writes `index.html.br`/`.gz`, which the server never serves (about 16 kB) | open (S6, only if the size budget needs it) |
+| s4b-OP5 | Entry size: 589 kB raw, 181 kB gzip at s4b; 374 kB raw, 120 kB gzip at s7c; first load 260 KiB Brotli against the 150 KiB target | open (PR-01; `T-A-173`, `T-A-334`) |
+| s4b-OP6 | `radix-ui` is imported as the unified package in `toast.tsx`; check that only the Toast part is in the entry | open (`T-A-173`) |
+| s4b-OP7 | The `-` shown for a missing request id is a literal, not a catalogue word | owner |
+| s4b-OP8 | TanStack Query 5.104 deprecates `fetchQuery` and `ensureQueryData`; use `queryClient.query` and `staleTime: 'static'` | recorded |
+| s4b-OP10 | The `<noscript>` text is literal Dutch and English in `index.html`, outside the catalogue check | recorded |
+| s4b-A | Decisions: `__M365_BOOT_JSON__` is the JSON text only (the template owns the element); the manifest link is the template's own; the toast is the Radix provider (sonner dropped, PD-03); 4xx/5xx without a problem body become `http_<status>`, `client_error` or `network_error`; the spec names `problemMessage` and `requirePermission` are exported as `selectMessage` and `requireAnyOf` | recorded |
+| s4b-risk | The boot script and `STORAGE_KEYS` are one source but `public/offline.js` cannot import them; the Vite 8 `transformIndexHtml` ordering is relied on (guarded by `build-output.test.ts`); the router `Wrap` is outside the router context | recorded |
+| s4c-OP2 | The `link` button hover failed contrast on the dark surface | closed (s3fix) |
+| s4c-OP1 | Radix Select injected an inline style (Trusted Types sink) | closed (s3fix, RP-1) |
+| s4c-OP3 | Zod JIT probe fires when chunks split; fixed by `disableZodJit` in the boot script using the Zod 4.6.5 internal `__zod_globalConfig` | recorded; re-check on a Zod upgrade (the boot script has 1.4 kB of a 1.5 kB limit) |
+| s4c-OP4 | cmdk 1.1.1 does not set `aria-activedescendant` itself; a MutationObserver follows the selection | recorded |
+| s4c-OP5 | Document title of a page that throws while rendering stays the page's own | recorded |
+| s4c-OP7 | Entry, DataTable and palette chunk sizes are not budgeted per chunk | open (`T-A-173`, `T-A-259`) |
+| s4c-OP8 | Route-change focus and announcement for screen readers is not implemented (only the title updates) | open (S4/S9; part of the manual screen-reader pass) |
+| s4d-OP1 | `e2e/pwa.spec.ts` and `e2e/offline.spec.ts` are the CI proof (the offline spec stops the server; `setOffline` does not reach the worker) | open (S9) |
+| s4d-OP2 | Mount points of `UpdateToast` and `OfflineState` | closed per G4; not re-verified here |
+| s4d-OP3 | `sw.js` (2.6 kB) works under the worker profile in Chromium 141; other browsers | UV8 |
+| s4d-OP4 | The offline page does not pick the browser language (both languages side by side); an `EXEMPTIONS` entry would bring it back | owner |
+| s4d-risk | `offline.html` is cached per version: a change without a version bump keeps the old copy; cache-first for `/assets/<name>` assumes hashed names | recorded |
+| G4-2 | S4's remaining hand-offs are in `G4a.md` section 8 | closed (the items above) |
+
+### Stream S5 (branding UI)
+
+| # | Point | Status |
+|---|---|---|
+| s5a-OP1 | Upload progress is indeterminate (`fetch` gives no upload progress; `XMLHttpRequest` is refused by the guard) | owner: a percentage needs `XMLHttpRequest` inside `lib/api.ts` |
+| s5a-OP2 | The preview needed a pure `OrgMarkView` | closed (s5b) |
+| s5a-OP3 | The preview forces hover/pressed/focus with classes; a change of the button variants in S3 must be mirrored in `FORCED` of `LivePreview.tsx` | recorded |
+| s5a-OP4 | The eight swatches and the colour wording ("Used", "Chosen", "adjusted slightly") are unreviewed | owner |
+| s5a-OP5 | CSSOM writes of the preview proven in happy-dom only; not run in Chromium under the production CSP in the unit tests | closed: G5 ran the real Chromium production build (axe and CSP) |
+| s5b-OP1 | `accent-subtle` with `text-fg` is 4.27:1 for `#ffff00` in the dark theme (secondary and ghost hover); axe fails the dark preview for that accent | open (S3); saving is not blocked |
+| s5b-OP4 | Import apply is the third request of the `upload` bucket; a 429 is shown in words | open (S9 against the real server) |
+| s5b-OP6 | `e2e/branding.spec.ts` and `e2e/branding-persistence.spec.ts` | open (S9) |
+| G5-R | Tests of the S5 chunk were written after the code; only Chromium 141 was used; a build change in S4's plugin (`forgetInlinedStylesheets`) should be reviewed by S4 | recorded |
+
+### Stream S6 (image and deploy)
+
+| # | Point | Status |
+|---|---|---|
+| s6a-2 | The image checks were first written without a daemon | closed: the first real run (G6) found three true positives that the Dockerfile fixes |
+| s6a-3 | The size ceiling stays 400 MB (193.5 MB measured, VERSION 0.2.31) | owner: recalibrate after the first CI build |
+| s6a-6 | Compose nested default proven on v5.6.0 only | UV6 |
+| s6a-7 | `REQUIRE_DOCKER=1` and `git` on PATH must be set in the CI job that runs the server tests | closed: `ci.yml` sets it (s7a) |
+| s6a-8 | The Caddy example was not run | UV7 |
+| s6a-9 | The Dutch of `deploy/README.md` is unreviewed | owner |
+| s6b-1 | Remediation texts must pass `--build-arg VERSION` | closed: operations.md says so; `image.yml` passes it |
+| s6b-2 | `autoInstallPeers` puts type packages into the production tree | RP-3 |
+| s6b-3 | The hostile corpus against the container exists only as a scratch harness (44 of 44 passed) | owner: add as a `REQUIRE_DOCKER`-guarded test before G9 if wanted |
+| s6b-5/6 | Smoke bridge mode, arm64 and `docker compose up` were not executed | UV5, UV10 |
+| s6b-7 | The Docker daemon was started by hand with `--iptables=false --bridge=none` and the vfs driver, which copies the image per container and filled the shared disk twice | recorded |
+| s6b-8 | `repo-conventions` check 10 was red because of an `eslint-disable` in `db/migrate.ts` (chunk-amend1: shipped SQL runs through `runShippedStatement`; the owner may prefer an explicit rule allowance) | owner |
+| s6-risk | `.dockerignore` is a contract with the Dockerfile; the `.env.example` parser is strict; Compose reads the shell environment before `.env`; the prune relies on the legacy deploy layout and fails the build when it finds nothing | recorded |
+
+### Stream S7 (CI)
+
+| # | Point | Status |
+|---|---|---|
+| s7a-1 | Concurrency: two quick merges can finish `publish` out of order and move `latest` backwards | recorded |
+| s7a-2 | Artefact paths `e2e/playwright-report/`, `e2e/test-results/`, `e2e/lighthouse/results/` are assumed; missing paths are ignored | open (S9 owns the outputs) |
+| s7c-1 | Bundle budget honesty: first load 260 KiB against 150 KiB; JS 232 KiB and CSS 43.6 KiB meet the spec limits; the ratchet only goes down | open (PR-01, `T-A-173`, `T-A-334`) |
+| s7c-2 | `pnpm docs:check` failed in the `quality` job until these documents existed | closed once README.md lands (T-A-279) |
+| s7c-3 | The `Bundle budget` ratchet in a shallow pull-request checkout depends on the script's own `git fetch --depth=1`; shellcheck findings on the runner; CodeQL may flag existing code on a first run; `visual-baselines.yml` assumes `visual.spec.ts` and its default snapshot path | open (UV1) |
+
+### Gates and cross-stream
+
+| # | Point | Status |
+|---|---|---|
+| commit-chores | At every commit: bump `VERSION` for protected paths; `pnpm add` strips the comments of `pnpm-workspace.yaml`, so check that `git diff pnpm-workspace.yaml` shows only the intended catalog lines and that the comments are back; the lockfile keeps its `libc:` lines | orchestrator |
+| G1-6 | Carried over at G1: s1c-9 (not taken), `serveStatic` synchronous calls (s1e-11), the install protocol for the next native dependency (s1d-3) | see those rows |
+| G2-4 | Plate thresholds (G2a OP-3) are for the owner's review | s2a-4 |
+| G2-5 | The upload rate class makes H-39 unrunnable from one client over HTTP, which is the intended protection: the row runs from distinct client addresses behind a trusted proxy | recorded |
+| amend1-1 | `runShippedStatement` is the one place that runs shipped SQL, and the lint rule's header says migrations are out of its scope; the Dutch and English texts of three messages are unreviewed; older gate notes still say 31 codes | owner |
+| S9-pending | Gate notes of S9 (e2e, accessibility, visual, Lighthouse, media: T-A-320 to T-A-334) were not available | open: add their points when they land (T-A-999) |
+| T-A-279 | `README.md` (T-A-279) is not written yet; `docs/open-points.md` is complete for Phase A except the S9 row above | open |
+
+## Nederlands
+
+Dit bestand bundelt de onverifieerde Microsoft-aannames (U1 tot en met U18), de overige onverifieerde
+punten (UV1 tot en met UV12), de beslissingen van de eigenaar en de conflicten met de briefing (OD-01 tot
+en met OD-15, BC-01 tot en met BC-19), de plan-aannames (PA-01 tot en met PA-18), de risico's (R-01 tot en met
+R-17 en PR-01 tot en met PR-18), de afhankelijkheidsregels (DR-1 tot en met DR-5, SA-10, RP-1 tot en met RP-4)
+en alle open punten uit de gate-notities van de streams S0 tot en met S7 (in de ids van de chunk-notities,
+zoals `s1c-9`), plus de bekende beperkingen van de repository-bewakers (GR-1 tot en met GR-23).
+
+- **Status** is `open` (er is een actie of beslissing nodig), `owner` (wacht op de eigenaar), `recorded`
+  (een vaststaande beslissing, aanname of beperking) of `closed` (afgehandeld, met bewijs).
+- **Niet geverifieerd** betekent: niet gevonden op Microsoft Learn of niet uitgevoerd in de bouwomgeving.
+  Elke rij noemt wat is geprobeerd en wat nodig is om te sluiten. De ASVS-versie (U18) is bewust nog niet
+  gekozen. Alles wat alleen op GitHub draait (workflows, signeren, Trivy, arm64) is nog nooit uitgevoerd
+  en staat als eerste-run-risico (UV1, UV2, UV5).
+- **Belangrijkste beslissingen voor de eigenaar:** OD-06 en OD-07 (Graph-rechten en het Exchange-pad, uiterlijk
+  bij de Fase B-poort), OD-03 (preview-modus verwijderen), OD-01 (licentie en publiek of privé), OD-13 (een
+  globale grens op auditregels van geweigerde verzoeken) en de ontwerpkeuzes uit de S3-punten (accentkleur,
+  zwarte tekst op middentonen, lussende animaties, plaatdrempels voor logo's).
+- **Bekende risico's:** de eerste-contentpaint is nog niet binnen het streefbudget (PR-01: 260 KiB tegenover
+  150 KiB); anonieme geweigerde schrijfacties laten het auditlog groeien (R-09); preview-modus is geen
+  beveiligingsgrens (R-08).
+- De punten van de e2e-, Lighthouse- en mediastream (S9) en de README (T-A-279) ontbreken nog en worden
+  toegevoegd zodra die klaar zijn.

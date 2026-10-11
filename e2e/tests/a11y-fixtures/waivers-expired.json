@@ -1,0 +1,5 @@
+{
+  "waivers": [
+    { "rule": "color-contrast", "reason": "fixture: this waiver ran out", "expires": "2020-01-01" }
+  ]
+}
