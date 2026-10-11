@@ -163,9 +163,9 @@ function Textareas() {
 function Selects() {
   const { t } = useTranslator();
   const options = [
-    { value: 'one', label: t('showcase.sample.one') },
-    { value: 'two', label: t('showcase.sample.two') },
-    { value: 'three', label: t('showcase.sample.three') },
+    { value: 'one', label: t('showcase.sample.first') },
+    { value: 'two', label: t('showcase.sample.second') },
+    { value: 'three', label: t('showcase.sample.third') },
   ];
   return (
     <ComponentSection id="select">
@@ -238,10 +238,10 @@ function RadioGroups() {
               >
                 <RadioOption
                   value="one"
-                  label={t('showcase.sample.one')}
+                  label={t('showcase.sample.first')}
                   className={state === 'focus' ? '[&_button]:outline-2 [&_button]:outline-offset-2 [&_button]:outline-focus-ring' : undefined}
                 />
-                <RadioOption value="two" label={t('showcase.sample.two')} />
+                <RadioOption value="two" label={t('showcase.sample.second')} />
               </RadioGroup>
             )}
           </FormField>
