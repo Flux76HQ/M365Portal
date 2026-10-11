@@ -1,4 +1,5 @@
-// The command line of the image (FR-A-075): `node dist/cli.js verify-audit [--from N] [--to M]`.
+// The command line of the image (FR-A-075): `node dist/cli.js verify-audit [--from N] [--to M]
+// [--expect-seq N] [--expect-hash HEX]`.
 //
 // The runtime image has no shell, so the check an operator wants after a restore, an upgrade or an
 // incident has to be a Node script. It opens the database READ-ONLY (it cannot change a byte), streams
@@ -6,6 +7,10 @@
 //
 //   {"ok":true,"checked":42,"triggersMissing":[]}
 //   {"ok":false,"checked":17,"firstBadSeq":18,"triggersMissing":[]}
+//   {"ok":false,"checked":4,"anchorMismatch":true,"triggersMissing":[]}   (tail truncated)
+//
+// Caveat: the chain alone cannot see rows deleted from the END of the log. Only the anchor can
+// (--expect-seq / --expect-hash, the head you recorded earlier).
 //
 // Exit codes:
 //   0  the chain verifies and the three append-only triggers are present
@@ -28,11 +33,17 @@ export interface CliIo {
   readonly stderr: { write(text: string): unknown };
 }
 
-const USAGE = 'usage: node dist/cli.js verify-audit [--from <seq>] [--to <seq>]\n';
+const USAGE =
+  'usage: node dist/cli.js verify-audit [--from <seq>] [--to <seq>] [--expect-seq <seq>] [--expect-hash <hex>]\n' +
+  'note: the hash chain alone cannot see rows deleted from the END of the log (with the append-only\n' +
+  'triggers dropped). Pass the newest seq and hash you recorded (the audit head log line) as\n' +
+  '--expect-seq / --expect-hash to detect it.\n';
 
 interface Range {
   from?: number;
   to?: number;
+  expectSeq?: number;
+  expectHash?: string;
 }
 
 /** `--from 3`, `--from=3`, `--to 9`; anything else is a usage error (`undefined`). */
@@ -41,10 +52,24 @@ function parseRange(args: readonly string[]): Range | undefined {
   for (let at = 0; at < args.length; at += 1) {
     const arg = args[at] ?? '';
     const [name, inline] = arg.split('=', 2);
-    if (name !== '--from' && name !== '--to') return undefined;
+    if (
+      name !== '--from' &&
+      name !== '--to' &&
+      name !== '--expect-seq' &&
+      name !== '--expect-hash'
+    ) {
+      return undefined;
+    }
     const raw = inline ?? args[(at += 1)];
-    if (raw === undefined || !/^[1-9]\d{0,15}$/.test(raw)) return undefined;
-    range[name === '--from' ? 'from' : 'to'] = Number(raw);
+    if (raw === undefined) return undefined;
+    if (name === '--expect-hash') {
+      if (!/^[0-9a-fA-F]{64}$/.test(raw)) return undefined;
+      range.expectHash = raw.toLowerCase();
+      continue;
+    }
+    if (!/^[1-9]\d{0,15}$/.test(raw)) return undefined;
+    if (name === '--expect-seq') range.expectSeq = Number(raw);
+    else range[name === '--from' ? 'from' : 'to'] = Number(raw);
   }
   if (range.from !== undefined && range.to !== undefined && range.to < range.from) return undefined;
   return range;
@@ -81,7 +106,7 @@ export function runCli(argv: readonly string[], io: CliIo): number {
   }
 
   io.stdout.write(`${JSON.stringify(verdict)}\n`);
-  return verdict.ok && verdict.triggersMissing.length === 0 ? 0 : 1;
+  return verdict.ok ? 0 : 1;
 }
 
 // Run when started as a script (`node dist/cli.js ...`, `tsx src/cli.ts ...`), not when imported.

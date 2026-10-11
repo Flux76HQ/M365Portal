@@ -1593,9 +1593,11 @@ describe('foreign keys and transactions (probe P12, V-05)', () => {
       ]),
     ]);
     const tablesOf = (): string[] =>
-      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as {
-        name: string;
-      }[]).map((row) => row.name);
+      (
+        db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as {
+          name: string;
+        }[]
+      ).map((row) => row.name);
     const tablesBefore = tablesOf();
 
     for (const attempt of [1, 2]) {
@@ -1626,7 +1628,9 @@ describe('foreign keys and transactions (probe P12, V-05)', () => {
     );
     expect(error.code).toBe('migration_foreign_key_check_failed');
     expect(rowsOf(db)).toEqual([]);
-    expect(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name IN ('p', 'c')").get()).toEqual({
+    expect(
+      db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name IN ('p', 'c')").get(),
+    ).toEqual({
       n: 0,
     });
   });

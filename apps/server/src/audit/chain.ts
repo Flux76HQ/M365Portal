@@ -11,8 +11,8 @@
 // `hash` is the recomputed one. `firstBadSeq` is the seq of the first ROW that fails: for a deleted
 // row that is the row after the gap, because that is the first row that is present and wrong.
 //
-// What it cannot see, and the documentation says so (`docs/security.md`): rows lost from the end (the
-// logged head is what anchors the tail, FR-A-074), and a chain recomputed from the first changed row
+// What it cannot see, and the documentation says so (`docs/security.md`): rows lost from the end unless the caller anchors the
+// head with `expectSeq` / `expectHash` (the logged head, FR-A-074), and a chain recomputed from the first changed row
 // on by someone who can write the database file (tamper evidence, not tamper proofing).
 import { createHash } from 'node:crypto';
 import type { SqliteConnection } from '../db/open.js';
@@ -47,6 +47,12 @@ export interface VerifyRange {
   readonly from?: number;
   /** Last seq to check. Default: all. */
   readonly to?: number;
+  /**
+   * Anchor for the tail (FR-A-074): the `seq` and the hash (hex) of the newest entry as an operator
+   * recorded them (the logged head). Without it, rows deleted from the end are invisible.
+   */
+  readonly expectSeq?: number;
+  readonly expectHash?: string;
 }
 
 export interface ChainVerdict {
@@ -55,6 +61,8 @@ export interface ChainVerdict {
   readonly checked: number;
   /** The seq of the first row that fails; absent when `ok`. */
   readonly firstBadSeq?: number;
+  /** True when the newest entry is not the one `expectSeq` / `expectHash` named (a truncated tail). */
+  readonly anchorMismatch?: true;
   /** Which of the three append-only triggers are not in the database. */
   readonly triggersMissing: readonly string[];
 }
@@ -174,5 +182,16 @@ export function verifyChain(db: SqliteConnection, range: VerifyRange = {}): Chai
     expectedSeq += 1;
     checked += 1;
   }
-  return { ok: true, checked, triggersMissing };
+  if (range.expectSeq !== undefined || range.expectHash !== undefined) {
+    const head = readHead(db);
+    const seqOk = range.expectSeq === undefined || head?.seq === range.expectSeq;
+    const hashOk =
+      range.expectHash === undefined ||
+      (head !== undefined && head.hash.toString('hex') === range.expectHash.toLowerCase());
+    if (!seqOk || !hashOk) {
+      return { ok: false, checked, anchorMismatch: true, triggersMissing };
+    }
+  }
+  // ok never contradicts triggersMissing: a database whose append-only triggers were dropped is not ok.
+  return { ok: triggersMissing.length === 0, checked, triggersMissing };
 }

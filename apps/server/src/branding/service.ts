@@ -366,12 +366,18 @@ export function createBrandingService(dependencies: BrandingServiceDependencies)
       const retiredMasters = retiredHashes(
         (Object.keys(before) as AssetRole[]).filter((role) => !derivedRoles.includes(role)),
       );
+      // Undo goes back one change: the masters the PREVIOUS apply retired (stamped with its
+      // timestamp, which is the branding row's `updated_at`) lose their 24 hours now, unless this
+      // apply references them again (markReferenced below). Without this, every retired master would
+      // count toward the staging quota for a day and 34 changes would block every upload (I-5).
+      const expiredAt = new Date(now() - LIMITS.staging.retentionMs - 1).toISOString();
+      if (current !== undefined) expireRetiredAssets(tx, current.updatedAt, expiredAt);
       markReferenced(tx, wanted);
       markUnreferenced(tx, retiredMasters, timestamp);
       markUnreferenced(
         tx,
         retiredDerived.filter((hash) => !retiredMasters.includes(hash)),
-        new Date(now() - LIMITS.staging.retentionMs - 1).toISOString(),
+        expiredAt,
       );
 
       const toRevision = (current?.revision ?? 0) + 1;

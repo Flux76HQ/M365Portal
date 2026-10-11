@@ -43,6 +43,7 @@ import {
   type AuditEntryInput,
   type StoredAuditFields,
 } from '../src/audit/index.js';
+import { readHead } from '../src/audit/chain.js';
 import { runCli } from '../src/cli.js';
 import { runMigrations } from '../src/db/migrate.js';
 import {
@@ -950,7 +951,12 @@ describe('verifyChain (FR-A-071)', () => {
     dropTriggers(db.sqlite);
     db.sqlite.exec("UPDATE audit_log SET actor_id = 'mallory' WHERE seq = 8");
 
-    expect(verifyChain(db.sqlite, { to: 7 })).toMatchObject({ ok: true, checked: 7 });
+    // ok is false here only because the triggers were dropped; no row in the range is bad.
+    expect(verifyChain(db.sqlite, { to: 7 })).toMatchObject({
+      checked: 7,
+      triggersMissing: [...TRIGGER_NAMES],
+    });
+    expect(verifyChain(db.sqlite, { to: 7 }).firstBadSeq).toBeUndefined();
     expect(verifyChain(db.sqlite, { from: 8 })).toMatchObject({ ok: false, firstBadSeq: 8 });
     expect(verifyChain(db.sqlite)).toMatchObject({ ok: false, firstBadSeq: 8, checked: 7 });
   });
@@ -1108,7 +1114,9 @@ describe('verifyChain (FR-A-071)', () => {
 
     it('reports the triggers that are missing, whether or not the chain is intact', async () => {
       const verdict = await tampered(() => undefined);
-      expect(verdict.ok).toBe(true);
+      // A missing trigger makes the verdict false: ok never contradicts triggersMissing.
+      expect(verdict.ok).toBe(false);
+      expect(verdict.firstBadSeq).toBeUndefined();
       expect([...verdict.triggersMissing].sort()).toEqual([
         'audit_log_chain_link',
         'audit_log_no_delete',
@@ -1121,7 +1129,7 @@ describe('verifyChain (FR-A-071)', () => {
       appendMany(db, 2);
       db.sqlite.exec('DROP TRIGGER audit_log_no_delete');
       expect(verifyChain(db.sqlite)).toEqual({
-        ok: true,
+        ok: false,
         checked: 2,
         triggersMissing: ['audit_log_no_delete'],
       });
@@ -1131,8 +1139,29 @@ describe('verifyChain (FR-A-071)', () => {
       const verdict = await tampered((db) => {
         db.exec('DELETE FROM audit_log WHERE seq = 6');
       });
-      // This documents the limit: the logged head { seq, hash } is what anchors the tail (FR-A-074).
-      expect(verdict).toMatchObject({ ok: true, checked: 5 });
+      // This documents the limit: the chain alone cannot see it; the logged head { seq, hash } is
+      // what anchors the tail (FR-A-074). The only finding here is the dropped triggers.
+      expect(verdict).toMatchObject({ checked: 5 });
+      expect(verdict.firstBadSeq).toBeUndefined();
+      expect(verdict.anchorMismatch).toBeUndefined();
+    });
+
+    it('sees the loss of the last rows when the head is anchored with expectSeq / expectHash', async () => {
+      const { db } = await volume();
+      appendMany(db, 6);
+      const head = readHead(db.sqlite);
+      if (head === undefined) throw new Error('no head');
+      expect(
+        verifyChain(db.sqlite, { expectSeq: 6, expectHash: head.hash.toString('hex') }),
+      ).toEqual({ ok: true, checked: 6, triggersMissing: [] });
+      dropTriggers(db.sqlite);
+      db.sqlite.exec('DELETE FROM audit_log WHERE seq = 6');
+      const verdict = verifyChain(db.sqlite, {
+        expectSeq: 6,
+        expectHash: head.hash.toString('hex'),
+      });
+      expect(verdict).toMatchObject({ ok: false, checked: 5, anchorMismatch: true });
+      expect(verifyChain(db.sqlite, { expectSeq: 5 }).anchorMismatch).toBeUndefined();
     });
 
     it('does NOT see a chain that was recomputed from the first row on: tamper evidence, not proofing', async () => {
@@ -1163,7 +1192,9 @@ describe('verifyChain (FR-A-071)', () => {
           previous = hash;
         }
       });
-      expect(verdict).toMatchObject({ ok: true, checked: 6 });
+      // Every hash verifies; ok is false only because the tamper fixture dropped the triggers.
+      expect(verdict).toMatchObject({ checked: 6 });
+      expect(verdict.firstBadSeq).toBeUndefined();
     });
   });
 });
@@ -1232,10 +1263,35 @@ describe('node dist/cli.js verify-audit (FR-A-075)', () => {
 
     expect(run.code).toBe(1);
     expect(JSON.parse(run.out)).toEqual({
-      ok: true,
+      ok: false,
       checked: 3,
       triggersMissing: ['audit_log_no_update'],
     });
+  });
+
+  it('checks the --expect-seq / --expect-hash anchor and exits 1 on a truncated tail', async () => {
+    const { dataDir, db } = await withEntries(5);
+    const reopened = openDatabase({ path: join(dataDir, DATABASE_FILE_NAME) });
+    const head = readHead(reopened.sqlite);
+    if (head === undefined) throw new Error('no head');
+    const hex = head.hash.toString('hex');
+    const args = ['verify-audit', '--expect-seq', '5', `--expect-hash=${hex}`];
+    expect(cli(args, { DATA_DIR: dataDir })).toMatchObject({ code: 0 });
+    dropTriggers(reopened.sqlite);
+    reopened.sqlite.exec('DELETE FROM audit_log WHERE seq = 5');
+    reopened.close();
+    void db;
+
+    const run = cli(args, { DATA_DIR: dataDir });
+    expect(run.code).toBe(1);
+    expect(JSON.parse(run.out)).toMatchObject({ ok: false, anchorMismatch: true });
+  });
+
+  it('rejects a malformed --expect-hash', async () => {
+    const { dataDir } = await withEntries(2);
+    const run = cli(['verify-audit', '--expect-hash', 'xyz'], { DATA_DIR: dataDir });
+    expect(run.code).toBe(2);
+    expect(run.err).toContain('--expect-seq');
   });
 
   it('honours --from and --to', async () => {

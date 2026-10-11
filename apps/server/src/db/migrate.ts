@@ -21,8 +21,9 @@
 //      silently: `migration_journal_invalid`
 //   4. if migrations are pending and the database already has applied rows: a backup through the
 //      SQLite online backup API, the newest 3 kept; if it cannot be written nothing is migrated
-//   5. foreign keys OFF (outside any transaction), the stock migrator, `PRAGMA foreign_key_check`
-//      must report nothing, foreign keys ON again whatever happened
+//   5. foreign keys OFF (outside any transaction), ONE transaction that applies the migrations and
+//      runs `PRAGMA foreign_key_check` before it commits (a violation rolls everything back), foreign
+//      keys ON again whatever happened
 //   6. the applied rows are read again and must equal the shipped files
 //
 // Every failure is a `MigrationError` with a stable `code`, a fixed message that names tags and
@@ -31,8 +32,6 @@
 // and the logger never write a cause.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { z } from 'zod';
 import { takeBackup } from './backup.js';
@@ -230,14 +229,14 @@ function pendingOrRefuse(
   return state.pending;
 }
 
-/** `inTransaction` read afresh: the compiler cannot know that the migrator moved it. */
-function stillInTransaction(db: SqliteConnection): boolean {
-  return db.inTransaction;
-}
-
 /**
- * The stock migrator, with foreign keys off around it and `foreign_key_check` after it. The
- * connection must not be inside a transaction (a PRAGMA cannot change foreign keys inside one).
+ * Applies the pending migrations in ONE outer transaction with foreign keys off, and runs
+ * `PRAGMA foreign_key_check` INSIDE that transaction before it commits: a violation rolls the
+ * migrations and their `__drizzle_migrations` rows back, so the database is exactly as it was and the
+ * next start refuses again. This does what the stock migrator does (same bookkeeping DDL, same
+ * `hash` and `created_at`, same BEGIN ... COMMIT) with the check made atomic with it; the stock one
+ * commits before any check can run. The connection must not be inside a transaction (a PRAGMA cannot
+ * change foreign keys inside one).
  */
 function applyPending(db: SqliteConnection, migrationsFolder: string): void {
   if (db.inTransaction) {
@@ -245,11 +244,27 @@ function applyPending(db: SqliteConnection, migrationsFolder: string): void {
   }
   db.pragma('foreign_keys = OFF');
   try {
+    let violations: { table: string }[] = [];
     try {
-      migrate(drizzle(db), { migrationsFolder });
+      const files = readMigrationFiles({ migrationsFolder });
+      db.exec('BEGIN');
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)',
+      );
+      const done = (
+        db.prepare('SELECT count(*) AS n FROM "__drizzle_migrations"').get() as { n: number }
+      ).n;
+      const insert = db.prepare(
+        'INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES (?, ?)',
+      );
+      for (const migration of files.slice(done)) {
+        for (const statement of migration.sql) db.exec(statement);
+        insert.run(migration.hash, migration.folderMillis);
+      }
+      violations = db.pragma('foreign_key_check') as { table: string }[];
+      if (violations.length === 0) db.exec('COMMIT');
     } catch (cause) {
-      // The migrator rolls back on a failure; this is for a failure it could not roll back from.
-      if (stillInTransaction(db)) db.exec('ROLLBACK');
+      if (db.inTransaction) db.exec('ROLLBACK');
       throw new MigrationError(
         'migration_failed',
         'applying the pending migrations failed and was rolled back; the database is as it was',
@@ -257,15 +272,16 @@ function applyPending(db: SqliteConnection, migrationsFolder: string): void {
       );
     }
 
-    const violations = db.pragma('foreign_key_check') as { table: string }[];
     if (violations.length > 0) {
+      db.exec('ROLLBACK');
       const tables = [...new Set(violations.map((violation) => violation.table))].sort();
       throw new MigrationError(
         'migration_foreign_key_check_failed',
-        `foreign_key_check reported ${String(violations.length)} violations after the migrations, in: ${tables.join(', ')}`,
+        `foreign_key_check reported ${String(violations.length)} violations after the migrations, in: ${tables.join(', ')}; they were rolled back and the database is as it was`,
       );
     }
   } finally {
+    if (db.inTransaction) db.exec('ROLLBACK');
     db.pragma('foreign_keys = ON');
   }
 }

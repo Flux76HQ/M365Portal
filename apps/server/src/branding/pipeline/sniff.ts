@@ -18,16 +18,16 @@
 //     stage, which refuses anything that is not UTF-8 as `svg_not_wellformed` (H-20).
 // "Recognised as SVG" therefore only means "the SVG stage decides"; it never means "accepted".
 //
-// The scan looks at a window of the first 64 KiB. It works on the bytes as ASCII (a byte above 0x7F
-// can only be part of a multi-byte sequence in UTF-8 and never looks like `<`, `>`, a quote or a
-// dash), so invalid UTF-8 later in the file is not its business: the strict decode of the SVG stage
-// is. Every loop advances, and every search is bounded by the window, so no input makes it slow.
+// The scan has no length limit of its own (FR-A-085, plan 8.5 stage 6): a long comment or run of
+// whitespace in front of the root is skipped, up to the size cap of the upload (2 MiB, enforced
+// before this runs). It works on the bytes as ASCII (a byte above 0x7F can only be part of a
+// multi-byte sequence in UTF-8 and never looks like `<`, `>`, a quote or a dash), so invalid UTF-8
+// later in the file is not its business: the strict decode of the SVG stage is. Every loop
+// advances, every search runs forward only, and no regular expression can backtrack over the
+// input, so no input makes it slow.
 import { PipelineError } from './errors.js';
 
 export type ImageKind = 'png' | 'jpeg' | 'svg';
-
-/** How much of the start of a file the SVG check reads. */
-export const SNIFF_WINDOW_BYTES = 65_536;
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] as const;
@@ -91,7 +91,39 @@ function endOfStartTag(text: string, from: number): number {
   return -1;
 }
 
-const ATTRIBUTE = /([A-Za-z_][A-Za-z0-9_.:-]*)[ \t\r\n]*=[ \t\r\n]*(?:"([^"]*)"|'([^']*)')/g;
+function isNameStart(char: string | undefined): boolean {
+  return char !== undefined && /^[A-Za-z_]$/.test(char);
+}
+
+function isNameChar(char: string | undefined): boolean {
+  return char !== undefined && /^[A-Za-z0-9_.:-]$/.test(char);
+}
+
+/** The value of attribute `wanted` in `tag` (from `from` on), or null. One forward pass, no backtracking. */
+function attributeValue(tag: string, from: number, wanted: string): string | null {
+  let at = from;
+  while (at < tag.length) {
+    if (!isNameStart(tag[at])) {
+      at += 1;
+      continue;
+    }
+    const nameStart = at;
+    while (isNameChar(tag[at])) at += 1;
+    const name = tag.slice(nameStart, at);
+    let cursor = at;
+    while (isXmlSpace(tag[cursor])) cursor += 1;
+    if (tag[cursor] !== '=') continue;
+    cursor += 1;
+    while (isXmlSpace(tag[cursor])) cursor += 1;
+    const quote = tag[cursor];
+    if (quote !== '"' && quote !== "'") continue;
+    const end = tag.indexOf(quote, cursor + 1);
+    if (end < 0) return null;
+    if (name === wanted) return tag.slice(cursor + 1, end);
+    at = end + 1;
+  }
+  return null;
+}
 
 /** True when the start tag at `at` is an `svg` element whose own prefix is bound to the SVG namespace. */
 function isSvgStartTag(text: string, at: number): boolean {
@@ -107,10 +139,7 @@ function isSvgStartTag(text: string, at: number): boolean {
   const after = tag[name.length];
   if (after !== undefined && after !== '/' && !isXmlSpace(after)) return false;
   const declaration = prefix === null ? 'xmlns' : `xmlns:${prefix}`;
-  for (const match of tag.slice(name.length).matchAll(ATTRIBUTE)) {
-    if (match[1] === declaration) return (match[2] ?? match[3]) === SVG_NAMESPACE;
-  }
-  return false;
+  return attributeValue(tag, name.length, declaration) === SVG_NAMESPACE;
 }
 
 /** The prolog of an XML document, then its first element: is it an SVG root? */
@@ -140,7 +169,7 @@ function rootElementIsSvg(text: string): boolean {
   return false;
 }
 
-/** UTF-16 with a byte order mark: decode the window as text, so the same check can be made. */
+/** UTF-16 with a byte order mark: decode the file as text, so the same check can be made. */
 function utf16Window(bytes: Uint8Array): string | null {
   const first = bytes[0];
   const second = bytes[1];
@@ -152,7 +181,7 @@ function utf16Window(bytes: Uint8Array): string | null {
         : null;
   if (label === null) return null;
   // Not fatal: this only decides which stage looks at the file, the stage itself is strict.
-  return new TextDecoder(label).decode(bytes.subarray(2, SNIFF_WINDOW_BYTES));
+  return new TextDecoder(label).decode(bytes.subarray(2));
 }
 
 function looksLikeSvg(bytes: Uint8Array): boolean {
@@ -163,7 +192,7 @@ function looksLikeSvg(bytes: Uint8Array): boolean {
   const window = Buffer.from(
     bytes.buffer,
     bytes.byteOffset + start,
-    Math.min(bytes.length - start, SNIFF_WINDOW_BYTES),
+    bytes.length - start,
   ).toString('latin1');
   return rootElementIsSvg(window);
 }

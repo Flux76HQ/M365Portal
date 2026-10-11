@@ -282,6 +282,47 @@ describe('what an apply does to the assets (I-3)', () => {
     expect(stateOf(first)).toBe(storage.clock.iso());
   });
 
+  it('keeps only the latest Undo target: 40 upload-and-apply cycles never fill the staging quota', async () => {
+    const storage = await createBrandingStorage();
+    const day = LIMITS.staging.retentionMs;
+    const masters: string[] = [];
+    for (let cycle = 0; cycle < 40; cycle += 1) {
+      storage.clock.advance(60_000);
+      // Every upload must be accepted (the 409 of the 33rd file must not come from retired masters).
+      const hash = await stage(storage, await distinctPng(200 + cycle));
+      masters.push(hash);
+      await storage.service.apply(choice(`Cycle ${cycle}`, { light: hash }), cycle + 1, PREVIEW);
+      const cutoff = new Date(storage.clock.nowMs() - day).toISOString();
+      const state = (h: string) => storage.assets().find((row) => row.sha256 === h);
+      expect(state(hash)?.unreferenced_at).toBeNull();
+      if (cycle >= 1) {
+        // The previous master is the Undo target: it keeps its 24 hours.
+        const previous = state(masters[cycle - 1] ?? '');
+        expect(previous?.unreferenced_at).toBe(storage.clock.iso());
+      }
+      if (cycle >= 2) {
+        // The one before that lost its Undo and is garbage for the sweeper, not part of the quota.
+        const older = state(masters[cycle - 2] ?? '');
+        expect((older?.unreferenced_at ?? '') < cutoff).toBe(true);
+      }
+      expect(storage.usage().files).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('does not expire a retired master that the next change applies again (Undo)', async () => {
+    const storage = await createBrandingStorage();
+    const first = await stage(storage, await distinctPng(300));
+    const second = await stage(storage, await distinctPng(301));
+    await storage.service.apply(choice('A', { light: first }), 1, PREVIEW);
+    storage.clock.advance(60_000);
+    await storage.service.apply(choice('B', { light: second }), 2, PREVIEW);
+    storage.clock.advance(60_000);
+    await storage.service.apply(choice('A again', { light: first }), 3, PREVIEW);
+    const rows = storage.assets();
+    expect(rows.find((row) => row.sha256 === first)?.unreferenced_at).toBeNull();
+    expect(rows.find((row) => row.sha256 === second)?.unreferenced_at).toBe(storage.clock.iso());
+  });
+
   it('retires the derived icons already expired, so six files per change do not fill the quota', async () => {
     const storage = await createBrandingStorage();
     const iconsBefore = Object.values(storage.service.get().icons).map((icon) => icon.hash);

@@ -72,6 +72,42 @@ export function stagingUsage(
   return { files: row?.files ?? 0, bytes: row?.bytes ?? 0 };
 }
 
+/**
+ * The part of the staging usage that is the Undo target: the masters the most recent apply retired.
+ * They carry exactly the timestamp of that apply (`branding.updated_at`, written in the same
+ * transaction), which is how they are told from uploads that wait. Only rows whose timer still runs.
+ */
+export function retainedUsage(
+  db: DatabaseHandle,
+  retiredAt: string,
+  since: string,
+): { readonly files: number; readonly bytes: number } {
+  if (retiredAt < since) return { files: 0, bytes: 0 };
+  const row = db.orm
+    .select({
+      files: sql<number>`count(*)`,
+      bytes: sql<number>`coalesce(sum(${brandingAsset.bytes}), 0)`,
+    })
+    .from(brandingAsset)
+    .where(eq(brandingAsset.unreferencedAt, retiredAt))
+    .get();
+  return { files: row?.files ?? 0, bytes: row?.bytes ?? 0 };
+}
+
+/**
+ * The next apply ends the Undo of the one before it: the masters retired at `retiredAt` (the
+ * previous apply) lose their 24 hours and become garbage for the hourly sweeper (`expiredAt` is
+ * older than the retention). Undo only ever goes back one change, so nothing needs them any more.
+ * Referenced rows have no timestamp and are never matched.
+ */
+export function expireRetiredAssets(db: DatabaseHandle, retiredAt: string, expiredAt: string): void {
+  db.orm
+    .update(brandingAsset)
+    .set({ unreferencedAt: expiredAt })
+    .where(eq(brandingAsset.unreferencedAt, retiredAt))
+    .run();
+}
+
 export interface NewAsset {
   readonly sha256: string;
   readonly bytes: number;

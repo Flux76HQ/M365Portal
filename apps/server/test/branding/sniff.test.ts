@@ -6,7 +6,7 @@ import { expectGuardFails } from '@m365portal/shared/testing';
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 import { PipelineError } from '../../src/branding/pipeline/errors.js';
-import { SNIFF_WINDOW_BYTES, sniffImage } from '../../src/branding/pipeline/sniff.js';
+import { sniffImage } from '../../src/branding/pipeline/sniff.js';
 import { fixtureById } from '../fixtures/hostile-corpus.js';
 import { seededRandom, utf8, type HostileFixture } from '../fixtures/hostile/types.js';
 import { solidPng } from '../fixtures/png-chunks.js';
@@ -158,12 +158,14 @@ describe('sniffImage: SVG', () => {
     });
   }
 
-  it('looks at a limited window of the file and not at the end of a large one', () => {
-    const filler = (size: number): string => `<!--${'x'.repeat(size)}-->`;
-    expect(sniffImage(utf8(`${filler(SNIFF_WINDOW_BYTES - 2_000)}${ROOT}`))).toBe('svg');
-    expect(refusalOf(utf8(`${filler(SNIFF_WINDOW_BYTES + 1_000)}${ROOT}`))).toBe(
-      'image_type_unsupported',
-    );
+  it('has no length limit in front of the root: a long comment or long whitespace is still an SVG (FR-A-085)', () => {
+    expect(sniffImage(utf8(`<!--${'x'.repeat(100_000)}-->${ROOT}`))).toBe('svg');
+    expect(sniffImage(utf8(`${' '.repeat(105_000)}${ROOT}`))).toBe('svg');
+    expect(sniffImage(utf8(`<?xml version="1.0"?>${'\n'.repeat(70_000)}${ROOT}`))).toBe('svg');
+    expect(sniffImage(utf8(`<!--${'x'.repeat(1_900_000)}-->${ROOT}`))).toBe('svg');
+    // ... and a long prolog that never reaches a root is still refused.
+    expect(refusalOf(utf8(`<!--${'x'.repeat(100_000)}-->`))).toBe('image_type_unsupported');
+    expect(refusalOf(utf8(`<!--${'x'.repeat(100_000)}-->x${ROOT}`))).toBe('image_type_unsupported');
   });
 
   it('reads the structure of the prolog as bytes, so invalid UTF-8 later in the file does not matter here', () => {
@@ -292,16 +294,18 @@ describe('sniffImage: hostile bytes never crash it or make it slow', () => {
 
   it('answers quickly for inputs built to make a scanner quadratic', () => {
     const attacks: readonly Uint8Array[] = [
-      utf8('<'.repeat(SNIFF_WINDOW_BYTES + 10)),
+      utf8('<'.repeat(2_000_000)),
+      utf8(`<svg ${'a'.repeat(1_000_000)}${' '.repeat(1_000_000)}`),
+      utf8(`<svg ${'a '.repeat(500_000)}`),
       utf8('<!--'.repeat(20_000)),
       utf8('<?'.repeat(30_000)),
       utf8(`<!DOCTYPE svg [${'<!ENTITY a "'.repeat(5_000)}`),
       utf8(`<svg ${'a="'.repeat(30_000)}`),
       utf8(`<svg ${'xmlns="x" '.repeat(8_000)}`),
-      utf8(`${' '.repeat(SNIFF_WINDOW_BYTES + 10)}${ROOT}`),
+      utf8(`${' '.repeat(2_000_000)}${ROOT}`),
     ];
     const start = performance.now();
     for (const attack of attacks) refusalOf(attack);
-    expect(performance.now() - start).toBeLessThan(500);
+    expect(performance.now() - start).toBeLessThan(1_500);
   });
 });
