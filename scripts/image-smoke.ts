@@ -10,7 +10,7 @@
 // --security-opt no-new-privileges`, a fresh named volume (it inherits the owner 65532 of the image's
 // /data), `PREVIEW_MODE=true` on a loopback URL. With bridge networking the port is published on
 // 127.0.0.1; with SMOKE_NETWORK=host the container binds the host port itself, so PORT is the host
-// port: the default (8080) for the first run, SMOKE_ALT_PORT (default 18080) for the third.
+// port: the image default (DEFAULT_PORT) for the first run, SMOKE_ALT_PORT (default 18080) for the third.
 //
 // Skeleton mode: image inspect (user, labels, health check), start, Docker health becomes `healthy`
 // (the smoke runs use `--health-interval 2s --health-start-period 0s`; the command that runs is the
@@ -36,6 +36,7 @@ import { dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { crc32, deflateSync, inflateSync } from 'node:zlib';
+import { DEFAULT_PORT, LIMITS } from '../packages/shared/src/limits.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const image = process.env.SMOKE_IMAGE ?? 'm365portal:local';
@@ -44,10 +45,9 @@ const network = process.env.SMOKE_NETWORK === 'host' ? 'host' : 'bridge';
 const expectUser = process.env.SMOKE_EXPECT_USER ?? '65532';
 const prefix = process.env.SMOKE_PREFIX ?? 'm365portal-smoke';
 const altPort = Number(process.env.SMOKE_ALT_PORT ?? '18080');
-const DEFAULT_PORT = 8080; // the image default of FR-A-016, written once here as the expectation
 const READY_WITHIN_MS = 10_000;
 const STOP_WITHIN_MS = 10_000;
-const MAX_LOGO_BYTES = 2_097_152;
+const MAX_LOGO_BYTES = LIMITS.body.logoFileBytes;
 
 if (mode !== 'full' && mode !== 'skeleton') {
   console.error(`SMOKE_MODE must be full or skeleton, got "${mode}"`);
@@ -536,9 +536,9 @@ async function csrfToken(origin: string): Promise<string> {
  * client, so a smoke test that uploads seven times has to wait for tokens or it is answered 429 and
  * proves nothing. This models the bucket of the server a little pessimistically.
  */
-const UPLOAD_CAPACITY = 3;
-const UPLOAD_REFILL_MS = 10_000;
-let uploadTokens = UPLOAD_CAPACITY;
+const UPLOAD_CAPACITY = LIMITS.rateLimit.upload.capacity;
+const UPLOAD_REFILL_MS = LIMITS.rateLimit.upload.refillIntervalMs;
+let uploadTokens: number = UPLOAD_CAPACITY;
 let uploadTokensAt = Date.now();
 
 async function acquireUploadTokens(count: number): Promise<void> {
