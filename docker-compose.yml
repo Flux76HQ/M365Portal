@@ -1,0 +1,64 @@
+# M365Portal: Docker Compose example (FR-A-166). One service, one container, one volume.
+#
+#   docker compose up -d      start (the image is pulled, never built here)
+#   docker compose down       stop and remove the container; the volume with your data stays
+#
+# The settings live in `.env` next to this file (copy `.env.example`; the file is optional).
+# HOST_PORT and PUBLIC_BASE_URL are the only ones you normally change. HOST_PORT is read by
+# Compose only: it is the port the browser connects to. PUBLIC_BASE_URL is the origin the browser
+# uses, and every write is compared with it, so it must match: by default it follows HOST_PORT.
+# The panel then answers on http://localhost:8080 .
+
+name: m365portal
+
+services:
+  m365portal:
+    # Production: pin a version tag or, better, a digest (image@sha256:...) instead of "latest", so
+    # an update is a decision of yours and a rollback is a one-line change.
+    image: ghcr.io/flux76hq/m365portal:latest
+    restart: unless-stopped
+    # The host port on the left, the port inside the container on the right (PORT, default 8080).
+    # With PREVIEW_MODE=true publish on loopback only, which means this mapping instead:
+    # 127.0.0.1:${HOST_PORT:-8080}:${PORT:-8080}
+    ports:
+      - '${HOST_PORT:-8080}:${PORT:-8080}'
+    # What the application reads (see .env.example). A setting that .env leaves out stays unset
+    # here, so the default of the application is the only default there is. HOST and DATA_DIR are
+    # not passed on: the image fixes them, and DATA_DIR must match the volume below.
+    environment:
+      PORT: ${PORT:-8080}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:${HOST_PORT:-8080}}
+      TRUST_PROXY:
+      PREVIEW_MODE:
+      PREVIEW_MODE_ALLOW_REMOTE:
+      SHOWCASE:
+      LOG_LEVEL:
+      HSTS_MAX_AGE:
+      HSTS_INCLUDE_SUBDOMAINS:
+      HSTS_PRELOAD:
+    # The database and the uploaded files. The only place the container writes besides /tmp.
+    volumes:
+      - data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    # Docker's default of 10 seconds equals the 10 second drain of the application.
+    stop_grace_period: 15s
+    # The same check as the image: a Node script (the image has no shell and no curl) that asks
+    # /readyz on the configured PORT, so an unusable volume shows as unhealthy.
+    healthcheck:
+      test: ['CMD', '/nodejs/bin/node', 'dist/healthcheck.js']
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  data:

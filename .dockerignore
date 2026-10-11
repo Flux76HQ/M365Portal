@@ -1,0 +1,61 @@
+# What never enters the Docker build context (FR-A-164). The image holds no secrets, no .env, no
+# .git, no test files and no development dependencies: the build copies only what it names, and
+# this file keeps the rest out of the context altogether, which is also faster and safer.
+#
+# Docker matches a pattern against the path from the context root, so a bare name only matches at
+# the root: "**/" is what reaches the node_modules folders of the workspace packages. The last
+# matching pattern wins, which is why the e2e exception comes after the e2e line.
+# `apps/server/test/deploy-files.test.ts` evaluates this file with the same rules.
+
+# Version control and the machine of the developer
+.git
+.githooks
+.github
+.worktrees
+.idea
+.vscode
+.DS_Store
+**/__pycache__
+
+# Agent state, which may hold credentials
+.claude
+.copilot
+.codex
+.mcp.json
+
+# Secrets and key material. Only .env.example is tracked, and the image has no use for it either.
+**/.env*
+**/*.pem
+**/*.key
+**/*.pfx
+**/*.p12
+
+# Runtime data of a local run (the /data volume is never part of an image)
+data
+**/*.sqlite
+**/*.sqlite-wal
+**/*.sqlite-shm
+
+# Dependencies and build output: the build installs and builds inside the image
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/.vite
+**/coverage
+
+# Test output
+**/playwright-report
+**/test-results
+**/blob-report
+
+# Not part of the image
+docs
+specs
+
+# The end-to-end tests are not built into the image. The workspace lists the package, so the
+# frozen lockfile install needs its manifest and nothing else.
+e2e
+!e2e/package.json
+
+# VERSION is deliberately not listed: the build reads it (the Dockerfile checks the VERSION build
+# argument against it), and so does the version check of the server build.

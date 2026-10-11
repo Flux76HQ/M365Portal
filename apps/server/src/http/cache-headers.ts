@@ -76,8 +76,8 @@ export function defaultCacheControl(path: string, status: number): string {
   if (status >= 300 && status < 400 && status !== 304) {
     return REVALIDATED_REDIRECTS.has(path) ? CACHE_CONTROL.noCache : CACHE_CONTROL.noStore;
   }
-  const successful = (status >= 200 && status < 300) || status === 304;
-  if (!successful) return CACHE_CONTROL.noStore;
+  // Left after the redirects above: 2xx, and the 304 that stands for one.
+  if (status < 200 || status >= 400) return CACHE_CONTROL.noStore;
   if (under(path, '/assets/')) return CACHE_CONTROL.immutablePublic;
   if (under(path, '/branding/')) return CACHE_CONTROL.immutablePrivate;
   if (REVALIDATED.has(path)) return CACHE_CONTROL.noCache;

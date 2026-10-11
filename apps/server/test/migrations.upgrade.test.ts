@@ -52,6 +52,7 @@ import {
   defaultPaths,
   snapshotFileName,
 } from '../scripts/schema-snapshot.js';
+import { verifyChain } from '../src/audit/chain.js';
 import { backupFileName } from '../src/db/backup.js';
 import {
   appliedMigrations,
@@ -333,9 +334,13 @@ async function assertUpgradeWorks(input: UpgradeInput): Promise<void> {
     }
 
     if ('audit_log' in before.tables) {
-      const verdict = verifyChainReference(upgraded);
-      if (!verdict.ok) {
-        throw new UpgradeFailure(`the audit chain is broken at seq ${String(verdict.firstBadSeq)}`);
+      // The verifier the image ships (`verify-audit`), and the independent reference beside it.
+      for (const verdict of [verifyChain(upgraded), verifyChainReference(upgraded)]) {
+        if (!verdict.ok) {
+          throw new UpgradeFailure(
+            `the audit chain is broken at seq ${String(verdict.firstBadSeq)}`,
+          );
+        }
       }
     }
 
@@ -453,6 +458,7 @@ describe('the harness loops over every pair of committed snapshots (done when)',
         expect(n, table).toBeGreaterThan(0);
       }
       expect(verifyChainReference(db)).toMatchObject({ ok: true, checked: 3 });
+      expect(verifyChain(db)).toEqual({ ok: true, checked: 3, triggersMissing: [] });
       expect(db.pragma('foreign_key_check')).toEqual([]);
     } finally {
       db.close();

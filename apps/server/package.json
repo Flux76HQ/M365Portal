@@ -19,6 +19,7 @@
     "drizzle-orm": "catalog:",
     "hono": "catalog:",
     "pino": "catalog:",
+    "saxes": "catalog:",
     "sharp": "catalog:",
     "zod": "catalog:"
   },

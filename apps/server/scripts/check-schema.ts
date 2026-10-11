@@ -10,7 +10,8 @@
 //                    `src/db/schema.ts` and the migrations still describe the same schema
 //
 // Options: `--package-dir <dir>` (default: this package), `--no-drift` (skip the drift check, which
-// needs drizzle-kit), `--base-ref <git ref>`.
+// needs drizzle-kit: the CI step "Schema snapshot check"), `--drift-only` (only the drift check: the
+// CI step "Schema drift check"), `--base-ref <git ref>` (released entries of that ref stay as they are).
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -290,7 +291,10 @@ export function checkDrift(options: DriftOptions): SchemaCheckResult {
 
 export interface CheckOptions {
   readonly packageDir: string;
+  /** Run the drift check (needs drizzle-kit). */
   readonly drift: boolean;
+  /** Run the snapshot check and, with `baseRef`, the released-entries check. Default: yes. */
+  readonly snapshots?: boolean;
   readonly baseRef?: string;
 }
 
@@ -298,14 +302,16 @@ export interface CheckOptions {
 export function checkSchema(options: CheckOptions): SchemaCheckResult {
   const paths = defaultPaths(options.packageDir);
 
-  const snapshots = checkSnapshots(paths);
-  if (snapshots.problems.length > 0) return snapshots;
+  if (options.snapshots !== false) {
+    const snapshots = checkSnapshots(paths);
+    if (snapshots.problems.length > 0) return snapshots;
 
-  if (options.baseRef !== undefined) {
-    const base = manifestAt(options.packageDir, options.baseRef);
-    const problems =
-      base === undefined ? [] : checkReleasedEntries(base, buildManifest(paths.migrationsFolder));
-    if (problems.length > 0) return failed(problems, RESTORE_COMMAND);
+    if (options.baseRef !== undefined) {
+      const base = manifestAt(options.packageDir, options.baseRef);
+      const problems =
+        base === undefined ? [] : checkReleasedEntries(base, buildManifest(paths.migrationsFolder));
+      if (problems.length > 0) return failed(problems, RESTORE_COMMAND);
+    }
   }
 
   return options.drift ? checkDrift({ packageDir: options.packageDir }) : OK;
@@ -316,7 +322,10 @@ function main(argv: readonly string[]): number {
   const baseRef = baseAt >= 0 ? argv[baseAt + 1] : undefined;
   const result = checkSchema({
     packageDir: packageDirFromArguments(argv),
+    // The two CI steps are two runs: `--no-drift` is "Schema snapshot check", `--drift-only` is
+    // "Schema drift check". Without either flag everything runs.
     drift: !argv.includes('--no-drift'),
+    snapshots: !argv.includes('--drift-only'),
     ...(baseRef === undefined ? {} : { baseRef }),
   });
   if (result.problems.length === 0) {

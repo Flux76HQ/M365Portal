@@ -495,13 +495,20 @@ describe('redactDeep (FR-A-051)', () => {
   });
 
   it('describes an object of a class by a safe name, and a hostile name as Object', () => {
-    class Widget {}
+    class Widget {
+      readonly size = 1;
+    }
+    class _Hidden {
+      readonly size = 1;
+    }
     expect(redactDeep(new Widget())).toBe('[object Widget]');
-    expect(redactDeep(new (class _Hidden {})())).toBe('[object Object]');
+    expect(redactDeep(new _Hidden())).toBe('[object Object]');
     expect(redactDeep(Object.create({ constructor: 'x' }))).toBe('[object Object]');
-    const hostileName = new (class {})();
-    Object.defineProperty(hostileName.constructor, 'name', { value: 'a b; password=' + CANARY });
-    expect(redactDeep(hostileName)).toBe('[object Object]');
+    class Renamed {
+      readonly size = 1;
+    }
+    Object.defineProperty(Renamed, 'name', { value: `a b; password=${CANARY}` });
+    expect(redactDeep(new Renamed())).toBe('[object Object]');
   });
 
   it('keeps the marker text that the logs and the docs name', () => {

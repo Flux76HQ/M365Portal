@@ -1,0 +1,47 @@
+# M365Portal behind Caddy, with an automatic certificate (FR-A-169).
+#
+# This is an example, not a tested deployment: Caddy is not run in the development environment of
+# this repository. The directive names below (request_body with max_size, reverse_proxy with
+# transport http and keepalive, the headers Caddy passes on by default, automatic HTTPS for a site
+# address) were checked on 2026-10-10 against the Caddy documentation, the sources of
+# https://caddyserver.com/docs/caddyfile/directives/reverse_proxy,
+# https://caddyserver.com/docs/caddyfile/directives/request_body and
+# https://caddyserver.com/docs/automatic-https .
+#
+# Automatic HTTPS needs: a DNS record that points the name to this server, ports 80 and 443 open
+# and reachable by Caddy, and a persistent data directory for Caddy. Replace the name below.
+#
+# Set these on the panel (in .env, see .env.example):
+#   PUBLIC_BASE_URL  the public https origin of the site address below, https://panel.example.com
+#   TRUST_PROXY      1, because exactly one proxy (this one) sits in front of the panel
+# and publish the panel on loopback only, so nobody can bypass the proxy, with this mapping in the
+# ports list of docker-compose.yml (instead of the default one):
+#   127.0.0.1:${HOST_PORT:-8080}:${PORT:-8080}
+#
+# The numbers are those of docs/operations.md (limits outside the repository). Whatever you use in
+# place of Caddy has to honour the same numbers.
+
+panel.example.com {
+  # The largest request the panel accepts is the branding import: 9,437,184 bytes (9 MiB). Caddy
+  # sets no limit of its own, so this line only states the number; it must never be lower than
+  # that. max_size takes bytes, or a unit such as 9MiB (MB is 1,000,000, MiB is 1,048,576).
+  request_body {
+    max_size 9437184
+  }
+
+  # The panel serves plain HTTP on the host port (HOST_PORT, default 8080). If Caddy runs in the
+  # same Compose network, use the service name instead: m365portal:8080 .
+  #
+  # Caddy passes the Host header on unchanged by default, which the panel needs for its HSTS rule,
+  # and it sets X-Forwarded-For, X-Forwarded-Proto and X-Forwarded-Host itself, ignoring what the
+  # client sent. Nothing has to be configured for either. Do not add a caching layer here: the
+  # HTML of the panel carries a per-request nonce, so a cached page is a broken page.
+  reverse_proxy 127.0.0.1:8080 {
+    transport http {
+      # The panel closes an idle connection after 65 seconds. Caddy keeps idle upstream connections
+      # for 2 minutes by default, which would reuse connections the panel has already closed and
+      # answer 502. Keep this below 65 seconds.
+      keepalive 60s
+    }
+  }
+}

@@ -40,6 +40,7 @@ import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vites
 import {
   assertSchemaCurrent,
   checkDrift,
+  checkSchema,
   checkReleasedEntries,
   GENERATE_COMMAND,
   SNAPSHOT_COMMAND,
@@ -452,6 +453,25 @@ describe('pnpm schema:snapshot and pnpm schema:check', () => {
       timeout: 90_000,
     });
     expect(run.status, run.stdout + run.stderr).toBe(0);
+  }, 100_000);
+
+  it('schema:check --drift-only runs the drift check alone, and --no-drift everything but that', () => {
+    const driftOnly = spawnSync(tsx, ['scripts/check-schema.ts', '--drift-only'], {
+      cwd: PACKAGE_DIR,
+      encoding: 'utf8',
+      timeout: 90_000,
+    });
+    expect(driftOnly.status, driftOnly.stdout + driftOnly.stderr).toBe(0);
+
+    // With the snapshots gone the snapshot check fails and the drift check, run alone, does not care.
+    const root = mkdtempSync(join(tmpdir(), 'm365portal-schema-cli-'));
+    onTestFinished(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+    cpSync(PATHS.migrationsFolder, join(root, 'drizzle'), { recursive: true });
+    const result = checkSchema({ packageDir: root, drift: false, snapshots: false });
+    expect(result.problems).toEqual([]);
+    expect(checkSchema({ packageDir: root, drift: false }).problems.length).toBeGreaterThan(0);
   }, 100_000);
 
   it('schema:check exits 1 and ends with the command when a snapshot is missing', () => {

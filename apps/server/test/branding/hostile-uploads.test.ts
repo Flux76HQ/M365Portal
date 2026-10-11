@@ -27,6 +27,7 @@ import { expectGuardFails } from '@m365portal/shared/testing';
 import { Hono } from 'hono';
 import sharp from 'sharp';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { processUpload } from '../../src/branding/pipeline/process-upload.js';
 import {
   assertCorpusCoversAppendix,
   assertDeterministic,
@@ -2144,6 +2145,40 @@ describe('hostile corpus: the HTTP adapter on a plain Node server', () => {
       { reason: 'expected status 408' },
     );
   });
+});
+
+// 3b. Every fixture through the upload stages, in this process (T-A-078 to T-A-081) -------------------------------------------------------------
+
+/**
+ * The upload stages as the image child runs them (`processUpload`), called in this process: the same
+ * code without the child, so the Appendix A outcomes of the pipeline are proven before the runner and
+ * the routes exist. The runner's own run is the block below (T-A-083) and the HTTP run is T-A-093.
+ */
+function inProcessSubject(): PipelineSubject {
+  return {
+    process: async ({ bytes, slot }) => {
+      const result = await processUpload({ bytes, slot });
+      return { png: result.png, warnings: result.warnings };
+    },
+  };
+}
+
+describe('hostile corpus through the upload stages, in process (viaPipeline)', () => {
+  for (const entry of HOSTILE_CORPUS) {
+    const runnable = inputsFor(
+      entry,
+      viaPipeline({ process: () => Promise.reject(new Error('unused')) }),
+    );
+    if (runnable.length === 0) continue;
+    it(`${entry.id} ${entry.category}: ${entry.summary}`, async () => {
+      const environment = await createEnvironment();
+      await runFixture({
+        fixture: entry,
+        target: viaPipeline(inProcessSubject()),
+        environment,
+      });
+    });
+  }
 });
 
 // 4. Every fixture through the real pipeline (red until T-A-083) -----------------------------------------------------------------------------------

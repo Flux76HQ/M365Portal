@@ -6,13 +6,13 @@ Written by the `s1c` worker for S8's consolidation (`T-A-278`). This chunk has n
 
 | Task | Files (all in S1's territory) | Tests |
 |---|---|---|
-| T-A-029 logging | `apps/server/src/logging/{logger,redact,request-logger}.ts`, `test/logging.test.ts` | TBD_LOGGING |
-| T-A-030 rate limiting | `apps/server/src/http/rate-limit.ts`, `test/rate-limit.test.ts` | TBD_RATE |
-| T-A-031 body limits, content type, Node options | `apps/server/src/http/{body-limit,content-type,server-options}.ts`, `test/body-limits.test.ts` | TBD_BODY |
-| T-A-032 compression, cache headers | `apps/server/src/http/{compress,cache-headers}.ts`, `test/cache-headers.test.ts` | TBD_CACHE |
-| T-A-033 policy layer, resolvers, preview mode | `apps/server/src/policy/{actor,authorize,resolvers,index}.ts`, `test/policy.test.ts`, `test/preview-mode.test.ts` | TBD_POLICY |
-| T-A-034 Origin and CSRF | `apps/server/src/http/{origin,csrf}.ts`, `test/csrf.test.ts` | TBD_CSRF |
-| Total | | TBD_TOTAL |
+| T-A-029 logging | `apps/server/src/logging/{logger,redact,request-logger}.ts`, `test/logging.test.ts` | 121 tests (`logging.test.ts`) |
+| T-A-030 rate limiting | `apps/server/src/http/rate-limit.ts`, `test/rate-limit.test.ts` | 153 tests (`rate-limit.test.ts`) |
+| T-A-031 body limits, content type, Node options | `apps/server/src/http/{body-limit,content-type,server-options}.ts`, `test/body-limits.test.ts` | 138 tests (`body-limits.test.ts`) |
+| T-A-032 compression, cache headers | `apps/server/src/http/{compress,cache-headers}.ts`, `test/cache-headers.test.ts` | 173 tests (`cache-headers.test.ts`) |
+| T-A-033 policy layer, resolvers, preview mode | `apps/server/src/policy/{actor,authorize,resolvers,index}.ts`, `test/policy.test.ts`, `test/preview-mode.test.ts` | 271 tests (`policy.test.ts` 108, `preview-mode.test.ts` 163) |
+| T-A-034 Origin and CSRF | `apps/server/src/http/{origin,csrf}.ts`, `test/csrf.test.ts` | 212 tests (`csrf.test.ts`) |
+| Total | | 1068 tests in 7 files |
 
 Dependency: `pino` 10.4.0 was added to `apps/server` through the install protocol (`flock`, `pnpm --filter @m365portal/server add pino@10.4.0`, exit 0; `pnpm-lock.yaml` keeps its 37 `libc:` lines). No other dependency was added.
 
@@ -31,11 +31,34 @@ Done-when checks, each by a command:
 
 ## 2. Where it was run
 
-TBD_RUN
+Two places, both with one vitest worker and file filters (the tree is shared with other workers on 4 CPUs):
+
+- **The live tree** (`/home/user/M365Portal`): `tsc --noEmit -p apps/server` (at the time of the last run: no error in any file of this chunk; earlier runs showed errors only in S3's `test/audit.test.ts` and `test/helpers/audit-worker.ts`, which import `src/audit/*` and `src/cli.js` before those exist), `eslint --max-warnings 0` on every source and test file of the chunk (exit 0), `prettier --check` on the same files and on this note (clean), and `vitest run test/<file>` for each of the seven files (counts in section 1).
+- **A clean copy** (`$SCRATCH/clean3`: `git ls-files -co --exclude-standard` extracted to the scratchpad, `flock ... pnpm install --frozen-lockfile --offline`, 3 s): in `apps/server` `tsc -p tsconfig.json` (no output, exit 0), `eslint` on the chunk files with `--max-warnings 0` (exit 0), `node build.mjs` (exit 0, `dist/index.js` 16.2 kB), the seven test files together (7 files, 1068 tests passed), `prettier --check` on the chunk's directories and test files (clean); in `packages/shared` `repo-conventions`, `single-implementation`, `exports` and `guard-helper` (4 files, 511 tests passed); from the root `vitest run tools/workspace-deps` (31 tests passed).
+
+Not run: the whole server suite, the whole workspace and the e2e suite (shared CPUs, not this chunk's territory). Outside this territory and seen on the way: `test/branding/hostile-uploads.test.ts` (38 tests, red on purpose until `T-A-083`, S2). The run of `schema-parity.test.ts` that was red earlier (it imported a script that did not exist yet) passes in the final copy.
 
 ## 3. Mutation pass
 
-TBD_MUTATION
+Method. A throw-away runner (in the scratchpad, not in the repository) applied one edit at a time to a copy of `apps/server/{src,test}` and ran only the test files that guard the edited source file, with one worker. A mutant counts as killed when the run exits non-zero: a failed test, a suite that cannot load, or the 120 s timeout of a mutant that hangs. Three passes over the 16 source files of this chunk:
+
+1. **Operators**, outside comments, types and strings: `===` and `!==` swapped, `<` `<=` `>` `>=` moved by one, `&&` and `||` swapped, `true` and `false` swapped, a negation removed, an integer literal plus or minus one, `??` made `&&`. Final run: 450 mutants, 436 killed, 14 survived.
+2. **String literals**: every string literal in code (types included) gets an `x` appended. Final run: 193 mutants, 168 killed, 25 survived.
+3. **By hand**, 21 statement deletions and tweaks that the operators cannot express (the canonical-signature check of the CSRF token, signature checked after the time, the `Origin: null` check, the LRU refresh, the backward-step guard, the cache header overwrite, `Vary`, the weak ETag, `Connection: close`, the stream cancel, the redaction of fields, the cycle check, the frozen permission set, the forwarding-header rule of the preview actor, and others). Final run on the last tests: 20 of 21 killed; the one survivor is explained below.
+
+The first runs found real gaps, each closed with a test before the final run: the canonical spellings of the token numbers, the millisecond precision of the future-skew rule, a non-canonical base64url signature, the `Retry-After` boundaries, the exact idle bound of the limiter table, rule and table validation, the compress eligibility, the status boundaries of the cache rule, edges of the content-type parser (quoted-pair parameters, the 1024 character limit, a missing type), the limits of the redaction (depth, string length, array length), the redaction of the bindings of a child logger (this was a real defect of the source: pino's `child` skipped the redaction; fixed by the wrapper), the standard output (child process), and the cancel of a body stream. After the final tests, the string pass survivors were re-run against the final tests in the clean copy: the headers a 304 repeats (`Vary`, `Content-Location`, `Date`, `Expires`), the `ETag` of `/offline.css` and `/offline.js`, `application/javascript` as a compressible type, a 200 that carries `Content-Range`, the audited-read reason `sec_fetch_site`, the markers `[circular]`, `[unreadable]`, `[redacted]` and `[object Object]`, the message of a probe line, the `error` listener of a closed standard output, and an escaped quote in a content-type parameter: all killed.
+
+Survivors, all judged equivalent or deliberately not pinned:
+
+- pino `dest: 1` made `dest: 0` (pino turns 0 into 1) and `sync: true` made `false` (pino flushes on exit, so the last line is there either way; the child-process test cannot tell them apart).
+- Two moves of a boundary in the rate limiter that change only a lower bound used to skip a sweep (`at <= earliest`, `bucket.at >= t`): the result is the same, the bound is only less tight.
+- `position <= header.length` in the content-type tokenizer (`charAt` past the end gives an empty string that is not a token character), and `Math.max(1, ...)` on `Retry-After`, which was dead and has been removed.
+- Literals that exist only in a type (`Pick<Logger, 'info'>`, the `reason` and `code` unions, `RateClass | 'exempt'`, the `done` flag in a return type): no test can see them, and `tsc` checks their use.
+- `ANONYMOUS_ACTOR.label` (`'Anonymous'`): the test asserts a non-empty string and no more, because the label is a presentation text that Phase B will take from the catalogue.
+- `defaultCacheControl`: `status < 300` made `<= 300` was equivalent (status 300 returned two lines earlier); the check is now written as `status < 200 || status >= 400` and each of its four boundaries is killed.
+- Hand-written `no redaction of bindings` (the `formatters.bindings` entry): it survived because that formatter only ever sees the root bindings and `base: null` leaves none, so the line was dead. It has been removed; the two mutants that matter (the child wrapper without redaction, `formatters.log` without redaction) are killed.
+
+Harness mishaps, for the record: a `pkill -f` pattern matched the shell that ran it; one setup script wiped the copy a pass was running in; a mutant with an endless loop left a spinning worker until the runner learned to kill the whole process group on its timeout; and a broad kill of vitest fork workers may have ended one worker of another stream (nothing was reported). None changed a file in the repository.
 
 ## 4. Interfaces the next S1 tasks use
 
@@ -63,6 +86,8 @@ Pipeline order that the tests of this chunk use in pairs and that `T-A-045` shou
 - A CSRF token carries seconds since the epoch; the signature is checked before the time; only the canonical base64url spelling of the signature is a signature. A clock that returns a value that is not a number makes `issue` and `validate` throw (a 500, loudly) instead of minting or accepting something.
 - `isWriteMethod`, `Denial` and `OnDenied` live in `csrf.ts` and are re-exported by `origin.ts`, so that `origin.ts` can build on `csrf.ts` without a cycle.
 - Preview: a `Host` of `localhost.` (one trailing dot) is loopback, because the one host normaliser drops it; `[::ffff:127.0.0.1]`, `127.1` and `0x7f.0.0.1` are not loopback (the answer errs towards anonymous). Any header whose name starts with `x-forwarded-` counts as a forwarding header, as does a header that is present and empty.
+- The logger handed out is not the pino instance but a thin wrapper (`Logger`): pino's `child(bindings)` does not pass bindings through `formatters`, so the wrapper redacts them first and spreads the result into a plain object (pino calls `hasOwnProperty` on what it is given). There are no root bindings (`base: null`).
+- `compress` leaves a response alone when it has no body, when its status is 206, or when it carries `Content-Encoding` or `Content-Range`; the other exclusions (the CSRF path, `no-transform`, a Range request, a type that is not text or JSON, under 1 KiB) are in `compress.ts`. `Vary: Accept-Encoding` is added to every response that could be compressed.
 - The route label of the request line is `unmatched` for a path no method-specific route claimed. Health probes are logged at `debug`, a 5xx at `warn`, everything else at `info`. The method is written only if it is a plain upper-case token, otherwise `OTHER`.
 
 ## 6. Open points
@@ -81,7 +106,9 @@ Pipeline order that the tests of this chunk use in pairs and that `T-A-045` shou
 | s1c-10 | `docs/security.md`: the CSRF design (token format, key per process, binding, leeway), the exact `Origin` rule and why, the audited-GET rule, the preview rule and that `Host` is forgeable, that `Connection: close` accompanies a 413; `docs/operations.md`: the Node-level 400, 408 and 431 (exception to FR-A-040) and the 5 s timeout check interval | S8 | `T-A-275`, `T-A-277` |
 | s1c-11 | The first-person English texts of `PREVIEW_WARNING` (log and stderr) and the generic problem wording are mine and unreviewed by the owner | owner | phase report |
 | s1c-12 | Red-first of `T-A-030` to `T-A-032` was reproduced by moving the sources away, not observed assertion by assertion (section 1) | n/a | recorded |
-| s1c-13 | `.vitest/` (the default output directory of `vitest --reporter=json`) is not in `.gitignore`, and one such report of mine was swept into the snapshot commit `d2699d2` as `apps/server/.vitest/json/output.json`; it contained literal ports and turned check 5 of `repo-conventions` red in a clean copy. I deleted the file (the working tree shows it as deleted; the next snapshot records that). S0 should add `.vitest/` to `.gitignore`; other workers should pass `--outputFile` when they use the JSON reporter | S0, orchestrator | next snapshot |
+| s1c-13 | `.vitest/` (the default output directory of `vitest --reporter=json`) is not in `.gitignore`, and one such report of mine was swept into the snapshot commit `d2699d2` as `apps/server/.vitest/json/output.json`; it contained literal ports and turned check 5 of `repo-conventions` red in a clean copy. I deleted the file; the later snapshot recorded the removal and nothing under `apps/server/.vitest` is tracked now. S0 should still add `.vitest/` to `.gitignore`; other workers should pass `--outputFile` when they use the JSON reporter | S0, orchestrator | next snapshot |
+| s1c-14 | Mutation survivors judged equivalent or deliberately not pinned are listed in section 3; the one worth a look in Phase B is the label of `ANONYMOUS_ACTOR`, which no test pins | S1 | Phase B |
+| s1c-15 | `test/branding/hostile-uploads.test.ts` is red on purpose until `T-A-083` (S2); it is not part of this chunk and was not touched | S2 | `T-A-083` |
 
 Gotchas found on the way, for the other S1 tasks:
 

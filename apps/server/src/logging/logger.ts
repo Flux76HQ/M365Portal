@@ -61,12 +61,12 @@ export function createLogger(options: CreateLoggerOptions): Logger {
   const instance = pino(
     {
       level: options.level,
-      // No process id and no host name: the first is noise, the second is a container id.
+      // No process id and no host name: the first is noise, the second is a container id. With no
+      // base there are no root bindings either; the bindings of a child go through `wrap` below.
       base: null,
       timestamp: () => `,"time":"${timeOf(now)}"`,
       formatters: {
         level: (label) => ({ level: label }),
-        bindings: (bindings) => redactFields(bindings),
         log: (fields) => redactFields(fields),
       },
     },

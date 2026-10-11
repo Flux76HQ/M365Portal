@@ -46,6 +46,7 @@ import {
 import { runCli } from '../src/cli.js';
 import { runMigrations } from '../src/db/migrate.js';
 import {
+  classifyStorageError,
   DATABASE_FILE_NAME,
   NotInTransactionError,
   openDatabase,
@@ -264,18 +265,45 @@ describe('the detail is built from an allow-list (FR-A-073, I-10)', () => {
 
   it('is canonical: keys sorted, no white space, integers, booleans and short string arrays', () => {
     expect(
-      buildDetail({ toRevision: 4, fromRevision: 3, dryRun: false, warnings: ['b', 'a'], slot: 'logoLight' }),
-    ).toBe('{"dryRun":false,"fromRevision":3,"slot":"logoLight","toRevision":4,"warnings":["b","a"]}');
+      buildDetail({
+        toRevision: 4,
+        fromRevision: 3,
+        dryRun: false,
+        warnings: ['b', 'a'],
+        slot: 'logoLight',
+      }),
+    ).toBe(
+      '{"dryRun":false,"fromRevision":3,"slot":"logoLight","toRevision":4,"warnings":["b","a"]}',
+    );
   });
 
   it('allows every key that data-model 7.4 names', () => {
     const named = [
       'revision', // branding.init, branding.export
-      'slot', 'bytes', 'sha256', 'created', 'warnings', // branding.asset.stage
-      'fromRevision', 'toRevision', 'orgNameOld', 'orgNameNew', 'accentOld', 'accentNew', // apply
-      'logoLight', 'logoDark', 'logoCompact', 'iconFavicon32', 'iconApple180', 'iconPwa192', 'iconPwa512', 'iconMaskable512', // hashes per role
-      'dryRun', 'schemaVersion', // branding.import
-      'permission', 'method', 'route', // a denied write
+      'slot',
+      'bytes',
+      'sha256',
+      'created',
+      'warnings', // branding.asset.stage
+      'fromRevision',
+      'toRevision',
+      'orgNameOld',
+      'orgNameNew',
+      'accentOld',
+      'accentNew', // apply
+      'logoLight',
+      'logoDark',
+      'logoCompact',
+      'iconFavicon32',
+      'iconApple180',
+      'iconPwa192',
+      'iconPwa512',
+      'iconMaskable512', // hashes per role
+      'dryRun',
+      'schemaVersion', // branding.import
+      'permission',
+      'method',
+      'route', // a denied write
     ];
     for (const key of named) expect(AUDIT_DETAIL_KEYS, key).toHaveProperty(key);
   });
@@ -286,7 +314,10 @@ describe('the detail is built from an allow-list (FR-A-073, I-10)', () => {
     expect(failure).toBeInstanceOf(AuditDetailError);
     expect((failure as Error).message).toContain('password');
     expect((failure as Error).message).not.toContain(canary);
-    expectGuardFails(buildDetail, { token: 'x' } as never, { name: 'detail allow-list', reason: /token/ });
+    expectGuardFails(buildDetail, { token: 'x' } as never, {
+      name: 'detail allow-list',
+      reason: /token/,
+    });
   });
 
   it('refuses a value of the wrong type, a null and a float', () => {
@@ -353,13 +384,29 @@ describe('the detail is built from an allow-list (FR-A-073, I-10)', () => {
 
   it('replaces a detail of more than 4,096 bytes by the list of its keys and a truncated flag', () => {
     const big = 'x'.repeat(256);
-    const text = buildDetail({ orgNameOld: big, orgNameNew: big, logoLight: big, logoDark: big, logoCompact: big, sha256: big, accentOld: big, accentNew: big, iconFavicon32: big, iconApple180: big, iconPwa192: big, iconPwa512: big, iconMaskable512: big, slot: big, route: big, permission: big, method: big });
+    const text = buildDetail({
+      orgNameOld: big,
+      orgNameNew: big,
+      logoLight: big,
+      logoDark: big,
+      logoCompact: big,
+      sha256: big,
+      accentOld: big,
+      accentNew: big,
+      iconFavicon32: big,
+      iconApple180: big,
+      iconPwa192: big,
+      iconPwa512: big,
+      iconMaskable512: big,
+      slot: big,
+      route: big,
+      permission: big,
+      method: big,
+    });
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(4096);
     const parsed = JSON.parse(text) as { keys: string[]; truncated: boolean };
     expect(parsed.truncated).toBe(true);
-    expect(parsed.keys).toEqual(
-      [...parsed.keys].sort(),
-    );
+    expect(parsed.keys).toEqual([...parsed.keys].sort());
     expect(parsed.keys).toContain('orgNameOld');
     expect(Object.keys(parsed)).toEqual(['keys', 'truncated']);
     expect(text).not.toContain('xxxx');
@@ -453,7 +500,9 @@ describe('appendAudit (FR-A-070, contract C7)', () => {
     });
     expect(
       db.sqlite
-        .prepare('SELECT target_type, target_id, reason_code, client_ip, request_id, detail FROM audit_log')
+        .prepare(
+          'SELECT target_type, target_id, reason_code, client_ip, request_id, detail FROM audit_log',
+        )
         .get(),
     ).toEqual({
       target_type: null,
@@ -471,10 +520,14 @@ describe('appendAudit (FR-A-070, contract C7)', () => {
     append(db, entry(2, { ts: '2026-10-10T12:00:05.000Z' })); // the clock went back five seconds
     append(db, entry(3, { ts: '2026-10-10T11:00:00.000Z' })); // and an hour
 
-    const times = (db.sqlite.prepare('SELECT ts FROM audit_log ORDER BY seq').all() as { ts: string }[]).map(
-      (row) => row.ts,
-    );
-    expect(times).toEqual(['2026-10-10T12:00:10.000Z', '2026-10-10T12:00:05.000Z', '2026-10-10T11:00:00.000Z']);
+    const times = (
+      db.sqlite.prepare('SELECT ts FROM audit_log ORDER BY seq').all() as { ts: string }[]
+    ).map((row) => row.ts);
+    expect(times).toEqual([
+      '2026-10-10T12:00:10.000Z',
+      '2026-10-10T12:00:05.000Z',
+      '2026-10-10T11:00:00.000Z',
+    ]);
     expect(verifyChain(db.sqlite).ok).toBe(true);
   });
 
@@ -494,6 +547,25 @@ describe('appendAudit (FR-A-070, contract C7)', () => {
     // The next entry takes seq 2: a rolled back append left nothing behind.
     expect(append(db, entry(3)).seq).toBe(2);
     expect(verifyChain(db.sqlite)).toEqual({ ok: true, checked: 2, triggersMissing: [] });
+  });
+
+  it('holds the write lock from the start of its transaction, before the head is read (BEGIN IMMEDIATE)', async () => {
+    const { path, db } = await volume();
+    const other = openDatabase({ path, busyTimeoutMs: 20 });
+    onTestFinished(() => {
+      if (other.sqlite.open) other.close();
+    });
+
+    withTransaction(db, (tx) => {
+      // Nothing has been read or written yet. Another writer already has to wait and give up.
+      const failure = classifyStorageError(
+        errorOf(() => other.sqlite.prepare('CREATE TABLE lock_probe (id INTEGER)').run()),
+      );
+      expect(failure).toEqual({ kind: 'busy', code: 'SQLITE_BUSY' });
+      appendAudit(tx, entry(1));
+    });
+
+    expect(rowCount(db.sqlite)).toBe(1);
   });
 
   it('is part of a larger change: the change and its entry commit together or not at all (I-8)', async () => {
@@ -534,7 +606,7 @@ describe('appendAudit (FR-A-070, contract C7)', () => {
         kept = tx;
       });
       const failure = errorOf(() => {
-        appendAudit(kept as Parameters<typeof appendAudit>[0], entry(1));
+        appendAudit(kept!, entry(1));
       });
       expect(failure).toBeInstanceOf(NotInTransactionError);
       expect(rowCount(db.sqlite)).toBe(0);
@@ -568,7 +640,7 @@ describe('appendAudit (FR-A-070, contract C7)', () => {
     it.each(cases)('refuses %s', async (_label, over, field) => {
       const { db } = await volume();
       const failure = errorOf(() => {
-        append(db, entry(1, over as Partial<AuditEntryInput>));
+        append(db, entry(1, over));
       });
       expect(failure).toBeInstanceOf(AuditEntryError);
       expect((failure as AuditEntryError).message).toContain(field);
@@ -599,7 +671,9 @@ describe('appendAudit (FR-A-070, contract C7)', () => {
 describe('the head { seq, hash } is logged on every append (FR-A-074)', () => {
   function capture(): ReturnType<typeof createLogCapture> {
     const logs = createLogCapture();
-    setAuditHeadLog(createLogger({ level: 'info', destination: logs, now: () => Date.UTC(2026, 9, 10) }));
+    setAuditHeadLog(
+      createLogger({ level: 'info', destination: logs, now: () => Date.UTC(2026, 9, 10) }),
+    );
     return logs;
   }
 
@@ -610,9 +684,15 @@ describe('the head { seq, hash } is logged on every append (FR-A-074)', () => {
     const first = append(db, entry(1));
     const second = append(db, entry(2));
 
-    const lines = logs.lines().filter((line) => line['msg'] === 'audit_head');
+    const lines = logs.lines().filter((line) => line.msg === 'audit_head');
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toEqual({ level: 'info', time: '2026-10-10T00:00:00.000Z', seq: 1, hash: first.hash, msg: 'audit_head' });
+    expect(lines[0]).toEqual({
+      level: 'info',
+      time: '2026-10-10T00:00:00.000Z',
+      seq: 1,
+      hash: first.hash,
+      msg: 'audit_head',
+    });
     expect(lines[1]).toMatchObject({ seq: 2, hash: second.hash });
     // Neither key is redacted, and no address, actor or detail goes with them.
     expect(JSON.stringify(lines)).not.toContain('REDACTED');
@@ -630,7 +710,7 @@ describe('the head { seq, hash } is logged on every append (FR-A-074)', () => {
       }),
     );
 
-    expect(logs.lines().filter((line) => line['msg'] === 'audit_head')).toEqual([]);
+    expect(logs.lines().filter((line) => line.msg === 'audit_head')).toEqual([]);
   });
 
   it('logs the entries of one transaction in order once it commits, and none when it does not', async () => {
@@ -642,7 +722,7 @@ describe('the head { seq, hash } is logged on every append (FR-A-074)', () => {
       appendAudit(tx, entry(2));
       expect(logs.lines()).toEqual([]); // nothing yet: the transaction is still open
     });
-    expect(logs.lines().map((line) => line['seq'])).toEqual([1, 2]);
+    expect(logs.lines().map((line) => line.seq)).toEqual([1, 2]);
 
     logs.clear();
     errorOf(() =>
@@ -681,9 +761,9 @@ describe('the head { seq, hash } is logged on every append (FR-A-074)', () => {
 
 describe('concurrent appends cannot fork the chain (FR-A-070)', () => {
   function assertGapFree(db: SqliteConnection, expected: number): void {
-    const seqs = (db.prepare('SELECT seq FROM audit_log ORDER BY seq').all() as { seq: number }[]).map(
-      (row) => row.seq,
-    );
+    const seqs = (
+      db.prepare('SELECT seq FROM audit_log ORDER BY seq').all() as { seq: number }[]
+    ).map((row) => row.seq);
     expect(seqs).toEqual(Array.from({ length: expected }, (_, n) => n + 1));
     expect(verifyChain(db)).toEqual({ ok: true, checked: expected, triggersMissing: [] });
     expect(verifyChainReference(db)).toEqual({ ok: true, checked: expected });
@@ -707,22 +787,22 @@ describe('concurrent appends cannot fork the chain (FR-A-070)', () => {
     }
 
     assertGapFree(db.sqlite, 50);
-    const targets = (db.sqlite.prepare('SELECT target_id FROM audit_log').all() as { target_id: string }[]).map(
-      (row) => row.target_id,
-    );
+    const targets = (
+      db.sqlite.prepare('SELECT target_id FROM audit_log').all() as { target_id: string }[]
+    ).map((row) => row.target_id);
     expect(new Set(targets).size).toBe(50);
   });
 
   it('5 writer threads that really contend for the lock append 50 entries between them without a gap', async () => {
     const { path, db } = await volume();
     // Close the test's own connection so that its checkpoint does not interfere; reopen for checks.
-    const workerFile = new URL('./helpers/audit-worker.ts', import.meta.url);
+    const workerFile = new URL('./helpers/audit-worker-entry.mjs', import.meta.url);
 
     const results = await Promise.all(
       Array.from({ length: 5 }, (_, writer) => {
         const job: AuditWorkerJob = { path, writer, count: 10 };
         return new Promise<AuditWorkerMessage>((resolve, reject) => {
-          const worker = new Worker(workerFile, { workerData: job, execArgv: ['--import', 'tsx'] });
+          const worker = new Worker(workerFile, { workerData: job });
           worker.once('message', (message: AuditWorkerMessage) => {
             resolve(message);
           });
@@ -751,7 +831,9 @@ describe('concurrent appends cannot fork the chain (FR-A-070)', () => {
 
     // `slow` begins a DEFERRED transaction (what a careless writer does) and reads the head: seq 1.
     slow.sqlite.exec('BEGIN');
-    const head = slow.sqlite.prepare('SELECT seq, hash FROM audit_log ORDER BY seq DESC LIMIT 1').get() as {
+    const head = slow.sqlite
+      .prepare('SELECT seq, hash FROM audit_log ORDER BY seq DESC LIMIT 1')
+      .get() as {
       seq: number;
       hash: Buffer;
     };
@@ -776,7 +858,9 @@ describe('concurrent appends cannot fork the chain (FR-A-070)', () => {
   it('control: the chain trigger alone refuses a second entry with the same seq, even from a fresh read', async () => {
     const { db } = await volume();
     append(db, entry(1));
-    const head = db.sqlite.prepare('SELECT hash FROM audit_log WHERE seq = 1').get() as { hash: Buffer };
+    const head = db.sqlite.prepare('SELECT hash FROM audit_log WHERE seq = 1').get() as {
+      hash: Buffer;
+    };
 
     const failure = errorOf(() => {
       db.sqlite
@@ -836,7 +920,9 @@ describe('verifyChain (FR-A-071)', () => {
           };
         }
         const value: unknown = Reflect.get(target, property, target);
-        return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+        return typeof value === 'function'
+          ? (value as (...a: unknown[]) => unknown).bind(target)
+          : value;
       },
     });
 
@@ -879,7 +965,9 @@ describe('verifyChain (FR-A-071)', () => {
   });
 
   describe('tamper fixtures, applied after dropping the triggers inside the test (+ negative control above)', () => {
-    async function tampered(damage: (db: SqliteConnection) => void): Promise<ReturnType<typeof verifyChain>> {
+    async function tampered(
+      damage: (db: SqliteConnection) => void,
+    ): Promise<ReturnType<typeof verifyChain>> {
       const { db } = await volume();
       appendMany(db, 6);
       expect(verifyChain(db.sqlite).ok).toBe(true); // the control: it was fine before
@@ -909,6 +997,39 @@ describe('verifyChain (FR-A-071)', () => {
       expect(verdict).toMatchObject({ ok: false, firstBadSeq: 4, checked: 2 });
     });
 
+    it('a deleted row whose followers were re-hashed is still found: seq jumps over the gap', async () => {
+      const verdict = await tampered((db) => {
+        db.exec('DELETE FROM audit_log WHERE seq = 3');
+        // Someone re-links what is left, keeping every seq as it was. Every hash and every link
+        // now verifies; only the numbering shows that an entry is missing.
+        let previous: Buffer = ZERO_HASH;
+        const rows = db.prepare('SELECT * FROM audit_log ORDER BY seq').all() as Record<
+          string,
+          unknown
+        >[];
+        for (const row of rows) {
+          const hash = entryHash(previous, {
+            seq: Number(row.seq),
+            ts: String(row.ts),
+            actorKind: String(row.actor_kind),
+            actorId: String(row.actor_id),
+            action: String(row.action),
+            targetType: row.target_type as string,
+            targetId: row.target_id as string,
+            outcome: String(row.outcome),
+            detail: String(row.detail),
+          });
+          db.prepare('UPDATE audit_log SET prev_hash = ?, hash = ? WHERE seq = ?').run(
+            previous,
+            hash,
+            row.seq,
+          );
+          previous = hash;
+        }
+      });
+      expect(verdict).toMatchObject({ ok: false, firstBadSeq: 4, checked: 2 });
+    });
+
     it('a deleted first row is found at the new first row', async () => {
       const verdict = await tampered((db) => {
         db.exec('DELETE FROM audit_log WHERE seq = 1');
@@ -934,20 +1055,26 @@ describe('verifyChain (FR-A-071)', () => {
 
     it('a changed row with its own hash recomputed is found at the next row: the link breaks', async () => {
       const verdict = await tampered((db) => {
-        const row = db.prepare('SELECT * FROM audit_log WHERE seq = 3').get() as Record<string, unknown>;
+        const row = db.prepare('SELECT * FROM audit_log WHERE seq = 3').get() as Record<
+          string,
+          unknown
+        >;
         const forged = {
           seq: 3,
-          ts: String(row['ts']),
+          ts: String(row.ts),
           actorKind: 'system',
           actorId: 'mallory',
-          action: String(row['action']),
-          targetType: row['target_type'] as string,
-          targetId: row['target_id'] as string,
-          outcome: String(row['outcome']),
-          detail: String(row['detail']),
+          action: String(row.action),
+          targetType: row.target_type as string,
+          targetId: row.target_id as string,
+          outcome: String(row.outcome),
+          detail: String(row.detail),
         };
-        const hash = entryHash(row['prev_hash'] as Buffer, forged);
-        db.prepare('UPDATE audit_log SET actor_id = ?, hash = ? WHERE seq = 3').run('mallory', hash);
+        const hash = entryHash(row.prev_hash as Buffer, forged);
+        db.prepare('UPDATE audit_log SET actor_id = ?, hash = ? WHERE seq = 3').run(
+          'mallory',
+          hash,
+        );
       });
       expect(verdict).toMatchObject({ ok: false, firstBadSeq: 4, checked: 3 });
     });
@@ -968,7 +1095,9 @@ describe('verifyChain (FR-A-071)', () => {
 
     it('an appended row whose hash is not the hash of its content is found', async () => {
       const verdict = await tampered((db) => {
-        const head = db.prepare('SELECT hash FROM audit_log WHERE seq = 6').get() as { hash: Buffer };
+        const head = db.prepare('SELECT hash FROM audit_log WHERE seq = 6').get() as {
+          hash: Buffer;
+        };
         db.prepare(
           `INSERT INTO audit_log (seq, ts, actor_kind, actor_id, action, outcome, prev_hash, hash)
            VALUES (7, ?, 'system', 'system', 'test.forged', 'success', ?, ?)`,
@@ -991,7 +1120,11 @@ describe('verifyChain (FR-A-071)', () => {
       const { db } = await volume();
       appendMany(db, 2);
       db.sqlite.exec('DROP TRIGGER audit_log_no_delete');
-      expect(verifyChain(db.sqlite)).toEqual({ ok: true, checked: 2, triggersMissing: ['audit_log_no_delete'] });
+      expect(verifyChain(db.sqlite)).toEqual({
+        ok: true,
+        checked: 2,
+        triggersMissing: ['audit_log_no_delete'],
+      });
     });
 
     it('does NOT see the loss of the last rows: tail truncation is not detectable offline (docs/security.md)', async () => {
@@ -1006,20 +1139,27 @@ describe('verifyChain (FR-A-071)', () => {
       const verdict = await tampered((db) => {
         db.exec("UPDATE audit_log SET actor_id = 'mallory' WHERE seq = 3");
         let previous: Buffer = ZERO_HASH;
-        const rows = db.prepare('SELECT * FROM audit_log ORDER BY seq').all() as Record<string, unknown>[];
+        const rows = db.prepare('SELECT * FROM audit_log ORDER BY seq').all() as Record<
+          string,
+          unknown
+        >[];
         for (const row of rows) {
           const hash = entryHash(previous, {
-            seq: Number(row['seq']),
-            ts: String(row['ts']),
-            actorKind: String(row['actor_kind']),
-            actorId: String(row['actor_id']),
-            action: String(row['action']),
-            targetType: row['target_type'] as string,
-            targetId: row['target_id'] as string,
-            outcome: String(row['outcome']),
-            detail: String(row['detail']),
+            seq: Number(row.seq),
+            ts: String(row.ts),
+            actorKind: String(row.actor_kind),
+            actorId: String(row.actor_id),
+            action: String(row.action),
+            targetType: row.target_type as string,
+            targetId: row.target_id as string,
+            outcome: String(row.outcome),
+            detail: String(row.detail),
           });
-          db.prepare('UPDATE audit_log SET prev_hash = ?, hash = ? WHERE seq = ?').run(previous, hash, row['seq']);
+          db.prepare('UPDATE audit_log SET prev_hash = ?, hash = ? WHERE seq = ?').run(
+            previous,
+            hash,
+            row.seq,
+          );
           previous = hash;
         }
       });
@@ -1091,12 +1231,18 @@ describe('node dist/cli.js verify-audit (FR-A-075)', () => {
     const run = cli(['verify-audit'], { DATA_DIR: dataDir });
 
     expect(run.code).toBe(1);
-    expect(JSON.parse(run.out)).toEqual({ ok: true, checked: 3, triggersMissing: ['audit_log_no_update'] });
+    expect(JSON.parse(run.out)).toEqual({
+      ok: true,
+      checked: 3,
+      triggersMissing: ['audit_log_no_update'],
+    });
   });
 
   it('honours --from and --to', async () => {
     const { dataDir } = await withEntries(9);
-    expect(JSON.parse(cli(['verify-audit', '--from', '3', '--to', '6'], { DATA_DIR: dataDir }).out)).toMatchObject({
+    expect(
+      JSON.parse(cli(['verify-audit', '--from', '3', '--to', '6'], { DATA_DIR: dataDir }).out),
+    ).toMatchObject({
       ok: true,
       checked: 4,
     });
@@ -1144,7 +1290,7 @@ describe('node dist/cli.js verify-audit (FR-A-075)', () => {
     expect(JSON.parse(run.out)).toEqual({ ok: false, error: 'database_unavailable' });
   });
 
-  it('exits 2 for an invalid configuration, naming the variable and never its value', async () => {
+  it('exits 2 for an invalid configuration, naming the variable and never its value', () => {
     const canary = 'not-an-absolute-path-canary';
 
     const run = cli(['verify-audit'], { DATA_DIR: canary });

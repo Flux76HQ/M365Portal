@@ -169,6 +169,8 @@ function cacheApp(): Hono<AppEnv> {
     c.body('{}', 200, { 'Content-Type': 'application/manifest+json' }),
   );
   app.get('/offline.html', (c) => c.html('<p>offline</p>'));
+  app.get('/offline.css', (c) => c.body('p{margin:0}', 200, { 'Content-Type': 'text/css' }));
+  app.get('/offline.js', (c) => c.body('void 0;', 200, { 'Content-Type': 'text/javascript' }));
   app.get('/robots.txt', (c) => c.text('User-agent: *\nDisallow: /\n'));
   app.get('/favicon.ico', (c) => c.redirect(`/branding/${HASH}.png`, 307));
   app.get('/redirect', (c) => c.redirect('/', 302));
@@ -233,6 +235,8 @@ describe('cacheHeaders: the default rules apply unless a route sets its own head
     ['/sw.js', 'no-cache'],
     ['/manifest.webmanifest', 'no-cache'],
     ['/offline.html', 'no-cache'],
+    ['/offline.css', 'no-cache'],
+    ['/offline.js', 'no-cache'],
     ['/robots.txt', 'no-cache'],
     ['/favicon.ico', 'no-cache'],
     ['/api/v1/own', 'private, max-age=5'],
@@ -283,7 +287,14 @@ describe('cacheHeaders: the default rules apply unless a route sets its own head
 });
 
 describe('cacheHeaders: ETag on the files that are revalidated (FR-A-050)', () => {
-  const REVALIDATED = ['/sw.js', '/manifest.webmanifest', '/offline.html', '/robots.txt'] as const;
+  const REVALIDATED = [
+    '/sw.js',
+    '/manifest.webmanifest',
+    '/offline.html',
+    '/offline.css',
+    '/offline.js',
+    '/robots.txt',
+  ] as const;
 
   it.each(REVALIDATED)('%s gets a weak ETag that follows the content', async (path) => {
     const harness = await createTestApp({ buildApp: cacheApp });
@@ -323,6 +334,35 @@ describe('cacheHeaders: ETag on the files that are revalidated (FR-A-050)', () =
     expect(await response.text()).toBe('');
     expect(response.headers.get('etag')).toBe(etag);
     expect(response.headers.get('cache-control')).toBe('no-cache');
+  });
+
+  it('repeats on the 304 the headers that RFC 9110 section 15.4.5 names, and no others', async () => {
+    const app = new Hono<AppEnv>();
+    app.use(cacheHeaders());
+    app.get('/robots.txt', (c) =>
+      c.text('User-agent: *\n', 200, {
+        'Content-Location': '/robots-v2.txt',
+        Date: 'Tue, 01 Jan 2030 00:00:00 GMT',
+        Expires: 'Wed, 02 Jan 2030 00:00:00 GMT',
+        Vary: 'Accept-Language',
+        'X-Not-Kept': 'body-only',
+      }),
+    );
+    const harness = await createTestApp({ buildApp: () => app });
+    const etag = (await harness.client.get('/robots.txt')).headers.get('etag') ?? '';
+
+    const response = await harness.client.get('/robots.txt', {
+      headers: { 'if-none-match': etag },
+    });
+
+    expect(response.status).toBe(304);
+    expect(response.headers.get('content-location')).toBe('/robots-v2.txt');
+    expect(response.headers.get('date')).toBe('Tue, 01 Jan 2030 00:00:00 GMT');
+    expect(response.headers.get('expires')).toBe('Wed, 02 Jan 2030 00:00:00 GMT');
+    expect(response.headers.get('vary')).toBe('Accept-Language');
+    expect(response.headers.get('etag')).toBe(etag);
+    expect(response.headers.get('cache-control')).toBe('no-cache');
+    expect(response.headers.get('x-not-kept')).toBeNull();
   });
 
   it.each([
@@ -429,6 +469,9 @@ function compressApp(): Hono<AppEnv> {
   app.get('/html', (c) => c.html(`<p>${textOf(3_000)}</p>`));
   app.get('/text', (c) => c.text(textOf(3_000)));
   app.get('/js', (c) => c.body(textOf(3_000), 200, { 'Content-Type': 'text/javascript' }));
+  app.get('/js-legacy', (c) =>
+    c.body(textOf(3_000), 200, { 'Content-Type': 'application/javascript; charset=utf-8' }),
+  );
   app.get('/problem', (c) =>
     c.body(JSON.stringify({ detail: textOf(3_000) }), 500, {
       'Content-Type': 'application/problem+json',
@@ -463,6 +506,10 @@ function compressApp(): Hono<AppEnv> {
     }),
   );
   app.get('/partial', (c) => c.text(textOf(3_000), 206, { 'Content-Range': 'bytes 0-2999/9000' }));
+  // Not a 206, but it names a range of a larger body, which a compressed copy would misstate.
+  app.get('/range-header-200', (c) =>
+    c.text(textOf(3_000), 200, { 'Content-Range': 'bytes 0-2999/9000' }),
+  );
   app.get('/no-content', (c) => c.body(null, 204));
   app.get('/partial-no-range', (c) => c.text(textOf(3_000), 206));
   // Bytes, not a string: a string body gets a text/plain content type from the constructor.
@@ -611,6 +658,7 @@ describe('compress: Brotli at quality 4, or gzip (contract section 1)', () => {
     ['/html', 'text/html'],
     ['/text', 'text/plain'],
     ['/js', 'text/javascript'],
+    ['/js-legacy', 'application/javascript'],
     ['/problem', 'application/problem+json'],
     ['/manifest', 'application/manifest+json'],
   ])('compresses %s (%s)', async (path) => {
@@ -709,13 +757,17 @@ describe('compress: Brotli at quality 4, or gzip (contract section 1)', () => {
     expect(await response.text()).toBe('already-compressed-bytes');
   });
 
-  it.each(['/partial', '/partial-no-range', '/no-content', '/empty', '/no-type'])(
-    'leaves %s alone',
-    async (path) => {
-      const response = await fetchEncoded(path, 'br');
-      expect(response.headers.get('content-encoding')).toBeNull();
-    },
-  );
+  it.each([
+    '/partial',
+    '/partial-no-range',
+    '/range-header-200',
+    '/no-content',
+    '/empty',
+    '/no-type',
+  ])('leaves %s alone', async (path) => {
+    const response = await fetchEncoded(path, 'br');
+    expect(response.headers.get('content-encoding')).toBeNull();
+  });
 
   it('compresses an error response that is large enough, like any other JSON', async () => {
     const response = await fetchEncoded('/problem', 'br');

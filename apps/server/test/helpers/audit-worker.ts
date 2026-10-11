@@ -48,7 +48,8 @@ try {
   const { name, code } = error as { name?: unknown; code?: unknown };
   message = {
     done: false,
-    error: `${typeof name === 'string' ? name : 'Error'} ${typeof code === 'string' ? code : ''}`.trim(),
+    error:
+      `${typeof name === 'string' ? name : 'Error'} ${typeof code === 'string' ? code : ''}`.trim(),
   };
 } finally {
   database.close();
