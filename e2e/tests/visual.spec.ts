@@ -8,7 +8,10 @@
 // Stable by construction: the self-hosted Inter is asserted loaded (not the system copy: P21), the
 // stored theme is asserted against the computed background (P19), animations are disabled and motion
 // is reduced, the clock zone is UTC with a fixed locale (the config), the caret is hidden, and the
-// dynamic parts (the version in the sidebar) are masked.
+// dynamic parts (the version in the sidebar) are masked and, before that, rewritten to a fixed
+// placeholder: a mask covers the element's box, and the box of "Version 0.2.39" is one pixel wider
+// than the box of "Version 0.2.37", so a VERSION bump used to move the edge of the mask and fail
+// every desktop baseline by one pixel column (gate note G4, OP-2).
 import type { Page, TestInfo } from '@playwright/test';
 import { expect, test } from '../fixtures.js';
 import { restoreDefaults } from '../branding-helpers.js';
@@ -50,6 +53,7 @@ async function prepare(
   await assertSelfHostedFont(page);
   // Nothing is moving, nothing is half-loaded, and the pointer rests outside the page.
   await page.waitForFunction(() => document.getAnimations().length === 0);
+  await pinVersionText(page);
   await page.mouse.move(0, 0);
 }
 
@@ -57,7 +61,24 @@ function nameOf(page: string, testInfo: TestInfo): string {
   return `${page}-${testInfo.project.name}.png`;
 }
 
-const MASKS = (page: Page) => [page.getByText(/^Version \d/), page.getByText(/^Versie \d/)];
+const VERSION_TEXT = [/^Version \d/, /^Versie \d/] as const;
+
+/**
+ * The version text in the page under test becomes a placeholder, so the masked box has the same
+ * width whatever the VERSION file says. The pattern is the catalogue sentence "Version {n}" in both
+ * languages; the number is replaced, the word stays.
+ */
+async function pinVersionText(page: Page): Promise<void> {
+  for (const pattern of VERSION_TEXT) {
+    await page.getByText(pattern).evaluateAll((nodes) => {
+      nodes.forEach((node) => {
+        node.textContent = node.textContent.replace(/\d+(\.\d+)*$/, '0.0.0');
+      });
+    });
+  }
+}
+
+const MASKS = (page: Page) => VERSION_TEXT.map((pattern) => page.getByText(pattern));
 
 const PAGES = [
   { slug: 'dashboard', path: '/' },

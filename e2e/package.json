@@ -14,6 +14,8 @@
     "@axe-core/playwright": "catalog:",
     "@m365portal/shared": "workspace:*",
     "@playwright/test": "catalog:",
-    "@types/node": "catalog:"
+    "@types/node": "catalog:",
+    "lighthouse": "catalog:",
+    "sharp": "catalog:"
   }
 }
