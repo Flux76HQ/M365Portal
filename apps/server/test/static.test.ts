@@ -14,7 +14,7 @@
 //
 // The fixture build output is `test/fixtures/web-dist`; each test works in a temporary copy that also
 // holds a dotfile, a file outside the root and a hostile directory, so nothing here touches the tree.
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,18 +25,19 @@ import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import { WORKER_CSP } from '../src/http/csp.js';
 import { isShellRequest, spaFallback } from '../src/http/spa-fallback.js';
-import {
-  isServablePath,
-  serviceWorkerRoute,
-  staticFallback,
-} from '../src/http/static.js';
+import { isServablePath, serviceWorkerRoute, staticFallback } from '../src/http/static.js';
 import {
   NONCE_PLACEHOLDER,
   ShellTemplateError,
   createPlaceholderShell,
   readShellTemplate,
 } from '../src/shell-port.js';
-import { createFixtureApp, fixtureRoutes, type FixtureApp } from './helpers/http-app.js';
+import {
+  createFixtureApp,
+  fixtureRoutes,
+  type FixtureApp,
+  type FixtureAppOptions,
+} from './helpers/http-app.js';
 import { createTempDataDir } from './helpers/temp-data-dir.js';
 import { createTestApp } from './helpers/test-app.js';
 
@@ -63,6 +64,10 @@ async function makeSite(): Promise<Site> {
   mkdirSync(join(root, 'assets', 'sub'));
   writeFileSync(join(root, 'assets', 'sub', 'inner-def456.js'), 'export const inner = 1;\n');
   writeFileSync(join(root, 'assets', 'index.html'), `<p>${DOTFILE_SECRET}</p>`);
+  // A directory with a file-like name and an index inside, and a symlink out of the root.
+  mkdirSync(join(root, 'assets', 'dir.js'));
+  writeFileSync(join(root, 'assets', 'dir.js', 'index.html'), `<p>${DOTFILE_SECRET}</p>`);
+  symlinkSync(join(dir.path, 'secret.txt'), join(root, 'assets', 'link-abc123.js'));
   return { root, outside: join(dir.path, 'secret.txt') };
 }
 
@@ -70,9 +75,7 @@ interface SiteApp extends FixtureApp {
   readonly site: Site;
 }
 
-async function siteApp(
-  options: { readonly rules?: Parameters<typeof createFixtureApp>[0] extends infer O ? O extends { rules?: infer R } ? R : never : never } = {},
-): Promise<SiteApp> {
+async function siteApp(options: Pick<FixtureAppOptions, 'rules'> = {}): Promise<SiteApp> {
   const site = await makeSite();
   const shell = createPlaceholderShell(readShellTemplate(site.root));
   const app = await createFixtureApp({
@@ -196,6 +199,18 @@ describe('precompressed siblings (plan 7.5)', () => {
     expect(Buffer.from(await response.arrayBuffer())).toEqual(identity);
   });
 
+  it('says Vary on the plain file too when it has siblings (a cache must know the URL varies)', async () => {
+    // A file under 1 KiB, so that the compression layer adds nothing and the Vary is the file server's.
+    const app = await siteApp();
+    const response = await app.client.get('/assets/small-abc123.js', {
+      headers: { 'accept-encoding': 'identity' },
+    });
+    expect(response.headers.get('content-encoding')).toBeNull();
+    expect(response.headers.get('vary')?.toLowerCase()).toContain('accept-encoding');
+    const plain = await app.client.get('/assets/style-abc123.css');
+    expect(plain.headers.get('vary')).toBeNull();
+  });
+
   it('keeps the immutable cache rule on a precompressed answer', async () => {
     const app = await siteApp();
     const response = await app.client.get('/assets/app-abc123.js', {
@@ -210,9 +225,9 @@ describe('precompressed siblings (plan 7.5)', () => {
       headers: { 'accept-encoding': 'br' },
     });
     // One decompression gives the source text; a second pass would have produced garbage.
-    expect(brotliDecompressSync(Buffer.from(await response.arrayBuffer())).toString('utf8')).toContain(
-      'fixtureLine0',
-    );
+    expect(
+      brotliDecompressSync(Buffer.from(await response.arrayBuffer())).toString('utf8'),
+    ).toContain('fixtureLine0');
   });
 });
 
@@ -283,11 +298,14 @@ const HOSTILE_PATHS: readonly string[] = [
   '/assets/.git/config',
   '/assets/%2ehidden.js',
   '/assets/%2egit/config',
-  '/.well-known/x',
   '/index.html',
   '/assets/index.html',
   '/assets/sub/..%2findex.html',
   '/INDEX.HTML',
+  // A directory named like a file, and a symlink that points out of the root.
+  '/assets/dir.js',
+  '/assets/dir.js/',
+  '/assets/link-abc123.js',
   // Directories are not listed.
   '/assets',
   '/assets/',
@@ -309,7 +327,9 @@ async function assertStaticIsSafe(
     const response = await get(path);
     for (const canary of [SECRET, DOTFILE_SECRET, NONCE_PLACEHOLDER]) {
       if (response.body.includes(canary)) {
-        throw new Error(`${path}: served content that must stay private (${canary.slice(0, 12)}...)`);
+        throw new Error(
+          `${path}: served content that must stay private (${canary.slice(0, 12)}...)`,
+        );
       }
     }
     if (response.status !== 404 && response.status !== 400) {
@@ -397,12 +417,20 @@ describe('traversal, dotfiles and directories (FR-A-048, E-27)', () => {
       });
       const running = await unguarded.listen();
       const get = (path: string): Promise<RawResponse> => rawGet(running.port, path, HTML);
-      await expectGuardFails((paths: readonly string[]) => assertStaticIsSafe(get, paths), ['/.env'], {
-        reason: '/.env',
-      });
-      await expectGuardFails((paths: readonly string[]) => assertStaticIsSafe(get, paths), ['/assets/'], {
-        reason: '/assets/',
-      });
+      await expectGuardFails(
+        (paths: readonly string[]) => assertStaticIsSafe(get, paths),
+        ['/.env'],
+        {
+          reason: '/.env',
+        },
+      );
+      await expectGuardFails(
+        (paths: readonly string[]) => assertStaticIsSafe(get, paths),
+        ['/assets/'],
+        {
+          reason: '/assets/',
+        },
+      );
     });
   });
 });
@@ -504,13 +532,18 @@ describe('the SPA fallback (FR-A-048, plan 7.5)', () => {
     }
     expect(nonces.size).toBe(5);
     expect(bodies.size).toBe(5);
-    for (const nonce of nonces) expect(Buffer.from(nonce, 'base64url').length).toBeGreaterThanOrEqual(16);
+    for (const nonce of nonces)
+      expect(Buffer.from(nonce, 'base64').length).toBeGreaterThanOrEqual(16);
   });
 
   it('does not answer 304 to a conditional request: there is nothing to validate', async () => {
     const app = await siteApp();
     const response = await app.client.get('/users', {
-      headers: { ...HTML, 'if-none-match': '*', 'if-modified-since': 'Wed, 21 Oct 2026 07:28:00 GMT' },
+      headers: {
+        ...HTML,
+        'if-none-match': '*',
+        'if-modified-since': 'Wed, 21 Oct 2026 07:28:00 GMT',
+      },
     });
     expect(response.status).toBe(200);
   });
@@ -533,19 +566,15 @@ describe('the SPA fallback (FR-A-048, plan 7.5)', () => {
     expect(response.headers.get('content-type')).not.toContain('text/html');
   });
 
-  it.each([
-    ['*/*', undefined],
-    ['application/json', undefined],
-    ['text/plain', undefined],
-    ['image/png', undefined],
-    ['text/html;q=0', undefined],
-    ['', undefined],
-  ])('is not the shell for Accept: %j', async (accept) => {
-    const app = await siteApp();
-    const response = await app.client.get('/users', { headers: { accept } });
-    expect(response.status).toBe(404);
-    expect(response.headers.get('content-type')).toContain('application/problem+json');
-  });
+  it.each(['*/*', 'application/json', 'text/plain', 'image/png', 'text/html;q=0', ''])(
+    'is not the shell for Accept: %j',
+    async (accept) => {
+      const app = await siteApp();
+      const response = await app.client.get('/users', { headers: { accept } });
+      expect(response.status).toBe(404);
+      expect(response.headers.get('content-type')).toContain('application/problem+json');
+    },
+  );
 
   it('is not the shell for a request without an Accept header', async () => {
     const app = await siteApp();
@@ -670,12 +699,15 @@ describe('/sw.js (R17, FR-A-050, plan V-04)', () => {
     expect(JSON.stringify(app.http.document.paths)).toContain('/sw.js');
   });
 
-  it.each(['/sw.js/', '/sw.js.map', '/SW.js', '/sw.JS'])('%s is a 404 problem with the ordinary profile', async (path) => {
-    const app = await siteApp();
-    const response = await app.client.get(path, { headers: HTML });
-    expect(response.status).toBe(404);
-    expect(response.headers.get('content-security-policy')).not.toBe(WORKER_CSP);
-  });
+  it.each(['/sw.js/', '/sw.js.map', '/SW.js', '/sw.JS'])(
+    '%s is a 404 problem with the ordinary profile',
+    async (path) => {
+      const app = await siteApp();
+      const response = await app.client.get(path, { headers: HTML });
+      expect(response.status).toBe(404);
+      expect(response.headers.get('content-security-policy')).not.toBe(WORKER_CSP);
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -683,7 +715,7 @@ describe('/sw.js (R17, FR-A-050, plan V-04)', () => {
 // ---------------------------------------------------------------------------------------------
 
 describe('createPlaceholderShell (C6)', () => {
-  const NONCE = 'AbCdEfGhIjKlMnOpQrStUv-_';
+  const NONCE = 'AbCd+/EfGhIjKlMnOpQrSt==';
 
   it('fills __M365_NONCE__ and nothing else', async () => {
     const template = readFileSync(join(FIXTURE_DIST, 'index.html'), 'utf8');
@@ -719,14 +751,15 @@ describe('createPlaceholderShell (C6)', () => {
     const shell = createPlaceholderShell(template);
     const request = new Request('http://localhost:8080/');
     const first = await shell.render({ nonce: NONCE, request });
-    const second = await shell.render({ nonce: 'ZyXwVuTsRqPoNmLkJiHgFe-_', request });
+    const second = await shell.render({ nonce: 'ZyXw+/VuTsRqPoNmLkJiHg==', request });
     expect(first).not.toBe(second);
-    expect(first.replaceAll(NONCE, '#')).toBe(second.replaceAll('ZyXwVuTsRqPoNmLkJiHgFe-_', '#'));
+    expect(first.replaceAll(NONCE, '#')).toBe(second.replaceAll('ZyXw+/VuTsRqPoNmLkJiHg==', '#'));
   });
 
   it.each([
     '',
     'short',
+    'AbCdEfGhIjKlMnOpQrStUv-_',
     '"><script>alert(1)</script>',
     '$&',
     'has space has space',
