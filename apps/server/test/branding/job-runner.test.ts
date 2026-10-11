@@ -161,7 +161,7 @@ class Spawns implements JobObserver {
   /** Resolves when this many children have been started. */
   reached(count: number): Promise<void> {
     if (this.pids.length >= count) return Promise.resolve();
-    const done = deferred<void>();
+    const done = deferred<undefined>();
     this.waiters.push({ count, done });
     return done.promise;
   }
@@ -907,19 +907,19 @@ describe('the runner', () => {
   it('hands the hostile-corpus runner the shape it needs', async () => {
     const spawns = new Spawns();
     const subject = createPipelineSubject({ launch: fixtureLaunch('problem'), observer: spawns });
-    expect(subject.maxRunning?.()).toBe(0);
+    expect(subject.maxRunning()).toBe(0);
     const failure = await failureOf(
       subject.process({ bytes: solidPng(1, 1, [1, 1, 1]), slot: 'compact' }),
     );
     expect(failure).toMatchObject({ code: 'image_corrupt' });
-    await subject.close?.();
+    await subject.close();
 
     const ok = createPipelineSubject({ launch: fixtureLaunch('ok') });
     const result = await ok.process({ bytes: solidPng(1, 1, [1, 1, 1]), slot: 'logoLight' });
     expect(result.png.length).toBeGreaterThan(8);
     expect(result.warnings).toEqual([]);
-    expect(ok.maxRunning?.()).toBe(1);
-    await ok.close?.();
+    expect(ok.maxRunning()).toBe(1);
+    await ok.close();
   }, 30_000);
 });
 
@@ -1003,8 +1003,9 @@ describe('the job handler', () => {
   it('reports a failure of the input by its code, and every other failure as internal, saying nothing more', async () => {
     const failing =
       (failure: unknown): UploadProcessor =>
-      () =>
-        Promise.reject(failure);
+      () => {
+        throw failure;
+      };
     for (const code of WORKER_FAILURE_CODES) {
       const reply = await handleJob(uploadRequest(), {
         upload: failing(
@@ -1165,9 +1166,11 @@ describe('the real worker', () => {
     expect(inputs.some((path) => path.includes('node_modules/'))).toBe(false);
     expect(inputs.some((path) => path.endsWith('src/branding/image-worker.ts'))).toBe(true);
     expect(entry.endsWith(`${sep}dist${sep}image-worker.js`)).toBe(true);
-    // The only package it leaves external is sharp (and zod, if a shared schema module is inlined).
+    // It leaves external only sharp, saxes (the SVG parser) and zod (if a shared schema module is inlined).
     const packages = externalImports(metafile).filter((path) => !path.startsWith('node:'));
-    expect(packages.filter((path) => path !== 'sharp' && path !== 'zod')).toEqual([]);
+    expect(
+      packages.filter((path) => path !== 'sharp' && path !== 'saxes' && path !== 'zod'),
+    ).toEqual([]);
     expect(packages).toContain('sharp');
   });
 
@@ -1182,12 +1185,15 @@ describe('the real worker', () => {
 
   it('fails the check on a bundle that could (negative fixtures)', () => {
     const bundle = (imports: readonly string[], inputs: readonly string[] = []): Metafile => ({
-      inputs: Object.fromEntries([
-        ...imports.map((path) => [
+      inputs: Object.fromEntries<Metafile['inputs'][string]>([
+        ...imports.map((path): [string, Metafile['inputs'][string]] => [
           `src/branding/x-${path.replace(/\W/g, '')}.ts`,
           { bytes: 1, imports: [{ path, kind: 'import-statement' as const, external: true }] },
         ]),
-        ...inputs.map((path) => [path, { bytes: 1, imports: [] }]),
+        ...inputs.map((path): [string, Metafile['inputs'][string]] => [
+          path,
+          { bytes: 1, imports: [] },
+        ]),
       ]),
       outputs: {},
     });

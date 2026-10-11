@@ -303,7 +303,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     for (let attempt = 0; ; attempt += 1) {
       const used = currentToken();
       const response = await perform(method, path, requestOptions, await used);
-      if (false && response.status === 403) {
+      if (attempt === 0 && response.status === 403) {
         const error = await toApiError(response.clone());
         if (error.code === 'csrf_invalid') {
           if (token === used) token = undefined; // writes that started together refresh once

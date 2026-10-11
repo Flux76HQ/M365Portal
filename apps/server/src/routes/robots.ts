@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { defineRoute, type RouteDefinition } from '../http/route.js';
 
-export const ROBOTS_TXT = 'User-agent: *\nDisallow: \n';
+export const ROBOTS_TXT = 'User-agent: *\nDisallow: /\n';
 
 export function robotsRoutes(): RouteDefinition[] {
   return [
@@ -18,7 +18,7 @@ export function robotsRoutes(): RouteDefinition[] {
       summary: 'robots.txt: disallow everything',
       responses: {
         200: {
-          description: 'User-agent: * and Disallow: .',
+          description: 'User-agent: * and Disallow: /.',
           content: { 'text/plain': { schema: z.string() } },
         },
       },

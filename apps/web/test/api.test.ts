@@ -381,6 +381,30 @@ describe('writing and the CSRF token', () => {
     expect(second?.body).toBe(first?.body);
   });
 
+  it('refreshes the token once when several writes find it stale together', async () => {
+    let issued = 0;
+    const net = network((call) => {
+      if (pathOf(call) === '/api/v1/csrf') {
+        issued += 1;
+        return json({ token: `issued-${String(issued)}`, expiresAt: TOKEN_EXPIRES });
+      }
+      // Only the first token is stale.
+      return call.headers.get('X-CSRF-Token') === 'issued-1'
+        ? problem(403, 'csrf_invalid')
+        : json({ ok: true });
+    });
+    const client = createApiClient({ fetch: net.fetch });
+
+    const results = await Promise.all([
+      client.post('/api/v1/a'),
+      client.post('/api/v1/b'),
+      client.delete('/api/v1/c'),
+    ]);
+
+    expect(results).toEqual([{ ok: true }, { ok: true }, { ok: true }]);
+    expect(issued).toBe(2); // the first token, and one refresh shared by the three writes
+  });
+
   it('gives up after one retry: a second csrf_invalid is the error', async () => {
     const net = network(withCsrf(() => problem(403, 'csrf_invalid')));
     const client = createApiClient({ fetch: net.fetch });
