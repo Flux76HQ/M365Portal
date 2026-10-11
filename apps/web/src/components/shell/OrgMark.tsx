@@ -1,4 +1,8 @@
-import { logoPlateColour, logoPlateFor, type LogoPlate } from '@m365portal/shared/branding/logo-plate';
+import {
+  logoPlateColour,
+  logoPlateFor,
+  type LogoPlate,
+} from '@m365portal/shared/branding/logo-plate';
 import { PRODUCT_NAME } from '@m365portal/shared';
 import type { Branding } from '@m365portal/shared/schemas/branding';
 import { cn } from '../../lib/cn';
@@ -54,7 +58,11 @@ function MonogramTile({
         className="size-full fill-current"
       >
         {monogram.glyphs.map((glyph) => (
-          <path key={`${glyph.key}-${String(glyph.x)}`} d={glyph.path} transform={`translate(${String(glyph.x)} 0)`} />
+          <path
+            key={`${glyph.key}-${String(glyph.x)}`}
+            d={glyph.path}
+            transform={`translate(${String(glyph.x)} 0)`}
+          />
         ))}
       </svg>
     </span>
@@ -109,7 +117,11 @@ export function OrgMark({ variant, showName = variant === 'full', className }: O
   return (
     <span data-slot="org-mark" className={cn('flex min-w-0 items-center gap-3', className)}>
       {logo !== null ? (
-        <LogoImage logo={logo} label={markName ?? ''} plate={logoPlateFor(logo.luminance, resolved)} />
+        <LogoImage
+          logo={logo}
+          label={markName ?? ''}
+          plate={logoPlateFor(logo.luminance, resolved)}
+        />
       ) : branding !== undefined ? (
         <MonogramTile monogram={branding.monogram} label={markName} />
       ) : null}

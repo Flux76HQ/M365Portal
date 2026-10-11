@@ -91,7 +91,11 @@ describe('the palette as a combobox', () => {
   it('groups the results and names the groups', async () => {
     const { dialog } = await openPalette({ me: sampleMe({ preview: true }) });
 
-    for (const key of ['palette.group.navigate', 'palette.group.preferences', 'palette.group.help'] as const) {
+    for (const key of [
+      'palette.group.navigate',
+      'palette.group.preferences',
+      'palette.group.help',
+    ] as const) {
       expect(within(dialog).getByText(en.t(key))).toBeInTheDocument();
     }
   });
@@ -104,7 +108,12 @@ describe('what it lists', () => {
     const names = optionNames(dialog);
     expect(names).toContain(en.t('nav.dashboard'));
     expect(names).toContain(en.t('palette.command.themeDark'));
-    for (const hidden of ['nav.users', 'nav.groups', 'nav.settings', 'palette.command.settingsAppearance'] as const) {
+    for (const hidden of [
+      'nav.users',
+      'nav.groups',
+      'nav.settings',
+      'palette.command.settingsAppearance',
+    ] as const) {
       expect(names).not.toContain(en.t(hidden));
     }
   });
@@ -191,7 +200,9 @@ describe('finding and running a command', () => {
     await user.keyboard('qqzzxx');
 
     expect(within(dialog).queryAllByRole('option')).toHaveLength(0);
-    expect(within(dialog).getByText(en.t('palette.empty', { query: 'qqzzxx' }))).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(en.t('palette.empty', { query: 'qqzzxx' })),
+    ).toBeInTheDocument();
   });
 
   it('does not offer a command the actor may not run, even when it is typed exactly', async () => {
@@ -233,7 +244,9 @@ describe('finding and running a command', () => {
     await user.keyboard('keyboard');
     await user.keyboard('{Enter}');
 
-    expect(await screen.findByRole('dialog', { name: en.t('shortcuts.title') })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('dialog', { name: en.t('shortcuts.title') }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: en.t('palette.title') })).not.toBeInTheDocument();
   });
 
@@ -258,7 +271,9 @@ describe('lazy loading', () => {
   it('loads the palette and the overview with a dynamic import, not a static one', () => {
     const shell = read('AppShell.tsx');
     for (const name of ['CommandPalette', 'ShortcutsOverview']) {
-      expect(shell, name).toMatch(new RegExp(`lazy\\(\\s*\\(\\)\\s*=>\\s*import\\('\\./${name}'\\)`));
+      expect(shell, name).toMatch(
+        new RegExp(`lazy\\(\\s*\\(\\)\\s*=>\\s*import\\('\\./${name}'\\)`),
+      );
       expect(shell, name).not.toMatch(new RegExp(`^import[^;]*from '\\./${name}';`, 'm'));
     }
   });

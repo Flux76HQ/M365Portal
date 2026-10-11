@@ -33,7 +33,9 @@ describe('CounterCard', () => {
 
     const card = screen.getByRole('group', { name: 'Users' });
     expect(card).toHaveAttribute('aria-busy', 'true');
-    expect(within(card).getByText(en.t('dashboard.card.loading', { name: 'Users' }))).toBeInTheDocument();
+    expect(
+      within(card).getByText(en.t('dashboard.card.loading', { name: 'Users' })),
+    ).toBeInTheDocument();
     expect(card.querySelector('[data-slot="skeleton"]')).not.toBeNull();
   });
 
@@ -71,7 +73,11 @@ describe('Dashboard', () => {
     withLanguage(<Dashboard state="empty" />);
 
     const region = screen.getByRole('region', { name: en.t('dashboard.cards') });
-    expect(within(region).getAllByRole('group').map((card) => card.getAttribute('aria-label') ?? card.querySelector('h2')?.textContent)).toEqual([
+    expect(
+      within(region)
+        .getAllByRole('group')
+        .map((card) => card.querySelector('h2')?.textContent),
+    ).toEqual([
       en.t('dashboard.card.users'),
       en.t('dashboard.card.groups'),
       en.t('dashboard.card.distributionLists'),
@@ -90,8 +96,12 @@ describe('Dashboard', () => {
   it('shows the honest empty state once loaded', () => {
     withLanguage(<Dashboard state="empty" />);
 
-    expect(screen.getByRole('heading', { level: 1, name: en.t('dashboard.title') })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: en.t('dashboard.empty.title') })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 1, name: en.t('dashboard.title') }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: en.t('dashboard.empty.title') }),
+    ).toBeInTheDocument();
     expect(screen.getByText(en.t('dashboard.empty.description'))).toBeInTheDocument();
   });
 
@@ -107,8 +117,12 @@ describe('Dashboard', () => {
   it('is written in Dutch when the page is Dutch', () => {
     withLanguage(<Dashboard state="empty" />, 'nl');
 
-    expect(screen.getByRole('heading', { level: 2, name: nl.t('dashboard.empty.title') })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: nl.t('dashboard.card.distributionLists') })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: nl.t('dashboard.empty.title') }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', { name: nl.t('dashboard.card.distributionLists') }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -122,7 +136,9 @@ describe('the Dashboard route', () => {
     const region = screen.getByRole('region', { name: en.t('dashboard.cards') });
     expect(within(region).getAllByRole('group')).toHaveLength(4);
     expect(region.textContent).not.toMatch(/\d/);
-    expect(screen.getByRole('heading', { level: 2, name: en.t('dashboard.empty.title') })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: en.t('dashboard.empty.title') }),
+    ).toBeInTheDocument();
     expect(document.title).toBe(`${en.t('nav.dashboard')} - Acme`);
   });
 });

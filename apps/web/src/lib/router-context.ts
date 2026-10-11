@@ -30,7 +30,7 @@ declare module '@tanstack/react-router' {
 
 /** The context the router was created with. */
 export function useRouterContext(): RouterContext {
-  return useRouter().options.context as RouterContext;
+  return useRouter().options.context;
 }
 
 /** Who the client is and what it may do. Always present: the root route loads it before any page. */

@@ -14,11 +14,14 @@
 //   - a compact derived from a master is square, bounded by 128 and never enlarged;
 //   - outputs are clean PNGs, deterministic, named by their SHA-256.
 import { createHash } from 'node:crypto';
+import { readdir, readFile, utimes, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { deriveAccentTokens } from '@m365portal/shared/branding/accent';
 import { parseHexColour, relativeLuminance } from '@m365portal/shared/branding/contrast';
 import { GLYPHS, GLYPH_KEYS, PICTOGRAM } from '@m365portal/shared/branding/glyphs.generated';
 import { iconPlateFor, logoPlateColour } from '@m365portal/shared/branding/logo-plate';
 import { monogramFor } from '@m365portal/shared/branding/monogram';
+import { LIMITS } from '@m365portal/shared/limits';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
@@ -32,6 +35,22 @@ import {
   type IconKind,
   type IconSet,
 } from '../../src/branding/pipeline/icons.js';
+import { createAssetStore } from '../../src/branding/asset-store.js';
+import { referencedHashes } from '../../src/branding/repository.js';
+import {
+  checkReferencedAssets,
+  createBrandingSweepers,
+  registerBrandingSweepers,
+  sweepExpiredAssets,
+  sweepOrphanFiles,
+  sweepTemporaryFiles,
+  type SweepDependencies,
+} from '../../src/branding/sweepers.js';
+import { withTransaction } from '../../src/db/index.js';
+import { createSweeperRegistry } from '../../src/lifecycle/sweepers.js';
+import { createFakeScheduler } from '../helpers/fake-scheduler.js';
+import { createTempDataDir } from '../helpers/temp-data-dir.js';
+import { createBrandingStorage, distinctPng } from './branding-fixture.js';
 import { pathInkBounds, placeGlyphs } from '../../src/branding/pipeline/monogram-render.js';
 import { bilevelBombPng, OUTPUT_CHUNK_TYPES, walkPng } from '../fixtures/png-chunks.js';
 
@@ -694,5 +713,334 @@ describe('icons: failures', () => {
     for (const accent of ['', '#12', 'red', '#gggggg', '0078d4']) {
       await expect(composeIcons(input({ accent }))).rejects.toBeInstanceOf(RangeError);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T-A-084: staging, the quota, the 24-hour timer and the sweepers (FR-A-084, FR-A-089, FR-A-091; PD-10)
+// ---------------------------------------------------------------------------------------------
+
+/** `sha256` under a name that a destructured `sha256` in a test cannot hide. */
+const sha256Of = sha256;
+
+const HOUR = 3_600_000;
+const MINUTE = 60_000;
+const DAY = 24 * HOUR;
+const PREVIEW = { actor: { kind: 'preview', id: 'preview' } } as const;
+
+type Storage = Awaited<ReturnType<typeof createBrandingStorage>>;
+
+/** Stage an upload the way the route does: process, write the file, register the row. */
+async function stageUpload(
+  storage: Storage,
+  bytes: Uint8Array,
+  slot: 'logoLight' | 'logoDark' | 'compact' = 'logoLight',
+): Promise<{ sha256: string; created: boolean }> {
+  const processed = await storage.images.process({ bytes, slot });
+  const sha256 = await storage.store.write(processed.png);
+  const registered = withTransaction(storage.database, (tx) =>
+    storage.store.registerStaged(tx, {
+      sha256,
+      bytes: processed.png.length,
+      width: processed.width,
+      height: processed.height,
+      luminance: processed.luminance,
+    }),
+  );
+  return { sha256, created: registered.created };
+}
+
+function sweeping(storage: Storage): SweepDependencies {
+  return {
+    store: storage.store,
+    database: () => storage.database,
+    now: () => storage.clock.nowMs(),
+  };
+}
+
+/** Set the modification time of a file to an instant of the fake clock. */
+async function touch(path: string, instantMs: number): Promise<void> {
+  await utimes(path, instantMs / 1000, instantMs / 1000);
+}
+
+describe('staging: identical bytes, the timer and the quota (T-A-084)', () => {
+  it('writes the processed image to <sha256>.png and leaves .tmp empty', async () => {
+    const storage = await createBrandingStorage();
+    const { sha256 } = await stageUpload(storage, await distinctPng(1));
+    expect((await readdir(storage.store.tempDirectory)).length).toBe(0);
+    expect(sha256Of(await readFile(storage.store.pathOf(sha256)))).toBe(sha256);
+  });
+
+  it('converges identical bytes on one file and one row (created: false the second time)', async () => {
+    const storage = await createBrandingStorage();
+    const bytes = await distinctPng(2);
+    const first = await stageUpload(storage, bytes);
+    const rowsBefore = storage.assets().length;
+    const second = await stageUpload(storage, bytes);
+    expect(first.created).toBe(true);
+    expect(second).toEqual({ sha256: first.sha256, created: false });
+    expect(storage.assets()).toHaveLength(rowsBefore);
+    expect(
+      (await readdir(storage.store.directory)).filter((name) => name === `${first.sha256}.png`),
+    ).toHaveLength(1);
+  });
+
+  it('staging identical bytes again restarts the 24 hours of an unreferenced asset', async () => {
+    const storage = await createBrandingStorage();
+    const bytes = await distinctPng(3);
+    const { sha256 } = await stageUpload(storage, bytes);
+    const stagedAt = storage.clock.nowMs();
+
+    // 23 hours 59 minutes later it is staged again: the upload the user is about to apply.
+    storage.clock.advance(DAY - MINUTE);
+    await stageUpload(storage, bytes);
+    const restartedAt = storage.clock.nowMs();
+
+    // At the 24-hour mark of the FIRST staging nothing is swept ...
+    storage.clock.set(stagedAt + DAY + 1);
+    expect(await sweepExpiredAssets(sweeping(storage))).toEqual([]);
+    expect(storage.assets().some((row) => row.sha256 === sha256)).toBe(true);
+    // ... exactly 24 hours after the second one still not (the rule is "older than") ...
+    storage.clock.set(restartedAt + DAY);
+    expect(await sweepExpiredAssets(sweeping(storage))).toEqual([]);
+    // ... and one millisecond later it is gone, row and file.
+    storage.clock.set(restartedAt + DAY + 1);
+    expect(await sweepExpiredAssets(sweeping(storage))).toEqual([sha256]);
+    expect(storage.assets().some((row) => row.sha256 === sha256)).toBe(false);
+    expect(await storage.store.has(sha256)).toBe(false);
+  });
+
+  it('without the second staging the asset is swept after 24 hours (the control of the test above)', async () => {
+    const storage = await createBrandingStorage();
+    const { sha256 } = await stageUpload(storage, await distinctPng(4));
+    storage.clock.advance(DAY - MINUTE + DAY);
+    expect(await sweepExpiredAssets(sweeping(storage))).toEqual([sha256]);
+  });
+
+  it('does not count identical bytes twice against the quota', async () => {
+    const storage = await createBrandingStorage();
+    const bytes = await distinctPng(5);
+    await stageUpload(storage, bytes);
+    await stageUpload(storage, bytes);
+    await stageUpload(storage, bytes);
+    expect(storage.usage().files).toBe(1);
+  });
+
+  it('leaves a referenced asset untouched when it is staged again', async () => {
+    const storage = await createBrandingStorage();
+    const bytes = await distinctPng(6);
+    const { sha256 } = await stageUpload(storage, bytes);
+    await storage.service.apply(
+      { orgName: 'Acme', accent: '#0078d4', logos: { light: sha256, dark: null, compact: null } },
+      1,
+      PREVIEW,
+    );
+    storage.clock.advance(HOUR);
+    const again = await stageUpload(storage, bytes);
+    expect(again).toEqual({ sha256, created: false });
+    expect(storage.assets().find((row) => row.sha256 === sha256)?.unreferenced_at).toBeNull();
+    expect(storage.usage().files).toBe(0);
+  });
+
+  it('refuses the 33rd unreferenced file with staging_quota_exceeded and writes nothing for it', async () => {
+    const storage = await createBrandingStorage();
+    for (let seed = 0; seed < LIMITS.staging.quotaFiles; seed += 1) {
+      await stageUpload(storage, await distinctPng(seed));
+    }
+    const filesBefore = (await readdir(storage.store.directory)).length;
+    const processed = await storage.images.process({
+      bytes: await distinctPng(40),
+      slot: 'logoLight',
+    });
+    const metadata = {
+      sha256: sha256Of(processed.png),
+      bytes: processed.png.length,
+      width: processed.width,
+      height: processed.height,
+      luminance: processed.luminance,
+    };
+    expect(storage.store.fitsQuota(storage.database, metadata)).toBe(false);
+    expect(() =>
+      withTransaction(storage.database, (tx) => storage.store.registerStaged(tx, metadata)),
+    ).toThrow(expect.objectContaining({ code: 'staging_quota_exceeded' }));
+    expect((await readdir(storage.store.directory)).length).toBe(filesBefore);
+    // Applying one of them frees room: it is referenced now, so it no longer waits.
+    const [waiting] = storage.assets().filter((row) => row.unreferenced_at !== null);
+    await storage.service.apply(
+      {
+        orgName: 'Acme',
+        accent: '#0078d4',
+        logos: { light: waiting?.sha256 ?? '', dark: null, compact: null },
+      },
+      1,
+      PREVIEW,
+    );
+    expect(storage.store.fitsQuota(storage.database, metadata)).toBe(true);
+  });
+});
+
+describe('the sweepers on a fake clock (T-A-084; data-model 9)', () => {
+  it('deletes unreferenced assets older than 24 hours, row and file, and never a referenced one', async () => {
+    const storage = await createBrandingStorage();
+    const kept = await stageUpload(storage, await distinctPng(10));
+    const dropped = await stageUpload(storage, await distinctPng(11));
+    await storage.service.apply(
+      {
+        orgName: 'Acme',
+        accent: '#0078d4',
+        logos: { light: kept.sha256, dark: null, compact: null },
+      },
+      1,
+      PREVIEW,
+    );
+    const referenced = new Set(referencedHashes(storage.database));
+    expect(referenced.has(kept.sha256)).toBe(true);
+
+    storage.clock.advance(7 * DAY);
+    const swept = await sweepExpiredAssets(sweeping(storage));
+    // The retired icons of the default branding are swept with it; the referenced ones are not.
+    expect(swept).toContain(dropped.sha256);
+    for (const hash of referenced) expect(swept).not.toContain(hash);
+    for (const hash of referenced) {
+      expect(storage.assets().some((row) => row.sha256 === hash)).toBe(true);
+      expect(await storage.store.has(hash)).toBe(true);
+    }
+    expect(await storage.store.has(dropped.sha256)).toBe(false);
+  });
+
+  it('keeps a retired asset for 24 hours and then deletes it (Undo window)', async () => {
+    const storage = await createBrandingStorage();
+    const logo = await stageUpload(storage, await distinctPng(12));
+    await storage.service.apply(
+      {
+        orgName: 'Acme',
+        accent: '#0078d4',
+        logos: { light: logo.sha256, dark: null, compact: null },
+      },
+      1,
+      PREVIEW,
+    );
+    await storage.service.reset(2, PREVIEW);
+    const retiredAt = storage.clock.nowMs();
+    storage.clock.set(retiredAt + DAY - 1);
+    expect(await sweepExpiredAssets(sweeping(storage))).not.toContain(logo.sha256);
+    storage.clock.set(retiredAt + DAY + 1);
+    expect(await sweepExpiredAssets(sweeping(storage))).toContain(logo.sha256);
+  });
+
+  it('never selects a referenced hash even when its flag is wrong', async () => {
+    const storage = await createBrandingStorage();
+    const [hash] = referencedHashes(storage.database);
+    storage.database.sqlite
+      .prepare('UPDATE branding_asset SET unreferenced_at = ? WHERE sha256 = ?')
+      .run('2020-01-01T00:00:00.000Z', hash);
+    expect(await sweepExpiredAssets(sweeping(storage))).toEqual([]);
+    expect(storage.assets().some((row) => row.sha256 === hash)).toBe(true);
+  });
+
+  it('deletes orphan image files older than one hour that no row accounts for', async () => {
+    const storage = await createBrandingStorage();
+    const old = join(storage.store.directory, `${'a'.repeat(64)}.png`);
+    const young = join(storage.store.directory, `${'b'.repeat(64)}.png`);
+    await writeFile(old, 'x');
+    await writeFile(young, 'x');
+    await touch(old, storage.clock.nowMs() - HOUR - MINUTE);
+    await touch(young, storage.clock.nowMs() - HOUR + MINUTE);
+    expect(await sweepOrphanFiles(sweeping(storage))).toEqual([`${'a'.repeat(64)}.png`]);
+    expect(await readdir(storage.store.directory)).toContain(`${'b'.repeat(64)}.png`);
+  });
+
+  it('keeps an old file that has a row, referenced or not', async () => {
+    const storage = await createBrandingStorage();
+    const waiting = await stageUpload(storage, await distinctPng(13));
+    for (const name of await readdir(storage.store.directory)) {
+      if (name.endsWith('.png')) {
+        await touch(join(storage.store.directory, name), storage.clock.nowMs() - 5 * DAY);
+      }
+    }
+    expect(await sweepOrphanFiles(sweeping(storage))).toEqual([]);
+    expect(await storage.store.has(waiting.sha256)).toBe(true);
+    for (const hash of referencedHashes(storage.database)) {
+      expect(await storage.store.has(hash)).toBe(true);
+    }
+  });
+
+  it('deletes entries of .tmp older than 10 minutes and keeps the younger ones', async () => {
+    const storage = await createBrandingStorage();
+    const old = join(storage.store.tempDirectory, 'old-write');
+    const young = join(storage.store.tempDirectory, 'young-write');
+    await writeFile(old, 'x');
+    await writeFile(young, 'x');
+    await touch(old, storage.clock.nowMs() - 10 * MINUTE - 1_000);
+    await touch(young, storage.clock.nowMs() - 10 * MINUTE + 1_000);
+    expect(await sweepTemporaryFiles(sweeping(storage))).toBe(1);
+    expect(await readdir(storage.store.tempDirectory)).toEqual(['young-write']);
+  });
+
+  it('does nothing without a database (degraded mode) and without a directory', async () => {
+    const storage = await createBrandingStorage();
+    const degraded = { ...sweeping(storage), database: () => undefined };
+    expect(await sweepExpiredAssets(degraded)).toEqual([]);
+    expect(await sweepOrphanFiles(degraded)).toEqual([]);
+    const lonely = await createTempDataDir();
+    const store = createAssetStore({ dataDir: lonely.path, now: () => storage.clock.nowMs() });
+    expect(await sweepTemporaryFiles({ ...sweeping(storage), store })).toBe(0);
+  });
+
+  it('registers three sweepers with the registry of the server, which runs them at start and hourly', async () => {
+    const storage = await createBrandingStorage();
+    const scheduler = createFakeScheduler();
+    const warnings: unknown[] = [];
+    const registry = createSweeperRegistry({
+      log: { warn: (fields) => warnings.push(fields) },
+      scheduler,
+    });
+    registerBrandingSweepers(registry, sweeping(storage));
+    expect(createBrandingSweepers(sweeping(storage)).map((sweeper) => sweeper.name)).toEqual([
+      'branding-tmp',
+      'branding-staged',
+      'branding-orphans',
+    ]);
+    // A second registration of the same names is refused by the registry.
+    expect(() => registerBrandingSweepers(registry, sweeping(storage))).toThrow(
+      /already registered/,
+    );
+
+    const stale = await stageUpload(storage, await distinctPng(14));
+    storage.clock.advance(2 * DAY);
+    await registry.start();
+    expect(storage.assets().some((row) => row.sha256 === stale.sha256)).toBe(false);
+
+    const second = await stageUpload(storage, await distinctPng(15));
+    storage.clock.advance(2 * DAY);
+    scheduler.advance(HOUR);
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(storage.assets().some((row) => row.sha256 === second.sha256)).toBe(false);
+    expect(warnings).toEqual([]);
+    registry.stop();
+  });
+
+  it('logs branding_asset_missing for a referenced asset without a file, once per hash, and reports it', async () => {
+    const storage = await createBrandingStorage();
+    const [hash] = referencedHashes(storage.database);
+    await storage.store.remove(hash ?? '');
+    const lines: Record<string, unknown>[] = [];
+    const missing = await checkReferencedAssets({
+      ...sweeping(storage),
+      log: { warn: (fields) => lines.push(fields) },
+    });
+    expect(missing).toEqual([hash]);
+    expect(lines).toEqual([{ event: 'branding_asset_missing', sha256: hash }]);
+    // A complete branding logs nothing.
+    const complete = await createBrandingStorage();
+    const quiet: unknown[] = [];
+    expect(
+      await checkReferencedAssets({
+        ...sweeping(complete),
+        log: { warn: (fields) => quiet.push(fields) },
+      }),
+    ).toEqual([]);
+    expect(quiet).toEqual([]);
   });
 });

@@ -8,7 +8,7 @@ import { createAppRouter } from '../src/router';
 import { sampleBranding, sampleMe } from './helpers/boot-fixtures';
 
 describe('app router', () => {
-  it('renders the index route with the product name', async () => {
+  it('renders the index route: the Dashboard', async () => {
     const api = createApiClient({
       buildVersion: null,
       fetch: () => Promise.reject(new Error('offline')),
@@ -22,8 +22,6 @@ describe('app router', () => {
 
     render(<RootProviders router={router} queryClient={queryClient} />);
 
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'M365Portal' }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument();
   });
 });

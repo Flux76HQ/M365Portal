@@ -23,7 +23,9 @@ const nl = createTranslator('nl');
 
 function press(
   key: string,
-  options: Partial<Omit<ShortcutEventLike, 'key' | 'target'>> & { target?: EventTarget | null } = {},
+  options: Partial<Omit<ShortcutEventLike, 'key' | 'target'>> & {
+    target?: EventTarget | null;
+  } = {},
 ): ShortcutEventLike {
   return {
     key,

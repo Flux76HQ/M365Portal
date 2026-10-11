@@ -14,7 +14,9 @@ export interface StorageProviderProps {
 }
 
 export function StorageProvider({ storage, children }: StorageProviderProps): ReactNode {
-  return <StorageContext.Provider value={storage ?? getAppStorage()}>{children}</StorageContext.Provider>;
+  return (
+    <StorageContext.Provider value={storage ?? getAppStorage()}>{children}</StorageContext.Provider>
+  );
 }
 
 /** The storage of the page (or the one a test mounted the app with). */

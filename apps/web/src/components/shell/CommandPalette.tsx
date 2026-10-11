@@ -3,11 +3,7 @@ import { Command as Cmdk } from 'cmdk';
 import { SearchIcon } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useMemo, useState } from 'react';
-import {
-  visibleCommands,
-  type Command,
-  type CommandGroup,
-} from '../../lib/commands';
+import { visibleCommands, type Command, type CommandGroup } from '../../lib/commands';
 import { useTranslator } from '../../lib/locale';
 import { useMe } from '../../lib/router-context';
 import {

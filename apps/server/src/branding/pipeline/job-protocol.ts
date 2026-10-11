@@ -353,7 +353,7 @@ function replyImage(
   return size;
 }
 
-function replyLuminance(value: unknown): number | null {
+function replyInkLevel(value: unknown): number | null {
   if (value === null) return null;
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
     throw new JobProtocolError('job reply', 'luminance is out of range');
@@ -431,7 +431,7 @@ function parseUploadSuccess(raw: Raw): UploadJobSuccess {
     png: value.png as string,
     width,
     height,
-    luminance: replyLuminance(value.luminance),
+    luminance: replyInkLevel(value.luminance),
     warnings: replyWarnings(value.warnings),
   };
 }
@@ -463,7 +463,7 @@ function parseVariantsSuccess(raw: Raw): VariantsJobSuccess {
     if (size.width !== size.height || size.width > LIMITS.image.compactMasterPx) {
       throw new JobProtocolError('job reply', 'compact is not a square within its bound');
     }
-    compact = { png: entry.png as string, luminance: replyLuminance(entry.luminance) };
+    compact = { png: entry.png as string, luminance: replyInkLevel(entry.luminance) };
   }
   if (value.compactDerived && compact === null) {
     throw new JobProtocolError('job reply', 'compactDerived without a compact');

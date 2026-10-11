@@ -1,7 +1,11 @@
 import { Outlet } from '@tanstack/react-router';
 import { lazy, Suspense, useCallback, useState } from 'react';
 import { useSidebarState } from '../../lib/sidebar';
-import { useGlobalShortcuts, useSingleKeyShortcuts, type ShortcutAction } from '../../lib/shortcuts';
+import {
+  useGlobalShortcuts,
+  useSingleKeyShortcuts,
+  type ShortcutAction,
+} from '../../lib/shortcuts';
 import { BreadcrumbsBar } from './BreadcrumbsBar';
 import { Header } from './Header';
 import { PreviewBanner } from './PreviewBanner';

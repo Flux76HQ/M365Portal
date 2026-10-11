@@ -1,8 +1,10 @@
 import { PRODUCT_NAME } from '@m365portal/shared';
+import type { MessageKey } from '@m365portal/shared/i18n';
 import { RouterProvider, useRouterState } from '@tanstack/react-router';
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import { useEffect, type ReactNode } from 'react';
 import { LanguageProvider, useTranslator, type LanguageController } from '../../lib/locale';
+import { accessOf } from '../../lib/gating';
 import { useBranding } from '../../lib/router-context';
 import type { AppStorage } from '../../lib/storage';
 import { StorageProvider } from '../../lib/storage-context';
@@ -70,6 +72,11 @@ export function AppToastProvider({ children }: { readonly children: ReactNode })
   );
 }
 
+/** Did the router mark this match as the one that answers an address it has no page for? */
+function isUnmatched(match: object): boolean {
+  return (match as { _notFound?: boolean })._notFound === true;
+}
+
 /**
  * The router's `InnerWrap`: keeps `document.title` at `<page> - <organisation name>`. The page part is
  * the translated `titleKey` of the deepest route that has one; the organisation name is data and is
@@ -78,8 +85,18 @@ export function AppToastProvider({ children }: { readonly children: ReactNode })
 export function DocumentTitleSync({ children }: { readonly children: ReactNode }) {
   const { t } = useTranslator();
   const titleKey = useRouterState({
-    select: (state) =>
-      state.matches.findLast((match) => match.staticData.titleKey)?.staticData.titleKey,
+    select: (state): MessageKey | undefined => {
+      // A page that failed or that does not exist says so in its title; a page that was found has its own.
+      if (state.matches.some((match) => match.status === 'error')) return 'errors.route.title';
+      const verdict = accessOf(state.matches.at(-1)?.context);
+      if (verdict === 'denied') return 'nav.noAccess';
+      if (verdict === 'missing') return 'pages.notFound.title';
+      // `_notFound` marks the route that answers an unknown URL; `notFound` status a route that said so itself.
+      if (state.matches.some((match) => match.status === 'notFound' || isUnmatched(match))) {
+        return 'pages.notFound.title';
+      }
+      return state.matches.findLast((match) => match.staticData.titleKey)?.staticData.titleKey;
+    },
   });
   const organisation = useBranding()?.orgName ?? PRODUCT_NAME;
 

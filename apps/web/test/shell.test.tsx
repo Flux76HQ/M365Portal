@@ -264,7 +264,9 @@ describe('landmarks and the skip link', () => {
 
     const mains = await screen.findAllByRole('main');
     expect(mains).toHaveLength(1);
-    expect(within(mains[0]!).getByRole('heading', { level: 1 })).toHaveTextContent('Dashboard page');
+    expect(within(mains[0]!).getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Dashboard page',
+    );
   });
 
   it('has one banner and one complementary landmark', async () => {
@@ -393,11 +395,11 @@ describe('the theme switcher', () => {
     const header = await screen.findByRole('banner');
     const group = within(header).getByRole('radiogroup', { name: en.t('theme.label') });
 
-    expect(within(group).getAllByRole('radio').map((radio) => radio.textContent)).toEqual([
-      en.t('theme.light'),
-      en.t('theme.dark'),
-      en.t('theme.system'),
-    ]);
+    expect(
+      within(group)
+        .getAllByRole('radio')
+        .map((radio) => radio.textContent),
+    ).toEqual([en.t('theme.light'), en.t('theme.dark'), en.t('theme.system')]);
 
     await user.click(within(group).getByRole('radio', { name: en.t('theme.dark') }));
 
@@ -413,10 +415,11 @@ describe('the language switcher', () => {
 
     await user.click(within(header).getByRole('button', { name: en.t('lang.label') }));
     const menu = await screen.findByRole('menu');
-    expect(within(menu).getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
-      'Nederlands',
-      'English',
-    ]);
+    expect(
+      within(menu)
+        .getAllByRole('menuitemradio')
+        .map((item) => item.textContent),
+    ).toEqual(['Nederlands', 'English']);
     expect(within(menu).getByRole('menuitemradio', { name: 'English' })).toBeChecked();
 
     await user.click(within(menu).getByRole('menuitemradio', { name: 'Nederlands' }));

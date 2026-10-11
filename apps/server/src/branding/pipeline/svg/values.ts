@@ -97,7 +97,25 @@ export function parseNumberList(text: string, maxItems: number): number[] | null
 // Colours and paints
 // ---------------------------------------------------------------------------------------------
 
-const HEX_COLOUR = /^#(?:[0-9A-Fa-f]{3,4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/;
+/** The lengths (with the hash sign) of the CSS hex forms: #rgb, #rgba, #rrggbb, #rrggbbaa. */
+const HEX_FORM_LENGTHS: ReadonlySet<number> = new Set([4, 5, 7, 9]);
+
+/**
+ * Is `text` a CSS hex colour in any of its four forms? This only recognises a value inside a
+ * document for the allowlist; it never normalises a colour (accent hex normalisation is the shared
+ * `normalizeAccent`), so it is a character test and not a pattern that takes a colour apart.
+ */
+function isHashForm(text: string): boolean {
+  if (!text.startsWith('#') || !HEX_FORM_LENGTHS.has(text.length)) return false;
+  for (let index = 1; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    const digit = code >= 48 && code <= 57;
+    const lower = code >= 97 && code <= 102;
+    const upper = code >= 65 && code <= 70;
+    if (!digit && !lower && !upper) return false;
+  }
+  return true;
+}
 
 /** The CSS named colours plus `transparent`. */
 const NAMED_COLOURS: ReadonlySet<string> = new Set(
@@ -147,7 +165,7 @@ function isFunctionColour(text: string): boolean {
 
 /** A colour: hex, a colour function, a named colour or `currentColor`. */
 export function isColour(text: string): boolean {
-  if (HEX_COLOUR.test(text)) return true;
+  if (isHashForm(text)) return true;
   if (/^currentcolor$/i.test(text)) return true;
   if (NAMED_COLOURS.has(text.toLowerCase())) return true;
   return isFunctionColour(text);

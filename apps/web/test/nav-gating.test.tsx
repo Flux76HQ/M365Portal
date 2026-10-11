@@ -9,12 +9,7 @@ import { PERMISSIONS, type Permission } from '@m365portal/shared/permissions';
 import { ROUTES } from '@m365portal/shared/routes';
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import {
-  COMMANDS,
-  navigationCommands,
-  visibleCommands,
-  type Command,
-} from '../src/lib/commands';
+import { COMMANDS, navigationCommands, visibleCommands, type Command } from '../src/lib/commands';
 import { sampleMe } from './helpers/boot-fixtures';
 import { renderShell } from './helpers/render-shell';
 
@@ -50,12 +45,15 @@ describe('navigationCommands(me)', () => {
     ['distributionlists:read', 'distribution-lists'],
     ['contacts:read', 'contacts'],
     ['audit:read', 'audit'],
-  ] as const)('shows the entry for %s to the actor who holds it, and to nobody else', (permission, id) => {
-    expect(navIds([permission])).toEqual(['dashboard', id]);
-    for (const other of PERMISSIONS.filter((candidate) => candidate !== permission)) {
-      expect(navIds([other])).not.toContain(id);
-    }
-  });
+  ] as const)(
+    'shows the entry for %s to the actor who holds it, and to nobody else',
+    (permission, id) => {
+      expect(navIds([permission])).toEqual(['dashboard', id]);
+      for (const other of PERMISSIONS.filter((candidate) => candidate !== permission)) {
+        expect(navIds([other])).not.toContain(id);
+      }
+    },
+  );
 
   it.each(['settings:branding', 'settings:connection'] as const)(
     'shows Settings for %s',
@@ -131,14 +129,17 @@ describe('the registry', () => {
   it.each([
     ['en', en],
     ['nl', nl],
-  ] as const)('has a label and keywords in the %s catalogue for every command', (_name, translator) => {
-    for (const command of COMMANDS) {
-      expect(translator.t(command.labelKey), command.id).not.toBe(command.labelKey);
-      for (const key of command.keywordKeys) {
-        expect(translator.t(key), `${command.id} ${key}`).not.toBe(key);
+  ] as const)(
+    'has a label and keywords in the %s catalogue for every command',
+    (_name, translator) => {
+      for (const command of COMMANDS) {
+        expect(translator.t(command.labelKey), command.id).not.toBe(command.labelKey);
+        for (const key of command.keywordKeys) {
+          expect(translator.t(key), `${command.id} ${key}`).not.toBe(key);
+        }
       }
-    }
-  });
+    },
+  );
 });
 
 describe('the sidebar reads the registry', () => {
@@ -146,9 +147,11 @@ describe('the sidebar reads the registry', () => {
     await renderShell();
     const nav = await screen.findByRole('navigation', { name: en.t('a11y.mainNavigation') });
 
-    expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual([
-      en.t('nav.dashboard'),
-    ]);
+    expect(
+      within(nav)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual([en.t('nav.dashboard')]);
   });
 
   it('shows an actor with users:read the Users entry and not Groups', async () => {
@@ -166,7 +169,11 @@ describe('the sidebar reads the registry', () => {
     await renderShell({ me: sampleMe({ preview: true }), language: 'nl' });
     const nav = await screen.findByRole('navigation', { name: nl.t('a11y.mainNavigation') });
 
-    expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual([
+    expect(
+      within(nav)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual([
       nl.t('nav.dashboard'),
       nl.t('nav.users'),
       nl.t('nav.groups'),

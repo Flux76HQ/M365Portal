@@ -1,5 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { createRouter, type RouterHistory } from '@tanstack/react-router';
+import { NotFound } from './components/pages/NotFound';
+import { RouteError } from './components/pages/RouteError';
 import { AppToastProvider, DocumentTitleSync } from './components/pages/root-providers';
 import { getApiClient } from './lib/api';
 import type { RouterContext } from './lib/router-context';
@@ -17,6 +19,8 @@ export function baseRouterOptions(context: RouterContext) {
     scrollRestoration: true,
     Wrap: AppToastProvider,
     InnerWrap: DocumentTitleSync,
+    defaultErrorComponent: RouteError,
+    defaultNotFoundComponent: NotFound,
   } as const;
 }
 

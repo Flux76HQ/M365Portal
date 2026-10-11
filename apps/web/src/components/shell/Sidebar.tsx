@@ -93,7 +93,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         collapsed ? 'w-16' : 'w-64',
       )}
     >
-      <div className={cn('flex h-14 shrink-0 items-center px-4', collapsed && 'justify-center px-0')}>
+      <div
+        className={cn('flex h-14 shrink-0 items-center px-4', collapsed && 'justify-center px-0')}
+      >
         <OrgMark variant={collapsed ? 'compact' : 'full'} />
       </div>
       <nav

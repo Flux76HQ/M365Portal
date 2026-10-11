@@ -19,7 +19,11 @@ import type { MeResponse } from './boot-data';
 import { meQueryOptions } from './query';
 import type { RouterContext } from './router-context';
 
-export type Access = 'allowed' | 'denied';
+/**
+ * What a route says about the actor: `allowed`, `denied` (the page shows No-access) or `missing` (the page
+ * does not exist for this server, such as `/design` while the showcase is off, and shows Not-found).
+ */
+export type Access = 'allowed' | 'denied' | 'missing';
 
 /** Does the actor hold at least one of the permissions? Deny by default (an empty list denies). */
 export function hasAccess(
@@ -59,16 +63,22 @@ export function requireAnyOf(anyOf: readonly Permission[]) {
 export { requireAnyOf as requirePermission };
 
 /**
+ * The verdict a route (or a parent) gave: `allowed` when no gate is in the chain. Used by the page title,
+ * which says "No access" or "Page not found" instead of the name of a page that is not shown.
+ */
+export function accessOf(context: unknown): Access {
+  const access = (context as { access?: Access } | null)?.access;
+  return access ?? 'allowed';
+}
+
+/**
  * A route component that renders `Denied` instead of `Allowed` when the route (or a parent) was
- * denied by `requirePermission`. Without a gate in the chain the page is shown.
+ * denied by `requirePermission` or is missing. Without a gate in the chain the page is shown.
  */
 export function gatedPage(Allowed: ComponentType, Denied: ComponentType): () => ReactNode {
   function GatedPage(): ReactNode {
-    const access = useRouteContext({
-      strict: false,
-      select: (context) => (context as { access?: Access }).access,
-    });
-    return createElement(access === 'denied' ? Denied : Allowed);
+    const access = useRouteContext({ strict: false, select: accessOf });
+    return createElement(access === 'allowed' ? Allowed : Denied);
   }
   return GatedPage;
 }
