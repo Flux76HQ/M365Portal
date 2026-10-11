@@ -132,7 +132,11 @@ function roleId(roleIds: DesiredStateInput['roleIds'], name: string): string {
 
 function checkedApplicationName(name: string): string {
   const normalised = tryNormalizeOrgName(name);
-  if (normalised === null || normalised !== name || Array.from(name).length < APPLICATION_NAME_MIN_CHARS) {
+  if (
+    normalised === null ||
+    normalised !== name ||
+    Array.from(name).length < APPLICATION_NAME_MIN_CHARS
+  ) {
     throw new DesiredStateError('application_name_invalid');
   }
   return name;

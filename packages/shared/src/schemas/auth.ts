@@ -9,7 +9,8 @@ import { z } from 'zod';
 import { LIMITS } from '../limits.js';
 import { safeReturnTo } from '../auth/return-to.js';
 import { NO_ACCESS_REASONS, SIGNIN_ERROR_CODES } from '../auth/signin-errors.js';
-import { GuidSchema } from './common.js';
+import { GuidSchema, IsoTimestampSchema } from './common.js';
+import { GrantSchema, RoleKeySchema, ScopeItemSchema } from './rbac.js';
 
 const utf8Bytes = (value: string): number => new TextEncoder().encode(value).length;
 
@@ -162,3 +163,66 @@ export const BreakGlassRequestSchema = z
 export const BreakGlassResponseSchema = z
   .strictObject({ redirect: z.literal('/settings/restore-access') })
   .meta({ id: 'BreakGlassResponse' });
+
+// ---------------------------------------------------------------------------------------------
+// "Mijn toegang" (P09)
+// ---------------------------------------------------------------------------------------------
+
+/** A display label: at most 256 bytes, possibly empty (labels never select or authorise anything). */
+const LabelSchema = z
+  .string()
+  .refine((value) => utf8Bytes(value) <= LIMITS.setup.detailStringMaxBytes, {
+    error: 'at most 256 bytes',
+  });
+
+/**
+ * `GET /api/v1/me/access`: who the actor is, the assignments behind the grants and the grants
+ * themselves. A break-glass session has no assignments and exactly one grant, `rbac:manage`.
+ */
+export const MyAccessResponseSchema = z
+  .strictObject({
+    principal: z.discriminatedUnion('kind', [
+      z.strictObject({ kind: z.literal('user'), id: GuidSchema, label: LabelSchema }),
+      z.strictObject({
+        kind: z.literal('break_glass'),
+        id: z.literal('break_glass'),
+        label: LabelSchema,
+      }),
+    ]),
+    assignments: z
+      .array(
+        z.strictObject({
+          id: GuidSchema,
+          role: z.strictObject({ key: RoleKeySchema, builtin: z.boolean() }),
+          origin: z.discriminatedUnion('type', [
+            z.strictObject({ type: z.literal('direct') }),
+            z.strictObject({
+              type: z.literal('group'),
+              groupId: GuidSchema,
+              groupName: LabelSchema.nullable(),
+            }),
+          ]),
+          scope: z.array(ScopeItemSchema).max(LIMITS.rbac.scopeItemsPerAssignmentMax),
+          expiresAt: IsoTimestampSchema.nullable(),
+        }),
+      )
+      .max(LIMITS.rbac.assignmentsMax),
+    grants: z.array(GrantSchema),
+    groupsStale: z.boolean(),
+    groupsResolvedAt: IsoTimestampSchema.nullable(),
+  })
+  .refine(
+    (access) => {
+      if (access.principal.kind !== 'break_glass') return true;
+      const [grant, ...rest] = access.grants;
+      return (
+        access.assignments.length === 0 &&
+        rest.length === 0 &&
+        grant?.permission === 'rbac:manage' &&
+        grant.qualifier === 'full' &&
+        grant.scope === 'all'
+      );
+    },
+    { error: 'a break-glass session has no assignments and the single grant rbac:manage' },
+  )
+  .meta({ id: 'MyAccessResponse' });

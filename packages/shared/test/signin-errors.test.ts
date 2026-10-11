@@ -5,6 +5,7 @@
 // the user. The documents are read, so a document that changes without the registry fails.
 // Every guard has a negative fixture (tasks.md section 0.3).
 import { readFileSync } from 'node:fs';
+import { inspect } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { AADSTS_REASONS, mapMicrosoftError } from '../src/auth/aadsts-map.js';
 import {
@@ -28,6 +29,7 @@ import {
 } from '../src/auth/signin-errors.js';
 import { expectGuardFails } from '../src/testing/index.js';
 
+const show = (value: unknown): string => inspect(value, { breakLength: Infinity });
 const read = (relative: string): string => readFileSync(new URL(relative, import.meta.url), 'utf8');
 const SPEC = read('../../../specs/002-phase-b/spec.md');
 const CONTRACT = read('../../../specs/002-phase-b/contracts/phase-b-api.md');
@@ -124,7 +126,7 @@ describe('SIGNIN_ERROR_CODES', () => {
       {},
       ['access_denied'],
     ]) {
-      expect(resolveSigninError(value), String(value).slice(0, 30)).toBe('signin_failed');
+      expect(resolveSigninError(value), show(value).slice(0, 30)).toBe('signin_failed');
     }
   });
 

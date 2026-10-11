@@ -19,6 +19,7 @@ import { Hono, type MiddlewareHandler } from 'hono';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { z } from 'zod';
 import { loadConfig } from '../src/config/index.js';
+import { withLegacyPreview } from './helpers/legacy-preview.js';
 import { createCsrf, csrfGuard } from '../src/http/csrf.js';
 import { originGuard } from '../src/http/origin.js';
 import { bodyLimit } from '../src/http/body-limit.js';
@@ -683,13 +684,14 @@ function referencePipeline(
 ): (mode: Mode, tight: boolean) => Promise<Probe> {
   return (mode, tight) => {
     const clock = createFakeClock();
-    const loaded = loadConfig({
+    const env = {
       DATA_DIR: '/tmp/unused',
       PUBLIC_BASE_URL: ORIGIN,
       ...(mode === 'preview' ? { PREVIEW_MODE: 'true' } : {}),
-    });
+    };
+    const loaded = loadConfig(env);
     if (!loaded.ok) throw new Error('configuration refused');
-    const { config } = loaded;
+    const config = withLegacyPreview(loaded.config, env);
     const csrf = createCsrf({ now: () => clock.nowMs() });
     const limiter = createRateLimiter({
       now: () => clock.nowMs(),

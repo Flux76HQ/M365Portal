@@ -59,13 +59,25 @@ invalid value stops the start and names the variable, never its value. Do not co
 | `DATA_DIR` | `/data` | Where the database and files live; must match the volume mount. Compose does not pass it on. |
 | `PUBLIC_BASE_URL` | `http://localhost:<PORT>` (Compose: with `HOST_PORT`) | The origin the browser uses: an absolute `http` or `https` origin without path, query or credentials. Every write is compared with it. Leave it unset in `.env` while the panel is reached on `http://localhost:<HOST_PORT>`; set it behind a reverse proxy (for example `https://panel.example.com`). |
 | `TRUST_PROXY` | `none` | `none`, a number of proxies in front (1 to 8), or a comma-separated list (at most 32) of IP addresses or CIDR ranges to trust. See the checklist below. |
-| `PREVIEW_MODE` | `false` | `true` or `false`. Unauthenticated administration for evaluation only. Publish the port on loopback only. |
-| `PREVIEW_MODE_ALLOW_REMOTE` | `false` | `true` or `false`. Lets preview mode start with a non-loopback `PUBLIC_BASE_URL`. Never on a panel that anyone else can reach. |
 | `SHOWCASE` | `false` | `true` or `false`. Serves the `/design` component showcase. |
 | `LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`. |
 | `HSTS_MAX_AGE` | `31536000` | Seconds, 0 to 63072000, for `Strict-Transport-Security` (sent over https only). |
 | `HSTS_INCLUDE_SUBDOMAINS` | `false` | `true` or `false`. Adds `includeSubDomains`, only on the host of `PUBLIC_BASE_URL`. |
 | `HSTS_PRELOAD` | `false` | `true` or `false`. Adds `preload` on that host; refused at start without `HSTS_INCLUDE_SUBDOMAINS=true` and a `HSTS_MAX_AGE` of at least 31536000. |
+| `APP_KEY` | `unset` | Secret. The key that seals the secrets in the database: 32 bytes as base64, base64url or 64 hexadecimal characters, at least 16 distinct byte values. Exactly one of `APP_KEY` and `APP_KEY_FILE`; neither is allowed until the setup wizard runs. Never in `.env.example`. |
+| `APP_KEY_FILE` | `unset` | Absolute path of a readable file (at most 1,024 bytes, one trailing newline ignored) that holds the key. Exclusive with `APP_KEY`. |
+| `APP_KEY_PREVIOUS` | `unset` | Secret. The previous key, set only while the key is rotated. Exclusive with `APP_KEY_PREVIOUS_FILE`. |
+| `APP_KEY_PREVIOUS_FILE` | `unset` | Absolute path of a file that holds the previous key. |
+| `SETUP_TOKEN` | `unset` | Secret. The setup token of the first installation: 24 to 128 characters from `A-Z a-z 0-9 - _ . ~`, at least 12 distinct. Unset: a token file in the data directory is used. |
+| `BOOTSTRAP_CLIENT_ID` | `14d82eec-204b-4c2f-b7e8-296a70dab67e` | The public client of the device-code sign-in of the setup wizard, a GUID (stored in lower case). |
+| `SETUP_PROPAGATION_TIMEOUT_SECONDS` | `900` | Seconds the wizard waits for a role to propagate: 60 to 3600. |
+| `SESSION_IDLE_TIMEOUT_MINUTES` | `30` | Minutes without activity before a session ends: 5 to 480. |
+| `SESSION_ABSOLUTE_TIMEOUT_HOURS` | `8` | Hours a session lasts at most: 1 to 24; hours x 60 must be greater than the idle minutes. |
+| `GROUP_CACHE_TTL_SECONDS` | `300` | Seconds a group membership is cached: 30 to 3600. |
+| `AUTH_REQUIRE_MFA` | `true` | `true` or `false`. Requires a multi-factor sign-in from Microsoft Entra. |
+| `AUTH_MFA_AMR_VALUES` | `mfa,multipleauthn` | The `amr` values that count as multi-factor: 1 to 8 distinct comma-separated values of 2 to 32 characters from `a-z 0-9`; `pwd`, `wia` and `x509` are refused. |
+| `BREAK_GLASS_USERNAME` | `unset` | The break-glass account: 3 to 64 characters from `A-Z a-z 0-9 . _ -`. Both break-glass variables, or neither. |
+| `BREAK_GLASS_PASSWORD_HASH` | `unset` | Secret. The `scrypt:` line that `hash-password` writes; no `$`. |
 
 **HSTS opt-ins.** `includeSubDomains` is a promise about every subdomain, for the whole `max-age`, in
 every browser that saw it once; `preload` asks browser vendors to hard-code the host and cannot easily be

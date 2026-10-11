@@ -279,6 +279,9 @@ describe('how the arguments of connect are read', () => {
     [['/tmp/x.sock'], { kind: 'ipc', path: '/tmp/x.sock' }],
     [[{ path: '/tmp/x.sock' }], { kind: 'ipc', path: '/tmp/x.sock' }],
     [[{ path: '/tmp/x.sock', host: 'a.example.test', port: 1 }], { kind: 'ipc', path: '/tmp/x.sock' }],
+    // What `net.connect` passes on: the normalised `[options, callback]` array as the one argument.
+    [[[{ host: 'a.example.test', port: 443 }, null]], { kind: 'tcp', host: 'a.example.test', port: 443 }],
+    [[[{ path: '/tmp/x.sock' }, null]], { kind: 'ipc', path: '/tmp/x.sock' }],
   ])('%j', (args, expected) => {
     expect(classifyConnectArguments(args)).toEqual(expected);
   });

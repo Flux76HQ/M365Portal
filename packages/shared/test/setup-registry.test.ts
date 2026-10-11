@@ -402,7 +402,9 @@ describe('isAllowedVerificationUri (FR-B-214, U43)', () => {
       reason: 'verification link refused',
     });
     expectGuardFails(real, 'javascript:alert(1)', { reason: 'refused' });
-    expect(() => suffixOnly('https://login.microsoft.com.evil.test/device')).not.toThrow();
+    expect(() => {
+      suffixOnly('https://login.microsoft.com.evil.test/device');
+    }).not.toThrow();
   });
 });
 
@@ -515,7 +517,8 @@ describe('LOG_KEYS', () => {
     for (const segment of body.split(';')) {
       const m = /`(setup\.log\.[a-z_]+|\.[a-z_]+)`(?:\s*\{([^}]*)\})?/.exec(segment);
       if (!m) continue;
-      const key = (m[1] ?? '').startsWith('.') ? `setup.log${m[1]}` : (m[1] ?? '');
+      const head = m[1] ?? '';
+      const key = head.startsWith('.') ? `setup.log${head}` : head;
       out.push([key, m[2] ? m[2].split(',').map((p) => p.trim()) : []]);
     }
     return out;

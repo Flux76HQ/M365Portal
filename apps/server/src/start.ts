@@ -128,9 +128,13 @@ export function announceRemovedVariables(
   const names = removedVariablesIn(env);
   if (names.length === 0) return;
   sinks.log.warn({ event: 'preview_mode_removed', variables: names }, 'preview_mode_removed');
-  sinks.stderr.write(
-    `preview_mode_removed: ${names.join(' and ')} no longer ${names.length === 1 ? 'exists' : 'exist'} and ${names.length === 1 ? 'has' : 'have'} no effect; remove ${names.length === 1 ? 'it' : 'them'} from the environment.\n`,
-  );
+  try {
+    sinks.stderr.write(
+      `preview_mode_removed: ${names.join(' and ')} no longer ${names.length === 1 ? 'exists' : 'exist'} and ${names.length === 1 ? 'has' : 'have'} no effect; remove ${names.length === 1 ? 'it' : 'them'} from the environment.\n`,
+    );
+  } catch {
+    // A closed stderr must not stop the start; the log line above carries the warning.
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

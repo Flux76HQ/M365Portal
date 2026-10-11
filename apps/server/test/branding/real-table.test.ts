@@ -23,6 +23,7 @@ import { clearAuditHeadLog, setAuditHeadLog, verifyChain } from '../../src/audit
 import { buildApp, type BuiltApp } from '../../src/app.js';
 import { brandingModule } from '../../src/branding/index.js';
 import { loadConfigOrThrow } from '../../src/config/index.js';
+import { withLegacyPreview } from '../helpers/legacy-preview.js';
 import { DATABASE_FILE_NAME, openDatabase, type AppDatabase } from '../../src/db/index.js';
 import { runMigrations } from '../../src/db/migrate.js';
 import { assertOpenApiParity } from '../../src/http/openapi.js';
@@ -101,11 +102,12 @@ async function buildReal(mode: 'anonymous' | 'preview' = 'anonymous'): Promise<R
     startFailure: () => undefined,
     migrationsFolder: MIGRATIONS,
   });
-  const config = loadConfigOrThrow({
+  const env = {
     PUBLIC_BASE_URL: ORIGIN,
     DATA_DIR: dir.path,
     ...(mode === 'preview' ? { PREVIEW_MODE: 'true' } : {}),
-  });
+  };
+  const config = withLegacyPreview(loadConfigOrThrow(env), env);
   const handle = (): AppDatabase | undefined => database;
   const shellTemplate = await readFile(join(WEB, 'index.html'), 'utf8');
   const moduleDeps: ModuleDeps = {

@@ -68,6 +68,8 @@ function scratchDirectory(prefix: string): string {
 const COMPOSE_ONLY = 'HOST_PORT';
 /** The one variable that is shown unset on purpose; see `assertEnvExampleParity`. */
 const DERIVED_VARIABLE = 'PUBLIC_BASE_URL';
+/** A variable with no default (`unset` in the schema, Phase B) is shown unset too. */
+const NO_DEFAULT = 'unset';
 
 interface SchemaVariable {
   readonly name: string;
@@ -133,6 +135,8 @@ function parseEnvExample(text: string): ParsedEnvExample {
 
 /** A value that could be a credential, whatever the variable is called. */
 function looksLikeSecretValue(value: string): boolean {
+  // A GUID is not a credential: `BOOTSTRAP_CLIENT_ID` is the public client of Microsoft's own tool.
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)) return false;
   return (
     /-----BEGIN [A-Z ]*(?:PRIVATE KEY|CERTIFICATE)/.test(value) ||
     /^eyJ[\w-]+\.[\w-]+\.[\w-]*$/.test(value) ||
@@ -163,10 +167,12 @@ interface EnvExampleInput {
  *   says that the application does not read it.
  * - Every value is the schema default or a placeholder. A name that sounds like a secret may only
  *   hold a placeholder, and no value anywhere may look like a credential.
- * - `PUBLIC_BASE_URL` is the one variable left unset, because the Compose file derives it from
- *   `HOST_PORT`: an active line here would silently break a change of `HOST_PORT` alone (every
- *   write would be refused by the origin check, A-31). All others are active, so a parser that
- *   reads active lines only still sees them.
+ * - `PUBLIC_BASE_URL` is left unset, because the Compose file derives it from `HOST_PORT`: an
+ *   active line here would silently break a change of `HOST_PORT` alone (every write would be
+ *   refused by the origin check, A-31). So is every variable that has no default (`unset`, Phase B:
+ *   the keys, the setup token, the break-glass account): an empty active line would reach the
+ *   container as an empty value, which the application refuses. All others are active, so a parser
+ *   that reads active lines only still sees them.
  */
 function assertEnvExampleParity({ text, schema }: EnvExampleInput): void {
   const { entries, header } = parseEnvExample(text);
@@ -237,8 +243,16 @@ function assertEnvExampleParity({ text, schema }: EnvExampleInput): void {
         `${DERIVED_VARIABLE} must stay commented out: its default follows ${COMPOSE_ONLY} in Compose (FR-A-016)`,
       );
     }
-    if (name !== DERIVED_VARIABLE && !active) {
-      throw new Error(`${name} must be an active line; only ${DERIVED_VARIABLE} is left unset`);
+    const hasNoDefault = variable.defaultText === NO_DEFAULT;
+    if (hasNoDefault && active) {
+      throw new Error(
+        `${name} has no default and must stay commented out (an empty value is refused)`,
+      );
+    }
+    if (name !== DERIVED_VARIABLE && !hasNoDefault && !active) {
+      throw new Error(
+        `${name} must be an active line; only ${DERIVED_VARIABLE} and variables without a default are left unset`,
+      );
     }
   }
 
@@ -280,7 +294,9 @@ describe('.env.example (FR-A-011, FR-A-016, TA-06)', () => {
       expect(entry?.value, variable.name).toBe(
         variable.name === DERIVED_VARIABLE
           ? variable.defaultText.replace('<PORT>', port ?? '')
-          : variable.defaultText,
+          : variable.defaultText === NO_DEFAULT
+            ? ''
+            : variable.defaultText,
       );
     }
   });
@@ -352,6 +368,18 @@ describe('.env.example (FR-A-011, FR-A-016, TA-06)', () => {
       /header of \.env\.example does not say/,
     ],
     [
+      'a variable without a default switched on (an empty value would be refused)',
+      withSchema((text) => replaceOnce(text, /^#SETUP_TOKEN=$/m, 'SETUP_TOKEN=')),
+      /SETUP_TOKEN has no default and must stay commented out/,
+    ],
+    [
+      'a variable with a default switched off',
+      withSchema((text) =>
+        replaceOnce(text, /^SESSION_IDLE_TIMEOUT_MINUTES=30$/m, '#SESSION_IDLE_TIMEOUT_MINUTES=30'),
+      ),
+      /SESSION_IDLE_TIMEOUT_MINUTES must be an active line/,
+    ],
+    [
       'a value that is not the default',
       withSchema((text) => replaceOnce(text, /^LOG_LEVEL=info$/m, 'LOG_LEVEL=debug')),
       /LOG_LEVEL: the value is neither a placeholder nor the schema default/,
@@ -395,8 +423,10 @@ describe('.env.example (FR-A-011, FR-A-016, TA-06)', () => {
     [
       'a real-looking value on a variable that sounds like a secret',
       withSchema(
-        (text) => `${text}\nAPP_KEY=changeme\n`,
-        [...schemaVariables, { name: 'APP_KEY', defaultText: 'changeme' }],
+        (text) => replaceOnce(text, /^#APP_KEY=$/m, 'APP_KEY=changeme'),
+        schemaVariables.map((variable) =>
+          variable.name === 'APP_KEY' ? { ...variable, defaultText: 'changeme' } : variable,
+        ),
       ),
       /sounds like a secret/,
     ],
@@ -409,8 +439,10 @@ describe('.env.example (FR-A-011, FR-A-016, TA-06)', () => {
   it('accepts a placeholder for a variable that sounds like a secret', () => {
     expect(() => {
       assertEnvExampleParity({
-        text: `${envExample}\nAPP_KEY=<generate-with-openssl>\n`,
-        schema: [...schemaVariables, { name: 'APP_KEY', defaultText: '' }],
+        text: replaceOnce(envExample, /^#APP_KEY=$/m, 'APP_KEY=<generate-with-openssl>'),
+        schema: schemaVariables.map((variable) =>
+          variable.name === 'APP_KEY' ? { ...variable, defaultText: '' } : variable,
+        ),
       });
     }).not.toThrow();
   });
@@ -1564,6 +1596,11 @@ describe.skipIf(!composeAvailable && !dockerRequired)('docker compose config (PA
     for (const variable of ENV_VARIABLES) {
       if ((IMAGE_LEVEL as readonly string[]).includes(variable.name)) continue;
       if (variable.name === 'PUBLIC_BASE_URL') continue;
+      // A variable without a default is commented out in .env.example and stays unset in Compose.
+      if (variable.defaultText === NO_DEFAULT) {
+        expect(service.environment?.[variable.name] ?? null, variable.name).toBeNull();
+        continue;
+      }
       expect(service.environment?.[variable.name], variable.name).toBe(variable.defaultText);
     }
   });

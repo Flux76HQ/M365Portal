@@ -8,6 +8,7 @@
 //     over-long string are refused;
 //   - every guard has a negative fixture (tasks.md section 0.3).
 import { readFileSync } from 'node:fs';
+import { inspect } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import * as connection from '../src/schemas/connection.js';
@@ -46,6 +47,7 @@ const CONTRACT = readFileSync(
   'utf8',
 );
 
+const show = (value: unknown): string => inspect(value, { breakLength: Infinity });
 const ok = (schema: z.ZodType, value: unknown): boolean => schema.safeParse(value).success;
 /** A guard: throws when the schema lets the value through. */
 const mustReject =
@@ -710,8 +712,8 @@ describe('StartRunRequestSchema (FR-B-317, FR-B-308)', () => {
         [],
       ];
       for (const hint of hostile) {
-        expect(isTenantHint(hint), String(hint).slice(0, 40)).toBe(false);
-        expect(ok(TenantHintSchema, hint), String(hint).slice(0, 40)).toBe(false);
+        expect(isTenantHint(hint), show(hint).slice(0, 40)).toBe(false);
+        expect(ok(TenantHintSchema, hint), show(hint).slice(0, 40)).toBe(false);
       }
     });
 
@@ -724,7 +726,9 @@ describe('StartRunRequestSchema (FR-B-317, FR-B-308)', () => {
         reason: 'accepted',
       });
       mustReject(TenantHintSchema)('../x');
-      expect(() => aliasesOnly('common')).toThrow();
+      expect(() => {
+        aliasesOnly('common');
+      }).toThrow();
     });
   });
 
@@ -841,7 +845,7 @@ describe('ProofItemSchema and ProofSchema (FR-B-309, FR-B-319)', () => {
       item('application', { params: { a: { b: 1 } } }),
       item('application', { params: { a: 'x'.repeat(257) } }),
       item('application', {
-        params: Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`k${i}`, 1])),
+        params: Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`k${String(i)}`, 1])),
       }),
       item('application', { at: 'now' }),
       { ...item('application'), message: 'x' },
@@ -855,7 +859,7 @@ describe('ProofItemSchema and ProofSchema (FR-B-309, FR-B-319)', () => {
 
   it('keeps the stored document under 51,200 bytes, also in the worst case the item schema allows', () => {
     const params = Object.fromEntries(
-      Array.from({ length: 8 }, (_, i) => [`${'k'.repeat(63)}${i}`, 'é'.repeat(128)]),
+      Array.from({ length: 8 }, (_, i) => [`${'k'.repeat(63)}${String(i)}`, 'é'.repeat(128)]),
     );
     const worst = proof(KEYS.map((key) => item(key, { params })));
     expect(ok(ProofSchema, worst)).toBe(true);

@@ -80,11 +80,11 @@ describe('safeReturnTo', () => {
 
   it.each(
     KEPT.map((value) => [
-      value.length > 60 ? `${value.slice(0, 20)}... (${value.length})` : value,
+      value.length > 60 ? `${value.slice(0, 20)}... (${String(value.length)})` : value,
       value,
     ]),
   )('keeps %s unchanged', (_name, value) => {
-    expect(safeReturnTo(value as string)).toBe(value);
+    expect(safeReturnTo(value)).toBe(value);
   });
 
   it('accepts exactly 256 characters and refuses 257', () => {
@@ -174,10 +174,11 @@ describe('safeReturnTo', () => {
       for (let i = 0; i < 20_000; i += 1) {
         const length = Math.floor(next() * 14);
         let value = next() < 0.7 ? '/' : '';
-        for (let j = 0; j < length; j += 1) value += ALPHABET[Math.floor(next() * ALPHABET.length)];
+        for (let j = 0; j < length; j += 1)
+          value += ALPHABET[Math.floor(next() * ALPHABET.length)] ?? '';
         if (next() < 0.01) value += 'z'.repeat(RETURN_TO_MAX_CHARS);
         const out = safeReturnTo(value);
-        const context = `seed ${SEED}, case ${i}, value ${JSON.stringify(value)}`;
+        const context = `seed ${String(SEED)}, case ${String(i)}, value ${JSON.stringify(value)}`;
         if (out === '/') continue;
         expect(out, context).toBe(value);
         expect(out.startsWith('/'), context).toBe(true);

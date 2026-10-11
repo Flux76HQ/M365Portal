@@ -7,6 +7,7 @@
 //   - the sign-out redirect has exactly the two shapes of CD-02;
 //   - every guard has a negative fixture (tasks.md section 0.3).
 import { readFileSync } from 'node:fs';
+import { inspect } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { NO_ACCESS_REASONS, SIGNIN_ERROR_CODES } from '../src/auth/signin-errors.js';
@@ -20,6 +21,7 @@ const {
   LogoutAllResponseSchema,
   LogoutRequestSchema,
   LogoutResponseSchema,
+  MyAccessResponseSchema,
   NoAccessReasonSchema,
   SigninErrorCodeSchema,
   isLogoutRedirect,
@@ -31,6 +33,7 @@ const CONTRACT = readFileSync(
   'utf8',
 );
 
+const show = (value: unknown): string => inspect(value, { breakLength: Infinity });
 const ok = (schema: z.ZodType, value: unknown): boolean => schema.safeParse(value).success;
 const mustReject =
   (schema: z.ZodType) =>
@@ -46,7 +49,7 @@ describe('the schemas of contract 12.1 for schemas/auth.ts', () => {
   const row = /^\| `schemas\/auth\.ts` \| (.+) \|$/m.exec(CONTRACT)?.[1] ?? '';
   const named = [...row.matchAll(/`([A-Za-z]+Schema)`/g)].map((m) => m[1] ?? '');
 
-  it('are the nine the contract lists; all but MyAccessResponse exist here', () => {
+  it('are the nine the contract lists, and all exist', () => {
     expect(named).toHaveLength(9);
     const exports = auth as unknown as Record<string, unknown>;
     for (const name of named) expect(exports[name], name).toBeInstanceOf(z.ZodType);
@@ -198,8 +201,8 @@ describe('LogoutRequestSchema, LogoutResponseSchema and LogoutAllResponseSchema 
       {},
     ];
     for (const redirect of bad) {
-      expect(isLogoutRedirect(redirect), String(redirect).slice(0, 90)).toBe(false);
-      expect(ok(LogoutResponseSchema, { redirect }), String(redirect).slice(0, 90)).toBe(false);
+      expect(isLogoutRedirect(redirect), show(redirect).slice(0, 90)).toBe(false);
+      expect(ok(LogoutResponseSchema, { redirect }), show(redirect).slice(0, 90)).toBe(false);
     }
   });
 
@@ -275,5 +278,165 @@ describe('BreakGlassRequestSchema and BreakGlassResponseSchema (P06, FR-B-521)',
     const big = { username: 'u', password: 'p'.repeat(1_000_000) };
     expectGuardFails(mustReject(unbounded), big, { reason: 'accepted' });
     mustReject(BreakGlassRequestSchema)(big);
+  });
+});
+
+describe('MyAccessResponseSchema (P09, "Mijn toegang")', () => {
+  const G = '1f8fad5b-d9cb-469f-a165-70867728950e';
+  const G2 = '2f8fad5b-d9cb-469f-a165-70867728950e';
+  const T = '2026-10-11T10:00:00.000Z';
+  interface AccessFixture {
+    assignments: unknown[];
+    [key: string]: unknown;
+  }
+  const userAccess = (over: Record<string, unknown> = {}): AccessFixture => ({
+    principal: { kind: 'user', id: G, label: 'Ada Lovelace' },
+    assignments: [
+      {
+        id: G2,
+        role: { key: 'owner', builtin: true },
+        origin: { type: 'direct' },
+        scope: [],
+        expiresAt: null,
+      },
+      {
+        id: TID,
+        role: { key: 'helpdesk', builtin: true },
+        origin: { type: 'group', groupId: G2, groupName: 'Servicedesk' },
+        scope: [{ target: 'user', match: { by: 'prefix', attr: 'displayName', value: 'Sales' } }],
+        expiresAt: T,
+      },
+    ],
+    grants: [
+      { permission: 'users:read', qualifier: 'full', scope: 'all' },
+      {
+        permission: 'groups:members:write',
+        qualifier: 'full',
+        scope: [{ target: 'group', match: { by: 'prefix', attr: 'displayName', value: 'Sales' } }],
+      },
+    ],
+    groupsStale: false,
+    groupsResolvedAt: T,
+    ...over,
+  });
+  const breakGlass = (over: Record<string, unknown> = {}): AccessFixture => ({
+    principal: { kind: 'break_glass', id: 'break_glass', label: 'Break-glass' },
+    assignments: [],
+    grants: [{ permission: 'rbac:manage', qualifier: 'full', scope: 'all' }],
+    groupsStale: false,
+    groupsResolvedAt: null,
+    ...over,
+  });
+
+  it('accepts the access of a user, direct and through a group', () => {
+    expect(ok(MyAccessResponseSchema, userAccess())).toBe(true);
+    expect(ok(MyAccessResponseSchema, userAccess({ assignments: [], grants: [] }))).toBe(true);
+    expect(
+      ok(MyAccessResponseSchema, userAccess({ groupsStale: true, groupsResolvedAt: null })),
+    ).toBe(true);
+    const nameless = userAccess();
+    (nameless.assignments[1] as { origin: unknown }).origin = {
+      type: 'group',
+      groupId: G2,
+      groupName: null,
+    };
+    expect(ok(MyAccessResponseSchema, nameless)).toBe(true);
+  });
+
+  it('accepts a break-glass session with no assignments and the single grant rbac:manage', () => {
+    expect(ok(MyAccessResponseSchema, breakGlass())).toBe(true);
+  });
+
+  it('refuses a break-glass session that holds anything else (FR-B-522)', () => {
+    for (const bad of [
+      breakGlass({ grants: [] }),
+      breakGlass({ grants: [{ permission: 'users:read', qualifier: 'full', scope: 'all' }] }),
+      breakGlass({
+        grants: [
+          { permission: 'rbac:manage', qualifier: 'full', scope: 'all' },
+          { permission: 'users:read', qualifier: 'full', scope: 'all' },
+        ],
+      }),
+      breakGlass({ assignments: userAccess().assignments.slice(0, 1) }),
+    ]) {
+      expect(ok(MyAccessResponseSchema, bad), show(bad).slice(0, 80)).toBe(false);
+    }
+  });
+
+  it('refuses a principal that is neither a user by oid nor break-glass', () => {
+    for (const principal of [
+      { kind: 'setup', id: 'setup', label: 'Setup' },
+      { kind: 'anonymous', id: '', label: '' },
+      { kind: 'user', id: 'ada@contoso.test', label: 'Ada' },
+      { kind: 'user', id: G.toUpperCase(), label: 'Ada' },
+      { kind: 'break_glass', id: G, label: 'x' },
+      { kind: 'user', id: G, label: 'x'.repeat(257) },
+      { kind: 'user', id: G, label: 'Ada', extra: 1 },
+    ]) {
+      expect(ok(MyAccessResponseSchema, userAccess({ principal })), show(principal)).toBe(false);
+    }
+  });
+
+  it('refuses what the RBAC schemas refuse and any extra field', () => {
+    const base = userAccess();
+    const bad = [
+      userAccess({ grants: [{ permission: 'not:a-permission', qualifier: 'full', scope: 'all' }] }),
+      userAccess({ grants: [{ permission: 'groups:read', qualifier: 'basic', scope: 'all' }] }),
+      userAccess({ grants: [{ permission: 'users:read', qualifier: 'full', scope: [] }] }),
+      userAccess({
+        assignments: [
+          {
+            id: G2,
+            role: { key: 'Owner', builtin: true },
+            origin: { type: 'direct' },
+            scope: [],
+            expiresAt: null,
+          },
+        ],
+      }),
+      userAccess({
+        assignments: [
+          {
+            id: G2,
+            role: { key: 'owner', builtin: true },
+            origin: { type: 'team' },
+            scope: [],
+            expiresAt: null,
+          },
+        ],
+      }),
+      userAccess({
+        assignments: [
+          {
+            id: G2,
+            role: { key: 'owner', builtin: true },
+            origin: { type: 'direct' },
+            scope: [{ target: 'user' }],
+            expiresAt: null,
+          },
+        ],
+      }),
+      { ...base, token: 'x' },
+      { ...base, sessionId: 'x' },
+      userAccess({ groupsStale: 'no' }),
+      userAccess({ groupsResolvedAt: 'yesterday' }),
+    ];
+    for (const value of bad)
+      expect(ok(MyAccessResponseSchema, value), show(value).slice(0, 80)).toBe(false);
+  });
+
+  it('negative: a schema that does not tie break-glass to rbac:manage lets a wide session through', () => {
+    const wide = breakGlass({
+      grants: [{ permission: 'users:read', qualifier: 'full', scope: 'all' }],
+    });
+    const untied = z.strictObject({
+      principal: z.unknown(),
+      assignments: z.array(z.unknown()),
+      grants: z.array(z.unknown()),
+      groupsStale: z.boolean(),
+      groupsResolvedAt: z.unknown(),
+    });
+    expectGuardFails(mustReject(untied), wide, { reason: 'accepted' });
+    mustReject(MyAccessResponseSchema)(wide);
   });
 });

@@ -29,13 +29,25 @@ services:
       PORT: ${PORT:-9300}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:${HOST_PORT:-9300}}
       TRUST_PROXY:
-      PREVIEW_MODE:
-      PREVIEW_MODE_ALLOW_REMOTE:
       SHOWCASE:
       LOG_LEVEL:
       HSTS_MAX_AGE:
       HSTS_INCLUDE_SUBDOMAINS:
       HSTS_PRELOAD:
+      APP_KEY:
+      APP_KEY_FILE:
+      APP_KEY_PREVIOUS:
+      APP_KEY_PREVIOUS_FILE:
+      SETUP_TOKEN:
+      BOOTSTRAP_CLIENT_ID:
+      SETUP_PROPAGATION_TIMEOUT_SECONDS:
+      SESSION_IDLE_TIMEOUT_MINUTES:
+      SESSION_ABSOLUTE_TIMEOUT_HOURS:
+      GROUP_CACHE_TTL_SECONDS:
+      AUTH_REQUIRE_MFA:
+      AUTH_MFA_AMR_VALUES:
+      BREAK_GLASS_USERNAME:
+      BREAK_GLASS_PASSWORD_HASH:
     # The database and the uploaded files. The only place the container writes besides /tmp.
     volumes:
       - data:/data

@@ -229,7 +229,10 @@ describe('isSensitiveKey', () => {
     'level',
     'time',
     'msg',
-    'preview',
+    'setupState',
+    'sealedStorage',
+    'breakGlass',
+    'mfa',
     'trustProxy',
     'schemaVersion',
     'storageWritable',
@@ -1079,13 +1082,50 @@ describe('logPosture (FR-A-015, E-15)', () => {
       time: expect.any(String) as string,
       msg: 'posture',
       event: 'posture',
-      preview: 'off',
       trustProxy: 'none',
       hsts: 'off',
       showcase: false,
+      breakGlass: 'off',
+      mfa: 'on',
+      setupState: 'unknown',
+      sealedStorage: 'unknown',
       storageWritable: true,
       schemaVersion: 0,
     });
+  });
+
+  it('reports the setup state and the secrets state it is given, as names (FR-B-101)', () => {
+    const capture = createLogCapture();
+    logPosture(createLogger({ level: 'info', destination: capture }), loadConfigOrThrow({}), {
+      storageWritable: true,
+      schemaVersion: 1,
+      setupState: 'awaiting_first_signin',
+      sealedStorage: 'key_missing',
+    });
+    expect(capture.lines()[0]).toMatchObject({
+      setupState: 'awaiting_first_signin',
+      sealedStorage: 'key_missing',
+    });
+  });
+
+  it('reports break-glass enabled and the MFA policy as on or off, never the account (FR-B-101)', () => {
+    const scrypt = `scrypt:131072:8:1:${Buffer.alloc(16, 7).toString('base64url')}:${Buffer.alloc(32, 9).toString('base64url')}`;
+    const { line, text } = posture({
+      BREAK_GLASS_USERNAME: 'canary-recovery-user',
+      BREAK_GLASS_PASSWORD_HASH: scrypt,
+      AUTH_REQUIRE_MFA: 'false',
+      APP_KEY: '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
+      SETUP_TOKEN: 'Zq9XvB3nLm7TdR2sKw8YcP4h',
+    });
+    expect(line).toMatchObject({ breakGlass: 'on', mfa: 'off' });
+    for (const secret of [
+      'canary-recovery-user',
+      scrypt,
+      '000102030405060708090a0b0c0d0e0f',
+      'Zq9XvB3nLm7TdR2sKw8YcP4h',
+    ]) {
+      expect(text, secret).not.toContain(secret);
+    }
   });
 
   it('names the trust-proxy mode and never an address (E-15)', () => {
@@ -1097,28 +1137,12 @@ describe('logPosture (FR-A-015, E-15)', () => {
     expect(posture({ TRUST_PROXY: '2' }).line.trustProxy).toBe('hops');
   });
 
-  it('says that preview mode refuses requests that do not come from loopback (FR-A-036)', () => {
-    expect(posture({ PREVIEW_MODE: 'true' }).line.preview).toBe('loopback-only');
-    expect(
-      posture({
-        PREVIEW_MODE: 'true',
-        PREVIEW_MODE_ALLOW_REMOTE: 'true',
-        PUBLIC_BASE_URL: 'https://panel.example.com',
-      }).line.preview,
-    ).toBe('any-host');
-  });
-
-  it('says that the host-based preview detection is not a security boundary, only when preview is on', () => {
-    expect(posture({}).line).not.toHaveProperty('previewBoundary');
-    const on = posture({ PREVIEW_MODE: 'true' }).line;
-    expect(on.previewBoundary).toBe('host-detection-not-a-security-boundary');
-    expect(
-      posture({
-        PREVIEW_MODE: 'true',
-        PREVIEW_MODE_ALLOW_REMOTE: 'true',
-        PUBLIC_BASE_URL: 'https://panel.example.com',
-      }).line.previewBoundary,
-    ).toBe('host-detection-not-a-security-boundary');
+  it('has no preview field: the preview variables are gone and change nothing (FR-B-102)', () => {
+    const plain = posture({}).line;
+    const withVariables = posture({ PREVIEW_MODE: 'true', PREVIEW_MODE_ALLOW_REMOTE: 'true' }).line;
+    expect(withVariables).toEqual({ ...plain, time: withVariables.time });
+    expect(plain).not.toHaveProperty('preview');
+    expect(plain).not.toHaveProperty('previewBoundary');
   });
 
   it('carries no value of the configuration: no port, host name, directory or base URL', () => {
@@ -1192,10 +1216,13 @@ describe('the posture line of the built server (FR-A-015)', () => {
       time: expect.any(String) as string,
       msg: 'posture',
       event: 'posture',
-      preview: 'off',
       trustProxy: 'list',
       hsts: 'plain',
       showcase: true,
+      breakGlass: 'off',
+      mfa: 'on',
+      setupState: 'unknown',
+      sealedStorage: 'unknown',
       storageWritable: true,
       schemaVersion: 0,
     });
@@ -1219,7 +1246,7 @@ describe('the posture line of the built server (FR-A-015)', () => {
     expect(postures[0]).toMatchObject({ storageWritable: false, schemaVersion: null });
   });
 
-  it('names preview mode that refuses requests outside loopback, and the warning goes to stderr too', async () => {
+  it('treats a leftover PREVIEW_MODE as removed: one warning, no preview field, the same posture (FR-B-102)', async () => {
     const dir = join(layout.root, 'data-preview');
     await mkdir(dir);
     const server = await spawnServer({ layout, env: { DATA_DIR: dir, PREVIEW_MODE: 'true' } });
@@ -1228,9 +1255,13 @@ describe('the posture line of the built server (FR-A-015)', () => {
       await server.exited;
     });
     await server.listening();
-    expect(server.lines().find((line) => line.event === 'posture')).toMatchObject({
-      preview: 'loopback-only',
-    });
-    expect(server.stderr()).toMatch(/preview/i);
+    const posture = server.lines().find((line) => line.event === 'posture');
+    expect(posture).toBeDefined();
+    expect(posture).not.toHaveProperty('preview');
+    expect(posture).not.toHaveProperty('previewBoundary');
+    const warnings = server.lines().filter((line) => line.event === 'preview_mode_removed');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ level: 'warn', variables: ['PREVIEW_MODE'] });
+    expect(server.stderr()).toMatch(/preview_mode_removed: PREVIEW_MODE /);
   });
 });

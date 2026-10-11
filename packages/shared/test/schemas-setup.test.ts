@@ -409,7 +409,14 @@ describe('SetupStateResponseSchema (P13)', () => {
 });
 
 describe('EnvironmentCheckSchema and EnvironmentResultSchema (P14, FR-B-213)', () => {
-  const check = (key: string, over: Record<string, unknown> = {}): Record<string, unknown> => ({
+  interface CheckFixture {
+    key: string;
+    status: string;
+    code: string | null;
+    remedyKey: string | null;
+    params: Record<string, unknown>;
+  }
+  const check = (key: string, over: Partial<CheckFixture> = {}): CheckFixture => ({
     key,
     status: 'ok',
     code: null,
@@ -417,7 +424,7 @@ describe('EnvironmentCheckSchema and EnvironmentResultSchema (P14, FR-B-213)', (
     params: {},
     ...over,
   });
-  const allOk = (): Record<string, unknown>[] => ENVIRONMENT_CHECK_KEYS.map((key) => check(key));
+  const allOk = (): CheckFixture[] => ENVIRONMENT_CHECK_KEYS.map((key) => check(key));
   const result = (
     checks: unknown[],
     over: Record<string, unknown> = {},
@@ -489,13 +496,13 @@ describe('EnvironmentCheckSchema and EnvironmentResultSchema (P14, FR-B-213)', (
   it('accepts a result whose status and blocking follow from the six checks', () => {
     expect(ok(EnvironmentResultSchema, result(allOk()))).toBe(true);
     const warn = allOk().map((c) =>
-      c['key'] === 'node_version'
+      c.key === 'node_version'
         ? check('node_version', { status: 'warn', code: 'node_version_unsupported' })
         : c,
     );
     expect(ok(EnvironmentResultSchema, result(warn, { status: 'warning' }))).toBe(true);
     const fail = warn.map((c) =>
-      c['key'] === 'app_key' ? check('app_key', { status: 'fail', code: 'app_key_missing' }) : c,
+      c.key === 'app_key' ? check('app_key', { status: 'fail', code: 'app_key_missing' }) : c,
     );
     expect(ok(EnvironmentResultSchema, result(fail, { status: 'failed', blocking: true }))).toBe(
       true,
@@ -504,7 +511,7 @@ describe('EnvironmentCheckSchema and EnvironmentResultSchema (P14, FR-B-213)', (
 
   it('refuses an inconsistent result: blocking, status, order or missing checks', () => {
     const fail = allOk().map((c) =>
-      c['key'] === 'app_key' ? check('app_key', { status: 'fail', code: 'app_key_missing' }) : c,
+      c.key === 'app_key' ? check('app_key', { status: 'fail', code: 'app_key_missing' }) : c,
     );
     for (const bad of [
       result(fail, { status: 'failed', blocking: false }),
@@ -523,7 +530,7 @@ describe('EnvironmentCheckSchema and EnvironmentResultSchema (P14, FR-B-213)', (
 
   it('negative: a result schema that trusts the blocking flag lets a failed check go unblocked', () => {
     const fail = allOk().map((c) =>
-      c['key'] === 'app_key' ? check('app_key', { status: 'fail', code: 'app_key_missing' }) : c,
+      c.key === 'app_key' ? check('app_key', { status: 'fail', code: 'app_key_missing' }) : c,
     );
     const trusting = z.strictObject({
       ranAt: z.string(),

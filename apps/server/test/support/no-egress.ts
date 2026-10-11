@@ -48,12 +48,16 @@ function asPortNumber(value: unknown): number | undefined {
 
 /**
  * What `socket.connect(...args)` is going to connect to, read the way Node reads its three forms:
- * `connect(options)`, `connect(path)` and `connect(port[, host])`. A host that is missing means
+ * `connect(options)`, `connect(path)` and `connect(port[, host])`, and the normalised array that
+ * `net.connect` passes on. A host that is missing means
  * `localhost`, as in Node; a host that is not a string is read as the empty string, which is not
  * loopback.
  */
-export function classifyConnectArguments(args: readonly unknown[]): ConnectTarget {
+export function classifyConnectArguments(args: readonly unknown[], nested = false): ConnectTarget {
   const first = args[0];
+  // `net.connect()` and `createConnection()` call `socket.connect(normalized)`, with the already
+  // normalised `[options, callback]` array as the one argument. Read what is inside it.
+  if (Array.isArray(first) && !nested) return classifyConnectArguments(first as unknown[], true);
   if (typeof first === 'object' && first !== null) {
     const options = first as { host?: unknown; port?: unknown; path?: unknown };
     if (typeof options.path === 'string') return { kind: 'ipc', path: options.path };

@@ -12,6 +12,7 @@ import { LIMITS } from '@m365portal/shared/limits';
 import { CsrfResponseSchema } from '@m365portal/shared/schemas/meta';
 import { z } from 'zod';
 import { loadConfig } from '../../src/config/index.js';
+import { withLegacyPreview } from './legacy-preview.js';
 import { createCsrf, type Csrf } from '../../src/http/csrf.js';
 import { createRateLimiter, type RateLimiter, type RateRule } from '../../src/http/rate-limit.js';
 import {
@@ -350,7 +351,7 @@ export async function createFixtureApp(options: FixtureAppOptions = {}): Promise
     buildApp: (context) => {
       const loaded = loadConfig(context.env);
       if (!loaded.ok) throw new Error('the fixture configuration was refused');
-      const { config } = loaded;
+      const config = withLegacyPreview(loaded.config, context.env);
       csrf = createCsrf({ now: () => context.clock.nowMs() });
       limiter = createRateLimiter({
         now: () => context.clock.nowMs(),

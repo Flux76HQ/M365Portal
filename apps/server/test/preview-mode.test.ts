@@ -15,6 +15,7 @@ import { expectGuardFails } from '@m365portal/shared/testing';
 import { describe, expect, it } from 'vitest';
 import { isLoopbackHost, loadConfigOrThrow } from '../src/config/index.js';
 import { requestHost } from '../src/http/trust-proxy.js';
+import { announceRemovedVariables } from '../src/start.js';
 import {
   ANONYMOUS_ACTOR,
   PREVIEW_ACTOR,
@@ -26,6 +27,7 @@ import {
   type ActorConfig,
 } from '../src/policy/index.js';
 import { createLogCapture } from './helpers/log-capture.js';
+import { withLegacyPreview } from './helpers/legacy-preview.js';
 import { createLogger } from '../src/logging/logger.js';
 
 const OFF: ActorConfig = { previewMode: false, previewModeAllowRemote: false };
@@ -305,10 +307,19 @@ describe('nothing in a request chooses or upgrades the actor (FR-A-032)', () => 
     expect(createActorResolver(OFF)(requestWith('localhost:9300'))).toBe(ANONYMOUS_ACTOR);
   });
 
-  it('works on the real configuration object too', () => {
-    const config = loadConfigOrThrow({ PREVIEW_MODE: 'true' });
+  it('works on the real configuration object too (with the deprecated flags set by a test)', () => {
+    const env = { PREVIEW_MODE: 'true' };
+    const config = withLegacyPreview(loadConfigOrThrow(env), env);
     expect(resolveActor(config, requestWith('localhost:9300'))).toBe(PREVIEW_ACTOR);
     expect(resolveActor(config, requestWith('192.168.1.10:9300'))).toBe(ANONYMOUS_ACTOR);
+  });
+
+  it('gives the anonymous actor on the real configuration: the variable no longer switches it on (FR-B-102)', () => {
+    const config = loadConfigOrThrow({ PREVIEW_MODE: 'true', PREVIEW_MODE_ALLOW_REMOTE: 'true' });
+    for (const host of ['localhost:9300', '192.168.1.10:9300', '127.0.0.1']) {
+      expect(resolveActor(config, requestWith(host))).toBe(ANONYMOUS_ACTOR);
+    }
+    expect(createActorResolver(config)(requestWith('localhost:9300'))).toBe(ANONYMOUS_ACTOR);
   });
 });
 
@@ -386,7 +397,8 @@ describe('announcePreviewMode: a warning on the log and on stderr at start (FR-A
   });
 
   it('holds no value of the configuration: no address, no port, no host name', () => {
-    const { stderr, raw } = announce(loadConfigOrThrow({ PREVIEW_MODE: 'true', PORT: '12345' }));
+    const env = { PREVIEW_MODE: 'true', PORT: '12345' };
+    const { stderr, raw } = announce(withLegacyPreview(loadConfigOrThrow(env), env));
     expect(stderr).not.toContain('12345');
     expect(raw).not.toContain('12345');
   });
@@ -403,6 +415,92 @@ describe('announcePreviewMode: a warning on the log and on stderr at start (FR-A
         },
       });
     }).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// FR-B-102: the variables are gone; a leftover one is named once and changes nothing
+// ---------------------------------------------------------------------------------------------
+
+describe('announceRemovedVariables: one warning for a leftover PREVIEW_MODE* (FR-B-102)', () => {
+  function removed(env: Record<string, string | undefined>): {
+    stderr: string;
+    lines: Record<string, unknown>[];
+    raw: string;
+  } {
+    const capture = createLogCapture();
+    const log = createLogger({ level: 'info', destination: capture });
+    let stderr = '';
+    announceRemovedVariables(env, {
+      log,
+      stderr: {
+        write: (text: string) => {
+          stderr += text;
+          return true;
+        },
+      },
+    });
+    return { stderr, lines: capture.lines(), raw: capture.text() };
+  }
+
+  it.each([
+    [{ PREVIEW_MODE: 'true' }, ['PREVIEW_MODE']],
+    [{ PREVIEW_MODE: 'false' }, ['PREVIEW_MODE']],
+    [{ PREVIEW_MODE_ALLOW_REMOTE: 'true' }, ['PREVIEW_MODE_ALLOW_REMOTE']],
+    [
+      { PREVIEW_MODE: 'true', PREVIEW_MODE_ALLOW_REMOTE: 'true' },
+      ['PREVIEW_MODE', 'PREVIEW_MODE_ALLOW_REMOTE'],
+    ],
+    [{ PREVIEW_MODE: '' }, ['PREVIEW_MODE']],
+  ])('%j: exactly one warning, preview_mode_removed, naming %j', (env, names) => {
+    const { stderr, lines } = removed(env);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      level: 'warn',
+      event: 'preview_mode_removed',
+      msg: 'preview_mode_removed',
+      variables: names,
+    });
+    expect(stderr.trim().split('\n')).toHaveLength(1);
+    expect(stderr.startsWith('preview_mode_removed: ')).toBe(true);
+    for (const name of names) expect(stderr).toContain(name);
+  });
+
+  it('says nothing when neither variable is set', () => {
+    for (const env of [{}, { SHOWCASE: 'true' }, { PREVIEW: 'true' }]) {
+      const { stderr, lines, raw } = removed(env);
+      expect(stderr).toBe('');
+      expect(lines).toEqual([]);
+      expect(raw).toBe('');
+    }
+  });
+
+  it('never repeats a value', () => {
+    const { stderr, raw } = removed({
+      PREVIEW_MODE: 'canary-7f3a',
+      PREVIEW_MODE_ALLOW_REMOTE: 'canary-9b1c',
+    });
+    expect(stderr).not.toContain('canary');
+    expect(raw).not.toContain('canary');
+  });
+
+  it('does not fail when stderr cannot be written, and the log line is kept', () => {
+    const capture = createLogCapture();
+    const log = createLogger({ level: 'info', destination: capture });
+    expect(() => {
+      announceRemovedVariables(
+        { PREVIEW_MODE: 'true' },
+        {
+          log,
+          stderr: {
+            write: () => {
+              throw new Error('closed');
+            },
+          },
+        },
+      );
+    }).not.toThrow();
+    expect(capture.lines()).toHaveLength(1);
   });
 });
 
