@@ -347,7 +347,31 @@ async function csrfToken(origin: string): Promise<string> {
   return (await http(origin, '/api/v1/csrf')).json<{ token: string }>().token;
 }
 
-async function upload(origin: string, token: string, slot: string, bytes: Buffer, filename: string, type: string): Promise<{ status: number; body: string; parsed?: Upload }> {
+/**
+ * The upload rate class (LIMITS.rateLimit.upload: a burst of 3, one token back every 10 s) is per
+ * client, so a smoke test that uploads seven times has to wait for tokens or it is answered 429 and
+ * proves nothing. This models the bucket of the server a little pessimistically.
+ */
+const UPLOAD_CAPACITY = 3;
+const UPLOAD_REFILL_MS = 10_000;
+let uploadTokens = UPLOAD_CAPACITY;
+let uploadTokensAt = Date.now();
+
+async function acquireUploadTokens(count: number): Promise<void> {
+  for (;;) {
+    const now = Date.now();
+    uploadTokens = Math.min(UPLOAD_CAPACITY, uploadTokens + (now - uploadTokensAt) / UPLOAD_REFILL_MS);
+    uploadTokensAt = now;
+    if (uploadTokens >= count + 0.1) {
+      uploadTokens -= count;
+      return;
+    }
+    await sleep(Math.ceil((count + 0.1 - uploadTokens) * UPLOAD_REFILL_MS) + 200);
+  }
+}
+
+async function upload(origin: string, token: string, slot: string, bytes: Buffer, filename: string, type: string, tokensAcquired = false): Promise<{ status: number; body: string; parsed?: Upload }> {
+  if (!tokensAcquired) await acquireUploadTokens(1);
   const form = new FormData();
   form.append('file', new Blob([new Uint8Array(bytes)], { type }), filename);
   const answer = await http(origin, `/api/v1/branding/assets?slot=${slot}`, {
@@ -421,7 +445,7 @@ async function main(): Promise<void> {
   await check('/readyz is 200 within 10 s', async () => {
     const took = await waitReady(main1);
     figures.readyzMs = took;
-    expect(took <= READY_WITHIN_MS, `/readyz answered 200  ${String(took)} ms, the limit is ${String(READY_WITHIN_MS)} ms`);
+    expect(took <= READY_WITHIN_MS, `/readyz answered 200 after ${String(took)} ms, the limit is ${String(READY_WITHIN_MS)} ms`);
     return `${String(took)} ms after the container process started`;
   });
   await check('Docker health becomes healthy (the image HEALTHCHECK, PORT default)', async () => `Docker health: ${await waitHealth(main1, 'healthy')}`);
@@ -544,16 +568,17 @@ async function main(): Promise<void> {
   await check('two concurrent largest uploads: peak memory recorded (PR-15)', async () => {
     const token = await csrfToken(main1.origin);
     const big = await largestPng();
+    await acquireUploadTokens(2);
     const begin = Date.now();
     const both = await Promise.all([
-      upload(main1.origin, token, 'logoLight', big, 'big-1.png', 'image/png'),
-      upload(main1.origin, token, 'logoDark', big, 'big-2.png', 'image/png'),
+      upload(main1.origin, token, 'logoLight', big, 'big-1.png', 'image/png', true),
+      upload(main1.origin, token, 'logoDark', big, 'big-2.png', 'image/png', true),
     ]);
     const memory = await memoryOf(main1.name);
     figures.peakRssMb = memory.peakMb;
     figures.largeUploadMs = Date.now() - begin;
     const statuses = both.map((r) => r.status);
-    expect(statuses.every((s) => s === 200 || s === 201 || s === 429), `unexpected statuses ${statuses.join(', ')}`);
+    expect(statuses.every((s) => s === 200 || s === 201), `the largest uploads were not both accepted: ${both.map((r) => `${String(r.status)} ${r.body.slice(0, 120)}`).join(' | ')}`);
     return `PNG ${String(big.length)} bytes of 4096x4096; statuses ${statuses.join('/')} in ${String(Date.now() - begin)} ms; RSS idle ${String(memoryIdle.rssMb)} MB, now ${String(memory.rssMb)} MB, peak (VmHWM) ${String(memory.peakMb)} MB`;
   });
 
