@@ -7,6 +7,7 @@ import { defineConfig } from 'vitest/config';
 import { fontPreload } from './build/plugins/font-preload.ts';
 import { nonceInline } from './build/plugins/nonce-inline.ts';
 import { precompress } from './build/plugins/precompress.ts';
+import { serviceWorker } from './build/plugins/sw.ts';
 
 // Where `pnpm dev` finds the API server: the same PORT the server reads, with the same default
 // (FR-A-016; @m365portal/shared/limits defines it once). The `dev` script of the server pins
@@ -29,6 +30,7 @@ export default defineConfig({
     // goes in first, the font preload after it, and the compressed siblings are made last.
     ...nonceInline(),
     fontPreload(),
+    serviceWorker({ version: appVersion }),
     precompress(),
   ],
   // The server replaces the placeholder with a fresh nonce on every request. Vite adds the

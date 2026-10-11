@@ -1,0 +1,155 @@
+// The routing decision of the service worker (FR-A-140, PD-17, E-08): an allow-list over the decoded,
+// normalised path. The table below is hostile on purpose: no spelling of /api may be anything but
+// `pass`, and nothing outside the two cache patterns may be cache-first.
+import { describe, expect, it } from 'vitest';
+import { decideRoute, type RouteDecision } from '../src/sw/routing';
+
+const ORIGIN = 'https://panel.example';
+const HASH = 'a'.repeat(64);
+
+function decide(path: string, mode: RequestMode = 'no-cors', method = 'GET', origin = ORIGIN) {
+  return decideRoute({ url: `${ORIGIN}${path}`, mode, method }, origin);
+}
+
+describe('decideRoute: the allowed cases', () => {
+  it.each([
+    ['/assets/index-abc123.js', 'cache-first'],
+    ['/assets/inter-latin-wght-normal-Dx9.woff2', 'cache-first'],
+    ['/assets/a.b_c-d.css', 'cache-first'],
+    [`/branding/${HASH}.png`, 'cache-first'],
+    ['/assets/x.js?v=1', 'cache-first'],
+    ['/assets/x.js#frag', 'cache-first'],
+  ] as [string, RouteDecision][])('%s is %s', (path, expected) => {
+    expect(decide(path)).toBe(expected);
+  });
+
+  it.each(['/', '/users', '/settings/appearance', '/some/deep/page', '/offline.html'])(
+    'a navigation to %s is navigate',
+    (path) => {
+      expect(decide(path, 'navigate')).toBe('navigate');
+    },
+  );
+
+  it('does not depend on the request mode for an asset', () => {
+    for (const mode of ['cors', 'no-cors', 'same-origin'] as const) {
+      expect(decide('/assets/x.js', mode)).toBe('cache-first');
+    }
+  });
+});
+
+describe('decideRoute: /api in every spelling is pass', () => {
+  const spellings = [
+    '/api',
+    '/api/v1/me',
+    '/api/',
+    '/API/v1/me',
+    '/Api/v1/me',
+    '/%61pi/v1/me',
+    '/%41PI/v1/me',
+    '/api%2Fv1/me',
+    '/api%2fv1/me',
+    '/%2561pi/v1/me',
+    '/%252561pi/v1/me',
+    '//api/v1/me',
+    '///api/v1/me',
+    '/\\api/v1/me',
+    '/%5capi/v1/me',
+    '/assets/..%2fapi/x',
+    '/assets/%2e%2e/api/x',
+    '/assets/../api/v1/me',
+    '/assets/./../api/v1/me',
+    '/api./v1/me',
+    '/api../v1/me',
+    '/api%00/x',
+    '/api;x=1/v1/me',
+    '/./api/v1/me',
+    '/x/../api/v1/me',
+    `/branding/..%2f..%2fapi/v1/me`,
+  ];
+
+  for (const mode of ['navigate', 'cors', 'no-cors', 'same-origin'] as const) {
+    it.each(spellings)(`%s is pass (mode ${mode})`, (path) => {
+      expect(decide(path, mode)).toBe('pass');
+    });
+  }
+
+  it('is pass for every method', () => {
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD', 'get', 'Get']) {
+      expect(decide('/api/v1/me', 'cors', method)).toBe('pass');
+    }
+  });
+});
+
+describe('decideRoute: everything that is not on the allow-list is pass', () => {
+  it.each([
+    '/assets',
+    '/assets/',
+    '/assets/sub/x.js',
+    '/assets/%78.js',
+    '/assets/x%2ejs',
+    '/assets/x.js%00',
+    '/assets/x js',
+    '/assets/..',
+    '/assets/x\\y.js',
+    '/ASSETS/x.js',
+    '/assets//x.js',
+    '//assets/x.js',
+    '/assets/x.js/',
+    `/branding/${'A'.repeat(64)}.png`,
+    `/branding/${'a'.repeat(63)}.png`,
+    `/branding/${'a'.repeat(65)}.png`,
+    `/branding/${HASH}.svg`,
+    `/branding/${HASH}.png/`,
+    `/branding/${HASH}.PNG`,
+    `/branding/sub/${HASH}.png`,
+    '/branding',
+    '/branding/',
+    '/branding/current.png',
+    '/manifest.webmanifest',
+    '/favicon.ico',
+    '/sw.js',
+    '/offline.css',
+    '/healthz',
+  ])('the subresource %s is pass', (path) => {
+    expect(decide(path)).toBe('pass');
+  });
+
+  it('is pass for a non-GET method', () => {
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']) {
+      expect(decide('/assets/x.js', 'cors', method)).toBe('pass');
+      expect(decide(`/branding/${HASH}.png`, 'cors', method)).toBe('pass');
+      expect(decide('/users', 'navigate', method)).toBe('pass');
+    }
+  });
+
+  it('is pass for another origin, whatever the path', () => {
+    for (const url of [
+      'https://evil.example/assets/x.js',
+      'http://panel.example/assets/x.js',
+      'https://panel.example:8443/assets/x.js',
+      'https://panel.example.evil.example/assets/x.js',
+      'https://user@evil.example/assets/x.js',
+    ]) {
+      expect(decideRoute({ url, mode: 'cors', method: 'GET' }, ORIGIN)).toBe('pass');
+      expect(decideRoute({ url, mode: 'navigate', method: 'GET' }, ORIGIN)).toBe('pass');
+    }
+  });
+
+  it('is pass for a url it cannot parse or a scheme that is not http(s)', () => {
+    for (const url of ['', 'not a url', 'blob:https://panel.example/uuid', 'data:text/plain,x', 'chrome-extension://abc/assets/x.js']) {
+      expect(decideRoute({ url, mode: 'no-cors', method: 'GET' }, ORIGIN)).toBe('pass');
+    }
+  });
+});
+
+describe('decideRoute: navigations', () => {
+  it('are navigate for GET on this origin, never cache-first', () => {
+    expect(decide('/assets/x.js', 'navigate')).toBe('navigate');
+    expect(decide(`/branding/${HASH}.png`, 'navigate')).toBe('navigate');
+  });
+
+  it('never claim an API path, a healthcheck or the worker itself', () => {
+    expect(decide('/api/v1/me', 'navigate')).toBe('pass');
+    expect(decide('/sw.js', 'navigate')).toBe('pass');
+  });
+});

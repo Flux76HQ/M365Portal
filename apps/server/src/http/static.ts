@@ -17,8 +17,10 @@
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join, sep } from 'node:path';
 import { serveStatic } from '@hono/node-server/serve-static';
+import type { Context } from 'hono';
 import { z } from 'zod';
 import { problemResponse } from './problem.js';
+import type { AppEnv } from './request-context.js';
 import {
   defineFallback,
   defineRoute,
@@ -74,7 +76,7 @@ function createFileServer(
   if (!isAbsolute(options.root)) throw new TypeError('the static root must be an absolute path');
   // Throws if the directory is missing: a server without its frontend must not start.
   const root = realpathSync(options.root);
-  const serve = serveStatic({ root, precompressed: true });
+  const serve = serveStatic<AppEnv>({ root, precompressed: true });
 
   return async (c) => {
     const path = c.req.path;
@@ -82,7 +84,8 @@ function createFileServer(
     const file = join(root, path);
     if (!isFileInside(root, file)) return undefined;
 
-    const result = await serve(c, () => Promise.resolve());
+    // `RouteContext` leaves the path type open (`any`); the library wants a string path.
+    const result = await serve(c as Context<AppEnv, string>, () => Promise.resolve());
     if (!(result instanceof Response)) return undefined;
     // The library says Vary only when it picked a sibling; a client that took the plain file must
     // not be served the Brotli copy by a cache that did not know the request differed.

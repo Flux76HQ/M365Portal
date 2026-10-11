@@ -72,13 +72,13 @@ export function metaRoutes(deps: MetaRoutesDeps): RouteDefinition[] {
       handler: (c) => {
         const actor = c.get('actor');
         // The catalogue order, so the list is the same for every request of the same actor.
-        const permissions: Permission[] = PERMISSIONS.filter((permission) =>
-          actor.permissions.has(permission),
+        const held: Permission[] = PERMISSIONS.filter((candidate) =>
+          actor.permissions.has(candidate),
         );
         return c.json(
           {
             actor: { kind: actor.kind, id: actor.id, label: actor.label },
-            permissions,
+            permissions: held,
             features: { showcase: deps.showcase, preview: actor.kind === 'preview' },
             version: deps.version,
             publicOrigin: deps.publicOrigin,

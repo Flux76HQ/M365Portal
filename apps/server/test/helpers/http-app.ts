@@ -20,6 +20,7 @@ import {
   defineRoute,
   type FallbackDefinition,
   type HttpApp,
+  type HttpAppDeps,
   type OnRouteDenied,
   type RouteDefinition,
 } from '../../src/http/route.js';
@@ -318,6 +319,8 @@ export interface FixtureAppOptions {
   /** Rate limit rules instead of `LIMITS.rateLimit`, for a test that must reach a limit. */
   readonly rules?: Readonly<Record<'read' | 'write' | 'upload', RateRule>>;
   readonly onDenied?: OnRouteDenied;
+  /** Told about every storage failure the error handler answers (readiness follows it). */
+  readonly onStorageFailure?: HttpAppDeps['onStorageFailure'];
   readonly context?: Partial<Pick<TestAppContext, 'dataDir'>>;
   /** A clock the test already has (the denial audit reads time from the same one). */
   readonly clock?: FakeClock;
@@ -397,6 +400,9 @@ export async function createFixtureApp(options: FixtureAppOptions = {}): Promise
         log,
         now: () => context.clock.nowMs(),
         ...(options.onDenied === undefined ? {} : { onDenied: options.onDenied }),
+        ...(options.onStorageFailure === undefined
+          ? {}
+          : { onStorageFailure: options.onStorageFailure }),
         openApi: { version: '0.0.0-test', source },
       });
       return { fetch: (request, env) => http.app.fetch(request, env as never), http };

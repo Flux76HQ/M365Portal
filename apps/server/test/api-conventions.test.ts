@@ -12,7 +12,8 @@ import {
   resolveRequestId,
   type AppEnv,
 } from '../src/http/request-context.js';
-import { createFixtureApp } from './helpers/http-app.js';
+import { createFixtureApp, fixtureRoutes } from './helpers/http-app.js';
+import { defineRoute } from '../src/http/route.js';
 import { readJson } from './helpers/http-client.js';
 import { createTestApp } from './helpers/test-app.js';
 
@@ -520,5 +521,62 @@ describe('a problem leaves nothing of the request behind (FR-A-022, FR-A-023)', 
       expect(response.status).toBeGreaterThanOrEqual(400);
       expect(JSON.stringify(await readJson(response))).not.toContain(canary);
     }
+  });
+});
+
+describe('the request line and the storage hook of the pipeline (FR-A-051, plan 7.2)', () => {
+  it('logs the route template, the status and the id, and nothing of the path or the query', async () => {
+    const app = await createFixtureApp();
+    const canary = 'canary-4e8b';
+    const response = await app.client.get(`/api/v1/fixture/items/${canary}?secret=${canary}`);
+    expect(response.status).toBe(200);
+    const id = response.headers.get('x-request-id');
+    const line = app.logs.lines().find((candidate) => candidate.requestId === id);
+    expect(line).toMatchObject({
+      msg: 'request',
+      method: 'GET',
+      route: '/api/v1/fixture/items/:id',
+      status: 200,
+      requestId: id,
+    });
+    expect(app.logs.text()).not.toContain(canary);
+  });
+
+  it('logs a path no route claimed without the path', async () => {
+    const app = await createFixtureApp();
+    const canary = 'canary-77ad';
+    const response = await app.client.get(`/api/v1/${canary}`);
+    expect(response.status).toBe(404);
+    expect(app.logs.text()).not.toContain(canary);
+  });
+
+  it('tells onStorageFailure about a storage error a handler throws, and answers 503', async () => {
+    const seen: string[] = [];
+    const app = await createFixtureApp({
+      onStorageFailure: (failure) => {
+        seen.push(failure.kind);
+      },
+      routes: ({ calls, csrf }) => [
+        ...fixtureRoutes(calls, csrf),
+        defineRoute({
+          id: 'fixture.corrupt',
+          method: 'GET',
+          path: '/api/v1/fixture/corrupt',
+          access: { public: true },
+          rateLimit: 'read',
+          responses: { 200: { description: 'never' } },
+          handler: () => {
+            throw Object.assign(new Error('database disk image is malformed'), {
+              code: 'SQLITE_CORRUPT',
+            });
+          },
+        }),
+      ],
+    });
+    const response = await app.client.get('/api/v1/fixture/corrupt');
+    expect(response.status).toBe(503);
+    expect((await readJson<{ code: string }>(response)).code).toBe('storage_unavailable');
+    expect(seen).toEqual(['corrupt']);
+    expect(app.logs.text()).not.toContain('malformed');
   });
 });

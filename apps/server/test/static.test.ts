@@ -122,7 +122,9 @@ describe('serving the build output (FR-A-048, FR-A-050)', () => {
     const app = await siteApp();
     const response = await app.client.request('HEAD', '/assets/style-abc123.css');
     expect(response.status).toBe(200);
-    expect(response.headers.get('content-length')).toBe('44');
+    expect(response.headers.get('content-length')).toBe(
+      String(readFileSync(join(app.site.root, 'assets', 'style-abc123.css')).length),
+    );
     expect(await response.text()).toBe('');
   });
 

@@ -1,0 +1,10 @@
+{
+  "pwa.update.title": "Update beschikbaar",
+  "pwa.update.description": "Er staat een nieuwe versie klaar. Werk nu bij om die te gebruiken; niet-opgeslagen wijzigingen op deze pagina gaan verloren.",
+  "pwa.update.action": "Nu bijwerken",
+  "pwa.update.actionAlt": "Laad de pagina opnieuw om de nieuwe versie te gebruiken",
+  "pwa.offline.title": "Je bent offline",
+  "pwa.offline.description": "Er is geen verbinding met de server. Wijzigingen kunnen pas worden opgeslagen als die terug is, en er wordt niets in de wachtrij gezet of later verstuurd.",
+  "pwa.offline.saveDisabled": "Opslaan is niet beschikbaar zolang je offline bent.",
+  "pwa.offline.retry": "Opnieuw proberen"
+}

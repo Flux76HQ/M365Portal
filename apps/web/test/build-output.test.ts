@@ -12,7 +12,7 @@
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { build } from 'vite';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { compileBootScript } from '../build/plugins/nonce-inline';
@@ -271,7 +271,10 @@ describe('the inlined entry CSS (FR-A-158)', () => {
   });
 
   it('does not ship the stylesheet file it inlined', () => {
-    expect(files.filter((file) => file.endsWith('.css'))).toEqual([]);
+    // `public/offline.css` is the one stylesheet file: the offline page cannot use the inlined one.
+    expect(
+      files.filter((file) => file.endsWith('.css') && !file.endsWith(`${sep}offline.css`)),
+    ).toEqual([]);
   });
 
   it('is not referenced by any script as a file that is missing', () => {
@@ -454,6 +457,61 @@ describe('precompressed siblings', () => {
   it('are not made for fonts, which are compressed already, or for the siblings themselves', () => {
     expect(files.filter((file) => /\.woff2\.(?:br|gz)$/.test(file))).toEqual([]);
     expect(files.filter((file) => /\.(?:br|gz)\.(?:br|gz)$/.test(file))).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The service worker and the offline page (FR-A-140, T-A-171)
+// ---------------------------------------------------------------------------------------------
+
+describe('the service worker', () => {
+  const version = readFileSync(join(WEB_ROOT, '..', '..', 'VERSION'), 'utf8').trim();
+  const worker = () => readFileSync(join(outDir, 'sw.js'), 'utf8');
+
+  it('is emitted as /sw.js at the root, unhashed, with its compressed siblings', () => {
+    expect(files).toContain(join(outDir, 'sw.js'));
+    expect(files).toContain(join(outDir, 'sw.js.br'));
+    expect(files).toContain(join(outDir, 'sw.js.gz'));
+    expect(files.filter((file) => /sw-[\w-]+\.js$/.test(file))).toEqual([]);
+  });
+
+  it('carries the product version, so a new version changes the bytes and the cache names', () => {
+    const text = worker();
+    expect(text).not.toContain('__APP_VERSION__');
+    expect(text).toContain(JSON.stringify(version));
+    expect(text).toContain('m365portal-static-');
+    expect(text).toContain('m365portal-offline-');
+  });
+
+  it('is one classic script: no import, no export, no reference to a source map', () => {
+    const text = worker();
+    expect(text).not.toMatch(/^\s*(?:import|export)\s/m);
+    expect(text).not.toMatch(/\bimport\s*\(/);
+    expect(text).not.toMatch(/sourceMappingURL/);
+  });
+
+  it('has the routing patterns and the update message, and knows no API path to cache', () => {
+    const text = worker();
+    expect(text).toContain('SKIP_WAITING');
+    expect(text).toContain('/offline.html');
+    expect(text).toMatch(/\^\\\/assets\\\//);
+  });
+
+  it('is not part of the app: no page script refers to it by import', () => {
+    for (const file of files.filter((candidate) => /\/assets\/[^/]+\.js$/.test(candidate))) {
+      expect(readFileSync(file, 'utf8'), file).not.toMatch(/from\s*["'][^"']*sw\.js["']/);
+    }
+  });
+});
+
+describe('the offline page', () => {
+  it('is copied unchanged to the root, with its stylesheet and script', () => {
+    for (const name of ['offline.html', 'offline.css', 'offline.js']) {
+      expect(files, name).toContain(join(outDir, name));
+      expect(readFileSync(join(outDir, name), 'utf8'), name).toBe(
+        readFileSync(join(WEB_ROOT, 'public', name), 'utf8'),
+      );
+    }
   });
 });
 

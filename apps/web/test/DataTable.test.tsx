@@ -8,13 +8,20 @@
 // Part 2 (behaviours) is further down: bulk selection, the column picker, the page size, row actions,
 // the details panel and a full keyboard walk.
 import { expectGuardFails } from '@m365portal/shared/testing';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { DataTable, type DataTableProps } from '../src/components/data-table/DataTable';
+import {
+  DataTable,
+  type DataTableBulkAction,
+  type DataTableColumnPrefs,
+  type DataTableColumnStorage,
+  type DataTableProps,
+  type DataTableSelection,
+} from '../src/components/data-table/DataTable';
 import type { DataTableColumn } from '../src/components/data-table/columns';
 import type { DataTableLabels } from '../src/components/data-table/labels';
 import {
@@ -85,6 +92,7 @@ const LABELS: DataTableLabels = {
   columnHidden: (column) => `${column} is hidden`,
   resetColumns: 'Restore default columns',
   closeLabel: 'Close',
+  actionsColumn: 'Actions',
   rowActions: (row) => `Actions for ${row}`,
   openDetails: (row) => `Open details of ${row}`,
   detailsClose: 'Close details',
@@ -195,7 +203,7 @@ describe('structure and semantics', () => {
         .map((cell) => cell.textContent),
     ).toEqual(['', 'Name', 'Department', 'Role']);
     expect(bodyRows()).toHaveLength(5);
-    expect(within(bodyRows()[0] as HTMLElement).getByText('Ada Lovelace')).toBeInTheDocument();
+    expect(within(bodyRows()[0]!).getByText('Ada Lovelace')).toBeInTheDocument();
   });
 
   it('puts aria-sort on the sorted header only, and the order comes from the search', () => {
@@ -243,13 +251,14 @@ describe('structure and semantics', () => {
     expect(screen.getByText('3 results')).toBeInTheDocument();
   });
 
-  it('has a sticky header inside a scrollable region that a keyboard user can reach', () => {
+  it('has a sticky header inside a named scrollable region', () => {
     render(<DataTable {...baseProps()} />);
     for (const header of screen.getAllByRole('columnheader')) {
       expect(header).toHaveClass('sticky', 'top-0');
     }
+    // Chromium makes a scroll container keyboard-focusable by itself, and this one holds focusable
+    // controls anyway (the checkboxes, the sort buttons), so it needs no tabindex of its own.
     const region = screen.getByRole('region', { name: 'People' });
-    expect(region).toHaveAttribute('tabindex', '0');
     expect(region).toHaveClass('overflow-auto');
   });
 
@@ -284,11 +293,11 @@ describe('sorting', () => {
       'aria-sort',
       'ascending',
     );
-    expect(within(bodyRows()[0] as HTMLElement).getByText('Ada Lovelace')).toBeInTheDocument();
+    expect(within(bodyRows()[0]!).getByText('Ada Lovelace')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Name' }));
     expect(onChange).toHaveBeenLastCalledWith({ sort: '-name' });
-    expect(within(bodyRows()[0] as HTMLElement).getByText('Grace Hopper')).toBeInTheDocument();
+    expect(within(bodyRows()[0]!).getByText('Grace Hopper')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Name' }));
     expect(onChange).toHaveBeenLastCalledWith({});
@@ -372,7 +381,7 @@ describe('pagination', () => {
     await user.click(within(pager).getByRole('button', { name: 'Next page' }));
     expect(onChange).toHaveBeenLastCalledWith({ page: '2' });
     expect(within(pager).getByText('Page 2 of 3')).toBeInTheDocument();
-    expect(within(bodyRows()[0] as HTMLElement).getByText('Edsger Dijkstra')).toBeInTheDocument();
+    expect(within(bodyRows()[0]!).getByText('Edsger Dijkstra')).toBeInTheDocument();
 
     await user.click(within(pager).getByRole('button', { name: 'Next page' }));
     expect(within(pager).getByRole('button', { name: 'Next page' })).toBeDisabled();
@@ -424,6 +433,7 @@ describe('states', () => {
           rows: [],
           totalCount: 0,
           search: { q: 'zzz', 'f.department': 'Research', sort: 'name', page: '2', size: '5' },
+          pageSizeOptions: [5, 25],
           onSearchChange,
         })}
       />,
@@ -499,6 +509,466 @@ describe('query state (the URL is the state)', () => {
   it('round-trips a search through read and write', () => {
     const search = { q: 'ada', sort: '-name', page: '2', size: '10', 'f.department': 'Research' };
     expect(writeSearch(readQuery(search, DEFAULTS), DEFAULTS)).toEqual(search);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// PART 2 (T-A-130): bulk selection, column picker, page size, row actions, details panel, keyboard.
+// ------------------------------------------------------------------------------------------------
+
+/** An injected `columnStorage`: a map in memory, with a record of what was written. */
+function fakeStorage(initial: Record<string, DataTableColumnPrefs> = {}) {
+  const store = new Map<string, DataTableColumnPrefs>(Object.entries(initial));
+  const storage: DataTableColumnStorage = {
+    read: vi.fn((tableId: string) => store.get(tableId) ?? null),
+    write: vi.fn((tableId: string, prefs: DataTableColumnPrefs) => {
+      store.set(tableId, prefs);
+    }),
+    clear: vi.fn((tableId: string) => {
+      store.delete(tableId);
+    }),
+  };
+  return { storage, store };
+}
+
+function headerNames(): string[] {
+  return screen
+    .getAllByRole('columnheader')
+    .map((header) => header.textContent ?? '')
+    .filter((text) => text !== '' && text !== 'Actions');
+}
+
+describe('bulk selection', () => {
+  const ACTIONS = (onSelect: (selection: DataTableSelection) => void): DataTableBulkAction[] => [
+    { id: 'export', label: 'Export', onSelect },
+    { id: 'delete', label: 'Delete', destructive: true, onSelect },
+  ];
+
+  it('says "N selected on this page" and offers an explicit link to select all M results', async () => {
+    const user = userEvent.setup();
+    render(<Harness overrides={{ bulkActions: ACTIONS(vi.fn()) }} />);
+    expect(screen.queryByText(/selected on this page/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select all rows on this page' }));
+    expect(screen.getByText('2 selected on this page')).toBeInTheDocument();
+    // The page is the selection; the results beyond it are not, until the link is used.
+    const link = screen.getByRole('button', { name: 'Select all 5 results' });
+    expect(screen.queryByText('All 5 results are selected')).not.toBeInTheDocument();
+
+    await user.click(link);
+    expect(screen.getByText('All 5 results are selected')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select all 5 results' })).not.toBeInTheDocument();
+    expect(screen.queryByText('2 selected on this page')).not.toBeInTheDocument();
+  });
+
+  it('does not offer "all results" when the page already holds every result', async () => {
+    const user = userEvent.setup();
+    render(<DataTable {...baseProps({ bulkActions: ACTIONS(vi.fn()) })} />);
+    await user.click(screen.getByRole('checkbox', { name: 'Select all rows on this page' }));
+    expect(screen.getByText('5 selected on this page')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Select all \d+ results/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('does not offer "all results" while only some rows of the page are ticked', async () => {
+    const user = userEvent.setup();
+    render(<Harness overrides={{ bulkActions: ACTIONS(vi.fn()) }} />);
+    await user.click(screen.getByRole('checkbox', { name: 'Select Ada Lovelace' }));
+    expect(screen.getByText('1 selected on this page')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Select all \d+ results/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select all rows on this page' })).toHaveAttribute(
+      'aria-checked',
+      'mixed',
+    );
+  });
+
+  it('hands a bulk action the ids of the page, or "all" with the total and the query', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(<Harness initial={{ sort: 'name' }} overrides={{ bulkActions: ACTIONS(onSelect) }} />);
+    const group = () => screen.getByRole('group', { name: 'Actions for the selection' });
+    await user.click(screen.getByRole('checkbox', { name: 'Select Ada Lovelace' }));
+    await user.click(within(group()).getByRole('button', { name: 'Export' }));
+    expect(onSelect).toHaveBeenLastCalledWith({ scope: 'page', ids: ['p1'], total: 1 });
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select all rows on this page' }));
+    await user.click(screen.getByRole('button', { name: 'Select all 5 results' }));
+    await user.click(within(group()).getByRole('button', { name: 'Delete' }));
+    expect(onSelect).toHaveBeenLastCalledWith({ scope: 'all', total: 5, query: { sort: 'name' } });
+  });
+
+  it('leaves "all results" as soon as one row is unticked', async () => {
+    const user = userEvent.setup();
+    render(<Harness overrides={{ bulkActions: ACTIONS(vi.fn()) }} />);
+    await user.click(screen.getByRole('checkbox', { name: 'Select all rows on this page' }));
+    await user.click(screen.getByRole('button', { name: 'Select all 5 results' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select Ada Lovelace' }));
+    expect(screen.queryByText('All 5 results are selected')).not.toBeInTheDocument();
+    expect(screen.getByText('1 selected on this page')).toBeInTheDocument();
+  });
+
+  it('clears the selection with its button', async () => {
+    const user = userEvent.setup();
+    render(<Harness overrides={{ bulkActions: ACTIONS(vi.fn()) }} />);
+    await user.click(screen.getByRole('checkbox', { name: 'Select all rows on this page' }));
+    await user.click(screen.getByRole('button', { name: 'Select all 5 results' }));
+    await user.click(screen.getByRole('button', { name: 'Clear selection' }));
+    expect(screen.queryByText('All 5 results are selected')).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select Ada Lovelace' })).not.toBeChecked();
+  });
+
+  it.each([
+    [
+      'a new page',
+      async (user: ReturnType<typeof userEvent.setup>) => {
+        await user.click(screen.getByRole('button', { name: 'Next page' }));
+      },
+    ],
+    [
+      'a new sort',
+      async (user: ReturnType<typeof userEvent.setup>) => {
+        await user.click(screen.getByRole('button', { name: 'Name' }));
+      },
+    ],
+    [
+      'a new search',
+      async (user: ReturnType<typeof userEvent.setup>) => {
+        await user.type(screen.getByRole('searchbox'), 'a{Enter}');
+      },
+    ],
+  ])(
+    'clears the selection, "all results" included, when the query changes (%s)',
+    async (_, act) => {
+      const user = userEvent.setup();
+      render(<Harness overrides={{ bulkActions: ACTIONS(vi.fn()) }} />);
+      await user.click(screen.getByRole('checkbox', { name: 'Select all rows on this page' }));
+      await user.click(screen.getByRole('button', { name: 'Select all 5 results' }));
+      await act(user);
+      expect(screen.queryByText('All 5 results are selected')).not.toBeInTheDocument();
+      expect(screen.queryByText(/selected on this page/)).not.toBeInTheDocument();
+      for (const box of screen.getAllByRole('checkbox')) expect(box).not.toBeChecked();
+    },
+  );
+
+  it('announces the selection in a polite live region and marks a selected row by more than colour', async () => {
+    const user = userEvent.setup();
+    render(<Harness overrides={{ bulkActions: ACTIONS(vi.fn()) }} />);
+    await user.click(screen.getByRole('checkbox', { name: 'Select Ada Lovelace' }));
+    const text = screen.getByText('1 selected on this page');
+    expect(text.closest('[aria-live="polite"]')).not.toBeNull();
+    // The check mark of the checkbox, and the leading bar, are the non-colour cues.
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Ada Lovelace' }).querySelector('svg'),
+    ).not.toBeNull();
+    expect(bodyRows()[0]).toHaveAttribute('data-selected', 'true');
+  });
+});
+
+describe('column picker', () => {
+  async function openPicker(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('button', { name: 'Columns' }));
+    return screen.findByRole('dialog', { name: 'Choose columns' });
+  }
+
+  it('offers the picker only when a column can be hidden or moved, and lists every column', async () => {
+    const user = userEvent.setup();
+    const { storage } = fakeStorage();
+    render(<DataTable {...baseProps({ columnStorage: storage })} />);
+    const dialog = await openPicker(user);
+    expect(
+      within(dialog).getByText('Show, hide and reorder the columns of this table.'),
+    ).toBeVisible();
+    expect(
+      within(dialog)
+        .getAllByRole('checkbox')
+        .map((box) => box.getAttribute('aria-label') ?? box.id),
+    ).toHaveLength(3);
+    // The name column cannot be hidden: its checkbox is checked and disabled.
+    const name = within(dialog).getByRole('checkbox', { name: 'Name' });
+    expect(name).toBeChecked();
+    expect(name).toBeDisabled();
+  });
+
+  it('hides and shows a column and remembers it through the injected storage, keyed by table id', async () => {
+    const user = userEvent.setup();
+    const { storage, store } = fakeStorage();
+    render(<DataTable {...baseProps({ columnStorage: storage })} />);
+    const dialog = await openPicker(user);
+
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Department' }));
+    expect(headerNames()).toEqual(['Name', 'Role']);
+    expect(storage.write).toHaveBeenLastCalledWith('people', {
+      hidden: ['department'],
+      order: ['name', 'department', 'role'],
+    });
+    expect(screen.queryByText('Research')).not.toBeInTheDocument();
+    expect(within(dialog).getByText('Department is hidden')).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Department' }));
+    expect(headerNames()).toEqual(['Name', 'Department', 'Role']);
+    expect(store.get('people')?.hidden).toEqual([]);
+    expect(within(dialog).getByText('Department is shown')).toBeInTheDocument();
+  });
+
+  it('restores the remembered columns and their order on the next visit', () => {
+    const { storage } = fakeStorage({
+      people: { hidden: ['role'], order: ['department', 'name', 'role'] },
+      other: { hidden: ['name'], order: ['name', 'department', 'role'] },
+    });
+    render(<DataTable {...baseProps({ columnStorage: storage })} />);
+    expect(storage.read).toHaveBeenCalledWith('people');
+    expect(headerNames()).toEqual(['Department', 'Name']);
+  });
+
+  it('keeps a remembered choice from breaking the table: unknown ids go, new columns are appended, the name stays', () => {
+    const { storage } = fakeStorage({
+      people: { hidden: ['name', 'gone'], order: ['gone', 'role', 'name'] },
+    });
+    render(<DataTable {...baseProps({ columnStorage: storage })} />);
+    expect(headerNames()).toEqual(['Role', 'Name', 'Department']);
+  });
+
+  it('starts with the columns that are hidden by default hidden', () => {
+    const columns: DataTableColumn<Person>[] = COLUMNS.map((column) =>
+      column.id === 'role' ? { ...column, hiddenByDefault: true } : column,
+    );
+    render(<DataTable {...baseProps({ columns, columnStorage: fakeStorage().storage })} />);
+    expect(headerNames()).toEqual(['Name', 'Department']);
+  });
+
+  it('reorders without dragging: move left and move right, announced in a live region', async () => {
+    const user = userEvent.setup();
+    const { storage } = fakeStorage();
+    render(<DataTable {...baseProps({ columnStorage: storage })} />);
+    const dialog = await openPicker(user);
+
+    expect(within(dialog).getByRole('button', { name: 'Move Name left' })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Move Role right' })).toBeDisabled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Move Role left' }));
+    expect(headerNames()).toEqual(['Name', 'Role', 'Department']);
+    const live = within(dialog).getByText('Role is now column 2 of 3');
+    expect(live.closest('[aria-live="polite"]')).not.toBeNull();
+    expect(storage.write).toHaveBeenLastCalledWith('people', {
+      hidden: [],
+      order: ['name', 'role', 'department'],
+    });
+
+    await user.click(within(dialog).getByRole('button', { name: 'Move Name right' }));
+    expect(headerNames()).toEqual(['Role', 'Name', 'Department']);
+    expect(within(dialog).getByText('Name is now column 2 of 3')).toBeInTheDocument();
+  });
+
+  it('keeps focus on the button that was used, even though the list order changed', async () => {
+    const user = userEvent.setup();
+    render(<DataTable {...baseProps({ columnStorage: fakeStorage().storage })} />);
+    const dialog = await openPicker(user);
+    await user.click(within(dialog).getByRole('button', { name: 'Move Role left' }));
+    // After the move the same column's "move left" button is still in the dialog and still focused.
+    expect(within(dialog).getByRole('button', { name: 'Move Role left' })).toHaveFocus();
+  });
+
+  it('restores the defaults and forgets the stored choice', async () => {
+    const user = userEvent.setup();
+    const { storage } = fakeStorage({
+      people: { hidden: ['role'], order: ['department', 'name', 'role'] },
+    });
+    render(<DataTable {...baseProps({ columnStorage: storage })} />);
+    const dialog = await openPicker(user);
+    await user.click(within(dialog).getByRole('button', { name: 'Restore default columns' }));
+    expect(headerNames()).toEqual(['Name', 'Department', 'Role']);
+    expect(storage.clear).toHaveBeenCalledWith('people');
+  });
+
+  it('works without a storage: the choice lasts for the life of the table', async () => {
+    const user = userEvent.setup();
+    render(<DataTable {...baseProps()} />);
+    const dialog = await openPicker(user);
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Role' }));
+    expect(headerNames()).toEqual(['Name', 'Department']);
+  });
+
+  it('closes with Escape and returns the focus to the Columns button', async () => {
+    const user = userEvent.setup();
+    render(<DataTable {...baseProps({ columnStorage: fakeStorage().storage })} />);
+    await openPicker(user);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Columns' })).toHaveFocus();
+    });
+  });
+});
+
+describe('page size', () => {
+  it('offers the page-size choices, shows the current one and returns to page 1 on change', async () => {
+    installSelectPolyfills();
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness initial={{ page: '2' }} onChange={onChange} />);
+    const select = screen.getByRole('combobox', { name: 'Rows per page' });
+    expect(select).toHaveTextContent('2 rows');
+    await user.click(select);
+    expect(within(await screen.findByRole('listbox')).getAllByRole('option')).toHaveLength(2);
+    await user.click(screen.getByRole('option', { name: '5 rows' }));
+    expect(onChange).toHaveBeenLastCalledWith({ size: '5' });
+    expect(screen.getByText('Page 1 of 1')).toBeInTheDocument();
+  });
+});
+
+describe('row actions', () => {
+  it('opens a menu named for the row and reports the chosen action with its row', async () => {
+    const user = userEvent.setup();
+    const onRowAction = vi.fn();
+    render(
+      <DataTable
+        {...baseProps({
+          rowActions: (person) => [
+            { id: 'edit', label: 'Edit' },
+            { id: 'remove', label: `Remove ${person.name}`, destructive: true },
+          ],
+          onRowAction,
+        })}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Actions for Grace Hopper' }));
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getAllByRole('menuitem')).toHaveLength(2);
+    await user.click(within(menu).getByRole('menuitem', { name: 'Edit' }));
+    expect(onRowAction).toHaveBeenCalledWith('edit', PEOPLE[1]);
+  });
+
+  it('shows no menu button for a row that has no actions, and no column without any', () => {
+    const { rerender } = render(
+      <DataTable
+        {...baseProps({
+          rowActions: (person) => (person.id === 'p1' ? [] : [{ id: 'edit', label: 'Edit' }]),
+        })}
+      />,
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Actions for Ada Lovelace' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Actions for Grace Hopper' })).toBeInTheDocument();
+    rerender(<DataTable {...baseProps()} />);
+    expect(screen.queryByRole('columnheader', { name: 'Actions' })).not.toBeInTheDocument();
+  });
+
+  it('gives the actions column a header with a real name', () => {
+    render(<DataTable {...baseProps({ rowActions: () => [{ id: 'edit', label: 'Edit' }] })} />);
+    expect(screen.getByRole('columnheader', { name: 'Actions' })).toBeInTheDocument();
+  });
+});
+
+describe('details panel', () => {
+  const DETAILS = {
+    title: (person: Person) => person.name,
+    render: (person: Person) => <p>{`Works in ${person.department}`}</p>,
+  };
+
+  it('opens from the row, shows the row, closes with Escape and returns the focus to the row', async () => {
+    const user = userEvent.setup();
+    render(<DataTable {...baseProps({ details: DETAILS })} />);
+    const open = screen.getByRole('button', { name: 'Open details of Edsger Dijkstra' });
+    await user.click(open);
+    const panel = await screen.findByRole('dialog', { name: 'Edsger Dijkstra' });
+    expect(within(panel).getByText('Works in Research')).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Close details' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(open).toHaveFocus();
+    });
+  });
+
+  it('has no details button in a table without details', () => {
+    render(<DataTable {...baseProps()} />);
+    expect(screen.queryByRole('button', { name: /Open details/ })).not.toBeInTheDocument();
+  });
+
+  it('opens with Enter and with Space on the focused row button', async () => {
+    const user = userEvent.setup();
+    render(<DataTable {...baseProps({ details: DETAILS })} />);
+    screen.getByRole('button', { name: 'Open details of Ada Lovelace' }).focus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByRole('dialog', { name: 'Ada Lovelace' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Open details of Ada Lovelace' })).toHaveFocus();
+    });
+    await user.keyboard(' ');
+    expect(await screen.findByRole('dialog', { name: 'Ada Lovelace' })).toBeInTheDocument();
+  });
+});
+
+describe('keyboard walk', () => {
+  function describeFocus(): string {
+    const element = document.activeElement as HTMLElement;
+    const name = element.getAttribute('aria-label') ?? element.textContent ?? '';
+    return `${element.getAttribute('role') ?? element.tagName.toLowerCase()}:${name}`;
+  }
+
+  it('tabs through the toolbar, the headers and the first row in reading order', async () => {
+    installSelectPolyfills();
+    const user = userEvent.setup();
+    render(
+      <Harness
+        overrides={{
+          columnStorage: fakeStorage().storage,
+          bulkActions: [{ id: 'export', label: 'Export', onSelect: vi.fn() }],
+          rowActions: () => [{ id: 'edit', label: 'Edit' }],
+          details: { title: (person) => person.name, render: (person) => <p>{person.role}</p> },
+        }}
+      />,
+    );
+    const visited: string[] = [];
+    for (let step = 0; step < 14; step += 1) {
+      await user.tab();
+      visited.push(describeFocus());
+    }
+    expect(visited).toEqual([
+      'searchbox:Search people',
+      'button:Search',
+      'combobox:Department',
+      'button:Columns',
+      'checkbox:Select all rows on this page',
+      'button:Name',
+      'button:Department',
+      'checkbox:Select Ada Lovelace',
+      'button:Open details of Ada Lovelace',
+      'button:Actions for Ada Lovelace',
+      'checkbox:Select Grace Hopper',
+      'button:Open details of Grace Hopper',
+      'button:Actions for Grace Hopper',
+      'combobox:Rows per page',
+    ]);
+  });
+
+  it('sorts from the header with Enter and with Space', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness onChange={onChange} />);
+    screen.getByRole('button', { name: 'Name' }).focus();
+    await user.keyboard('{Enter}');
+    expect(onChange).toHaveBeenLastCalledWith({ sort: 'name' });
+    await user.keyboard(' ');
+    expect(onChange).toHaveBeenLastCalledWith({ sort: '-name' });
+    expect(screen.getByRole('button', { name: 'Name' })).toHaveFocus();
+  });
+
+  it('ticks a row with Space and walks the pager with Enter', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    screen.getByRole('checkbox', { name: 'Select Ada Lovelace' }).focus();
+    await user.keyboard(' ');
+    expect(screen.getByRole('checkbox', { name: 'Select Ada Lovelace' })).toBeChecked();
+    screen.getByRole('button', { name: 'Next page' }).focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByText('Page 2 of 3')).toBeInTheDocument();
   });
 });
 
