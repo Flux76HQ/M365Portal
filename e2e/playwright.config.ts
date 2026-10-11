@@ -67,6 +67,9 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
   timeout: 60_000,
   expect: { timeout: 10_000 },
+  // Baselines of the visual specs: `visual.spec.ts-snapshots/<page>-<project>-chromium-linux.png`. The
+  // project is part of the name the spec passes (desktop-light, mobile-dark, ...).
+  snapshotPathTemplate: '{testDir}/{testFileName}-snapshots/{arg}-chromium{-snapshotSuffix}{ext}',
   globalSetup: './global-setup.ts',
   globalTeardown: './global-teardown.ts',
   use: {
@@ -99,12 +102,14 @@ export default defineConfig({
     projectFor(
       'forced-colors',
       { appTheme: 'light', viewport: DESKTOP },
-      { colorScheme: 'light', forcedColors: 'active' },
+      // `forcedColors` and `reducedMotion` are options of the browser context, not test options of
+      // Playwright 1.56 (`colorScheme` is both): as `use` entries they are silently ignored.
+      { colorScheme: 'light', contextOptions: { forcedColors: 'active' } },
     ),
     projectFor(
       'reduced-motion',
       { appTheme: 'light', viewport: DESKTOP },
-      { colorScheme: 'light', reducedMotion: 'reduce' },
+      { colorScheme: 'light', contextOptions: { reducedMotion: 'reduce' } },
     ),
   ],
 });
