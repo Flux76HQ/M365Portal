@@ -567,10 +567,10 @@ describe('the DataTable demo', () => {
     await waitFor(() => {
       expect(router.state.location.search).toMatchObject({ q: target.name });
     });
+    // The previous rows stay on screen until the server answers, so wait for the filtered rows.
     await waitFor(() => {
-      expect(within(live()).getAllByRole('row').length - 1).toBeGreaterThanOrEqual(1);
+      expect(firstNames(1)).toEqual([target.name]);
     });
-    expect(firstNames(1)).toEqual([target.name]);
     expect(area().getByText(en.t('common.table.resultCount', { count: 1 }))).toBeInTheDocument();
   });
 
