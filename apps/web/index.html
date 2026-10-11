@@ -3,10 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>M365Portal</title>
+    <meta name="theme-color" content="__M365_THEME_COLOR__" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>__M365_TITLE__</title>
+    <style nonce="__M365_NONCE__">
+      __M365_THEME_CSS__
+    </style>
+    __M365_ICON_LINKS__
+    <script type="application/json" id="m365-boot" nonce="__M365_NONCE__">
+      __M365_BOOT_JSON__
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <p lang="nl">
+        Deze toepassing heeft JavaScript nodig. Schakel JavaScript in en laad de pagina opnieuw.
+      </p>
+      <p lang="en">This application needs JavaScript. Turn on JavaScript and reload the page.</p>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

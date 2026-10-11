@@ -1,4 +1,7 @@
 {
+  "common.close": "Close",
+  "common.notification": "Notification",
+  "common.notifications": "Notifications ({hotkey})",
   "problem.accent_invalid": "Enter the accent colour as a hexadecimal code, for example #0078d4 or #07d.",
   "problem.asset_unknown": "One of the selected images is no longer available. Upload it again.",
   "problem.branding_conflict": "The appearance was changed by someone else since you opened this page. Reload to see the latest settings, then apply your change again.",

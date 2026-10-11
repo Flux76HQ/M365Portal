@@ -40,6 +40,8 @@ import { createErrorHandler, errorBoundary, notFoundHandler } from '../src/http/
 import { problemResponse } from '../src/http/problem.js';
 import { requestContext, type AppEnv } from '../src/http/request-context.js';
 import { createFakeClock, type FakeClock } from './helpers/fake-clock.js';
+import { createFixtureApp } from './helpers/http-app.js';
+import { readJson } from './helpers/http-client.js';
 
 const EXPECTED = 'http://localhost:9090';
 const TOKEN_PATTERN = /^v1\.\d+\.\d+\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}$/;
@@ -1316,5 +1318,76 @@ describe('the audited-read guard', () => {
     await expectGuardFails(assertAuditedRead, wrongCode, {
       reason: 'the code is not origin_not_allowed',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T-A-042: GET /api/v1/csrf (R5, FR-A-027, FR-A-044)
+// ---------------------------------------------------------------------------------------------
+
+describe('GET /api/v1/csrf (R5)', () => {
+  const CSRF = '/api/v1/csrf';
+
+  it('returns a token the validator accepts, and when it expires', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const response = await app.client.get(CSRF);
+    expect(response.status).toBe(200);
+    const body = await readJson(response);
+    const parsed = CsrfResponseSchema.parse(body);
+    expect(parsed.token).toMatch(TOKEN_PATTERN);
+    expect(app.csrf.validate(parsed.token, '')).toEqual({ ok: true });
+    // Issued now, valid for 8 hours: the expiry is read from the injected clock.
+    expect(Date.parse(parsed.expiresAt)).toBe(app.clock.nowMs() + LIMITS.csrfTokenLifetimeMs);
+  });
+
+  it('issues a token bound to the empty binding of Phase A, and not to any other', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const { token } = CsrfResponseSchema.parse(await readJson(await app.client.get(CSRF)));
+    expect(app.csrf.validate(token, 'session-1').ok).toBe(false);
+  });
+
+  it('is no-store, uncompressed and not cacheable by a proxy', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const response = await app.client.get(CSRF, { headers: { 'accept-encoding': 'br, gzip' } });
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('content-encoding')).toBeNull();
+    expect(response.headers.get('etag')).toBeNull();
+  });
+
+  it('is public, and the token it returns lets a write through (the client flow)', async () => {
+    const app = await createFixtureApp({ system: {}, env: { PREVIEW_MODE: 'true' } });
+    const response = await app.client.post('/api/v1/fixture/things', { json: { name: 'x' } });
+    expect(response.status).toBe(201);
+  });
+
+  it('gives each request its own token', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const first = CsrfResponseSchema.parse(await readJson(await app.client.get(CSRF)));
+    const second = CsrfResponseSchema.parse(await readJson(await app.client.get(CSRF)));
+    expect(first.token).not.toBe(second.token);
+  });
+
+  it('keeps answering after a token expired: a new one is valid', async () => {
+    const app = await createFixtureApp({ system: {}, env: { PREVIEW_MODE: 'true' } });
+    const old = CsrfResponseSchema.parse(await readJson(await app.client.get(CSRF)));
+    app.clock.advance(LIMITS.csrfTokenLifetimeMs + 120_000);
+    const stale = await app.client.post('/api/v1/fixture/things', {
+      json: { name: 'x' },
+      csrf: { token: old.token },
+    });
+    expect(stale.status).toBe(403);
+    expect((await readJson<{ code: string }>(stale)).code).toBe('csrf_invalid');
+    const fresh = await app.client.post('/api/v1/fixture/things', {
+      json: { name: 'x' },
+      csrf: { token: await app.client.csrfToken({ refresh: true }) },
+    });
+    expect(fresh.status).toBe(201);
+  });
+
+  it('is rated as a read', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const route = app.http.table.routes.find((candidate) => candidate.id === 'meta.csrf');
+    expect(route?.rateLimit).toBe('read');
+    expect(route?.access).toEqual({ public: true });
   });
 });

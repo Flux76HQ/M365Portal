@@ -24,7 +24,7 @@
 import { LIMITS } from '@m365portal/shared/limits';
 import type { AssetSlot, UploadWarning } from '@m365portal/shared/schemas/assets';
 import { crc32 } from 'node:zlib';
-import sharp, { type Sharp } from 'sharp';
+import sharp, { type Metadata, type Sharp } from 'sharp';
 import { OutputCheckError, PipelineError } from './errors.js';
 
 /** One thread and no cache: a child does one job, and every byte it holds counts (PD-08, PR-15). */
@@ -84,7 +84,7 @@ function typeAt(bytes: Uint8Array, offset: number): string {
 export function hasAnimationControl(bytes: Uint8Array): boolean {
   if (!hasSignature(bytes)) return false;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  let offset = PNG_SIGNATURE.length;
+  let offset: number = PNG_SIGNATURE.length;
   while (offset + 8 <= bytes.length) {
     const type = typeAt(bytes, offset + 4);
     if (type === 'acTL') return true;
@@ -122,7 +122,8 @@ function printableType(type: string): string {
  * image data, one `IEND` last and nothing after it, no larger than `maxDimension`.
  */
 export function assertCleanPng({ png, maxDimension }: CleanPngInput): PngSummary {
-  if (!hasSignature(png)) throw new OutputCheckError('the output is not a PNG: the signature is wrong');
+  if (!hasSignature(png))
+    throw new OutputCheckError('the output is not a PNG: the signature is wrong');
   const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
   const chunks: string[] = [];
   let offset = PNG_SIGNATURE.length;
@@ -135,10 +136,13 @@ export function assertCleanPng({ png, maxDimension }: CleanPngInput): PngSummary
     }
     if (offset + CHUNK_OVERHEAD > png.length) throw new OutputCheckError('the output is cut off');
     const length = view.getUint32(offset, false);
-    if (offset + CHUNK_OVERHEAD + length > png.length) throw new OutputCheckError('the output is cut off');
+    if (offset + CHUNK_OVERHEAD + length > png.length)
+      throw new OutputCheckError('the output is cut off');
     const type = typeAt(png, offset + 4);
     if (!ALLOWED.has(type)) {
-      throw new OutputCheckError(`the output has a ${printableType(type)} chunk, which is not allowed`);
+      throw new OutputCheckError(
+        `the output has a ${printableType(type)} chunk, which is not allowed`,
+      );
     }
     const typeAndData = png.subarray(offset + 4, offset + 8 + length);
     if (view.getUint32(offset + 8 + length, false) !== crc32(typeAndData)) {
@@ -217,22 +221,24 @@ const DECODE_OPTIONS = {
 
 /** The size from the header alone, nothing decoded; `image_pixels_exceeded` above the cap. */
 async function checkPixelCap(input: Buffer): Promise<void> {
-  let width: number | undefined;
-  let height: number | undefined;
+  let metadata: Metadata;
   try {
     // The library's own limit is switched off here on purpose: this call only reads the header, and
     // the cap is applied below, in the open, with the number from the limits table.
-    const metadata = await sharp(input, { failOn: 'warning', limitInputPixels: false }).metadata();
-    width = metadata.width;
-    height = metadata.height;
+    metadata = await sharp(input, { failOn: 'warning', limitInputPixels: false }).metadata();
   } catch (failure) {
     throw classifyDecodeFailure(failure);
   }
-  if (width === undefined || height === undefined || width < 1 || height < 1) {
+  const { width, height } = metadata;
+  // Written so that a missing or odd value (not a number at run time) fails too.
+  if (!(width >= 1) || !(height >= 1)) {
     throw new PipelineError('image_corrupt', 'the image header has no size');
   }
   if (width * height > LIMITS.image.inputPixels) {
-    throw new PipelineError('image_pixels_exceeded', 'the image has more pixels than the limit allows');
+    throw new PipelineError(
+      'image_pixels_exceeded',
+      'the image has more pixels than the limit allows',
+    );
   }
 }
 

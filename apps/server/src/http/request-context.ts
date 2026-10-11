@@ -11,6 +11,7 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { RequestIdSchema } from '@m365portal/shared/schemas/common';
 import type { Context, MiddlewareHandler } from 'hono';
 import type { AppConfig } from '../config/env.js';
+import type { Actor } from '../policy/actor.js';
 import { clientKeyOf } from './client-key.js';
 import { createForwardingResolver, effectiveScheme } from './trust-proxy.js';
 
@@ -35,6 +36,12 @@ export interface AppVariables {
    * middleware ran before it; the header and the page then carry the same nonce.
    */
   readonly nonce: () => string;
+  /**
+   * Who the request acts as: one of the two actors of the policy layer, resolved from the
+   * configuration (plan 8.8). Set by the route pipeline (`createHttpApp`, T-A-040); nothing in the
+   * request selects it.
+   */
+  readonly actor: Actor;
 }
 
 export interface AppEnv {

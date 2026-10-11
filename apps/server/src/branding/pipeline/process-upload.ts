@@ -9,13 +9,19 @@
 import type { AssetSlot } from '@m365portal/shared/schemas/assets';
 import type { UploadResult } from './job-handler.js';
 import { decodeRgba, inspectVisibleInk } from './plate.js';
-import { rasterise, type RasterResult } from './raster.js';
+import { rasterise, slotBound, type RasterResult } from './raster.js';
 import { sniffImage } from './sniff.js';
+import { rebuildSvg } from './svg/rebuild.js';
+import { renderSvg } from './svg/render.js';
 
 async function rasteriseAnyKind(bytes: Uint8Array, slot: AssetSlot): Promise<RasterResult> {
   const kind = sniffImage(bytes);
-  if (kind === 'svg') throw new Error('the SVG stages are not built yet');
-  return rasterise(bytes, kind, slot);
+  if (kind !== 'svg') return rasterise(bytes, kind, slot);
+  // An SVG is rebuilt from the allowlist, rasterised and discarded; only the PNG goes on.
+  const bound = slotBound(slot);
+  const rebuilt = rebuildSvg(bytes, { bound });
+  const output = await renderSvg(rebuilt.svg, bound);
+  return { ...output, warnings: rebuilt.warnings };
 }
 
 export async function processUpload(input: {

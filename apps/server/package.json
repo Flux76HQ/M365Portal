@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@hono/node-server": "catalog:",
+    "@hono/zod-openapi": "catalog:",
     "better-sqlite3": "catalog:",
     "drizzle-orm": "catalog:",
     "hono": "catalog:",
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@m365portal/shared": "workspace:*",
+    "@seriousme/openapi-schema-validator": "catalog:",
     "@types/better-sqlite3": "catalog:",
     "@types/node": "catalog:",
     "drizzle-kit": "catalog:",

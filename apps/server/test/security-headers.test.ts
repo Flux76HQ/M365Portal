@@ -28,6 +28,7 @@ import {
   type HeaderProfile,
 } from '../src/http/security-headers.js';
 import { createCaptureLogger } from './helpers/capture-logger.js';
+import { createFixtureApp } from './helpers/http-app.js';
 import { createTestApp, type TestAppContext } from './helpers/test-app.js';
 
 const planPath = fileURLToPath(new URL('../../../specs/001-m365portal/plan.md', import.meta.url));
@@ -917,5 +918,52 @@ describe('the headers guard (negative fixtures)', () => {
       { headers: withHsts, expect: { ...expectationFor('other', false), hsts: null } },
       { reason: 'Strict-Transport-Security' },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T-A-042: GET /robots.txt (R16, FR-A-049)
+// ---------------------------------------------------------------------------------------------
+
+describe('GET /robots.txt (R16, FR-A-049)', () => {
+  it('disallows everything and makes no other promise', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const response = await app.client.get('/robots.txt');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/plain');
+    expect(await response.text()).toBe('User-agent: *\nDisallow: /\n');
+  });
+
+  it('carries X-Robots-Tag: noindex, nofollow and the headers of the other profile', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const response = await app.client.get('/robots.txt');
+    expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow');
+    expect(response.headers.get('content-security-policy')).toBe(OTHER_CSP);
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+
+  it('is revalidated rather than cached, with an ETag and a 304', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const first = await app.client.get('/robots.txt');
+    expect(first.headers.get('cache-control')).toBe('no-cache');
+    const etag = first.headers.get('etag');
+    expect(etag).toMatch(/^W\//);
+    const second = await app.client.get('/robots.txt', {
+      headers: { 'if-none-match': etag ?? '' },
+    });
+    expect(second.status).toBe(304);
+  });
+
+  it('is not the application shell, whatever the client accepts', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const response = await app.client.get('/robots.txt', { headers: { accept: 'text/html' } });
+    expect(response.headers.get('content-type')).toContain('text/plain');
+  });
+
+  it('is public and rated as a read', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const route = app.http.table.routes.find((candidate) => candidate.id === 'meta.robots');
+    expect(route?.access).toEqual({ public: true });
+    expect(route?.rateLimit).toBe('read');
   });
 });

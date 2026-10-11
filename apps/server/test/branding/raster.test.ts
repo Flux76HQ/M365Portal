@@ -16,6 +16,7 @@ import {
 } from '../../src/branding/pipeline/raster.js';
 import { containsMarker, fixtureById } from '../fixtures/hostile-corpus.js';
 import type { AcceptedOutcome } from '../fixtures/hostile/types.js';
+import type { HostileFixture } from '../fixtures/hostile/types.js';
 import { concatBytes, toBytes, utf8 } from '../fixtures/hostile/types.js';
 import {
   apngPng,
@@ -30,10 +31,21 @@ import {
 } from '../fixtures/png-chunks.js';
 import { assertOutputShape } from './hostile-harness.js';
 
+/** The fixture of the corpus, or a failure that names the missing id. */
+function fixtureOf(id: string): HostileFixture {
+  const found = fixtureById(id);
+  if (found === undefined) throw new Error(`no fixture ${id}`);
+  return found;
+}
+
 /** The bytes of one input of a corpus fixture, by label. */
-async function input(id: 'H-25' | 'H-26' | 'H-27' | 'H-28' | 'H-29' | 'H-30' | 'H-32' | 'H-40' | 'H-41', label?: string) {
-  const found = fixtureById(id).inputs.find(
-    (candidate) => candidate.kind === 'upload' && (label === undefined || candidate.label === label),
+async function input(
+  id: 'H-25' | 'H-26' | 'H-27' | 'H-28' | 'H-29' | 'H-30' | 'H-32' | 'H-40' | 'H-41',
+  label?: string,
+) {
+  const found = fixtureOf(id).inputs.find(
+    (candidate) =>
+      candidate.kind === 'upload' && (label === undefined || candidate.label === label),
   );
   if (found?.kind !== 'upload') throw new Error(`${id} has no upload input ${label ?? ''}`);
   return { bytes: await found.bytes(), expected: found.expected };
@@ -103,11 +115,13 @@ describe('rasterise: size and colour', () => {
       .toColourspace('b-w')
       .png()
       .toBuffer();
-    const sixteen = await sharp(Buffer.alloc(8 * 8 * 3 * 2, 0x80), {
-      raw: { width: 8, height: 8, channels: 3, depth: 'ushort' },
+    const sixteen = await sharp({
+      create: { width: 8, height: 8, channels: 3, background: { r: 120, g: 120, b: 120 } },
     })
+      .toColourspace('rgb16')
       .png()
       .toBuffer();
+    expect((await sharp(sixteen).metadata()).depth).toBe('ushort');
     for (const [label, source] of [
       ['grey', grey],
       ['16-bit', sixteen],
@@ -154,7 +168,7 @@ describe('rasterise: size and colour', () => {
       expect(metadata.icc, label).toBeUndefined();
       expect(metadata.hasProfile, label).toBe(false);
       await assertOutputShape({ png: result.png, expected: expected as AcceptedOutcome });
-      for (const marker of fixtureById('H-40').markers) {
+      for (const marker of fixtureOf('H-40').markers) {
         expect(containsMarker(result.png, marker), `${label} ${marker}`).toBe(false);
       }
     }
@@ -172,7 +186,7 @@ describe('rasterise: orientation and metadata', () => {
     const metadata = await sharp(result.png).metadata();
     expect(metadata.orientation).toBeUndefined();
     expect(metadata.exif).toBeUndefined();
-    for (const marker of fixtureById('H-41').markers) {
+    for (const marker of fixtureOf('H-41').markers) {
       expect(containsMarker(result.png, marker)).toBe(false);
     }
   });
@@ -188,8 +202,10 @@ describe('rasterise: orientation and metadata', () => {
     expect(after.xmp).toBeUndefined();
     expect(after.icc).toBeUndefined();
     expect(after.comments).toBeUndefined();
-    expect(chunkTypes(result.png).every((type) => OUTPUT_CHUNKS.includes(type as never))).toBe(true);
-    for (const marker of fixtureById('H-26').markers) {
+    expect(chunkTypes(result.png).every((type) => OUTPUT_CHUNKS.includes(type as never))).toBe(
+      true,
+    );
+    for (const marker of fixtureOf('H-26').markers) {
       expect(containsMarker(result.png, marker), marker).toBe(false);
     }
   });
@@ -198,8 +214,10 @@ describe('rasterise: orientation and metadata', () => {
     const { bytes } = await input('H-27');
     expect(chunkTypes(bytes)).toEqual(expect.arrayContaining(['tEXt', 'iTXt', 'zTXt']));
     const result = await rasterise(bytes, 'png', 'logoLight');
-    expect(chunkTypes(result.png).every((type) => OUTPUT_CHUNKS.includes(type as never))).toBe(true);
-    for (const marker of fixtureById('H-27').markers) {
+    expect(chunkTypes(result.png).every((type) => OUTPUT_CHUNKS.includes(type as never))).toBe(
+      true,
+    );
+    for (const marker of fixtureOf('H-27').markers) {
       expect(containsMarker(result.png, marker), marker).toBe(false);
     }
   });
@@ -210,7 +228,7 @@ describe('rasterise: orientation and metadata', () => {
     const result = await rasterise(bytes, 'png', 'logoLight');
     expect(walkPng(result.png).trailing.length).toBe(0);
     expect(walkPng(result.png).chunks.at(-1)?.type).toBe('IEND');
-    expect(containsMarker(result.png, fixtureById('H-25').markers[0] ?? 'missing')).toBe(false);
+    expect(containsMarker(result.png, fixtureOf('H-25').markers[0] ?? 'missing')).toBe(false);
     expect(Buffer.from(result.png).includes('<script')).toBe(false);
   });
 
@@ -237,13 +255,27 @@ describe('rasterise: animation', () => {
   });
 
   it('finds acTL by walking the chunks, wherever it sits before the image data, and only as a chunk', () => {
-    expect(hasAnimationControl(apngPng(4, 4, [[1, 2, 3], [4, 5, 6]]))).toBe(true);
+    expect(
+      hasAnimationControl(
+        apngPng(4, 4, [
+          [1, 2, 3],
+          [4, 5, 6],
+        ]),
+      ),
+    ).toBe(true);
     expect(hasAnimationControl(solidPng(4, 4, [1, 2, 3]))).toBe(false);
     // The four letters inside the data of another chunk do not count.
-    expect(hasAnimationControl(solidPng(4, 4, [1, 2, 3], { beforeIdat: [textChunk('Comment', 'acTL')] }))).toBe(false);
+    expect(
+      hasAnimationControl(
+        solidPng(4, 4, [1, 2, 3], { beforeIdat: [textChunk('Comment', 'acTL')] }),
+      ),
+    ).toBe(false);
     expect(hasAnimationControl(Uint8Array.of(1, 2, 3))).toBe(false);
     // A file cut off right after the type of the chunk still shows it: only the headers are read.
-    const cut = apngPng(4, 4, [[1, 2, 3], [4, 5, 6]]).subarray(0, 41);
+    const cut = apngPng(4, 4, [
+      [1, 2, 3],
+      [4, 5, 6],
+    ]).subarray(0, 41);
     expect(hasAnimationControl(cut)).toBe(true);
     expect(hasAnimationControl(cut.subarray(0, 40))).toBe(false);
   });
@@ -271,11 +303,21 @@ describe('rasterise: pixel cap and damaged data', () => {
     const cap = LIMITS.image.inputPixels;
     expect(cap).toBe(16_777_216);
     // At the cap the header is fine and the data (4 bytes of it) is not: corrupt, not "too many pixels".
-    expect(await codeOf(rasterise(headerOnlyPng(4096, 4096), 'png', 'logoLight'))).toBe('image_corrupt');
-    expect(await codeOf(rasterise(headerOnlyPng(cap, 1), 'png', 'logoLight'))).toBe('image_corrupt');
-    expect(await codeOf(rasterise(headerOnlyPng(4097, 4096), 'png', 'logoLight'))).toBe('image_pixels_exceeded');
-    expect(await codeOf(rasterise(headerOnlyPng(cap + 1, 1), 'png', 'logoLight'))).toBe('image_pixels_exceeded');
-    expect(await codeOf(rasterise(headerOnlyPng(1, cap + 1), 'png', 'logoLight'))).toBe('image_pixels_exceeded');
+    expect(await codeOf(rasterise(headerOnlyPng(4096, 4096), 'png', 'logoLight'))).toBe(
+      'image_corrupt',
+    );
+    expect(await codeOf(rasterise(headerOnlyPng(cap, 1), 'png', 'logoLight'))).toBe(
+      'image_corrupt',
+    );
+    expect(await codeOf(rasterise(headerOnlyPng(4097, 4096), 'png', 'logoLight'))).toBe(
+      'image_pixels_exceeded',
+    );
+    expect(await codeOf(rasterise(headerOnlyPng(cap + 1, 1), 'png', 'logoLight'))).toBe(
+      'image_pixels_exceeded',
+    );
+    expect(await codeOf(rasterise(headerOnlyPng(1, cap + 1), 'png', 'logoLight'))).toBe(
+      'image_pixels_exceeded',
+    );
   });
 
   it('accepts a real image of exactly 4096 by 4096 pixels', async () => {
@@ -297,19 +339,20 @@ describe('rasterise: pixel cap and damaged data', () => {
     const walk = walkPng(whole);
     const idat = walk.chunks.find((chunk) => chunk.type === 'IDAT');
     expect(idat).toBeDefined();
-    const cutIdat = pngChunk('IDAT', (idat?.data ?? new Uint8Array(0)).subarray(0, Math.floor((idat?.length ?? 0) / 2)));
-    const framed = concatBytes(
-      whole.subarray(0, idat?.offset ?? 0),
-      cutIdat,
-      pngChunk('IEND'),
+    const cutIdat = pngChunk(
+      'IDAT',
+      (idat?.data ?? new Uint8Array(0)).subarray(0, Math.floor((idat?.length ?? 0) / 2)),
     );
+    const framed = concatBytes(whole.subarray(0, idat?.offset ?? 0), cutIdat, pngChunk('IEND'));
     const jpegHalf = (await input('H-29', 'jpeg-half')).bytes;
     for (const [label, bytes, kind] of [
       ['png', framed, 'png'],
       ['jpeg', jpegHalf, 'jpeg'],
     ] as const) {
       // The control: with the library's tolerant mode the very same bytes give a picture.
-      const tolerant = await sharp(bytes, { failOn: 'none' }).raw().toBuffer({ resolveWithObject: true });
+      const tolerant = await sharp(bytes, { failOn: 'none' })
+        .raw()
+        .toBuffer({ resolveWithObject: true });
       expect(tolerant.info.width, label).toBeGreaterThan(0);
       expect(await codeOf(rasterise(bytes, kind, 'logoLight')), label).toBe('image_corrupt');
     }
@@ -318,14 +361,28 @@ describe('rasterise: pixel cap and damaged data', () => {
   it('refuses bytes that carry a signature and nothing a decoder can use', async () => {
     const signature = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
     expect(await codeOf(rasterise(signature, 'png', 'logoLight'))).toBe('image_corrupt');
-    expect(await codeOf(rasterise(Uint8Array.of(0xff, 0xd8, 0xff), 'jpeg', 'logoLight'))).toBe('image_corrupt');
-    expect(await codeOf(rasterise(concatBytes(signature, utf8('not a chunk at all, just text')), 'png', 'logoLight'))).toBe('image_corrupt');
+    expect(await codeOf(rasterise(Uint8Array.of(0xff, 0xd8, 0xff), 'jpeg', 'logoLight'))).toBe(
+      'image_corrupt',
+    );
+    expect(
+      await codeOf(
+        rasterise(
+          concatBytes(signature, utf8('not a chunk at all, just text')),
+          'png',
+          'logoLight',
+        ),
+      ),
+    ).toBe('image_corrupt');
   });
 
   it('fails with a PipelineError that does not repeat the library message or the input', async () => {
-    const failure = await failureOf(rasterise(concatBytes(utf8('\x89PNG\r\n\x1a\n'), utf8('SECRET-IN-BODY')), 'png', 'logoLight'));
+    const failure = await failureOf(
+      rasterise(concatBytes(utf8('\x89PNG\r\n\x1a\n'), utf8('SECRET-IN-BODY')), 'png', 'logoLight'),
+    );
     expect(failure).toBeInstanceOf(PipelineError);
-    expect(`${(failure as Error).message}${(failure as Error).stack ?? ''}`).not.toContain('SECRET-IN-BODY');
+    expect(`${(failure as Error).message}${(failure as Error).stack ?? ''}`).not.toContain(
+      'SECRET-IN-BODY',
+    );
     expect((failure as Error).cause).toBeUndefined();
   });
 });
@@ -374,16 +431,49 @@ describe('assertCleanPng: the self-check of the output (plan 8.5 stage 8)', () =
       pngChunk('IDAT', toBytes(deflateSync(Uint8Array.of(0, 0)))),
       pngChunk('IEND'),
     );
-    expect(assertCleanPng({ png, maxDimension: 512 }).chunks).toEqual(['IHDR', 'PLTE', 'tRNS', 'IDAT', 'IEND']);
+    expect(assertCleanPng({ png, maxDimension: 512 }).chunks).toEqual([
+      'IHDR',
+      'PLTE',
+      'tRNS',
+      'IDAT',
+      'IEND',
+    ]);
   });
 
   it('fails on every chunk type that carries metadata (negative)', async () => {
-    for (const type of ['tEXt', 'iTXt', 'zTXt', 'eXIf', 'iCCP', 'sRGB', 'gAMA', 'cHRM', 'tIME', 'acTL', 'fcTL', 'fdAT', 'bKGD', 'sBIT', 'hIST', 'sPLT', 'oFFs', 'xXXx']) {
-      const png = await rebuilt((chunks) => [chunks[0] ?? new Uint8Array(0), pngChunk(type, utf8('x')), ...chunks.slice(1)]);
-      expectGuardFails((candidate: Uint8Array) => assertCleanPng({ png: candidate, maxDimension: 512 }), png, {
-        name: `a ${type} chunk`,
-        reason: type,
-      });
+    for (const type of [
+      'tEXt',
+      'iTXt',
+      'zTXt',
+      'eXIf',
+      'iCCP',
+      'sRGB',
+      'gAMA',
+      'cHRM',
+      'tIME',
+      'acTL',
+      'fcTL',
+      'fdAT',
+      'bKGD',
+      'sBIT',
+      'hIST',
+      'sPLT',
+      'oFFs',
+      'xXXx',
+    ]) {
+      const png = await rebuilt((chunks) => [
+        chunks[0] ?? new Uint8Array(0),
+        pngChunk(type, utf8('x')),
+        ...chunks.slice(1),
+      ]);
+      expectGuardFails(
+        (candidate: Uint8Array) => assertCleanPng({ png: candidate, maxDimension: 512 }),
+        png,
+        {
+          name: `a ${type} chunk`,
+          reason: type,
+        },
+      );
     }
   });
 
@@ -393,6 +483,9 @@ describe('assertCleanPng: the self-check of the output (plan 8.5 stage 8)', () =
     expectGuardFails(guard, concatBytes(good, utf8('<script>')), { reason: 'after IEND' });
     expectGuardFails(guard, good.subarray(0, good.length - 12), { reason: 'IEND' });
     expectGuardFails(guard, good.subarray(0, good.length - 5), { reason: 'cut off' });
+    // Cut off inside a chunk header: fewer bytes than a header (and a checksum) are left.
+    expectGuardFails(guard, good.subarray(0, 8 + 5), { reason: 'cut off' });
+    expectGuardFails(guard, good.subarray(0, good.length - 11), { reason: 'cut off' });
     const flipped = Uint8Array.from(good);
     flipped[good.length - 20] = (flipped[good.length - 20] ?? 0) ^ 0xff;
     expectGuardFails(guard, flipped, { reason: 'checksum' });
@@ -405,19 +498,35 @@ describe('assertCleanPng: the self-check of the output (plan 8.5 stage 8)', () =
   it('fails when the structure is wrong: IHDR first, 13 bytes, an IDAT, one IEND (negative)', async () => {
     const guard = (candidate: Uint8Array) => assertCleanPng({ png: candidate, maxDimension: 512 });
     expectGuardFails(guard, await rebuilt((chunks) => chunks.slice(1)), { reason: 'IHDR' });
-    expectGuardFails(guard, await rebuilt((chunks) => chunks.filter((_, index) => index !== 2)), { reason: 'IDAT' });
-    expectGuardFails(guard, await rebuilt((chunks) => [pngChunk('IHDR', Uint8Array.of(1, 2, 3)), ...chunks.slice(1)]), { reason: 'IHDR' });
-    expectGuardFails(guard, await rebuilt((chunks) => [...chunks, pngChunk('IEND')]), { reason: 'after IEND' });
+    expectGuardFails(guard, await rebuilt((chunks) => chunks.filter((_, index) => index !== 2)), {
+      reason: 'IDAT',
+    });
+    expectGuardFails(
+      guard,
+      await rebuilt((chunks) => [pngChunk('IHDR', Uint8Array.of(1, 2, 3)), ...chunks.slice(1)]),
+      { reason: 'IHDR' },
+    );
+    expectGuardFails(guard, await rebuilt((chunks) => [...chunks, pngChunk('IEND')]), {
+      reason: 'after IEND',
+    });
   });
 
   it('fails when the image is larger than the bound it was told (negative)', async () => {
     const png = await goodPng();
     expect(assertCleanPng({ png, maxDimension: 24 }).width).toBe(24);
-    expectGuardFails((candidate: Uint8Array) => assertCleanPng({ png: candidate, maxDimension: 23 }), png, { reason: '24 by 16' });
+    expectGuardFails(
+      (candidate: Uint8Array) => assertCleanPng({ png: candidate, maxDimension: 23 }),
+      png,
+      { reason: '24 by 16' },
+    );
   });
 
   it('raises an OutputCheckError that names a chunk of the output and never any input', async () => {
-    const png = await rebuilt((chunks) => [chunks[0] ?? new Uint8Array(0), pngChunk('tEXt', utf8('Comment\0M365HOSTILE-secret')), ...chunks.slice(1)]);
+    const png = await rebuilt((chunks) => [
+      chunks[0] ?? new Uint8Array(0),
+      pngChunk('tEXt', utf8('Comment\0M365HOSTILE-secret')),
+      ...chunks.slice(1),
+    ]);
     let failure: unknown;
     try {
       assertCleanPng({ png, maxDimension: 512 });

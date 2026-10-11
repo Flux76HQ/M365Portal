@@ -12,6 +12,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PERMISSIONS, type Permission } from '@m365portal/shared/permissions';
+import { MeResponseSchema } from '@m365portal/shared/schemas/meta';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { describe, expect, it } from 'vitest';
 import {
@@ -24,6 +25,14 @@ import {
   type Decision,
   type ResourceRef,
 } from '../src/policy/index.js';
+import {
+  SYSTEM_VERSION,
+  createFixtureApp,
+  requestBodyFor,
+  writeRoutesOf,
+  type WriteRoute,
+} from './helpers/http-app.js';
+import { readJson } from './helpers/http-client.js';
 
 const DENIED: Decision = { allow: false, reason: 'permission_missing' };
 const ALLOWED: Decision = { allow: true };
@@ -336,5 +345,247 @@ describe('the deny-by-default guard', () => {
     expectGuardFails(assertDeniesByDefault, resourceUpgrades, {
       reason: 'a resource turned a refusal',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T-A-040: route level, table-driven over the route table (FR-A-033, A-29)
+// ---------------------------------------------------------------------------------------------
+
+/** Public write routes that are allowed to exist. Phase A has none: a new one must be added here, on purpose. */
+const ALLOWED_PUBLIC_WRITES: ReadonlySet<string> = new Set(['fixture.ping']);
+
+describe('every write route answers the anonymous actor 403 permission_denied (FR-A-033)', () => {
+  it('has write routes to test, and no public write route that was not allowed on purpose', async () => {
+    const app = await createFixtureApp();
+    const routes = writeRoutesOf(app);
+    expect(routes.length).toBeGreaterThanOrEqual(5);
+    const unexpected = routes.filter(
+      (route) => route.permission === undefined && !ALLOWED_PUBLIC_WRITES.has(route.id),
+    );
+    expect(unexpected.map((route) => route.id)).toEqual([]);
+  });
+
+  it('refuses each one with a correct Origin and a valid token, and never enters the handler', async () => {
+    const app = await createFixtureApp();
+    for (const route of writeRoutesOf(app).filter(
+      (candidate) => candidate.permission !== undefined,
+    )) {
+      const response = await app.client.request(route.method, route.path, requestBodyFor(route));
+      expect(response.status, route.id).toBe(403);
+      const body = await readJson<{ code?: string }>(response);
+      expect(body.code, route.id).toBe('permission_denied');
+      expect(app.calls.of(route.id), route.id).toBe(0);
+    }
+  });
+
+  it('lets the preview actor past authorisation on the same routes (the handler is entered)', async () => {
+    const app = await createFixtureApp({ env: { PREVIEW_MODE: 'true' } });
+    for (const route of writeRoutesOf(app).filter(
+      (candidate) => candidate.permission !== undefined,
+    )) {
+      const response = await app.client.request(route.method, route.path, requestBodyFor(route));
+      expect(response.status, route.id).toBeLessThan(300);
+      expect(app.calls.of(route.id), route.id).toBe(1);
+    }
+  });
+
+  it('downgrades a preview-mode request with a LAN Host to the anonymous actor, on the route too', async () => {
+    const app = await createFixtureApp({ env: { PREVIEW_MODE: 'true' } });
+    const response = await app.client.post('/api/v1/fixture/things', {
+      json: { name: 'x' },
+      host: '192.168.1.10:8080',
+    });
+    expect(response.status).toBe(403);
+    expect(app.calls.total()).toBe(0);
+  });
+
+  it.each([
+    ['an X-Actor header', { headers: { 'x-actor': 'preview' } }],
+    ['an X-Preview header', { headers: { 'x-preview': 'true' } }],
+    ['an Authorization header', { headers: { authorization: 'Bearer preview' } }],
+    ['a cookie', { headers: { cookie: 'actor=preview; preview=true' } }],
+    ['a query parameter', { query: '?actor=preview&preview=true' }],
+  ])('nothing in the request selects an actor: %s', async (_name, extra) => {
+    const app = await createFixtureApp();
+    const query = 'query' in extra ? extra.query : '';
+    const headers = 'headers' in extra ? extra.headers : {};
+    const response = await app.client.post(`/api/v1/fixture/things${query}`, {
+      json: { name: 'x' },
+      headers,
+    });
+    expect(response.status).toBe(403);
+    expect(app.calls.total()).toBe(0);
+  });
+
+  it('a public route does not authorise, and a permission read is denied without a write audit', async () => {
+    const app = await createFixtureApp();
+    expect((await app.client.get('/api/v1/fixture/read')).status).toBe(200);
+    const secret = await app.client.get('/api/v1/fixture/secret');
+    expect(secret.status).toBe(403);
+    expect((await readJson<{ code: string }>(secret)).code).toBe('permission_denied');
+    expect(app.calls.of('fixture.secret')).toBe(0);
+  });
+
+  describe('negative fixture: a table whose write route is public is found by the test', () => {
+    it('reports a public write route that was not allowed on purpose', async () => {
+      const app = await createFixtureApp();
+      const guard = (routes: readonly WriteRoute[]): void => {
+        const unexpected = routes.filter(
+          (route) => route.permission === undefined && !ALLOWED_PUBLIC_WRITES.has(route.id),
+        );
+        if (unexpected.length > 0) {
+          throw new Error(`public write route: ${unexpected.map((r) => r.id).join(', ')}`);
+        }
+      };
+      expect(() => {
+        guard(writeRoutesOf(app));
+      }).not.toThrow();
+      expectGuardFails(
+        guard,
+        [
+          {
+            id: 'sneaky.write',
+            method: 'POST',
+            path: '/api/v1/x',
+            template: '/api/v1/x',
+            permission: undefined,
+            multipart: false,
+          },
+        ],
+        { reason: 'public write route: sneaky.write' },
+      );
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T-A-042: GET /api/v1/me (R4, FR-A-027)
+// ---------------------------------------------------------------------------------------------
+
+describe('GET /api/v1/me (R4, FR-A-027)', () => {
+  const ME = '/api/v1/me';
+
+  interface Me {
+    actor: { kind: string; id: string; label: string };
+    permissions: string[];
+    features: { showcase: boolean; preview: boolean };
+    version: string;
+    publicOrigin: string;
+    storageAvailable: boolean;
+  }
+
+  it('gives the anonymous actor an empty permission list and no preview feature', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const response = await app.client.get(ME);
+    expect(response.status).toBe(200);
+    const me = await readJson<Me>(response);
+    expect(MeResponseSchema.safeParse(me).success).toBe(true);
+    expect(me.actor).toMatchObject({ kind: 'anonymous', id: 'anonymous' });
+    expect(me.permissions).toEqual([]);
+    expect(me.features).toEqual({ showcase: false, preview: false });
+  });
+
+  it('gives the preview actor all fifteen permissions, in catalogue order, and features.preview', async () => {
+    const app = await createFixtureApp({ system: {}, env: { PREVIEW_MODE: 'true' } });
+    const me = await readJson<Me>(await app.client.get(ME));
+    expect(me.actor).toMatchObject({ kind: 'preview', id: 'preview' });
+    expect(me.permissions).toEqual([...PERMISSIONS]);
+    expect(me.permissions).toHaveLength(15);
+    expect(me.features.preview).toBe(true);
+    expect(MeResponseSchema.safeParse(me).success).toBe(true);
+  });
+
+  it.each([
+    ['a LAN Host', { host: '192.168.1.10:8080' }],
+    ['a public Host', { host: 'panel.example.com' }],
+    ['no Host', { host: null }],
+    ['X-Forwarded-For', { headers: { 'x-forwarded-for': '203.0.113.9' } }],
+    ['Forwarded', { headers: { forwarded: 'for=203.0.113.9' } }],
+    ['X-Real-IP', { headers: { 'x-real-ip': '203.0.113.9' } }],
+  ])(
+    'downgrades a preview-mode request with %s to an empty list and features.preview false (FR-A-036)',
+    async (_name, options) => {
+      const app = await createFixtureApp({ system: {}, env: { PREVIEW_MODE: 'true' } });
+      const me = await readJson<Me>(await app.client.get(ME, options));
+      expect(me.actor.kind).toBe('anonymous');
+      expect(me.permissions).toEqual([]);
+      expect(me.features.preview).toBe(false);
+    },
+  );
+
+  it('lets PREVIEW_MODE_ALLOW_REMOTE lift the downgrade', async () => {
+    const app = await createFixtureApp({
+      system: {},
+      env: {
+        PREVIEW_MODE: 'true',
+        PREVIEW_MODE_ALLOW_REMOTE: 'true',
+        PUBLIC_BASE_URL: 'https://panel.example.com',
+      },
+    });
+    const me = await readJson<Me>(await app.client.get(ME, { host: 'panel.example.com' }));
+    expect(me.actor.kind).toBe('preview');
+    expect(me.permissions).toHaveLength(15);
+  });
+
+  it.each([
+    ['an X-Actor header', { headers: { 'x-actor': 'preview' } }],
+    ['an Authorization header', { headers: { authorization: 'Bearer preview' } }],
+    ['a cookie', { headers: { cookie: 'actor=preview' } }],
+  ])('no request input selects the actor: %s', async (_name, options) => {
+    const app = await createFixtureApp({ system: {} });
+    expect((await readJson<Me>(await app.client.get(ME, options))).actor.kind).toBe('anonymous');
+    const query = await readJson<Me>(await app.client.get(`${ME}?actor=preview&preview=true`));
+    expect(query.actor.kind).toBe('anonymous');
+    expect(query.permissions).toEqual([]);
+  });
+
+  it('follows SHOWCASE for features.showcase', async () => {
+    const off = await createFixtureApp({ system: {}, env: { SHOWCASE: 'false' } });
+    const on = await createFixtureApp({ system: {}, env: { SHOWCASE: 'true' } });
+    expect((await readJson<Me>(await off.client.get(ME))).features.showcase).toBe(false);
+    expect((await readJson<Me>(await on.client.get(ME))).features.showcase).toBe(true);
+  });
+
+  it('carries the version, the public origin and storageAvailable', async () => {
+    const app = await createFixtureApp({
+      system: { storageAvailable: () => true },
+      env: { PUBLIC_BASE_URL: 'https://panel.example.com/' },
+    });
+    const me = await readJson<Me>(await app.client.get(ME, { host: 'panel.example.com' }));
+    expect(me.version).toBe(SYSTEM_VERSION);
+    expect(me.publicOrigin).toBe('https://panel.example.com');
+    expect(me.storageAvailable).toBe(true);
+  });
+
+  it('reports storageAvailable false in degraded mode, and still answers', async () => {
+    let available = true;
+    const app = await createFixtureApp({ system: { storageAvailable: () => available } });
+    available = false;
+    const response = await app.client.get(ME);
+    expect(response.status).toBe(200);
+    expect((await readJson<Me>(response)).storageAvailable).toBe(false);
+  });
+
+  it('is public, no-store, and carries no identity beyond the actor summary', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const response = await app.client.get(ME);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(Object.keys(await readJson<Me>(response)).sort()).toEqual([
+      'actor',
+      'features',
+      'permissions',
+      'publicOrigin',
+      'storageAvailable',
+      'version',
+    ]);
+  });
+
+  it('is in the route table as a public read, and the document says so', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const route = app.http.table.routes.find((candidate) => candidate.id === 'meta.me');
+    expect(route?.access).toEqual({ public: true });
+    expect(route?.rateLimit).toBe('read');
+    expect(route?.paths).toEqual([ME]);
   });
 });

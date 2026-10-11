@@ -91,7 +91,6 @@ function endOfStartTag(text: string, from: number): number {
   return -1;
 }
 
-const NAME = /^[A-Za-z_][A-Za-z0-9_.-]*(?::[A-Za-z_][A-Za-z0-9_.-]*)?/;
 const ATTRIBUTE = /([A-Za-z_][A-Za-z0-9_.:-]*)[ \t\r\n]*=[ \t\r\n]*(?:"([^"]*)"|'([^']*)')/g;
 
 /** True when the start tag at `at` is an `svg` element whose own prefix is bound to the SVG namespace. */
@@ -99,7 +98,7 @@ function isSvgStartTag(text: string, at: number): boolean {
   const end = endOfStartTag(text, at);
   if (end < 0) return false;
   const tag = text.slice(at + 1, end);
-  const name = NAME.exec(tag)?.[0];
+  const name = /^[A-Za-z_][A-Za-z0-9_.-]*(?::[A-Za-z_][A-Za-z0-9_.-]*)?/.exec(tag)?.[0];
   if (name === undefined) return false;
   const colon = name.indexOf(':');
   const prefix = colon < 0 ? null : name.slice(0, colon);

@@ -8,8 +8,15 @@ import { describe, expect, it } from 'vitest';
 import { PipelineError } from '../../src/branding/pipeline/errors.js';
 import { SNIFF_WINDOW_BYTES, sniffImage } from '../../src/branding/pipeline/sniff.js';
 import { fixtureById } from '../fixtures/hostile-corpus.js';
-import { seededRandom, utf8 } from '../fixtures/hostile/types.js';
+import { seededRandom, utf8, type HostileFixture } from '../fixtures/hostile/types.js';
 import { solidPng } from '../fixtures/png-chunks.js';
+
+/** The fixture of the corpus, or a failure that names the missing id. */
+function fixtureOf(id: string): HostileFixture {
+  const found = fixtureById(id);
+  if (found === undefined) throw new Error(`no fixture ${id}`);
+  return found;
+}
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const ROOT = `<svg xmlns="${SVG_NS}" width="8" height="8"><rect width="8" height="8"/></svg>`;
@@ -38,7 +45,7 @@ function refusalOf(bytes: Uint8Array): string | undefined {
 
 async function inputsOf(id: 'H-22' | 'H-33' | 'H-34' | 'H-20'): Promise<Map<string, Uint8Array>> {
   const found = new Map<string, Uint8Array>();
-  for (const input of fixtureById(id).inputs) {
+  for (const input of fixtureOf(id).inputs) {
     if (input.kind === 'upload') found.set(input.label, await input.bytes());
   }
   return found;
@@ -48,7 +55,9 @@ describe('sniffImage: PNG and JPEG', () => {
   it('recognises a PNG by its eight signature bytes, whatever follows', () => {
     expect(sniffImage(solidPng(2, 2, [1, 2, 3]))).toBe('png');
     expect(sniffImage(Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a))).toBe('png');
-    expect(sniffImage(concat(Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a), utf8('?')))).toBe('png');
+    expect(
+      sniffImage(concat(Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a), utf8('?'))),
+    ).toBe('png');
   });
 
   it('does not take a damaged or short signature for a PNG', () => {
@@ -62,7 +71,9 @@ describe('sniffImage: PNG and JPEG', () => {
   });
 
   it('recognises a JPEG by FF D8 FF, and nothing shorter', async () => {
-    const jpeg = await sharp(solidPng(8, 8, [10, 200, 30])).jpeg().toBuffer();
+    const jpeg = await sharp(solidPng(8, 8, [10, 200, 30]))
+      .jpeg()
+      .toBuffer();
     expect(sniffImage(jpeg)).toBe('jpeg');
     expect(sniffImage(Uint8Array.of(0xff, 0xd8, 0xff))).toBe('jpeg');
     expect(refusalOf(Uint8Array.of(0xff, 0xd8))).toBe('image_type_unsupported');
@@ -77,16 +88,36 @@ describe('sniffImage: SVG', () => {
     ['a byte order mark', concat(BOM, utf8(ROOT))],
     ['an XML declaration', utf8(`<?xml version="1.0" encoding="UTF-8"?>${ROOT}`)],
     ['an XML declaration with single quotes and a newline', utf8(`<?xml version='1.0'?>\n${ROOT}`)],
-    ['a byte order mark, a declaration, comments and whitespace', concat(BOM, utf8(`<?xml version="1.0"?>\n\n  <!-- a --> \t<!-- <svg> -->\r\n${ROOT}`))],
+    [
+      'a byte order mark, a declaration, comments and whitespace',
+      concat(BOM, utf8(`<?xml version="1.0"?>\n\n  <!-- a --> \t<!-- <svg> -->\r\n${ROOT}`)),
+    ],
     ['leading whitespace', utf8(`  \r\n\t${ROOT}`)],
     ['a comment that holds markup and a quote', utf8(`<!-- <script>'"</script> -->${ROOT}`)],
-    ['a processing instruction (it is dropped later, H-13)', utf8(`<?xml-stylesheet href="a.css"?>${ROOT}`)],
+    [
+      'a processing instruction (it is dropped later, H-13)',
+      utf8(`<?xml-stylesheet href="a.css"?>${ROOT}`),
+    ],
     ['single-quoted xmlns', utf8(`<svg xmlns='${SVG_NS}'/>`)],
-    ['xmlns after other attributes, spaced around the equals sign', utf8(`<svg width="1" xmlns = "${SVG_NS}" height="1"/>`)],
+    [
+      'xmlns after other attributes, spaced around the equals sign',
+      utf8(`<svg width="1" xmlns = "${SVG_NS}" height="1"/>`),
+    ],
     ['a prefixed root', utf8(`<s:svg xmlns:s="${SVG_NS}"/>`)],
-    ['a greater-than sign inside an attribute value', utf8(`<svg data-x="a>b" xmlns="${SVG_NS}"/>`)],
-    ['a DOCTYPE with an internal subset (it is refused later, H-14)', utf8(`<!DOCTYPE svg [<!ENTITY a "x>]y"><!-- ] > -->]>${ROOT}`)],
-    ['a public DOCTYPE', utf8(`<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">${ROOT}`)],
+    [
+      'a greater-than sign inside an attribute value',
+      utf8(`<svg data-x="a>b" xmlns="${SVG_NS}"/>`),
+    ],
+    [
+      'a DOCTYPE with an internal subset (it is refused later, H-14)',
+      utf8(`<!DOCTYPE svg [<!ENTITY a "x>]y"><!-- ] > -->]>${ROOT}`),
+    ],
+    [
+      'a public DOCTYPE',
+      utf8(
+        `<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">${ROOT}`,
+      ),
+    ],
     ['a lower-case doctype keyword (it is refused later)', utf8(`<!doctype svg>${ROOT}`)],
   ];
   for (const [name, bytes] of accepted) {
@@ -99,11 +130,17 @@ describe('sniffImage: SVG', () => {
     ['no namespace', utf8('<svg width="8" height="8"/>')],
     ['another namespace', utf8('<svg xmlns="http://www.w3.org/1999/xhtml"/>')],
     ['a namespace that only starts like the SVG one', utf8(`<svg xmlns="${SVG_NS}/"/>`)],
-    ['a prefixed root whose prefix is not the SVG namespace', utf8(`<s:svg xmlns:s="http://example.test/ns" xmlns="${SVG_NS}"/>`)],
+    [
+      'a prefixed root whose prefix is not the SVG namespace',
+      utf8(`<s:svg xmlns:s="http://example.test/ns" xmlns="${SVG_NS}"/>`),
+    ],
     ['a prefixed root declared as the default namespace only', utf8(`<s:svg xmlns="${SVG_NS}"/>`)],
     ['an upper-case root', utf8(`<SVG xmlns="${SVG_NS}"/>`)],
     ['a root that only starts with svg', utf8(`<svgx xmlns="${SVG_NS}"/>`)],
-    ['an svg that is not the first element', utf8(`<html xmlns="http://www.w3.org/1999/xhtml">${ROOT}</html>`)],
+    [
+      'an svg that is not the first element',
+      utf8(`<html xmlns="http://www.w3.org/1999/xhtml">${ROOT}</html>`),
+    ],
     ['an HTML document', utf8('<!DOCTYPE html><html><body></body></html>')],
     ['text', utf8('hello')],
     ['a root tag that never ends', utf8(`<svg xmlns="${SVG_NS}" `)],
@@ -124,11 +161,17 @@ describe('sniffImage: SVG', () => {
   it('looks at a limited window of the file and not at the end of a large one', () => {
     const filler = (size: number): string => `<!--${'x'.repeat(size)}-->`;
     expect(sniffImage(utf8(`${filler(SNIFF_WINDOW_BYTES - 2_000)}${ROOT}`))).toBe('svg');
-    expect(refusalOf(utf8(`${filler(SNIFF_WINDOW_BYTES + 1_000)}${ROOT}`))).toBe('image_type_unsupported');
+    expect(refusalOf(utf8(`${filler(SNIFF_WINDOW_BYTES + 1_000)}${ROOT}`))).toBe(
+      'image_type_unsupported',
+    );
   });
 
   it('reads the structure of the prolog as bytes, so invalid UTF-8 later in the file does not matter here', () => {
-    const bytes = concat(utf8(`<svg xmlns="${SVG_NS}"><title>`), Uint8Array.of(0xe9, 0x80, 0xc3, 0x28), utf8('</title></svg>'));
+    const bytes = concat(
+      utf8(`<svg xmlns="${SVG_NS}"><title>`),
+      Uint8Array.of(0xe9, 0x80, 0xc3, 0x28),
+      utf8('</title></svg>'),
+    );
     expect(sniffImage(bytes)).toBe('svg');
   });
 
@@ -137,12 +180,14 @@ describe('sniffImage: SVG', () => {
       if (label.startsWith('utf16')) expect(sniffImage(bytes), label).toBe('svg');
     }
     const utf16 = (text: string, order: 'le' | 'be'): Uint8Array => {
-      const little = Buffer.from(`﻿${text}`, 'utf16le');
+      const little = Buffer.from(`\u{FEFF}${text}`, 'utf16le');
       return new Uint8Array(order === 'le' ? little : little.swap16());
     };
     for (const order of ['le', 'be'] as const) {
       expect(sniffImage(utf16(ROOT, order)), order).toBe('svg');
-      expect(refusalOf(utf16('<html><body>hello</body></html>', order)), order).toBe('image_type_unsupported');
+      expect(refusalOf(utf16('<html><body>hello</body></html>', order)), order).toBe(
+        'image_type_unsupported',
+      );
       expect(refusalOf(utf16('plain text', order)), order).toBe('image_type_unsupported');
     }
     // No byte order mark: nothing tells UTF-16 from binary, and UTF-8 is the only encoding.
@@ -153,7 +198,16 @@ describe('sniffImage: SVG', () => {
 describe('sniffImage: everything else is refused, by content only', () => {
   it('refuses GIF, WebP, AVIF, HEIC, TIFF, BMP, ICO and PDF even where sharp could decode them (H-33)', async () => {
     const inputs = await inputsOf('H-33');
-    expect([...inputs.keys()]).toEqual(['gif89a', 'webp', 'avif', 'heic', 'tiff', 'bmp', 'ico', 'pdf']);
+    expect([...inputs.keys()]).toEqual([
+      'gif89a',
+      'webp',
+      'avif',
+      'heic',
+      'tiff',
+      'bmp',
+      'ico',
+      'pdf',
+    ]);
     for (const [label, bytes] of inputs) {
       expect(refusalOf(bytes), label).toBe('image_type_unsupported');
     }
@@ -174,7 +228,9 @@ describe('sniffImage: everything else is refused, by content only', () => {
 
   it('refuses an HTML document and a one-byte body, and calls an empty body empty (H-34)', async () => {
     const inputs = await inputsOf('H-34');
-    expect(refusalOf(inputs.get('html-with-script') ?? new Uint8Array(0))).toBe('image_type_unsupported');
+    expect(refusalOf(inputs.get('html-with-script') ?? new Uint8Array(0))).toBe(
+      'image_type_unsupported',
+    );
     expect(refusalOf(inputs.get('one-byte') ?? new Uint8Array(0))).toBe('image_type_unsupported');
     expect(refusalOf(inputs.get('empty-body') ?? Uint8Array.of(1))).toBe('image_empty');
     expect(refusalOf(new Uint8Array(0))).toBe('image_empty');
@@ -183,8 +239,8 @@ describe('sniffImage: everything else is refused, by content only', () => {
 
   it('decides by content only: the function has no name or media type to read (H-31, H-32)', async () => {
     expect(sniffImage.length).toBe(1);
-    const svgNamedPng = await fixtureById('H-31').bytes();
-    const pngNamedSvg = await fixtureById('H-32').bytes();
+    const svgNamedPng = await fixtureOf('H-31').bytes();
+    const pngNamedSvg = await fixtureOf('H-32').bytes();
     expect(sniffImage(svgNamedPng)).toBe('svg');
     expect(sniffImage(pngNamedSvg)).toBe('png');
   });
@@ -199,13 +255,18 @@ describe('sniffImage: everything else is refused, by content only', () => {
     }
     expect(failure).toBeInstanceOf(PipelineError);
     expect(failure).toMatchObject({ name: 'PipelineError', code: 'image_type_unsupported' });
-    expect(JSON.stringify(failure) + String((failure as Error).message) + String((failure as Error).stack)).not.toContain(secret);
+    expect(
+      JSON.stringify(failure) + (failure as Error).message + String((failure as Error).stack),
+    ).not.toContain(secret);
   });
 
   it('fails the guard on each input it must refuse (negative)', async () => {
     const inputs = await inputsOf('H-33');
     for (const [label, bytes] of inputs) {
-      expectGuardFails(sniffImage, bytes, { name: `sniff ${label}`, reason: 'image_type_unsupported' });
+      expectGuardFails(sniffImage, bytes, {
+        name: `sniff ${label}`,
+        reason: 'image_type_unsupported',
+      });
     }
     expectGuardFails(sniffImage, new Uint8Array(0), { reason: 'image_empty' });
     expectGuardFails(sniffImage, utf8('<html></html>'), { reason: 'image_type_unsupported' });
