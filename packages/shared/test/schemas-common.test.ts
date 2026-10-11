@@ -12,11 +12,18 @@ import { expectGuardFails } from '../src/testing/index.js';
 
 const {
   AccentInputSchema,
+  CursorSchema,
+  GuidSchema,
   HexColorSchema,
   IsoTimestampSchema,
   OriginSchema,
+  PageQuerySchema,
+  ParamsSchema,
   RequestIdSchema,
   Sha256HexSchema,
+  PAGE_LIMIT_DEFAULT,
+  PAGE_LIMIT_MAX,
+  pageLimitOf,
 } = common;
 const { HealthzResponseSchema, ReadinessCheckSchema, ReadyzResponseSchema } = health;
 const { ActorSummarySchema, CsrfResponseSchema, FeaturesSchema, MeResponseSchema } = meta;
@@ -388,6 +395,139 @@ describe('CsrfResponseSchema (R5)', () => {
   });
 });
 
+describe('GuidSchema (T-B-024, XB5: lower-case canonical)', () => {
+  const guid = '14d82eec-204b-4c2f-b7e8-296a70dab67e';
+
+  it.each([guid, '00000000-0000-0000-0000-000000000000', 'ffffffff-ffff-ffff-ffff-ffffffffffff'])(
+    'accepts %s',
+    (value) => {
+      expect(accepts(GuidSchema, value)).toBe(true);
+    },
+  );
+
+  it.each([
+    ['upper case', guid.toUpperCase()],
+    ['one upper-case letter', `${guid.slice(0, 5)}A${guid.slice(6)}`],
+    ['braces', `{${guid}}`],
+    ['no hyphens', guid.replaceAll('-', '')],
+    ['35 characters', guid.slice(1)],
+    ['37 characters', `${guid}0`],
+    ['a non-hex letter', `g${guid.slice(1)}`],
+    ['a urn prefix', `urn:uuid:${guid}`],
+    ['a leading space', ` ${guid}`],
+    ['a trailing newline', `${guid}\n`],
+    ['the empty string', ''],
+    ['a number', 1],
+    ['null', null],
+  ])('rejects %s', (_label, value) => {
+    expect(accepts(GuidSchema, value)).toBe(false);
+  });
+});
+
+describe('ParamsSchema (T-B-024: names, ids, counts; never free text)', () => {
+  it('accepts a scalar map', () => {
+    expect(accepts(ParamsSchema, {})).toBe(true);
+    expect(
+      accepts(ParamsSchema, { name: 'Contoso', count: 3, ok: true, thumbprint: 'ab'.repeat(20) }),
+    ).toBe(true);
+  });
+
+  it('accepts exactly 8 entries and refuses 9', () => {
+    const entries = (count: number): Record<string, number> =>
+      Object.fromEntries(Array.from({ length: count }, (_, index) => [`k${String(index)}`, index]));
+    expect(accepts(ParamsSchema, entries(8))).toBe(true);
+    expect(accepts(ParamsSchema, entries(9))).toBe(false);
+  });
+
+  it('accepts a string of 256 bytes and refuses one of 257, counted in UTF-8 bytes', () => {
+    expect(accepts(ParamsSchema, { a: 'x'.repeat(256) })).toBe(true);
+    expect(accepts(ParamsSchema, { a: 'x'.repeat(257) })).toBe(false);
+    // 128 two-byte characters are 256 bytes, 129 are 258 bytes.
+    expect(accepts(ParamsSchema, { a: '\u00e9'.repeat(128) })).toBe(true);
+    expect(accepts(ParamsSchema, { a: '\u00e9'.repeat(129) })).toBe(false);
+  });
+
+  it.each([
+    ['a nested object', { a: { b: 1 } }],
+    ['an array', { a: [1, 2] }],
+    ['null', { a: null }],
+    ['undefined', { a: undefined }],
+    ['a function-like value', { a: () => 1 }],
+    ['NaN', { a: Number.NaN }],
+    ['Infinity', { a: Number.POSITIVE_INFINITY }],
+    ['a bigint', { a: 1n }],
+    ['a key with a space', { 'a b': 1 }],
+    ['a key that starts with a digit', { '1a': 1 }],
+    ['an empty key', { '': 1 }],
+    ['a key of 65 characters', { [`a${'b'.repeat(64)}`]: 1 }],
+    ['an array instead of a map', [1, 2]],
+    ['a string instead of a map', 'a'],
+    ['null instead of a map', null],
+  ])('rejects %s', (_label, value) => {
+    expect(accepts(ParamsSchema, value)).toBe(false);
+  });
+});
+
+describe('CursorSchema (T-B-024: opaque, URL-safe)', () => {
+  it.each(['abc', 'A_b-9'.repeat(10), 'x'.repeat(512)])('accepts %j', (value) => {
+    expect(accepts(CursorSchema, value)).toBe(true);
+  });
+
+  it.each([
+    ['empty', ''],
+    ['513 characters', 'x'.repeat(513)],
+    ['padding', 'abc='],
+    ['a space', 'ab c'],
+    ['a plus sign', 'ab+c'],
+    ['a slash', 'ab/c'],
+    ['a number', 1],
+    ['null', null],
+  ])('rejects %s', (_label, value) => {
+    expect(accepts(CursorSchema, value)).toBe(false);
+  });
+});
+
+describe('PageQuerySchema (T-B-024, CD-10: limit 1 to 200, default 100, opaque cursor)', () => {
+  it('states the default and the ceiling', () => {
+    expect(PAGE_LIMIT_DEFAULT).toBe(100);
+    expect(PAGE_LIMIT_MAX).toBe(200);
+  });
+
+  it('accepts an empty query and the query as text (a query string is text, nothing is coerced)', () => {
+    expect(accepts(PageQuerySchema, {})).toBe(true);
+    expect(accepts(PageQuerySchema, { limit: '1' })).toBe(true);
+    expect(accepts(PageQuerySchema, { limit: '200', cursor: 'abc' })).toBe(true);
+    expect(accepts(PageQuerySchema, { cursor: 'abc' })).toBe(true);
+  });
+
+  it.each([
+    ['0', '0'],
+    ['201', '201'],
+    ['a negative number', '-1'],
+    ['a decimal', '1.5'],
+    ['a leading zero', '010'],
+    ['a plus sign', '+5'],
+    ['an exponent', '1e2'],
+    ['empty', ''],
+    ['text', 'many'],
+    ['a number instead of text', 50],
+  ])('rejects the limit %s', (_label, limit) => {
+    expect(accepts(PageQuerySchema, { limit })).toBe(false);
+  });
+
+  it('rejects an unknown query member and a bad cursor', () => {
+    expect(accepts(PageQuerySchema, { limit: '5', sort: 'name' })).toBe(false);
+    expect(accepts(PageQuerySchema, { cursor: 'not a cursor' })).toBe(false);
+  });
+
+  it('pageLimitOf gives the limit as a number: the default when absent', () => {
+    expect(pageLimitOf({})).toBe(100);
+    expect(pageLimitOf({ limit: '1' })).toBe(1);
+    expect(pageLimitOf({ limit: '200' })).toBe(200);
+    expect(pageLimitOf({ cursor: 'abc' })).toBe(100);
+  });
+});
+
 describe('every schema is an OpenAPI component and has no transform (contract 8.1, 8.4)', () => {
   const modules = {
     'schemas/common.ts': common,
@@ -412,12 +552,16 @@ describe('every schema is an OpenAPI component and has no transform (contract 8.
         'AccentInputSchema',
         'ActorSummarySchema',
         'CsrfResponseSchema',
+        'CursorSchema',
         'FeaturesSchema',
+        'GuidSchema',
         'HealthzResponseSchema',
         'HexColorSchema',
         'IsoTimestampSchema',
         'MeResponseSchema',
         'OriginSchema',
+        'PageQuerySchema',
+        'ParamsSchema',
         'ReadinessCheckSchema',
         'ReadyzResponseSchema',
         'RequestIdSchema',

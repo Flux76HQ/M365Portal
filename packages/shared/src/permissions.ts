@@ -4,10 +4,11 @@
 // list. A second list anywhere else is a defect: `single-implementation.test.ts` fails on it
 // (FR-A-008), and `docs/permissions.md` is compared with this list by `docs-contract.test.ts`.
 //
-// Phase A gives the panel no way to hold a permission other than the preview actor (all of them) and
-// the anonymous actor (none). The catalogue is complete from the start so that Phases B and D change
-// no signature.
+// The catalogue was complete from Phase A so that later phases change no signature. Phase B holds
+// permissions through role assignments (`rbac/`), the setup actor and break-glass; the anonymous
+// actor holds none. `PERMISSION_RESOURCE` below classifies each entry (T-B-230).
 import { z } from 'zod';
+import type { ResourceType } from './rbac/resources.js';
 
 /** Brief section 2a, in the order the brief lists them. Frozen: nothing can add or reorder at runtime. */
 export const PERMISSIONS = Object.freeze([
@@ -30,6 +31,33 @@ export const PERMISSIONS = Object.freeze([
 
 /** One of the catalogue entries; the union of the strings in `PERMISSIONS`. */
 export type Permission = (typeof PERMISSIONS)[number];
+
+/**
+ * The resource type each permission is about (T-B-230, XB6, FR-B-505, spec 6.5.1), or `null` for the
+ * five global-only permissions, which have none. Every catalogue entry is listed (the type is a total
+ * record, so a sixteenth permission without a class does not compile), and the order is the
+ * catalogue order. Scopes (FR-B-513) restrict only the resource types they name; the global-only
+ * permissions come only from unscoped assignments (spec 6.5.2).
+ */
+export const PERMISSION_RESOURCE: Readonly<Record<Permission, ResourceType | null>> = Object.freeze(
+  {
+    'users:read': 'user',
+    'groups:read': 'group',
+    'groups:members:write': 'group',
+    'distributionlists:read': 'distributionList',
+    'distributionlists:members:write': 'distributionList',
+    'distributionlists:export': 'distributionList',
+    'contacts:read': 'contact',
+    'contacts:create': 'contact',
+    'contacts:update': 'contact',
+    'contacts:delete': 'contact',
+    'audit:read': null,
+    'audit:export': null,
+    'settings:branding': null,
+    'settings:connection': null,
+    'rbac:manage': null,
+  },
+);
 
 /** A permission on the wire. Case-sensitive: `Users:Read`, `*` and `users:write` are all rejected. */
 export const PermissionSchema = z.enum(PERMISSIONS).meta({ id: 'Permission' });

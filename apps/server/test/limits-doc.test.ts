@@ -12,6 +12,7 @@
 //   - the table has a row that spec 6.5 does not have, or a LIMITS entry is claimed by no row;
 //   - the sentence that whatever sits in front must allow at least 9,437,184 bytes is missing;
 //   - the Dutch section does not state the largest request.
+// Phase B adds one row per row of spec 6.9.2, labelled with the constant of the spec (`SETUP_LOCK_MINUTES`).
 // Format the document author must follow: one row per spec 6.5 row, the label starting with the
 // words below, numbers written with thousands separators (`262,144`) or without (`9437184`).
 //
@@ -87,6 +88,261 @@ const ROWS: readonly RowSpec[] = [
   { label: 'Organisation name', sources: ['orgName.maxGraphemes', 'orgName.maxBytes'] },
   { label: 'HSTS max-age default', sources: ['hstsMaxAgeSeconds'] },
   { label: 'Image size ceiling', sources: ['imageSizeCeilingMegabytes'] },
+  // Phase B, spec 6.9.2 (T-B-004): the label is the constant of the spec row.
+  {
+    label: 'SETUP_UNLOCK_FAILS_PER_CLIENT',
+    sources: ['setup.unlockFailsPerClient', 'setup.unlockFailsPerClientWindowMinutes'],
+  },
+  {
+    label: 'SETUP_UNLOCK_FAILS_GLOBAL',
+    sources: ['setup.unlockFailsGlobal', 'setup.unlockFailsGlobalWindowMinutes'],
+  },
+  {
+    label: 'SETUP_LOCK_MINUTES',
+    sources: ['setup.lockMinutes'],
+  },
+  {
+    label: 'SETUP_SESSION_IDLE_MINUTES, SETUP_SESSION_ABSOLUTE_HOURS',
+    sources: ['setup.sessionIdleMinutes', 'setup.sessionAbsoluteHours'],
+  },
+  {
+    label: 'SETUP_SESSIONS_MAX',
+    sources: ['setup.sessionsMax'],
+  },
+  {
+    label: 'SETUP_MIN_WAIT_MS',
+    sources: ['setup.minWaitMs'],
+  },
+  {
+    label: 'SETUP_TOKEN_BYTES',
+    sources: ['setup.tokenBytes'],
+  },
+  {
+    label: 'SETUP_LEASE_HEARTBEAT_SECONDS, SETUP_LEASE_EXPIRY_SECONDS',
+    sources: ['setup.leaseHeartbeatSeconds', 'setup.leaseExpirySeconds'],
+  },
+  {
+    label: 'SETUP_LOG_RETAINED, SETUP_LOG_PAGE_MAX',
+    sources: ['setup.logRetained', 'setup.logPageMax'],
+  },
+  {
+    label: 'SETUP_DETAIL_STRING_MAX_BYTES, SETUP_VERIFY_RESULT_MAX_BYTES',
+    sources: ['setup.detailStringMaxBytes', 'setup.verifyResultMaxBytes'],
+  },
+  {
+    label: 'SETUP_TRANSIENT_BACKOFF',
+    sources: [
+      ['setup.transientBackoff.initialMs', toSeconds],
+      ['setup.transientBackoff.maxMs', toSeconds],
+      'setup.transientBackoff.maxTries',
+    ],
+  },
+  {
+    label: 'SETUP_REPLICATION_BACKOFF',
+    sources: [
+      ['setup.replicationBackoff.initialMs', toSeconds],
+      ['setup.replicationBackoff.maxMs', toSeconds],
+    ],
+  },
+  {
+    label: 'SETUP_OBJECT_CHAIN_WINDOW_SECONDS',
+    sources: ['setup.objectChainWindowSeconds'],
+  },
+  {
+    label: 'SETUP_PROPAGATION_TIMEOUT_SECONDS (setting)',
+    sources: [
+      'setup.propagationTimeoutSeconds.default',
+      'setup.propagationTimeoutSeconds.min',
+      'setup.propagationTimeoutSeconds.max',
+    ],
+  },
+  {
+    label: 'SETUP_SKEW_WARN_SECONDS, SETUP_SKEW_FAIL_SECONDS',
+    sources: ['setup.skewWarnSeconds', 'setup.skewFailSeconds'],
+  },
+  {
+    label: 'SETUP_MUTATING_CALLS_CLEAN_RUN',
+    sources: ['setup.mutatingCallsCleanRun'],
+  },
+  {
+    label: 'CERT_RSA_BITS, CERT_VALIDITY_DAYS, CERT_BACKDATE_MINUTES',
+    sources: ['certificate.rsaBits', 'certificate.validityDays', 'certificate.backdateMinutes'],
+  },
+  {
+    label: 'CERT_WARN_DAYS, CERT_CRITICAL_DAYS',
+    sources: ['certificate.warnDays', 'certificate.criticalDays'],
+  },
+  {
+    label: 'APP_KEY_BYTES, SECRET_NONCE_BYTES, KEY_ID_BYTES',
+    sources: ['secrets.appKeyBytes', 'secrets.nonceBytes', 'secrets.keyIdBytes'],
+  },
+  {
+    label: 'APP_KEY_FILE_MAX_BYTES',
+    sources: ['secrets.appKeyFileMaxBytes'],
+  },
+  {
+    label: 'CLIENT_ASSERTION_LIFETIME_SECONDS',
+    sources: ['microsoft.clientAssertionLifetimeSeconds'],
+  },
+  {
+    label: 'TOKEN_ENDPOINT_TIMEOUT_SECONDS',
+    sources: ['microsoft.tokenEndpointTimeoutSeconds'],
+  },
+  {
+    label: 'ID_TOKEN_MAX_BYTES',
+    sources: ['microsoft.idTokenMaxBytes'],
+  },
+  {
+    label: 'CLOCK_TOLERANCE_SECONDS',
+    sources: ['microsoft.clockToleranceSeconds'],
+  },
+  {
+    label: 'JWKS_CACHE_HOURS, JWKS_REFRESH_MINUTES, JWKS_UNKNOWN_KID_COOLDOWN_MINUTES',
+    sources: [
+      'microsoft.jwksCacheHours',
+      'microsoft.jwksRefreshMinutes',
+      'microsoft.jwksUnknownKidCooldownMinutes',
+    ],
+  },
+  {
+    label: 'GRAPH_CHECK_MEMBER_GROUPS_MAX_IDS',
+    sources: ['microsoft.graphCheckMemberGroupsMaxIds'],
+  },
+  {
+    label: 'GRAPH_RETRY_MAX, GRAPH_RETRY_AFTER_MAX_WAIT_SECONDS',
+    sources: ['microsoft.graphRetryMax', 'microsoft.graphRetryAfterMaxWaitSeconds'],
+  },
+  {
+    label: 'GRAPH_5XX_BACKOFF',
+    sources: [
+      'microsoft.graph5xxBackoff.initialMs',
+      ['microsoft.graph5xxBackoff.maxMs', toSeconds],
+      'microsoft.graph5xxBackoff.maxRetries',
+    ],
+  },
+  {
+    label: 'GRAPH_BUDGET_INTERACTIVE_SECONDS, GRAPH_BUDGET_WIZARD_SECONDS, GRAPH_IN_FLIGHT_MAX',
+    sources: [
+      'microsoft.graphBudgetInteractiveSeconds',
+      'microsoft.graphBudgetWizardSeconds',
+      'microsoft.graphInFlightMax',
+    ],
+  },
+  {
+    label: 'GRAPH_CACHE_TTL_SECONDS, GRAPH_CACHE_ENTRIES',
+    sources: [
+      'microsoft.graphCacheTtlSeconds.organization',
+      'microsoft.graphCacheTtlSeconds.user',
+      'microsoft.graphCacheTtlSeconds.group',
+      'microsoft.graphCacheEntries',
+    ],
+  },
+  {
+    label: 'EXCHANGE_RESULT_SIZE_MAX, EXCHANGE_PAGING_WINDOW_SECONDS',
+    sources: ['microsoft.exchangeResultSizeMax', 'microsoft.exchangePagingWindowSeconds'],
+  },
+  {
+    label: 'LOGIN_TX_MAX, LOGIN_TX_PER_CLIENT_MAX, LOGIN_TX_LIFETIME_SECONDS',
+    sources: ['signIn.loginTxMax', 'signIn.loginTxPerClientMax', 'signIn.loginTxLifetimeSeconds'],
+  },
+  {
+    label: 'RETURN_TO_MAX_CHARS',
+    sources: ['signIn.returnToMaxChars'],
+  },
+  {
+    label: 'RATE_AUTH, RATE_SETUP',
+    sources: [
+      'rateLimit.auth.capacity',
+      ['rateLimit.auth.refillIntervalMs', perSecond],
+      'rateLimit.setup.capacity',
+      ['rateLimit.setup.refillIntervalMs', perSecond],
+    ],
+  },
+  {
+    label: 'SESSION_IDLE_TIMEOUT_MINUTES, SESSION_ABSOLUTE_TIMEOUT_HOURS (settings)',
+    sources: [
+      'session.idleTimeoutMinutes.default',
+      'session.idleTimeoutMinutes.min',
+      'session.idleTimeoutMinutes.max',
+      'session.absoluteTimeoutHours.default',
+      'session.absoluteTimeoutHours.min',
+      'session.absoluteTimeoutHours.max',
+    ],
+  },
+  {
+    label: 'SESSION_WRITE_INTERVAL_SECONDS, SESSIONS_PER_PRINCIPAL_MAX, SESSION_PURGE_MINUTES',
+    sources: ['session.writeIntervalSeconds', 'session.perPrincipalMax', 'session.purgeMinutes'],
+  },
+  {
+    label: 'SESSION_IDLE_WARNING_SECONDS, SESSION_ABSOLUTE_WARNING_MINUTES',
+    sources: ['session.idleWarningSeconds', 'session.absoluteWarningMinutes'],
+  },
+  {
+    label: 'STEP_UP_WINDOW_MINUTES, STEP_UP_AUTH_TIME_LEEWAY_SECONDS',
+    sources: ['session.stepUpWindowMinutes', 'session.stepUpAuthTimeLeewaySeconds'],
+  },
+  {
+    label: 'REVALIDATE_RETRY_SECONDS',
+    sources: ['session.revalidateRetrySeconds'],
+  },
+  {
+    label: 'BREAK_GLASS_SESSION_MINUTES',
+    sources: ['breakGlass.sessionMinutes'],
+  },
+  {
+    label: 'BREAK_GLASS_FAILS_PER_CLIENT, BREAK_GLASS_FAILS_GLOBAL',
+    sources: [
+      'breakGlass.failsPerClient',
+      'breakGlass.failsPerClientWindowMinutes',
+      'breakGlass.failsGlobal',
+      'breakGlass.failsGlobalWindowMinutes',
+    ],
+  },
+  {
+    label:
+      'SCRYPT_N_MIN, SCRYPT_N_MAX, SCRYPT_MAX_MEMORY_BYTES, SCRYPT_SALT_BYTES, SCRYPT_HASH_BYTES',
+    sources: [
+      'breakGlass.scrypt.nMin',
+      'breakGlass.scrypt.nMax',
+      'breakGlass.scrypt.maxMemoryBytes',
+      'breakGlass.scrypt.saltMinBytes',
+      'breakGlass.scrypt.saltMaxBytes',
+      'breakGlass.scrypt.hashMinBytes',
+      'breakGlass.scrypt.hashMaxBytes',
+    ],
+  },
+  {
+    label: 'BREAK_GLASS_QUEUE_RUNNING, BREAK_GLASS_QUEUE_WAITING, BREAK_GLASS_PASSWORD_MIN_CHARS',
+    sources: ['breakGlass.queueRunning', 'breakGlass.queueWaiting', 'breakGlass.passwordMinChars'],
+  },
+  {
+    label: 'GROUP_CACHE_TTL_SECONDS (setting)',
+    sources: [
+      'rbac.groupCacheTtlSeconds.default',
+      'rbac.groupCacheTtlSeconds.min',
+      'rbac.groupCacheTtlSeconds.max',
+    ],
+  },
+  {
+    label: 'GROUPS_BOUND_MAX',
+    sources: ['rbac.groupsBoundMax'],
+  },
+  {
+    label: 'ASSIGNMENTS_MAX, ROLES_MAX',
+    sources: ['rbac.assignmentsMax', 'rbac.rolesMax'],
+  },
+  {
+    label: 'SCOPE_ITEMS_PER_ASSIGNMENT_MAX, SCOPE_VALUE_MAX_CHARS',
+    sources: ['rbac.scopeItemsPerAssignmentMax', 'rbac.scopeValueMaxChars'],
+  },
+  {
+    label: 'ASSIGNMENT_EXPIRY_MAX_DAYS',
+    sources: ['rbac.assignmentExpiryMaxDays'],
+  },
+  {
+    label: 'AUTH_BODY_MAX_BYTES',
+    sources: ['body.authBytes'],
+  },
 ];
 
 function leafValue(path: string): number {

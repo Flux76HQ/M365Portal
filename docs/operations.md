@@ -271,6 +271,55 @@ HTML, and must preserve the `Host` header.
 | Organisation name | 64 grapheme clusters, 256 bytes | the app | validation |
 | HSTS `max-age` default | 31,536,000 seconds | the app | override with `HSTS_MAX_AGE` |
 | Image size ceiling | 400 MB uncompressed, recalibrated after the first build | `image` job | FR-A-168 |
+| `SETUP_UNLOCK_FAILS_PER_CLIENT` | 5 failures per 15 minutes per client address | the app | lock of that address for `SETUP_LOCK_MINUTES` (FR-B-204) |
+| `SETUP_UNLOCK_FAILS_GLOBAL` | 30 failures per 60 minutes | the app | lock of unlocking for everyone for `SETUP_LOCK_MINUTES` |
+| `SETUP_LOCK_MINUTES` | 15 minutes | the app | `Retry-After` of 429 `setup_token_locked` is the remaining seconds |
+| `SETUP_SESSION_IDLE_MINUTES`, `SETUP_SESSION_ABSOLUTE_HOURS` | 60 minutes and 8 hours | the app, in memory | a restart ends the setup session (FR-B-205) |
+| `SETUP_SESSIONS_MAX` | 5 | the app | live setup sessions, the oldest is evicted |
+| `SETUP_MIN_WAIT_MS` | 500 ms | the app | floor of every computed wait of the wizard |
+| `SETUP_TOKEN_BYTES` | 32 bytes | the app | generated setup token, base64url, file mode 0600 |
+| `SETUP_LEASE_HEARTBEAT_SECONDS`, `SETUP_LEASE_EXPIRY_SECONDS` | 15 s and 120 s | the app | runner lease (FR-B-209) |
+| `SETUP_LOG_RETAINED`, `SETUP_LOG_PAGE_MAX` | 1,000 rows and 200 rows | the app | setup log; polled every 1 s, every 2 s in a hidden tab |
+| `SETUP_DETAIL_STRING_MAX_BYTES`, `SETUP_VERIFY_RESULT_MAX_BYTES` | 256 bytes and 51,200 bytes | the app | step detail strings; the stored proof list |
+| `SETUP_TRANSIENT_BACKOFF` | 1 s doubling to 30 s, full jitter, at most 6 tries | the app | `Retry-After` wins when present (FR-B-212) |
+| `SETUP_REPLICATION_BACKOFF` | 2 s doubling to 60 s, full jitter | the app | wait for Microsoft replication |
+| `SETUP_OBJECT_CHAIN_WINDOW_SECONDS` | 300 seconds | the app | window for object chains |
+| `SETUP_PROPAGATION_TIMEOUT_SECONDS` (setting) | default 900, range 60 to 3,600 seconds | the app (`SETUP_PROPAGATION_TIMEOUT_SECONDS`) | role-to-token propagation window; hard maximum 3,600 |
+| `SETUP_SKEW_WARN_SECONDS`, `SETUP_SKEW_FAIL_SECONDS` | 60 s and 300 s | the app | clock skew check of the wizard (our thresholds) |
+| `SETUP_MUTATING_CALLS_CLEAN_RUN` | 11 (informative) | the fault-injection test | derived from the fake tenant |
+| `CERT_RSA_BITS`, `CERT_VALIDITY_DAYS`, `CERT_BACKDATE_MINUTES` | 2,048 bits, 360 days, 5 minutes | the app | Microsoft Learn: a certificate lasts at most one year from its start date (FR-B-106) |
+| `CERT_WARN_DAYS`, `CERT_CRITICAL_DAYS` | 60 days and 14 days | the app | banner levels (FR-B-111) |
+| `APP_KEY_BYTES`, `SECRET_NONCE_BYTES`, `KEY_ID_BYTES` | 32, 24 and 8 bytes | the app | FR-B-104, FR-B-105 |
+| `APP_KEY_FILE_MAX_BYTES` | 1,024 bytes | the app | size of the `APP_KEY_FILE` file |
+| `CLIENT_ASSERTION_LIFETIME_SECONDS` | 300 seconds | the app | Microsoft Learn: at most 10 minutes after `nbf` |
+| `TOKEN_ENDPOINT_TIMEOUT_SECONDS` | 10 seconds | the app | one retry after 1 s on `temporarily_unavailable` |
+| `ID_TOKEN_MAX_BYTES` | 8,192 bytes | the app | size of an ID token |
+| `CLOCK_TOLERANCE_SECONDS` | 60 seconds | the app | `exp`, `nbf`, `iat` of an ID token |
+| `JWKS_CACHE_HOURS`, `JWKS_REFRESH_MINUTES`, `JWKS_UNKNOWN_KID_COOLDOWN_MINUTES` | 24 hours, 60 minutes and 5 minutes | the app | signing-key rollover guidance |
+| `GRAPH_CHECK_MEMBER_GROUPS_MAX_IDS` | 20 | the app | Microsoft Learn: up to 20 groups per request |
+| `GRAPH_RETRY_MAX`, `GRAPH_RETRY_AFTER_MAX_WAIT_SECONDS` | 4 retries and 60 seconds | the app | a longer wait fails fast as 503 `graph_throttled` |
+| `GRAPH_5XX_BACKOFF` | 500 ms doubling to 10 s, full jitter, at most 4 retries | the app | idempotent calls only |
+| `GRAPH_BUDGET_INTERACTIVE_SECONDS`, `GRAPH_BUDGET_WIZARD_SECONDS`, `GRAPH_IN_FLIGHT_MAX` | 20 s, 60 s and 4 calls in flight | the app | per call including retries |
+| `GRAPH_CACHE_TTL_SECONDS`, `GRAPH_CACHE_ENTRIES` | organization 300 s, user 60 s, group 60 s; 1,000 entries | the app | Graph response cache (FR-B-313) |
+| `EXCHANGE_RESULT_SIZE_MAX`, `EXCHANGE_PAGING_WINDOW_SECONDS` | 1,000 and 300 seconds | the app | a `nextLink` is valid for 5 to 10 minutes (FR-B-314) |
+| `LOGIN_TX_MAX`, `LOGIN_TX_PER_CLIENT_MAX`, `LOGIN_TX_LIFETIME_SECONDS` | 1,000, 20 and 600 seconds | the app | sign-in transactions; the oldest is evicted (FR-B-402) |
+| `RETURN_TO_MAX_CHARS` | 256 characters | the app | `returnTo` after sign-in |
+| `RATE_AUTH`, `RATE_SETUP` | capacity 10, refill 0.2 per second, per client address | the app | 429 `rate_limited` on sign-in and setup routes (FR-B-415) |
+| `SESSION_IDLE_TIMEOUT_MINUTES`, `SESSION_ABSOLUTE_TIMEOUT_HOURS` (settings) | idle default 30, range 5 to 480 minutes; absolute default 8, range 1 to 24 hours | the app (the two variables of the same name) | hours x 60 must exceed the idle minutes |
+| `SESSION_WRITE_INTERVAL_SECONDS`, `SESSIONS_PER_PRINCIPAL_MAX`, `SESSION_PURGE_MINUTES` | 60 s, 10 sessions and 60 minutes | the app | FR-B-407 |
+| `SESSION_IDLE_WARNING_SECONDS`, `SESSION_ABSOLUTE_WARNING_MINUTES` | 120 s and 5 minutes | the app | session timers in the UI (FR-B-416) |
+| `STEP_UP_WINDOW_MINUTES`, `STEP_UP_AUTH_TIME_LEEWAY_SECONDS` | 10 minutes and 60 s | the app | FR-B-411 |
+| `REVALIDATE_RETRY_SECONDS` | 30 seconds | the app | after a Graph failure (FR-B-409) |
+| `BREAK_GLASS_SESSION_MINUTES` | 30 minutes, not sliding | the app | FR-B-522 |
+| `BREAK_GLASS_FAILS_PER_CLIENT`, `BREAK_GLASS_FAILS_GLOBAL` | 5 per 15 minutes per client address and 20 per 60 minutes | the app | 429 `break_glass_locked` (FR-B-521) |
+| `SCRYPT_N_MIN`, `SCRYPT_N_MAX`, `SCRYPT_MAX_MEMORY_BYTES`, `SCRYPT_SALT_BYTES`, `SCRYPT_HASH_BYTES` | N from 16,384 to 131,072; at most 134,217,728 bytes of memory; salt 16 to 64 bytes; hash 32 to 64 bytes | the app | `128 * N * r` is at most the memory cap; the CLI writes N = 131,072, r = 8, p = 1 (FR-B-521) |
+| `BREAK_GLASS_QUEUE_RUNNING`, `BREAK_GLASS_QUEUE_WAITING`, `BREAK_GLASS_PASSWORD_MIN_CHARS` | 1 running, 2 waiting, 14 characters | the app | one password verification at a time; the `hash-password` floor (FR-B-110) |
+| `GROUP_CACHE_TTL_SECONDS` (setting) | default 300, range 30 to 3,600 seconds | the app (the variable of the same name) | group membership cache (FR-B-409) |
+| `GROUPS_BOUND_MAX` | 200 | the app | distinct bound Entra groups (FR-B-507) |
+| `ASSIGNMENTS_MAX`, `ROLES_MAX` | 5,000 and 100 | the app | roles include the five built-in roles (FR-B-508) |
+| `SCOPE_ITEMS_PER_ASSIGNMENT_MAX`, `SCOPE_VALUE_MAX_CHARS` | 50 and 64 characters | the app | FR-B-513 |
+| `ASSIGNMENT_EXPIRY_MAX_DAYS` | 730 days | the app | FR-B-508 |
+| `AUTH_BODY_MAX_BYTES` | 4,096 bytes | the app | `unlock`, `logout`, `logout-all` and `break-glass` bodies; all other JSON bodies keep 262,144 bytes, and the largest request stays 9,437,184 bytes |
 
 The single source of every number is `packages/shared/src/limits.ts` (`LIMITS`); this table is a
 mirror, compared with it by `limits-doc.test.ts`. A pull request that raises a size, rate or timeout

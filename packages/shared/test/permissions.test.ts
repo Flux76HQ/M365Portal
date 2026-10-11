@@ -5,10 +5,12 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import { expectGuardFails } from '../src/testing/index.js';
 import {
   PERMISSIONS,
+  PERMISSION_RESOURCE,
   PermissionSchema,
   hasAnyPermission,
   type Permission,
 } from '../src/permissions.js';
+import type { ResourceType } from '../src/rbac/resources.js';
 
 // Written out here on purpose: the test is the second, independent statement of the brief's list.
 // `single-implementation.test.ts` only scans code outside the test folders for a second copy.
@@ -189,5 +191,69 @@ describe('hasAnyPermission', () => {
     hasAnyPermission(held, asked);
     expect([...held]).toEqual([usersRead]);
     expect(asked).toEqual([groupsRead, usersRead]);
+  });
+});
+
+// T-B-230, XB6, CB8: the resource type of every permission, next to the catalogue. Written out again
+// here on purpose (spec 6.5.1): the test is the second statement of the map.
+const EXPECTED_RESOURCE: Readonly<Record<Permission, ResourceType | null>> = {
+  'users:read': 'user',
+  'groups:read': 'group',
+  'groups:members:write': 'group',
+  'distributionlists:read': 'distributionList',
+  'distributionlists:members:write': 'distributionList',
+  'distributionlists:export': 'distributionList',
+  'contacts:read': 'contact',
+  'contacts:create': 'contact',
+  'contacts:update': 'contact',
+  'contacts:delete': 'contact',
+  'audit:read': null,
+  'audit:export': null,
+  'settings:branding': null,
+  'settings:connection': null,
+  'rbac:manage': null,
+};
+
+describe('PERMISSION_RESOURCE (T-B-230, XB6)', () => {
+  it('leaves the fifteen entries of the catalogue unchanged and in order', () => {
+    expect([...PERMISSIONS]).toEqual([...BRIEF_2A]);
+    expect(Object.keys(PERMISSION_RESOURCE)).toEqual([...BRIEF_2A]);
+  });
+
+  it.each(BRIEF_2A)(
+    'maps %s to its resource type, or to none for a global-only permission',
+    (p) => {
+      expect(PERMISSION_RESOURCE[p]).toBe(EXPECTED_RESOURCE[p]);
+    },
+  );
+
+  it('puts every permission in exactly one class: resource-bound or global-only', () => {
+    const bound = PERMISSIONS.filter((p) => PERMISSION_RESOURCE[p] !== null);
+    const globalOnly = PERMISSIONS.filter((p) => PERMISSION_RESOURCE[p] === null);
+    expect(bound).toHaveLength(10);
+    expect(globalOnly).toEqual([
+      'audit:read',
+      'audit:export',
+      'settings:branding',
+      'settings:connection',
+      'rbac:manage',
+    ]);
+    expect(bound.length + globalOnly.length).toBe(PERMISSIONS.length);
+    for (const p of PERMISSIONS)
+      expect([...bound, ...globalOnly].filter((q) => q === p)).toHaveLength(1);
+  });
+
+  it('is frozen, so the map cannot be changed at runtime', () => {
+    expect(Object.isFrozen(PERMISSION_RESOURCE)).toBe(true);
+    expect(() => {
+      (PERMISSION_RESOURCE as unknown as Record<string, string>)['users:read'] = 'group';
+    }).toThrow(TypeError);
+    expect(PERMISSION_RESOURCE['users:read']).toBe('user');
+  });
+
+  it('is typed for every permission, with a resource type or null', () => {
+    expectTypeOf(PERMISSION_RESOURCE).toEqualTypeOf<
+      Readonly<Record<Permission, ResourceType | null>>
+    >();
   });
 });

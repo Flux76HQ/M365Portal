@@ -1,5 +1,5 @@
 // Stage 6 of the request pipeline (plan 7.2, 8.4, FR-A-045): in-memory token buckets per client
-// address, in three classes with the values of `LIMITS.rateLimit`. A request takes one token from
+// address, in the classes (read, write, upload, auth, setup) with the values of `LIMITS.rateLimit`. A request takes one token from
 // exactly one bucket; the bucket is named by the class and the client key, so a client that is out
 // of `read` tokens can still write, and one client never spends another's.
 //
@@ -47,8 +47,11 @@ export interface RateLimiter {
 export interface RateLimiterOptions {
   /** The clock, in milliseconds. Injected: tests move it, the server passes a real one. */
   readonly now: () => number;
-  /** Default: `LIMITS.rateLimit`. A parameter because `LIMITS` is frozen and tests need less. */
-  readonly rules?: Readonly<Record<RateClass, RateRule>>;
+  /**
+   * Overrides of `LIMITS.rateLimit`, per class; a class not named keeps its `LIMITS` rule. A
+   * parameter because `LIMITS` is frozen and tests need less.
+   */
+  readonly rules?: Readonly<Partial<Record<RateClass, RateRule>>>;
   /** Default: `LIMITS.trackedClients`. */
   readonly maxClients?: number;
 }
@@ -72,12 +75,13 @@ function assertRule(rateClass: string, rule: RateRule): void {
 }
 
 export function createRateLimiter(options: RateLimiterOptions): RateLimiter {
-  const rules = options.rules ?? LIMITS.rateLimit;
+  const rules: Readonly<Record<RateClass, RateRule>> = { ...LIMITS.rateLimit, ...options.rules };
   const maxClients = options.maxClients ?? LIMITS.trackedClients;
   if (!Number.isSafeInteger(maxClients) || maxClients < 1) {
     throw new RangeError('maxClients must be a whole number, 1 or more');
   }
-  for (const rateClass of ['read', 'write', 'upload'] as const) {
+  // Every class of the table is checked, so a class added to `LIMITS.rateLimit` is covered.
+  for (const rateClass of Object.keys(rules) as RateClass[]) {
     assertRule(rateClass, rules[rateClass]);
   }
 

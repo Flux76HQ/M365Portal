@@ -1,14 +1,13 @@
-// The posture line (FR-A-015, FR-A-036): what the server logs once at start about the choices that
+// The posture line (FR-A-015, FR-B-101): what the server logs once at start about the choices that
 // change who may do what. Modes and flags only: no value of a variable, no address, no port.
+//
+// Phase B drops the preview fields (FR-B-102) and adds the choices that decide how a person gets
+// in: whether the break-glass account exists and whether multi-factor sign-in is required. The
+// setup state and the secrets state are runtime facts, not configuration; the start supplies them
+// next to the storage facts (`logPosture`).
 import type { AppConfig } from './env.js';
 
 export interface Posture {
-  /**
-   * `off`; `loopback-only`: preview mode is on and a request whose `Host` is not loopback, or that
-   * carries forwarding headers, is treated as anonymous (FR-A-036); `any-host`: preview mode is on
-   * with `PREVIEW_MODE_ALLOW_REMOTE=true`, so that rule is lifted.
-   */
-  readonly preview: 'off' | 'loopback-only' | 'any-host';
   readonly trustProxy: 'none' | 'hops' | 'list';
   /**
    * `off` when `Strict-Transport-Security` can never be sent (the base URL is http and no proxy is
@@ -16,26 +15,23 @@ export interface Posture {
    */
   readonly hsts: 'off' | 'plain' | 'include-subdomains' | 'preload';
   readonly showcase: boolean;
-  /** Present only when preview mode is on: the Host-based detection is not a security boundary. */
-  readonly previewBoundary?: 'host-detection-not-a-security-boundary';
+  /** `on` when `BREAK_GLASS_USERNAME` and `BREAK_GLASS_PASSWORD_HASH` are set (FR-B-521). */
+  readonly breakGlass: 'on' | 'off';
+  /** `on` when `AUTH_REQUIRE_MFA` is true (FR-B-405). */
+  readonly mfa: 'on' | 'off';
 }
 
 export function readPosture(config: AppConfig): Posture {
-  let preview: Posture['preview'] = 'off';
-  if (config.previewMode) preview = config.previewModeAllowRemote ? 'any-host' : 'loopback-only';
-
   let hsts: Posture['hsts'] = 'plain';
   if (!config.publicIsHttps && config.trustProxy.mode === 'none') hsts = 'off';
   else if (config.hsts.preload) hsts = 'preload';
   else if (config.hsts.includeSubDomains) hsts = 'include-subdomains';
 
   return {
-    preview,
     trustProxy: config.trustProxy.mode,
     hsts,
     showcase: config.showcase,
-    ...(config.previewMode
-      ? { previewBoundary: 'host-detection-not-a-security-boundary' as const }
-      : {}),
+    breakGlass: config.breakGlass === undefined ? 'off' : 'on',
+    mfa: config.auth.requireMfa ? 'on' : 'off',
   };
 }

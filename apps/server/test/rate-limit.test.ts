@@ -106,6 +106,27 @@ describe('the limiter takes its rules from LIMITS (FR-A-045)', () => {
     expect(limiter.take('write', 'a').allowed).toBe(true);
   });
 
+  it('has the classes `auth` and `setup` of Phase B with the values of LIMITS (SB-28)', () => {
+    const clock = createFakeClock();
+    const limiter = limiterWith(clock, {});
+    for (const rateClass of ['auth', 'setup'] as const) {
+      expect(takeMany(limiter, rateClass, 'a', 50), rateClass).toBe(
+        LIMITS.rateLimit[rateClass].capacity,
+      );
+      clock.advance(5_000);
+      expect(limiter.take(rateClass, 'a').allowed, `${rateClass} refills one token in 5 s`).toBe(
+        true,
+      );
+    }
+  });
+
+  it('keeps the LIMITS rule of a class that a partial `rules` object does not name', () => {
+    const clock = createFakeClock();
+    const limiter = limiterWith(clock, { rules: { read: { capacity: 2, refillIntervalMs: 100 } } });
+    expect(takeMany(limiter, 'read', 'a', 5)).toBe(2);
+    expect(takeMany(limiter, 'auth', 'a', 50)).toBe(LIMITS.rateLimit.auth.capacity);
+  });
+
   it('can be given other rules and another table size, because LIMITS is frozen', () => {
     const clock = createFakeClock();
     const limiter = limiterWith(clock, {
@@ -483,13 +504,13 @@ describe('the limiter refuses rules and sizes that make no sense', () => {
 // have to agree on every decision.
 function referenceLimiter(
   now: () => number,
-  rules: Record<RateClass, { capacity: number; refillIntervalMs: number }>,
+  rules: Partial<Record<RateClass, { capacity: number; refillIntervalMs: number }>>,
   maxClients: number,
 ): { take(rateClass: RateClass, key: string): RateDecision } {
   const entries = new Map<string, { level: number; at: number; cap: number }>();
   return {
     take(rateClass, key) {
-      const rule = rules[rateClass];
+      const rule = rules[rateClass] ?? LIMITS.rateLimit[rateClass];
       const cost = rule.refillIntervalMs;
       const cap = rule.capacity * cost;
       const t = now();

@@ -2,7 +2,7 @@
 // "the port is open", in the order the plan numbers it, and the handle that stops it again.
 //
 //   1. configuration       invalid: the variable NAMES on stderr, exit 1, nothing else happens
-//   2. umask 0077, the preview-mode warning
+//   2. umask 0077, the warning about removed variables (`preview_mode_removed`, FR-B-102)
 //   3. the built frontend  a missing `index.html` is a broken build: exit 1
 //   4. storage probe       DATA_DIR exists (mode 0700) and a file can be written and removed;
 //                          if not: degraded mode, steps 5 to 8 are skipped
@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { setAuditHeadLog, clearAuditHeadLog } from './audit/index.js';
 import { buildApp, systemClock, type ServerClock } from './app.js';
-import { formatConfigIssues, loadConfig } from './config/index.js';
+import { formatConfigIssues, loadConfig, removedVariablesIn } from './config/index.js';
 import { backupsDirOf } from './db/backup.js';
 import { classifyStorageError } from './db/errors.js';
 import { MigrationError, runMigrations } from './db/migrate.js';
@@ -36,7 +36,7 @@ import { createReadiness } from './lifecycle/readiness.js';
 import { checkpointAndClose, createShutdown, type Shutdown } from './lifecycle/shutdown.js';
 import { createStorageProbe, ensureDataDir } from './lifecycle/storage-probe.js';
 import { createSweeperRegistry, type Scheduler } from './lifecycle/sweepers.js';
-import { createLogger, logPosture, type LogDestination } from './logging/logger.js';
+import { createLogger, logPosture, type LogDestination, type Logger } from './logging/logger.js';
 import {
   requireDatabaseOf,
   type AppModule,
@@ -44,7 +44,6 @@ import {
   type ModuleDeps,
 } from './module.js';
 import { appModules } from './modules.js';
-import { announcePreviewMode } from './policy/index.js';
 import { readShellTemplate, ShellTemplateError } from './shell-port.js';
 import { APP_VERSION } from './version.js';
 
@@ -70,7 +69,7 @@ export interface StartPaths {
 
 export interface StartOptions {
   readonly env: Readonly<Record<string, string | undefined>>;
-  /** Where the refusal of an invalid configuration and the preview warning go. Default: process stderr. */
+  /** Where the refusal of an invalid configuration and the removed-variable warning go. Default: process stderr. */
   readonly stderr?: { write(text: string): unknown };
   /** Where the log goes. Default: standard output. */
   readonly logDestination?: LogDestination;
@@ -113,6 +112,28 @@ export function defaultMigrationsFolder(here = hereDirectory()): string {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Removed variables
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * FR-B-102: `PREVIEW_MODE` and `PREVIEW_MODE_ALLOW_REMOTE` no longer exist. When the environment
+ * still sets either, say so once, in the log (`preview_mode_removed`, with the names) and on
+ * stderr, and change nothing else: the server starts exactly as it would without them. Names only,
+ * never a value.
+ */
+export function announceRemovedVariables(
+  env: Readonly<Record<string, string | undefined>>,
+  sinks: { readonly log: Pick<Logger, 'warn'>; readonly stderr: { write(text: string): unknown } },
+): void {
+  const names = removedVariablesIn(env);
+  if (names.length === 0) return;
+  sinks.log.warn({ event: 'preview_mode_removed', variables: names }, 'preview_mode_removed');
+  sinks.stderr.write(
+    `preview_mode_removed: ${names.join(' and ')} no longer ${names.length === 1 ? 'exists' : 'exist'} and ${names.length === 1 ? 'has' : 'have'} no effect; remove ${names.length === 1 ? 'it' : 'them'} from the environment.\n`,
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
 // The sequence
 // ---------------------------------------------------------------------------------------------
 
@@ -141,9 +162,9 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   };
   step('config');
 
-  // 2. Umask and the preview-mode warning.
+  // 2. Umask and the warning about variables Phase B removed.
   (options.umask ?? ((mask: number) => process.umask(mask)))(0o077);
-  announcePreviewMode(config, { log, stderr });
+  announceRemovedVariables(options.env, { log, stderr });
 
   // 3. The built frontend.
   const webRoot = options.paths?.webRoot ?? defaultWebRoot();

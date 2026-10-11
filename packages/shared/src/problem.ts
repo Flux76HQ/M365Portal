@@ -31,7 +31,8 @@ interface ProblemCodeEntry {
 }
 
 /**
- * Spec section 6.4 and contract section 6: 34 codes. `staging_quota_exceeded` (409) and
+ * Spec section 6.4 and contract section 6: 34 codes of Phase A, plus the 19 codes of Phase B spec
+ * 6.9.5 at the end of the list (53 in all). `staging_quota_exceeded` (409) and
  * `shutting_down` (503) are the two the plan added to the spec's seed list; `bad_request` (400),
  * `request_timeout` (408) and `request_header_fields_too_large` (431) are the three that Node's HTTP
  * parser errors get (the `clientError` handler, amendment 1).
@@ -40,7 +41,8 @@ export const PROBLEM_CODES = deepFreeze({
   permission_denied: {
     status: 403,
     title: 'Permission denied',
-    detail: 'The current actor does not have the permission this action requires.',
+    detail:
+      'The current actor lacks the permission, the access scope or the actor kind this action requires.',
   },
   origin_not_allowed: {
     status: 403,
@@ -207,6 +209,102 @@ export const PROBLEM_CODES = deepFreeze({
     status: 431,
     title: 'Request header fields too large',
     detail: 'The request line or the headers are larger than the limit.',
+  },
+  // Phase B (spec 6.9.5, T-B-005): the 19 codes of sign-in, sessions, RBAC, setup and secrets.
+  unauthenticated: {
+    status: 401,
+    title: 'Authentication required',
+    detail: 'The request needs a valid session.',
+  },
+  session_expired: {
+    status: 401,
+    title: 'Session expired',
+    detail: 'The session is unknown or has expired.',
+  },
+  step_up_required: {
+    status: 403,
+    title: 'Step-up required',
+    detail: 'This action needs a recent sign-in with multi-factor authentication.',
+  },
+  escalation_denied: {
+    status: 403,
+    title: 'Escalation denied',
+    detail: 'The change would grant more access than the current user holds.',
+  },
+  last_owner_protected: {
+    status: 409,
+    title: 'Last owner protected',
+    detail: 'The change would leave the panel without an Owner.',
+  },
+  setup_token_invalid: {
+    status: 401,
+    title: 'Setup token invalid',
+    detail: 'The setup token is not valid.',
+  },
+  setup_token_locked: {
+    status: 429,
+    title: 'Setup unlock locked',
+    detail: 'Too many failed attempts, so unlocking is locked for a while.',
+  },
+  setup_step_busy: {
+    status: 409,
+    title: 'Setup step busy',
+    detail: 'Another setup step is already running.',
+  },
+  setup_step_not_ready: {
+    status: 409,
+    title: 'Setup step not ready',
+    detail: 'An earlier setup step has not finished successfully.',
+  },
+  setup_required: {
+    status: 409,
+    title: 'Setup required',
+    detail: 'Setup has not reached the stage that this action needs.',
+  },
+  secrets_unavailable: {
+    status: 503,
+    title: 'Key material unavailable',
+    detail: 'The application key is missing or invalid, or the certificate cannot be read.',
+  },
+  policy_not_applied: {
+    status: 500,
+    title: 'Access scope not applied',
+    detail: 'The handler finished without applying the access scope of the caller.',
+  },
+  principal_unknown: {
+    status: 422,
+    title: 'Principal unknown',
+    detail: 'The user or group is not known to the directory.',
+  },
+  assignment_exists: {
+    status: 409,
+    title: 'Assignment exists',
+    detail: 'An assignment with this principal, role and scope already exists.',
+  },
+  assignment_invalid: {
+    status: 422,
+    title: 'Assignment invalid',
+    detail: 'The role, scope or expiry of the assignment is not allowed.',
+  },
+  break_glass_locked: {
+    status: 429,
+    title: 'Break-glass locked',
+    detail: 'Too many failed attempts, so break-glass sign-in is locked for a while.',
+  },
+  graph_unavailable: {
+    status: 503,
+    title: 'Directory unavailable',
+    detail: 'Microsoft Graph could not be reached or failed.',
+  },
+  graph_throttled: {
+    status: 503,
+    title: 'Directory throttled',
+    detail: 'Microsoft Graph asked to wait longer than the panel allows.',
+  },
+  tenant_mismatch: {
+    status: 409,
+    title: 'Tenant mismatch',
+    detail: 'The account belongs to another tenant than the one this panel is connected to.',
   },
 } as const satisfies Record<string, ProblemCodeEntry>);
 

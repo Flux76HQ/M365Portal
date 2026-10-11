@@ -113,18 +113,40 @@ export interface StartStatus {
   readonly storageWritable: boolean;
   /** The schema version of the database, or `null` when there is none (degraded mode). */
   readonly schemaVersion: number | null;
+  /**
+   * The setup state (`unconfigured`, `in_progress`, `awaiting_first_signin`, `completed`), or
+   * `unknown` when there is no database to ask (FR-B-101). A name, never a value.
+   */
+  readonly setupState?: string;
+  /**
+   * The state of the sealed storage, which is the secrets state of FR-B-108 (`ok`, `key_missing`,
+   * ...), or `unknown` before it is known. The field is not called `secretsState` because the
+   * redaction pass would replace the value of any key that contains `secret`.
+   */
+  readonly sealedStorage?: string;
 }
 
 /**
- * The posture line (FR-A-015, E-15): once, at info, at start. Modes and flags only: whether preview
- * mode refuses requests that are not from loopback, which trust-proxy mode is in effect (never an
- * address), the HSTS mode, showcase, whether storage is writable and the schema version. No value
- * of any variable and no address.
+ * The posture line (FR-A-015, FR-B-101, E-15): once, at info, at start. Modes and flags only: which
+ * trust-proxy mode is in effect (never an address), the HSTS mode, showcase, whether the break-glass
+ * account exists and whether multi-factor sign-in is required, the setup state and the secrets
+ * state, whether storage is writable and the schema version. No value of any variable and no
+ * address.
  */
 export function logPosture(
   log: Pick<Logger, 'info'>,
   config: AppConfig,
   status: StartStatus,
 ): void {
-  log.info({ event: 'posture', ...readPosture(config), ...status }, 'posture');
+  log.info(
+    {
+      event: 'posture',
+      ...readPosture(config),
+      setupState: status.setupState ?? 'unknown',
+      sealedStorage: status.sealedStorage ?? 'unknown',
+      storageWritable: status.storageWritable,
+      schemaVersion: status.schemaVersion,
+    },
+    'posture',
+  );
 }

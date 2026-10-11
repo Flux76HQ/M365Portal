@@ -32,6 +32,18 @@
       "types": "./src/branding/*.ts",
       "default": "./src/branding/*.ts"
     },
+    "./rbac/*": {
+      "types": "./src/rbac/*.ts",
+      "default": "./src/rbac/*.ts"
+    },
+    "./auth/*": {
+      "types": "./src/auth/*.ts",
+      "default": "./src/auth/*.ts"
+    },
+    "./setup/*": {
+      "types": "./src/setup/*.ts",
+      "default": "./src/setup/*.ts"
+    },
     "./tokens": {
       "types": "./src/tokens/index.ts",
       "default": "./src/tokens/index.ts"

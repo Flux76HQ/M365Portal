@@ -37,7 +37,7 @@ function isEnvName(value: unknown): value is EnvName {
   return typeof value === 'string' && (ENV_VARIABLE_NAMES as readonly string[]).includes(value);
 }
 
-/** Copy the twelve known keys, so that nothing else in the environment can reach the schema. */
+/** Copy the known keys, so that nothing else in the environment can reach the schema. */
 function pickKnown(
   env: Readonly<Record<string, string | undefined>>,
 ): Record<string, string | undefined> {
