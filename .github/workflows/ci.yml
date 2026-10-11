@@ -167,11 +167,13 @@ jobs:
       # actionlint runs from its download script at the pinned commit (rhysd/actionlint v1.7.12).
       - name: Workflow lint
         run: |
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12 "${RUNNER_TEMP}" &&
-          "${RUNNER_TEMP}/actionlint" -color || {
+          if ! {
+            bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12 "${RUNNER_TEMP}" &&
+              "${RUNNER_TEMP}/actionlint" -color
+          }; then
             echo "::error::actionlint found a problem in a workflow. Remediation: fix the reported lines in .github/workflows/ and run 'python -m unittest scripts/test_workflows.py' locally."
             exit 1
-          }
+          fi
 
       # scripts/test_workflows.py reads the workflows with PyYAML.
       - name: Install PyYAML
