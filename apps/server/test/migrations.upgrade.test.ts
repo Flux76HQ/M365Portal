@@ -18,9 +18,12 @@
 // The harness walks every older snapshot N against the next one and against the newest, so a second
 // real schema version is covered the day its snapshot is committed, and it REFUSES to run a version
 // that has no seed (a new version without seed rows would test nothing). Phase A has one real schema
-// version, so there is no real pair yet: the harness is proven on the synthetic fixtures of
+// version, so there was no real pair: the harness is proven on the synthetic fixtures of
 // `fixtures/migrations-synthetic/`, and the content of the committed snapshot of version 0 is
-// asserted directly (FR-A-066).
+// asserted directly (FR-A-066). Phase B adds the first real pair, 0000 to 0001 (T-B-012, FR-B-701),
+// with its own describe block below: the database of an installed Phase A, upgraded by the real
+// wrapper, with the facts that pair has to keep (Phase A objects byte for byte, files, the audit
+// chain, the backup) and the facts it adds (built-in roles, the epoch, 29 triggers).
 //
 // Negative fixtures (tasks.md section 0.3, baseline section 2: "a guard nobody has seen fail is an
 // assumption with a green tick next to it"):
@@ -41,11 +44,13 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { BUILTIN_ROLES, TEMPLATES } from '@m365portal/shared/rbac/roles';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import Database from 'better-sqlite3';
-import { describe, expect, it, onTestFinished } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest';
 import {
   buildSnapshots,
   copyMigrationsUpTo,
@@ -150,6 +155,40 @@ function seedRealVersion0(db: SqliteConnection): void {
     targetId: '1',
     outcome: 'success',
     detail: '{"orgNameOld": "M365Portal", "orgNameNew": "Réunion — 日本"}',
+  });
+  // Phase A installs wrote these too: more `preview` rows, and denials with the Phase A reason.
+  appendReference(db, {
+    ts: '2026-10-10T12:15:00.000Z',
+    actorKind: 'preview',
+    actorId: 'preview',
+    action: 'branding.upload',
+    targetType: 'branding_asset',
+    targetId: 'a'.repeat(64),
+    outcome: 'success',
+    detail: '{"slot":"logoLight"}',
+  });
+  appendReference(db, {
+    ts: '2026-10-10T12:20:00.000Z',
+    actorKind: 'anonymous',
+    actorId: 'anonymous',
+    action: 'branding.reset',
+    targetType: 'branding',
+    targetId: '1',
+    outcome: 'denied',
+    reasonCode: 'permission_denied',
+    clientIp: '203.0.113.7',
+    requestId: 'req-0000-0003',
+    detail: '{"permission":"settings:branding","method":"POST"}',
+  });
+  appendReference(db, {
+    ts: '2026-10-10T12:25:00.000Z',
+    actorKind: 'preview',
+    actorId: 'preview',
+    action: 'branding.apply',
+    targetType: 'branding',
+    targetId: '1',
+    outcome: 'success',
+    detail: '{"orgNameOld": "Réunion — 日本", "orgNameNew": "M365Portal"}',
   });
 }
 
@@ -436,7 +475,7 @@ describe('the harness loops over every pair of committed snapshots (done when)',
     ]);
   });
 
-  it('knows the real versions: Phase A ships one, so there is no real pair yet', () => {
+  it('knows the real versions: schema version 0 is Phase A, version 1 is migration 0001_phase_b', () => {
     expect(versions).toEqual([...versions.keys()]);
     // n versions: n - 1 consecutive pairs, and n - 2 more that go to the newest.
     expect(pairs).toHaveLength(Math.max(0, versions.length - 1) + Math.max(0, versions.length - 2));
@@ -457,8 +496,8 @@ describe('the harness loops over every pair of committed snapshots (done when)',
         const { n } = db.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number };
         expect(n, table).toBeGreaterThan(0);
       }
-      expect(verifyChainReference(db)).toMatchObject({ ok: true, checked: 3 });
-      expect(verifyChain(db)).toEqual({ ok: true, checked: 3, triggersMissing: [] });
+      expect(verifyChainReference(db)).toMatchObject({ ok: true, checked: 6 });
+      expect(verifyChain(db)).toEqual({ ok: true, checked: 6, triggersMissing: [] });
       expect(db.pragma('foreign_key_check')).toEqual([]);
     } finally {
       db.close();
@@ -469,10 +508,10 @@ describe('the harness loops over every pair of committed snapshots (done when)',
     await assertUpgradeWorks({ fixture: REAL_FIXTURE, from, to });
   });
 
-  it('upgrades the real schema from version 0 to a rehearsal version 1: the real seed, the real wrapper', async () => {
-    // The day the first real version 1 is committed this is what runs for it; until then a version 1
+  it('upgrades the real schema from version 0 to a rehearsal version 2: the real seed, the real wrapper', async () => {
+    // The day the next real version is committed this is what runs for it; until then a version 2
     // that only adds a column (and a snapshot generated from it) shows that the seed of version 0
-    // survives the real wrapper and the harness end to end.
+    // survives the real wrapper and the harness end to end, on top of the real 0001.
     const root = mkdtempSync(join(tmpdir(), 'm365portal-rehearsal-'));
     onTestFinished(() => {
       rmSync(root, { recursive: true, force: true });
@@ -480,20 +519,20 @@ describe('the harness loops over every pair of committed snapshots (done when)',
     const migrationsFolder = join(root, 'drizzle');
     cpSync(REAL.migrationsFolder, migrationsFolder, { recursive: true });
     writeFileSync(
-      join(migrationsFolder, '0001_rehearsal.sql'),
+      join(migrationsFolder, '0002_rehearsal.sql'),
       "ALTER TABLE `branding` ADD `tagline` text DEFAULT '' NOT NULL;\n",
     );
     const journalPath = join(migrationsFolder, 'meta', '_journal.json');
     const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
       entries: { idx: number; version: string; when: number; tag: string; breakpoints: boolean }[];
     };
-    const [first] = journal.entries;
-    if (first === undefined) throw new Error('no migration');
+    const last = journal.entries[journal.entries.length - 1];
+    if (last === undefined) throw new Error('no migration');
     journal.entries.push({
-      idx: 1,
-      version: first.version,
-      when: first.when + 1000,
-      tag: '0001_rehearsal',
+      idx: journal.entries.length,
+      version: last.version,
+      when: last.when + 1000,
+      tag: '0002_rehearsal',
       breakpoints: true,
     });
     writeFileSync(journalPath, JSON.stringify(journal));
@@ -506,7 +545,7 @@ describe('the harness loops over every pair of committed snapshots (done when)',
     await assertUpgradeWorks({
       fixture: { name: 'real-rehearsal', migrationsFolder, snapshotsFolder, seeds: REAL_SEEDS },
       from: 0,
-      to: 1,
+      to: 2,
     });
   });
 });
@@ -785,6 +824,453 @@ describe('the harness on the synthetic fixtures (FR-A-063)', () => {
         },
         { name: 'upgrade harness', reason: /ENOENT|no committed snapshot/ },
       );
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The first real pair: Phase A (schema version 0) to migration 0001_phase_b (T-B-012, FR-B-701)
+// ---------------------------------------------------------------------------------------------
+
+/** The Phase A objects of `sqlite_master`, as stored text: tables, indexes and the three triggers. */
+function phaseAObjectsOf(db: SqliteConnection): Record<string, string | null> {
+  const rows = db
+    .prepare(
+      `SELECT type, name, sql FROM sqlite_master
+       WHERE name IN ('branding', 'branding_asset', 'audit_log', 'audit_log_hash_uq',
+                      'branding_asset_unreferenced_idx', 'audit_log_no_update', 'audit_log_no_delete',
+                      'audit_log_chain_link')
+       ORDER BY type, name`,
+    )
+    .all() as { type: string; name: string; sql: string | null }[];
+  return Object.fromEntries(rows.map((row) => [`${row.type} ${row.name}`, row.sql]));
+}
+
+/** Throws unless the Phase A objects are byte for byte what they were (data-model 4 item 5). */
+function assertPhaseAObjectsIdentical(
+  before: Record<string, string | null>,
+  after: Record<string, string | null>,
+): void {
+  expect(Object.keys(before)).toHaveLength(8);
+  const problems: string[] = [];
+  for (const key of Object.keys(before)) {
+    if (after[key] === undefined) problems.push(`${key} is gone`);
+    else if (after[key] !== before[key]) problems.push(`${key} was rewritten`);
+  }
+  if (problems.length > 0) throw new Error(`Phase A objects changed: ${problems.join('; ')}`);
+}
+
+interface BuiltinRows {
+  readonly roles: readonly string[];
+  readonly permissions: Readonly<Record<string, readonly string[]>>;
+}
+
+/** The role rows of a migrated database, in the shape of `BUILTIN_ROLES` (qualifier `''` is `full`). */
+function builtinRowsOf(db: SqliteConnection): BuiltinRows {
+  const roles = (
+    db.prepare('SELECT key FROM rbac_role WHERE builtin = 1 ORDER BY id').all() as { key: string }[]
+  ).map((row) => row.key);
+  const permissions: Record<string, string[]> = {};
+  for (const row of db
+    .prepare(
+      `SELECT r.key AS role, p.permission, p.qualifier FROM rbac_role_permission p
+       JOIN rbac_role r ON r.id = p.role_id ORDER BY r.id, p.rowid`,
+    )
+    .all() as { role: string; permission: string; qualifier: string }[]) {
+    (permissions[row.role] ??= []).push(
+      `${row.permission}${row.qualifier === '' ? '' : `:${row.qualifier}`}`,
+    );
+  }
+  return { roles, permissions };
+}
+
+/** Throws unless the seeded rows are the constant `BUILTIN_ROLES` (I-B1). */
+function assertBuiltinRolesMatch(rows: BuiltinRows, expected: typeof BUILTIN_ROLES): void {
+  expect(rows.roles).toEqual(expected.map((role) => role.key));
+  for (const role of expected) {
+    const wanted = role.permissions.map(
+      (entry) => `${entry.permission}${entry.qualifier === 'full' ? '' : `:${entry.qualifier}`}`,
+    );
+    expect([...(rows.permissions[role.key] ?? [])].sort(), role.key).toEqual([...wanted].sort());
+  }
+}
+
+describe('the real upgrade 0000 to 0001_phase_b (FR-B-701, SC-B-012, EB-29)', () => {
+  const sha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
+  const LOGO = Buffer.from('not really a png, but the bytes the name is the hash of: logo');
+  const ICON = Buffer.from('not really a png, but the bytes the name is the hash of: icon');
+  const LOGO_HASH = sha256(LOGO);
+  const ICON_HASH = sha256(ICON);
+
+  let work = '';
+  let db: SqliteConnection;
+  let objectsBefore: Record<string, string | null> = {};
+  let rowsBefore: Record<string, string[]> = {};
+  let backupsDir = '';
+  let migrationsFolder = '';
+  let firstResult: { readonly applied: readonly string[] } | undefined;
+  let secondResult: { readonly applied: readonly string[] } | undefined;
+
+  beforeAll(async () => {
+    work = mkdtempSync(join(tmpdir(), 'm365portal-upgrade-0001-'));
+    migrationsFolder = REAL.migrationsFolder;
+    backupsDir = join(work, 'backups');
+
+    // The files of an installed Phase A: logos named by the hash of their content.
+    mkdirSync(join(work, 'branding'));
+    writeFileSync(join(work, 'branding', `${LOGO_HASH}.png`), LOGO);
+    writeFileSync(join(work, 'branding', `${ICON_HASH}.png`), ICON);
+
+    db = new Database(join(work, 'm365portal.sqlite'));
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    db.exec(snapshotText(REAL_FIXTURE, 0));
+    createBookkeeping(db, shippedMigrations(copyMigrationsUpTo(migrationsFolder, 0)));
+
+    // A branding row with the assets it references, one staged asset, and the audit chain (6 entries,
+    // `preview` actor rows and a denial with the Phase A reason `permission_denied`).
+    const asset = db.prepare(
+      `INSERT INTO branding_asset (sha256, bytes, width, height, luminance, created_at, unreferenced_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    asset.run(LOGO_HASH, LOGO.length, 512, 512, 0.4, '2026-10-10T12:00:00.000Z', null);
+    asset.run(ICON_HASH, ICON.length, 192, 192, null, '2026-10-10T12:01:00.000Z', null);
+    asset.run(
+      'c'.repeat(64),
+      1024,
+      128,
+      128,
+      null,
+      '2026-10-10T12:05:00.000Z',
+      '2026-10-10T12:05:00.000Z',
+    );
+    db.prepare(
+      `INSERT INTO branding (id, revision, org_name, accent, logo_light, logo_dark, logo_compact,
+         logo_compact_derived, icon_favicon32, icon_apple180, icon_pwa192, icon_pwa512,
+         icon_maskable512, updated_at, updated_by_kind, updated_by_id)
+       VALUES (1, 3, ?, '#2563eb', ?, ?, ?, 1, ?, ?, ?, ?, ?, '2026-10-10T12:10:00.000Z', 'preview', 'preview')`,
+    ).run(
+      'Réunion — 日本',
+      LOGO_HASH,
+      LOGO_HASH,
+      LOGO_HASH,
+      ICON_HASH,
+      ICON_HASH,
+      ICON_HASH,
+      ICON_HASH,
+      ICON_HASH,
+    );
+    seedAuditChain(db);
+
+    objectsBefore = phaseAObjectsOf(db);
+    rowsBefore = dumpRows(db, {
+      branding: [
+        'id',
+        'revision',
+        'org_name',
+        'accent',
+        'logo_light',
+        'icon_pwa512',
+        'updated_by_kind',
+      ],
+      branding_asset: ['sha256', 'bytes', 'width', 'height', 'created_at', 'unreferenced_at'],
+      audit_log: [
+        'seq',
+        'ts',
+        'actor_kind',
+        'actor_id',
+        'action',
+        'outcome',
+        'reason_code',
+        'detail',
+        'hash',
+      ],
+    });
+    expect(verifyChain(db)).toMatchObject({ ok: true, checked: 6 });
+
+    // The real start-up wrapper, twice.
+    firstResult = await runMigrations(db, { migrationsFolder, backupsDir });
+    secondResult = await runMigrations(db, { migrationsFolder, backupsDir });
+  }, 60_000);
+
+  afterAll(() => {
+    if (db.open) db.close();
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  function seedAuditChain(target: SqliteConnection): void {
+    // The first three entries of the real seed, then three more (preview rows, a denial).
+    const entries: Parameters<typeof appendReference>[1][] = [
+      {
+        ts: '2026-10-10T12:00:00.000Z',
+        actorKind: 'system',
+        actorId: 'system',
+        action: 'branding.init',
+        targetType: 'branding',
+        targetId: '1',
+        outcome: 'success',
+        detail: '{"revision":1}',
+      },
+      {
+        ts: '2026-10-10T12:05:00.000Z',
+        actorKind: 'anonymous',
+        actorId: 'anonymous',
+        action: 'branding.apply',
+        targetType: 'branding',
+        targetId: '1',
+        outcome: 'denied',
+        reasonCode: 'permission_denied',
+        clientIp: '2001:db8::1',
+        requestId: 'req-0000-0002',
+        detail: '{"permission":"settings:branding","method":"PUT"}',
+      },
+      {
+        ts: '2026-10-10T12:10:00.000Z',
+        actorKind: 'preview',
+        actorId: 'preview',
+        action: 'branding.apply',
+        targetType: 'branding',
+        targetId: '1',
+        outcome: 'success',
+        detail: '{"orgNameOld": "M365Portal", "orgNameNew": "Réunion — 日本"}',
+      },
+      {
+        ts: '2026-10-10T12:15:00.000Z',
+        actorKind: 'preview',
+        actorId: 'preview',
+        action: 'branding.upload',
+        targetType: 'branding_asset',
+        targetId: LOGO_HASH,
+        outcome: 'success',
+        detail: '{"slot":"logoLight"}',
+      },
+      {
+        ts: '2026-10-10T12:20:00.000Z',
+        actorKind: 'anonymous',
+        actorId: 'anonymous',
+        action: 'branding.reset',
+        targetType: 'branding',
+        targetId: '1',
+        outcome: 'denied',
+        reasonCode: 'permission_denied',
+        clientIp: '203.0.113.7',
+        requestId: 'req-0000-0003',
+        detail: '{"permission":"settings:branding","method":"POST"}',
+      },
+      {
+        ts: '2026-10-10T12:25:00.000Z',
+        actorKind: 'preview',
+        actorId: 'preview',
+        action: 'branding.apply',
+        targetType: 'branding',
+        targetId: '1',
+        outcome: 'success',
+        detail: '{"orgNameOld": "Réunion — 日本", "orgNameNew": "M365Portal"}',
+      },
+    ];
+    for (const entry of entries) appendReference(target, entry);
+  }
+
+  it('applies exactly 0001_phase_b, takes the backup of the Phase A database and applies nothing on a second start', () => {
+    expect(firstResult?.applied).toEqual(['0001_phase_b']);
+    expect(secondResult?.applied).toEqual([]);
+    expect(appliedMigrations(db)).toHaveLength(2);
+  });
+
+  it('has tables, columns, indexes, foreign keys and trigger SQL of a database built from snapshot 1', () => {
+    const expected = new Database(':memory:');
+    try {
+      expected.exec(snapshotText(REAL_FIXTURE, 1));
+      expect(() => {
+        assertSchemasAgree(db, expected, { triggers: true });
+      }).not.toThrow();
+    } finally {
+      expected.close();
+    }
+  });
+
+  it('has an empty foreign_key_check', () => {
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+  });
+
+  it('keeps the branding row and its assets, and the files still hash to their names', () => {
+    const rowsAfter = dumpRows(db, {
+      branding: [
+        'id',
+        'revision',
+        'org_name',
+        'accent',
+        'logo_light',
+        'icon_pwa512',
+        'updated_by_kind',
+      ],
+      branding_asset: ['sha256', 'bytes', 'width', 'height', 'created_at', 'unreferenced_at'],
+      audit_log: [
+        'seq',
+        'ts',
+        'actor_kind',
+        'actor_id',
+        'action',
+        'outcome',
+        'reason_code',
+        'detail',
+        'hash',
+      ],
+    });
+    expect(rowsAfter).toEqual(rowsBefore);
+    expect(rowsAfter.branding_asset).toHaveLength(3);
+    for (const hash of [LOGO_HASH, ICON_HASH]) {
+      const file = readFileSync(join(work, 'branding', `${hash}.png`));
+      expect(sha256(file)).toBe(hash);
+    }
+  });
+
+  it('leaves the text of the Phase A objects in sqlite_master byte for byte as it was', () => {
+    expect(() => {
+      assertPhaseAObjectsIdentical(objectsBefore, phaseAObjectsOf(db));
+    }).not.toThrow();
+  });
+
+  it('verifies the old chain (preview rows and the permission_denied denial included) and extends it with setup.unlock', () => {
+    expect(verifyChain(db)).toMatchObject({ ok: true, checked: 6 });
+    expect(verifyChainReference(db)).toMatchObject({ ok: true, checked: 6 });
+    appendReference(db, {
+      ts: '2026-10-10T13:00:00.000Z',
+      actorKind: 'setup',
+      actorId: 'setup',
+      action: 'setup.unlock',
+      targetType: 'setup',
+      targetId: '',
+      outcome: 'success',
+      detail: '{"lockScope":"client"}',
+    });
+    expect(verifyChain(db)).toMatchObject({ ok: true, checked: 7 });
+    expect(verifyChainReference(db)).toMatchObject({ ok: true, checked: 7 });
+    const kinds = db
+      .prepare('SELECT DISTINCT actor_kind FROM audit_log ORDER BY actor_kind')
+      .all() as { actor_kind: string }[];
+    expect(kinds.map((row) => row.actor_kind)).toEqual(['anonymous', 'preview', 'setup', 'system']);
+    expect(
+      db
+        .prepare("SELECT count(*) AS n FROM audit_log WHERE reason_code = 'permission_denied'")
+        .get(),
+    ).toEqual({ n: 2 });
+  });
+
+  it('left backups/pre-migrate-0000-0001.sqlite, a database of Phase A that opens', () => {
+    const backup = join(backupsDir, 'pre-migrate-0000-0001.sqlite');
+    expect(existsSync(backup)).toBe(true);
+    const copy = new Database(backup, { readonly: true });
+    try {
+      const tables = (
+        copy.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as {
+          name: string;
+        }[]
+      ).map((row) => row.name);
+      expect(tables).toContain('audit_log');
+      expect(tables).not.toContain('rbac_role');
+      expect(copy.prepare('SELECT count(*) AS n FROM audit_log').get()).toEqual({ n: 6 });
+    } finally {
+      copy.close();
+    }
+  });
+
+  it('seeds the built-in roles equal to BUILTIN_ROLES, the template board, and rbac_epoch (1, 0)', () => {
+    expect(() => {
+      assertBuiltinRolesMatch(builtinRowsOf(db), BUILTIN_ROLES);
+    }).not.toThrow();
+    const template = db
+      .prepare("SELECT permissions, scope_target FROM rbac_role_template WHERE key = 'board'")
+      .get() as {
+      permissions: string;
+      scope_target: string;
+    };
+    expect(template.scope_target).toBe(TEMPLATES[0]?.scopeTarget);
+    expect(
+      (JSON.parse(template.permissions) as { permission: string; qualifier?: string }[]).map(
+        (entry) =>
+          `${entry.permission}${entry.qualifier === undefined ? '' : `:${entry.qualifier}`}`,
+      ),
+    ).toEqual(
+      (TEMPLATES[0]?.permissions ?? []).map(
+        (entry) => `${entry.permission}${entry.qualifier === 'full' ? '' : `:${entry.qualifier}`}`,
+      ),
+    );
+    expect(db.prepare('SELECT id, epoch FROM rbac_epoch').all()).toEqual([{ id: 1, epoch: 0 }]);
+  });
+
+  it('has the 29 triggers of Phase B next to the 3 of Phase A', () => {
+    expect(
+      db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'").get(),
+    ).toEqual({ n: 32 });
+  });
+
+  it('keeps the synthetic drifting fixture failing: the harness still catches a default that differs', async () => {
+    await expectGuardFails(
+      async () => {
+        await assertUpgradeWorks({ fixture: syntheticFixture('drifting-pair'), from: 0, to: 1 });
+      },
+      undefined,
+      { name: 'drifting-pair harness', reason: /default/ },
+    );
+  });
+
+  describe('negative fixtures: the guards of this block must fail', () => {
+    it('fails when a Phase A object is rewritten or gone', () => {
+      const rewritten = {
+        ...objectsBefore,
+        'table branding': `${objectsBefore['table branding'] ?? ''} `,
+      };
+      expectGuardFails(
+        () => {
+          assertPhaseAObjectsIdentical(objectsBefore, rewritten);
+        },
+        undefined,
+        { name: 'phase A objects', reason: 'table branding was rewritten' },
+      );
+      const without = Object.fromEntries(
+        Object.entries(objectsBefore).filter(([key]) => key !== 'trigger audit_log_chain_link'),
+      );
+      expectGuardFails(
+        () => {
+          assertPhaseAObjectsIdentical(objectsBefore, without);
+        },
+        undefined,
+        { name: 'phase A objects', reason: 'trigger audit_log_chain_link is gone' },
+      );
+    });
+
+    it('fails when one permission of a built-in role differs from the constant', () => {
+      const rows = builtinRowsOf(db);
+      const changed: BuiltinRows = {
+        roles: rows.roles,
+        permissions: {
+          ...rows.permissions,
+          reader: (rows.permissions.reader ?? []).filter(
+            (permission) => permission !== 'contacts:read',
+          ),
+        },
+      };
+      expectGuardFails(
+        () => {
+          assertBuiltinRolesMatch(changed, BUILTIN_ROLES);
+        },
+        undefined,
+        { name: 'built-in roles', reason: /reader/ },
+      );
+    });
+
+    it('fails on a database whose chain was broken by hand', () => {
+      const copy = new Database(':memory:');
+      try {
+        copy.exec(snapshotText(REAL_FIXTURE, 0));
+        seedAuditChain(copy);
+        copy.exec('DROP TRIGGER audit_log_no_update');
+        copy.exec("UPDATE audit_log SET detail = '{}' WHERE seq = 3");
+        expect(verifyChain(copy).ok).toBe(false);
+      } finally {
+        copy.close();
+      }
     });
   });
 });

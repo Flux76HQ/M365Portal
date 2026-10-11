@@ -11,6 +11,7 @@ catalog:
   '@hono/node-server': 2.1.4
   '@hono/zod-openapi': 1.6.3
   '@hookform/resolvers': 5.9.1
+  '@mswjs/interceptors': 0.45.7
   '@playwright/test': 1.56.1
   '@seriousme/openapi-schema-validator': 2.11.0
   '@tailwindcss/vite': 4.3.3

@@ -10,7 +10,8 @@
 // What is compared is what an upgrade can silently get wrong (baseline section 2): tables, columns
 // (name, declared type, NOT NULL, default expression, primary key position), foreign keys (target
 // and ON DELETE / ON UPDATE rule), indexes (name, uniqueness, columns and, for explicit indexes, the
-// statement text, which carries a partial index's WHERE) and, when asked, trigger statements. White
+// statement text, which carries a partial index's WHERE), the named CHECK constraints of each table
+// (by normalised text, so a changed constant shows: FR-B-702) and, when asked, trigger statements. White
 // space and the case of types are normalised; nothing else is.
 //
 // `sqlite_%` objects and the Drizzle bookkeeping table are not part of the application's schema.
@@ -48,6 +49,8 @@ export interface TableDescription {
   readonly columns: readonly ColumnDescription[];
   readonly foreignKeys: readonly ForeignKeyDescription[];
   readonly indexes: readonly IndexDescription[];
+  /** Named CHECK constraints of the `CREATE TABLE` text, constraint name to normalised expression. */
+  readonly checks: Readonly<Record<string, string>>;
 }
 
 export interface SchemaDescription {
@@ -65,6 +68,39 @@ const IGNORED_TABLE = /^(sqlite_|__drizzle_migrations$)/;
 
 function normaliseSql(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * The named CHECK constraints of a `CREATE TABLE` statement: `CONSTRAINT <name> CHECK (<expression>)`,
+ * the expression found by matching parentheses (quoted text may hold parentheses). The name is
+ * unquoted; the expression is whitespace-normalised.
+ */
+export function checksOf(createSql: string): Record<string, string> {
+  const found: Record<string, string> = {};
+  const header = /CONSTRAINT\s+(?:"([^"]+)"|`([^`]+)`|(\w+))\s+CHECK\s*\(/gi;
+  for (const match of createSql.matchAll(header)) {
+    const open = (match.index ?? 0) + match[0].length - 1;
+    let depth = 0;
+    let quote: string | undefined;
+    for (let position = open; position < createSql.length; position += 1) {
+      const character = createSql.charAt(position);
+      if (quote !== undefined) {
+        if (character === quote) quote = undefined;
+      } else if (character === "'" || character === '"' || character === '`') {
+        quote = character;
+      } else if (character === '(') {
+        depth += 1;
+      } else if (character === ')') {
+        depth -= 1;
+        if (depth === 0) {
+          const name = match[1] ?? match[2] ?? match[3] ?? '';
+          found[name] = normaliseSql(createSql.slice(open + 1, position));
+          break;
+        }
+      }
+    }
+  }
+  return found;
 }
 
 function rows<T>(db: SqliteConnection, statement: string): T[] {
@@ -130,7 +166,12 @@ function describeTable(db: SqliteConnection, table: string): TableDescription {
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  return { columns, foreignKeys, indexes };
+  const definition = db
+    .prepare('SELECT sql FROM sqlite_master WHERE type = ? AND name = ?')
+    .get('table', table) as { sql: string | null } | undefined;
+  const checks = checksOf(definition?.sql ?? '');
+
+  return { columns, foreignKeys, indexes, checks };
 }
 
 export function describeSchema(
@@ -225,6 +266,17 @@ export function diffSchemas(left: SchemaDescription, right: SchemaDescription): 
       problems.push(
         `${name} indexes differ: ${JSON.stringify(a.indexes)} against ${JSON.stringify(b.indexes)}`,
       );
+    }
+    for (const check of [...new Set([...Object.keys(a.checks), ...Object.keys(b.checks)])].sort()) {
+      const x = a.checks[check];
+      const y = b.checks[check];
+      if (x === undefined || y === undefined) {
+        problems.push(
+          `${name} check ${check} exists only in the ${x === undefined ? 'right' : 'left'} database`,
+        );
+      } else if (x !== y) {
+        problems.push(`${name} check ${check} differs: ${x} against ${y}`);
+      }
     }
   }
 

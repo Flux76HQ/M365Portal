@@ -67,9 +67,12 @@ export const setupState = sqliteTable(
     rule('setup_state_install_id', hex(col('install_id'), 32)),
     rule(
       'setup_state_owner_oid',
-      optional('designated_owner_oid', guid(col('designated_owner_oid'))),
+      `${col('designated_owner_oid')} IS NULL OR ${guid(col('designated_owner_oid'))}`,
     ),
-    rule('setup_state_tenant', optional('proposed_tenant_id', guid(col('proposed_tenant_id')))),
+    rule(
+      'setup_state_tenant',
+      `${col('proposed_tenant_id')} IS NULL OR ${guid(col('proposed_tenant_id'))}`,
+    ),
     rule(
       'setup_state_language',
       `${col('default_language')} IS NULL OR ${col('default_language')} IN ('nl', 'en')`,
@@ -124,7 +127,7 @@ export const setupObject = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.kind, table.tenantObjectId] }),
     rule('setup_object_id', `length(${col('tenant_object_id')}) BETWEEN 1 AND 128`),
-    rule('setup_object_app_id', optional('app_id', guid(col('app_id')))),
+    rule('setup_object_app_id', `${col('app_id')} IS NULL OR ${guid(col('app_id'))}`),
     rule('setup_object_name', `length(CAST(${col('name')} AS BLOB)) BETWEEN 1 AND 256`),
     rule('setup_object_origin', `${col('origin')} IN ('created', 'adopted')`),
     rule('setup_object_created_at', iso(col('created_at'))),

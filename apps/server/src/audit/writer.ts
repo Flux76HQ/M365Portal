@@ -24,8 +24,31 @@ import { buildDetail, type AuditDetail } from './canonical.js';
 import { hashEntry, readHead, ZERO_HASH } from './chain.js';
 import { logAuditHead } from './head-log.js';
 
-/** Who acted. Phase B adds `user` and `break_glass`. */
-export const AUDIT_ACTOR_KINDS = ['anonymous', 'preview', 'system'] as const;
+/**
+ * Who acted, as written (FR-B-601): `anonymous`, `user` (`actor_id` = `oid`), `setup`, `break_glass`
+ * (the username never appears), `system` and `cli`. `preview` is no longer written by Phase B code.
+ */
+export const AUDIT_ACTOR_KINDS = [
+  'anonymous',
+  'user',
+  'setup',
+  'break_glass',
+  'system',
+  'cli',
+] as const;
+
+/** The kinds a row can hold: the write set and `preview`, which old rows carry and stays readable (DM-05). */
+export const AUDIT_ACTOR_KINDS_READABLE = [...AUDIT_ACTOR_KINDS, 'preview'] as const;
+
+export type AuditActorKind = (typeof AUDIT_ACTOR_KINDS)[number];
+export type AuditActorKindReadable = (typeof AUDIT_ACTOR_KINDS_READABLE)[number];
+
+/**
+ * TRANSITIONAL, deleted by T-B-240 together with the Phase A preview resolver. The branding service
+ * still records the preview actor for as long as that resolver exists (`config/legacy-preview.ts`),
+ * so the writer keeps accepting the kind until then. Nothing in Phase B writes it.
+ */
+export const TRANSITIONAL_WRITE_KINDS = ['preview'] as const;
 
 /** The closed set that the table also enforces with a CHECK. */
 export const AUDIT_OUTCOMES = ['success', 'denied', 'rejected', 'error'] as const;
@@ -38,7 +61,7 @@ export const AuditEntryInputSchema = z
   .strictObject({
     /** UTC with milliseconds, from the injected clock. */
     ts: IsoTimestampSchema,
-    actorKind: z.enum(AUDIT_ACTOR_KINDS),
+    actorKind: z.enum([...AUDIT_ACTOR_KINDS, ...TRANSITIONAL_WRITE_KINDS]),
     actorId: z.string().min(1).max(256),
     /** A route id such as `branding.apply`, or `entity.verb`. */
     action: z.string().max(128).regex(ACTION),

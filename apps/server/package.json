@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@m365portal/shared": "workspace:*",
+    "@mswjs/interceptors": "catalog:",
     "@seriousme/openapi-schema-validator": "catalog:",
     "@types/better-sqlite3": "catalog:",
     "@types/node": "catalog:",

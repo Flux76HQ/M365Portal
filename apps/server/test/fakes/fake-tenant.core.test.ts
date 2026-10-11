@@ -10,7 +10,8 @@
 // `setupFiles`, seam XB14): a request to one of the three Microsoft hosts is answered by the shared
 // fake, a request to any other host that is not on the loopback interface is an error (MSW
 // `onUnhandledFrame`), and the handlers and the fake are reset after each test.
-import { expectGuardFails } from '@m365portal/shared/testing';
+import https from 'node:https';
+import { once } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import { createFakeClock } from '../helpers/fake-clock.js';
 import {
@@ -20,7 +21,14 @@ import {
   jsonResponse,
   type FakeTenantModule,
 } from './fake-tenant/index.js';
-import { fake, isLoopbackUrl, mswServer, testClock } from '../support/msw.js';
+import {
+  fake,
+  isLoopbackUrl,
+  mswNetwork,
+  resumeMsw,
+  suspendMsw,
+  testClock,
+} from '../support/msw.js';
 
 const LOGIN = 'login.microsoftonline.com';
 const GRAPH = 'graph.microsoft.com';
@@ -153,9 +161,9 @@ describe('the router: host and path', () => {
 
   it('matches host names without regard to case, and paths with it', async () => {
     const { tenant } = setUp();
-    expect((await tenant.fetch(request('https://GRAPH.microsoft.com/v1.0/organization'))).status).toBe(
-      200,
-    );
+    expect(
+      (await tenant.fetch(request('https://GRAPH.microsoft.com/v1.0/organization'))).status,
+    ).toBe(200);
     expect((await tenant.fetch(request(`https://${GRAPH}/v1.0/Organization`))).status).toBe(404);
   });
 
@@ -268,11 +276,36 @@ describe('calls: what the fake saw', () => {
   it('records host, method, path, status and the mutating flag', async () => {
     const { tenant } = setUp();
     await tenant.fetch(request(`https://${GRAPH}/v1.0/organization?$select=id`));
-    await tenant.fetch(request(`https://${GRAPH}/v1.0/applications`, { method: 'POST', body: '{}' }));
+    await tenant.fetch(
+      request(`https://${GRAPH}/v1.0/applications`, { method: 'POST', body: '{}' }),
+    );
 
-    expect(tenant.calls.all().map(({ at: _at, sequence: _s, query: _q, ...rest }) => rest)).toEqual([
-      { host: GRAPH, method: 'GET', path: '/v1.0/organization', status: 200, mutating: false, crashed: false },
-      { host: GRAPH, method: 'POST', path: '/v1.0/applications', status: 201, mutating: true, crashed: false },
+    expect(
+      tenant.calls.all().map(({ host, method, path, status, mutating, crashed }) => ({
+        host,
+        method,
+        path,
+        status,
+        mutating,
+        crashed,
+      })),
+    ).toEqual([
+      {
+        host: GRAPH,
+        method: 'GET',
+        path: '/v1.0/organization',
+        status: 200,
+        mutating: false,
+        crashed: false,
+      },
+      {
+        host: GRAPH,
+        method: 'POST',
+        path: '/v1.0/applications',
+        status: 201,
+        mutating: true,
+        crashed: false,
+      },
     ]);
   });
 
@@ -289,7 +322,9 @@ describe('calls: what the fake saw', () => {
 
   it('treats a write as mutating unless the route says it is a read in disguise', async () => {
     const { tenant } = setUp();
-    await tenant.fetch(request(`https://${GRAPH}/v1.0/applications`, { method: 'POST', body: '{}' }));
+    await tenant.fetch(
+      request(`https://${GRAPH}/v1.0/applications`, { method: 'POST', body: '{}' }),
+    );
     await tenant.fetch(
       request(`https://${GRAPH}/v1.0/users/x/checkMemberGroups`, { method: 'POST', body: '{}' }),
     );
@@ -308,7 +343,12 @@ describe('calls: what the fake saw', () => {
     const { tenant } = setUp();
     tenant.mount((core) => {
       for (const method of ['GET', 'HEAD', 'OPTIONS', 'PUT', 'PATCH', 'DELETE'] as const) {
-        core.router.add({ host: GRAPH, method, path: '/m', handler: () => new Response(null, { status: 204 }) });
+        core.router.add({
+          host: GRAPH,
+          method,
+          path: '/m',
+          handler: () => new Response(null, { status: 204 }),
+        });
       }
     });
     for (const method of ['GET', 'HEAD', 'OPTIONS', 'PUT', 'PATCH', 'DELETE']) {
@@ -367,9 +407,16 @@ describe('calls: what the fake saw', () => {
 describe('reset(): the initial directory again', () => {
   it('restores module state, clears the calls and the numbering, and removes mounted modules', async () => {
     const { tenant, state } = setUp();
-    await tenant.fetch(request(`https://${GRAPH}/v1.0/applications`, { method: 'POST', body: '{}' }));
+    await tenant.fetch(
+      request(`https://${GRAPH}/v1.0/applications`, { method: 'POST', body: '{}' }),
+    );
     tenant.mount((core) => {
-      core.router.add({ host: GRAPH, method: 'GET', path: '/temp', handler: () => jsonResponse(200, {}) });
+      core.router.add({
+        host: GRAPH,
+        method: 'GET',
+        path: '/temp',
+        handler: () => jsonResponse(200, {}),
+      });
     });
     expect(state.counter).toBe(1);
 
@@ -430,7 +477,9 @@ describe('control.crashAfterMutating(n)', () => {
     const { tenant } = setUp();
     tenant.control.crashAfterMutating(1);
     await tenant.fetch(request(`https://${GRAPH}/v1.0/organization`));
-    await tenant.fetch(request(`https://${GRAPH}/v1.0/users/x/checkMemberGroups`, { method: 'POST', body: '{}' }));
+    await tenant.fetch(
+      request(`https://${GRAPH}/v1.0/users/x/checkMemberGroups`, { method: 'POST', body: '{}' }),
+    );
     await expect(post(tenant)).rejects.toBeInstanceOf(SimulatedNetworkFailure);
   });
 
@@ -448,7 +497,11 @@ describe('control.crashAfterMutating(n)', () => {
     await expect(post(tenant)).rejects.toBeInstanceOf(SimulatedNetworkFailure);
 
     expect(tenant.calls.mutating()).toHaveLength(1);
-    expect(tenant.calls.mutating()[0]).toMatchObject({ status: 201, mutating: true, crashed: true });
+    expect(tenant.calls.mutating()[0]).toMatchObject({
+      status: 201,
+      mutating: true,
+      crashed: true,
+    });
   });
 
   it('counts from the last reset, over every mutating call since', async () => {
@@ -467,15 +520,12 @@ describe('control.crashAfterMutating(n)', () => {
     expect((await post(tenant)).status).toBe(201);
   });
 
-  it.each([[0], [-1], [1.5], [Number.NaN], [Number.POSITIVE_INFINITY]])(
-    'refuses %s as n',
-    (n) => {
-      const { tenant } = setUp();
-      expect(() => {
-        tenant.control.crashAfterMutating(n);
-      }).toThrow(RangeError);
-    },
-  );
+  it.each([[0], [-1], [1.5], [Number.NaN], [Number.POSITIVE_INFINITY]])('refuses %s as n', (n) => {
+    const { tenant } = setUp();
+    expect(() => {
+      tenant.control.crashAfterMutating(n);
+    }).toThrow(RangeError);
+  });
 });
 
 describe('a clock that is injected', () => {
@@ -518,7 +568,12 @@ describe('the MSW setup: the shared fake answers the three hosts', () => {
   it('answers a request to each host through global fetch', async () => {
     fake.mount((core) => {
       for (const host of FAKE_TENANT_HOSTS) {
-        core.router.add({ host, method: 'GET', path: '/ping', handler: () => jsonResponse(200, { host }) });
+        core.router.add({
+          host,
+          method: 'GET',
+          path: '/ping',
+          handler: () => jsonResponse(200, { host }),
+        });
       }
     });
     for (const host of FAKE_TENANT_HOSTS) {
@@ -540,7 +595,8 @@ describe('the MSW setup: the shared fake answers the three hosts', () => {
         host: GRAPH,
         method: 'POST',
         path: '/echo',
-        handler: async ({ json, url }) => jsonResponse(200, { body: await json(), query: url.search }),
+        handler: async ({ json, url }) =>
+          jsonResponse(200, { body: await json(), query: url.search }),
       });
     });
     const response = await fetch(`https://${GRAPH}/echo?a=1`, {
@@ -549,6 +605,13 @@ describe('the MSW setup: the shared fake answers the three hosts', () => {
       body: '{"x":1}',
     });
     expect(await response.json()).toEqual({ body: { x: 1 }, query: '?a=1' });
+  });
+
+  it('sees global fetch only: a socket opened with node:https is stopped by the no-egress guard (V-B05)', async () => {
+    const request = https.get(`https://${GRAPH}/v1.0/organization`);
+    const [error] = (await once(request, 'error')) as [NodeJS.ErrnoException];
+    expect(error.code).toBe('ENOEGRESS');
+    expect(fake.calls.length).toBe(0);
   });
 
   it('turns a simulated crash into a failed fetch', async () => {
@@ -565,16 +628,22 @@ describe('the MSW setup: the shared fake answers the three hosts', () => {
       });
     });
     fake.control.crashAfterMutating(1);
-    await expect(fetch(`https://${GRAPH}/apply`, { method: 'POST', body: '{}' })).rejects.toBeInstanceOf(TypeError);
+    await expect(
+      fetch(`https://${GRAPH}/apply`, { method: 'POST', body: '{}' }),
+    ).rejects.toBeInstanceOf(TypeError);
     expect(applied).toBe(1);
   });
 });
 
 describe('the MSW setup: any other host is an error (+ negative)', () => {
   it('fails a request to an unlisted host', async () => {
-    await expect(fetch('https://example.test/')).rejects.toBeInstanceOf(TypeError);
-    await expect(fetch('https://login.microsoft.com/device')).rejects.toBeInstanceOf(TypeError);
-    await expect(fetch('https://sts.windows.net/x/')).rejects.toBeInstanceOf(TypeError);
+    for (const url of [
+      'https://example.test/',
+      'https://login.microsoft.com/device',
+      'https://sts.windows.net/x/',
+    ]) {
+      await expect(fetch(url), url).rejects.toMatchObject({ code: 'EUNHANDLEDREQUEST' });
+    }
   });
 
   it('never shows an unlisted host to the fake', async () => {
@@ -582,20 +651,17 @@ describe('the MSW setup: any other host is an error (+ negative)', () => {
     expect(fake.calls.length).toBe(0);
   });
 
-  it('is what a service that calls a wrong host would meet (the check itself fails on a lenient setup)', async () => {
-    const lenientOutcome = async (): Promise<void> => {
-      // A setup that bypassed unlisted hosts would let the request go on; the probe must not pass.
-      const response = await fetch('https://example.test/').catch(() => undefined);
-      if (response !== undefined) throw new Error('an unlisted host was answered');
-    };
-    await expect(lenientOutcome()).resolves.toBeUndefined();
-    expectGuardFails(
-      (answered: boolean) => {
-        if (answered) throw new Error('an unlisted host was answered');
-      },
-      true,
-      { reason: 'was answered' },
-    );
+  it('has the no-egress guard behind it: with MSW off, the same request dies at the socket', async () => {
+    suspendMsw();
+    try {
+      const failure = await fetch('https://example.test/').then(
+        () => undefined,
+        (reason: unknown) => reason as TypeError & { cause?: { code?: string } },
+      );
+      expect(failure?.cause?.code).toBe('ENOEGRESS');
+    } finally {
+      resumeMsw();
+    }
   });
 
   it('lets a request to the loopback interface through, for the tests that start a server', () => {
@@ -611,13 +677,18 @@ describe('the MSW setup: any other host is an error (+ negative)', () => {
 describe('the MSW setup: handlers and the fake are reset after each test', () => {
   it('first test: mounts a route, sends a call, moves the clock, adds a handler', async () => {
     fake.mount((core) => {
-      core.router.add({ host: GRAPH, method: 'GET', path: '/leftover', handler: () => jsonResponse(200, {}) });
+      core.router.add({
+        host: GRAPH,
+        method: 'GET',
+        path: '/leftover',
+        handler: () => jsonResponse(200, {}),
+      });
     });
     await fetch(`https://${GRAPH}/leftover`);
     testClock.advance(60_000);
     fake.control.crashAfterMutating(5);
     expect(fake.calls.length).toBe(1);
-    expect(mswServer.listHandlers().length).toBeGreaterThan(0);
+    expect(mswNetwork.listHandlers().length).toBeGreaterThan(0);
   });
 
   it('second test: the route, the call record, the crash switch and the clock are back to the start', async () => {
@@ -628,6 +699,6 @@ describe('the MSW setup: handlers and the fake are reset after each test', () =>
   });
 
   it('keeps one handler registered for the three hosts after a reset', () => {
-    expect(mswServer.listHandlers()).toHaveLength(1);
+    expect(mswNetwork.listHandlers()).toHaveLength(1);
   });
 });

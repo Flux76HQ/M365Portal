@@ -15,7 +15,10 @@
 // so a request body or a secret cannot reach the audit table by accident: an unknown key is refused,
 // strings are cut at 256 bytes on a code-point boundary, and a detail of more than 4,096 bytes is
 // replaced by the list of its keys.
+import { SIGNIN_CHECKS, STEPUP_CHECKS } from '@m365portal/shared/auth/signin-errors';
 import { LIMITS } from '@m365portal/shared/limits';
+import { IsoTimestampSchema } from '@m365portal/shared/schemas/common';
+import { SETUP_MODES, SETUP_STATES, STEPS, STEP_KEYS } from '@m365portal/shared/setup/steps';
 
 // ---------------------------------------------------------------------------------------------
 // Canonical JSON
@@ -78,7 +81,26 @@ export function canonicalEntry(entry: StoredAuditFields): string {
 // The detail allow-list
 // ---------------------------------------------------------------------------------------------
 
-export type DetailKind = 'string' | 'integer' | 'boolean' | 'strings';
+/**
+ * The type of a detail value. Phase A has four. Phase B refines them (spec 6.9.6 rule 2, data-model
+ * section 10): `guid` (lower-case canonical), `sha1` (40 lower-case hex), `keyId` (16 lower-case
+ * hex, an id and not a key), `instant` (UTC with milliseconds), `enum` (a value of a registry, see
+ * `ENUMERATIONS`, or the shape of one), `codes` (at most 16 strings of at most 64 bytes, DM-02) and
+ * `name` (NFC, no control characters). The refinement is additive: a value that passes a refined
+ * kind also has the basic type of its family (string, or array of strings).
+ */
+export type DetailKind =
+  | 'string'
+  | 'integer'
+  | 'boolean'
+  | 'strings'
+  | 'guid'
+  | 'sha1'
+  | 'keyId'
+  | 'instant'
+  | 'enum'
+  | 'codes'
+  | 'name';
 
 /**
  * Every key a detail may hold and the type of its value. The vocabulary is data-model 7.4:
@@ -120,11 +142,58 @@ export const AUDIT_DETAIL_KEYS = {
   permission: 'string',
   method: 'string',
   route: 'string',
+
+  // Phase B (T-B-013, spec 6.9.6): the 38 keys of the 19 actions in `actions.ts`.
+  // A setup step or sub-action ran: which, with what result.
+  step: 'enum',
+  subAction: 'enum',
+  status: 'enum',
+  attempt: 'integer',
+  codes: 'codes',
+  mode: 'enum',
+  // A tenant object was created, adopted or changed (ids are GUIDs only; grants and directory role
+  // assignments have none, so `objectId` is then omitted and `kind` and `name` identify the object).
+  kind: 'enum',
+  op: 'enum',
+  objectId: 'guid',
+  appId: 'guid',
+  name: 'name',
+  confirmed: 'boolean',
+  tid: 'guid',
+  fromState: 'enum',
+  drift: 'codes',
+  checks: 'codes',
+  // A certificate and the sealing key (key ids, never keys).
+  thumbprintSha1: 'sha1',
+  notAfter: 'instant',
+  rows: 'integer',
+  fromKeyId: 'keyId',
+  toKeyId: 'keyId',
+  // Sign-in, sessions, break-glass.
+  reason: 'enum',
+  check: 'enum',
+  mfa: 'boolean',
+  groupsResolved: 'boolean',
+  purpose: 'enum',
+  scope: 'enum',
+  sessions: 'integer',
+  // Assignments.
+  principalType: 'enum',
+  principalId: 'guid',
+  role: 'enum',
+  scopeTargets: 'codes',
+  scopeItems: 'integer',
+  expiresAt: 'instant',
+  source: 'enum',
+  assignmentId: 'guid',
+  graphChecked: 'boolean',
+  lockScope: 'enum',
 } as const satisfies Readonly<Record<string, DetailKind>>;
 
 export type AuditDetailKey = keyof typeof AUDIT_DETAIL_KEYS;
 
-type DetailValueOf<Key extends AuditDetailKey> = (typeof AUDIT_DETAIL_KEYS)[Key] extends 'string'
+type DetailValueOf<Key extends AuditDetailKey> = (typeof AUDIT_DETAIL_KEYS)[Key] extends
+  'string' | 'guid' | 'sha1' | 'keyId' | 'instant' | 'enum' | 'name'
   ? string
   : (typeof AUDIT_DETAIL_KEYS)[Key] extends 'integer'
     ? number
@@ -139,6 +208,43 @@ export type AuditDetail = { readonly [Key in AuditDetailKey]?: DetailValueOf<Key
 export const DETAIL_STRING_BYTES = 256;
 /** A string array keeps this many items. */
 export const DETAIL_ARRAY_ITEMS = 16;
+/** The items of a `strings` array are cut at this many bytes (Phase A, `warnings`). */
+export const DETAIL_ARRAY_ITEM_BYTES = 256;
+/** The items of a `codes` array are cut at this many bytes (DM-02). */
+export const DETAIL_CODE_BYTES = 64;
+
+/** The shape of an enumeration value that has no closed registry (yet): lower-case snake case. */
+const ENUM_SHAPE = /^[a-z][a-z0-9_]{0,63}$/;
+
+/**
+ * The enumerations that have a closed registry in `@m365portal/shared`: the value must be one of
+ * its members. The other enumeration keys (`status`, `kind`, `op`, `reason`, `purpose`, `scope`,
+ * `lockScope`, `role`) are checked by shape only: their values come from several registries (the
+ * sign-in reasons, the setup result codes, the roles of Phase D) that this module must not freeze
+ * ahead of the streams that own them; `audit-b-coverage.test.ts` (T-B-391) is where a stray value
+ * is caught.
+ */
+export const ENUMERATIONS: Readonly<Partial<Record<AuditDetailKey, readonly string[]>>> =
+  Object.freeze({
+    step: STEP_KEYS,
+    subAction: Object.values(STEPS).flatMap((definition) => [...definition.subActions]),
+    mode: SETUP_MODES,
+    fromState: SETUP_STATES,
+    check: [...SIGNIN_CHECKS, ...STEPUP_CHECKS],
+    principalType: ['user', 'group'],
+    source: ['wizard', 'api', 'break_glass'],
+  });
+
+/** A key named like a secret is refused even when someone adds it to the allow-list by mistake. */
+const SECRET_LIKE_KEY = /secret|token|key|password|assertion|pem|credential/i;
+/** The two key-id keys are ids, not keys (FR-B-104), and are on the allow-list by exact name. */
+const KEY_ID_KEYS: ReadonlySet<string> = new Set(['fromKeyId', 'toKeyId']);
+
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const SHA1 = /^[0-9a-f]{40}$/;
+const KEY_ID = /^[0-9a-f]{16}$/;
+// eslint-disable-next-line no-control-regex -- the point is to find control characters
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/;
 
 export class AuditDetailError extends Error {
   readonly key: string;
@@ -175,7 +281,8 @@ function detailValue(
   key: AuditDetailKey,
   value: unknown,
 ): string | number | boolean | readonly string[] {
-  switch (AUDIT_DETAIL_KEYS[key]) {
+  const kind: DetailKind = AUDIT_DETAIL_KEYS[key];
+  switch (kind) {
     case 'string':
       if (typeof value !== 'string') throw new AuditDetailError(key, 'takes a string');
       return truncateUtf8(value, DETAIL_STRING_BYTES);
@@ -193,8 +300,46 @@ function detailValue(
       }
       return (value as string[])
         .slice(0, DETAIL_ARRAY_ITEMS)
-        .map((item) => truncateUtf8(item, DETAIL_STRING_BYTES));
+        .map((item) => truncateUtf8(item, DETAIL_ARRAY_ITEM_BYTES));
+    case 'codes':
+      if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+        throw new AuditDetailError(key, 'takes an array of strings');
+      }
+      return (value as string[])
+        .slice(0, DETAIL_ARRAY_ITEMS)
+        .map((item) => truncateUtf8(item, DETAIL_CODE_BYTES));
+    case 'guid':
+      return matching(key, value, GUID, 'takes a lower-case GUID');
+    case 'sha1':
+      return matching(key, value, SHA1, 'takes 40 lower-case hexadecimal characters');
+    case 'keyId':
+      return matching(key, value, KEY_ID, 'takes 16 lower-case hexadecimal characters');
+    case 'instant':
+      if (typeof value !== 'string' || !IsoTimestampSchema.safeParse(value).success) {
+        throw new AuditDetailError(key, 'takes a UTC instant with milliseconds');
+      }
+      return value;
+    case 'enum': {
+      const text = matching(key, value, ENUM_SHAPE, 'takes a lower-case identifier');
+      const members = ENUMERATIONS[key];
+      if (members !== undefined && !members.includes(text)) {
+        throw new AuditDetailError(key, 'takes a value of its registry');
+      }
+      return text;
+    }
+    case 'name':
+      if (typeof value !== 'string') throw new AuditDetailError(key, 'takes a string');
+      if (value.normalize('NFC') !== value || CONTROL_CHARACTERS.test(value)) {
+        throw new AuditDetailError(key, 'takes NFC text without control characters');
+      }
+      return truncateUtf8(value, DETAIL_STRING_BYTES);
   }
+}
+
+/** `value` when it is a string that matches `pattern`; else an error that never repeats it. */
+function matching(key: AuditDetailKey, value: unknown, pattern: RegExp, problem: string): string {
+  if (typeof value !== 'string' || !pattern.test(value)) throw new AuditDetailError(key, problem);
+  return value;
 }
 
 /** Canonical JSON for the detail's values, which may also be booleans and arrays of strings. */
@@ -216,6 +361,9 @@ export function buildDetail(detail: AuditDetail | undefined): string {
   const entries: [string, unknown][] = [];
   for (const [key, value] of Object.entries<unknown>(detail ?? {})) {
     if (value === undefined) continue;
+    if (SECRET_LIKE_KEY.test(key) && !KEY_ID_KEYS.has(key)) {
+      throw new AuditDetailError(key, 'is named like a secret and is refused');
+    }
     if (!isAllowedKey(key)) throw new AuditDetailError(key, 'is not on the allow-list');
     entries.push([key, detailValue(key, value)]);
   }

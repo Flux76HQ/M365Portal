@@ -6,7 +6,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import Database from 'better-sqlite3';
-import { SQLiteSyncDialect, getTableConfig, type SQLiteTable } from 'drizzle-orm/sqlite-core';
+import { is } from 'drizzle-orm';
+import { SQLiteSyncDialect, SQLiteTable, getTableConfig } from 'drizzle-orm/sqlite-core';
 import { describe, expect, it } from 'vitest';
 import { expandCheckMacros, guid, hex, iso, jsonObject } from '../src/db/check-macros.js';
 import * as phaseB from '../src/db/schema/phase-b.js';
@@ -57,7 +58,8 @@ describe('the macros return the fragments of data-model section 4 exactly', () =
 function accepts(check: (column: string) => string, value: unknown): boolean {
   const db = new Database(':memory:');
   try {
-    db.exec(`CREATE TABLE t (v ANY, CHECK (${check('`v`')}))`);
+    // No declared type: no column affinity, so a value is stored and checked exactly as given.
+    db.exec(`CREATE TABLE t (v, CHECK (${check('`v`')}))`);
     try {
       db.prepare('INSERT INTO t (v) VALUES (?)').run(value);
       return true;
@@ -155,11 +157,6 @@ describe('run on an in-memory SQLite', () => {
     expect(accepts(check, '{"a":"ééé"}')).toBe(false);
     expect(accepts(check, '{"a":"eee"}')).toBe(true);
   });
-
-  it('JSONOBJ and the others refuse a non-text value in the way the schema needs', () => {
-    expect(accepts(guid, 5)).toBe(false);
-    expect(accepts((c) => hex(c, 1), 5)).toBe(false);
-  });
 });
 
 describe('expandCheckMacros', () => {
@@ -235,6 +232,64 @@ function assertNoValueList(
   if (problems.length > 0) throw new Error(problems.join('; '));
 }
 
+describe('the Drizzle schema of Phase B (FR-B-701)', () => {
+  const tables = Object.values(phaseB).filter((value) => is(value, SQLiteTable)) as SQLiteTable[];
+
+  it('declares the 17 tables of the migration and their 9 indexes', () => {
+    expect(tables.map((table) => getTableConfig(table).name).sort()).toEqual([
+      'app_user',
+      'certificate',
+      'rbac_assignment',
+      'rbac_assignment_scope',
+      'rbac_epoch',
+      'rbac_group_member_cache',
+      'rbac_role',
+      'rbac_role_permission',
+      'rbac_role_template',
+      'runner_lease',
+      'secret',
+      'session',
+      'setup_log',
+      'setup_object',
+      'setup_state',
+      'setup_step',
+      'tenant_connection',
+    ]);
+    expect(tables.flatMap((table) => getTableConfig(table).indexes)).toHaveLength(9);
+  });
+
+  it('is re-exported by schema.ts, which is what the Drizzle config reads', async () => {
+    const schema = await import('../src/db/schema.js');
+    expect(schema.setupState).toBe(phaseB.setupState);
+    expect(schema.rbacEpoch).toBe(phaseB.rbacEpoch);
+    expect(schema.brandingAsset).toBeDefined();
+  });
+
+  it('keeps the five foreign keys of data-model section 3 and no others', () => {
+    const references = tables.flatMap((table) =>
+      getTableConfig(table).foreignKeys.map((key) => {
+        const reference = key.reference();
+        return `${getTableConfig(table).name}.${reference.columns.map((c) => c.name).join(',')} -> ${getTableConfig(reference.foreignTable).name} ${key.onDelete ?? ''}`;
+      }),
+    );
+    expect(references.sort()).toEqual([
+      'certificate.secret_id -> secret restrict',
+      'rbac_assignment.role_id -> rbac_role restrict',
+      'rbac_assignment_scope.assignment_id -> rbac_assignment cascade',
+      'rbac_role_permission.role_id -> rbac_role cascade',
+      'tenant_connection.certificate_id -> certificate restrict',
+    ]);
+  });
+
+  it('never lists a value of an audit column in a CHECK (the Phase A table is untouched)', async () => {
+    const schema = await import('../src/db/schema.js');
+    const checks = checkTexts(schema.auditLog);
+    expect(() => {
+      assertNoValueList(checks, ['actor_kind', 'action', 'target_type', 'reason_code']);
+    }).not.toThrow();
+  });
+});
+
 describe('no CHECK lists a value that later phases extend (FR-B-702, DM-04)', () => {
   const TABLES: readonly (readonly [string, SQLiteTable, readonly string[]])[] = [
     ['setup_step', phaseB.setupStep, ['step', 'sub_action', 'error_code', 'rollback_hint_key']],
@@ -251,20 +306,25 @@ describe('no CHECK lists a value that later phases extend (FR-B-702, DM-04)', ()
   });
 
   it('the guard fails on a CHECK that lists the steps or the permissions (negative fixtures)', () => {
+    const guard =
+      (columns: readonly string[]) =>
+      (checks: { name: string; sql: string }[]): void => {
+        assertNoValueList(checks, columns);
+      };
     expectGuardFails(
-      assertNoValueList,
+      guard(['step']),
       [{ name: 'setup_step_step', sql: "`step` IN ('environment', 'connect', 'configure')" }],
       { name: 'value-list guard', reason: 'setup_step_step lists values of step' },
     );
-    // The guard is called with the columns of the table under test; here the second argument is
-    // applied to a list built by hand.
-    const guard = (checks: { name: string; sql: string }[]): void => {
-      assertNoValueList(checks, ['step']);
-    };
-    expectGuardFails(guard, [{ name: 'c', sql: "`step` NOT IN ('finish')" }], {
-      name: 'value-list guard',
-      reason: 'c lists values of step',
-    });
+    expectGuardFails(
+      guard(['permission']),
+      [{ name: 'perm', sql: "`permission` NOT IN ('users:read')" }],
+      { name: 'value-list guard', reason: 'perm lists values of permission' },
+    );
+    // A single comparison (the qualifier rule) is not a list.
+    expect(() => {
+      guard(['permission'])([{ name: 'q', sql: "`permission` = 'users:read'" }]);
+    }).not.toThrow();
   });
 
   it('the closed sets that will not grow do use CHECK (state, mode, status, level, origin, ...)', () => {

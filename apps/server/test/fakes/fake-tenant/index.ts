@@ -100,7 +100,11 @@ export function createFakeTenant(options: FakeTenantOptions): FakeTenant {
     module(coreFor(scope));
   }
 
-  function contextFor(request: Request, url: URL, params: Readonly<Record<string, string>>): RouteContext {
+  function contextFor(
+    request: Request,
+    url: URL,
+    params: Readonly<Record<string, string>>,
+  ): RouteContext {
     return {
       request,
       url,
@@ -108,7 +112,7 @@ export function createFakeTenant(options: FakeTenantOptions): FakeTenant {
       query: url.searchParams,
       json: async () => {
         try {
-          return (await request.clone().json()) as unknown;
+          return await request.clone().json();
         } catch {
           throw new BadRequestBody();
         }
@@ -127,7 +131,9 @@ export function createFakeTenant(options: FakeTenantOptions): FakeTenant {
 
     if (resolution.kind === 'not_found') {
       recorder.record({ ...base, status: 404, mutating: false, crashed: false });
-      return jsonResponse(404, { error: { code: 'NotFound', message: 'no such route in the fake tenant' } });
+      return jsonResponse(404, {
+        error: { code: 'NotFound', message: 'no such route in the fake tenant' },
+      });
     }
     if (resolution.kind === 'method_not_allowed') {
       recorder.record({ ...base, status: 405, mutating: false, crashed: false });
@@ -145,7 +151,9 @@ export function createFakeTenant(options: FakeTenantOptions): FakeTenant {
       response = await route.handler(contextFor(request, url, params));
     } catch (failure) {
       if (failure instanceof BadRequestBody) {
-        response = jsonResponse(400, { error: { code: 'BadRequest', message: 'the body is not JSON' } });
+        response = jsonResponse(400, {
+          error: { code: 'BadRequest', message: 'the body is not JSON' },
+        });
       } else {
         // A bug in a fake must fail the test that met it; it must not pass for a 500 of Graph.
         recorder.record({ ...base, status: 500, mutating: false, crashed: false });

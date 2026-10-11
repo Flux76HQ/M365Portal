@@ -26,6 +26,7 @@ import { serve } from '@hono/node-server';
 import { setAuditHeadLog, clearAuditHeadLog } from './audit/index.js';
 import { buildApp, systemClock, type ServerClock } from './app.js';
 import { formatConfigIssues, loadConfig, removedVariablesIn } from './config/index.js';
+import { withTransitionalPreview } from './config/legacy-preview.js';
 import { backupsDirOf } from './db/backup.js';
 import { classifyStorageError } from './db/errors.js';
 import { MigrationError, runMigrations } from './db/migrate.js';
@@ -151,7 +152,8 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     stderr.write(formatConfigIssues(loaded.issues));
     throw new StartError('config_invalid');
   }
-  const { config } = loaded;
+  // Transitional (T-B-240 deletes it): the Phase A preview resolver still reads two flags.
+  const config = withTransitionalPreview(loaded.config, options.env);
   const log = createLogger({
     level: config.logLevel,
     now: () => clock.now(),

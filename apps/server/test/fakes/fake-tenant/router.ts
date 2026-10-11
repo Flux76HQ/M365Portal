@@ -1,7 +1,12 @@
 // The router of the fake tenant (T-B-063): host first, then method and path. First match wins, in
 // registration order. Paths are matched case-sensitively and without the query string: a typo in the
 // path of one of our clients is a 404 here, which is the point of a strict fake.
-import { FAKE_TENANT_HOSTS, type FakeHost, type HttpMethod, type RouteDefinition } from './types.js';
+import {
+  FAKE_TENANT_HOSTS,
+  type FakeHost,
+  type HttpMethod,
+  type RouteDefinition,
+} from './types.js';
 
 export interface Matched {
   readonly route: RouteDefinition;
@@ -70,7 +75,7 @@ export function createRouter(): RouterImpl {
   return {
     add(route) {
       if (!(FAKE_TENANT_HOSTS as readonly string[]).includes(route.host)) {
-        throw new Error(`the fake tenant does not serve ${String(route.host)}`);
+        throw new Error(`the fake tenant does not serve ${route.host}`);
       }
       const entry: Compiled = {
         route,
@@ -90,7 +95,10 @@ export function createRouter(): RouterImpl {
         const match = entry.pattern.exec(pathname);
         if (match === null) continue;
         if (entry.route.method === method) {
-          return { kind: 'matched', matched: { route: entry.route, params: paramsOf(match.groups) } };
+          return {
+            kind: 'matched',
+            matched: { route: entry.route, params: paramsOf(match.groups) },
+          };
         }
         onThisPath.push(entry);
       }

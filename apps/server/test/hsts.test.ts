@@ -172,12 +172,13 @@ const SCENARIOS: readonly Scenario[] = [
   ...rows(
     'http, every opt-in',
     {
-      PUBLIC_BASE_URL: `http://${DECLARED}`,
+      // Phase B: http is only possible for localhost (FR-B-103).
+      PUBLIC_BASE_URL: 'http://localhost:9300',
       HSTS_INCLUDE_SUBDOMAINS: 'true',
       HSTS_PRELOAD: 'true',
     },
     [
-      [DECLARED, undefined],
+      ['localhost', undefined],
       ['alias.example.com', undefined],
       [null, undefined],
     ],
@@ -409,12 +410,13 @@ describe('Strict-Transport-Security in the pipeline (FR-A-043)', () => {
 
   it('adds the flags only for the declared host, behind a trusted proxy as well', async () => {
     const env = {
-      PUBLIC_BASE_URL: `http://${DECLARED}`,
+      // Phase B: http is only possible for localhost (FR-B-103); the proxy says it was https.
+      PUBLIC_BASE_URL: 'http://localhost:9300',
       TRUST_PROXY: '10.0.0.0/8',
       HSTS_INCLUDE_SUBDOMAINS: 'true',
     };
     const options = { peer: '10.0.0.1', headers: { 'x-forwarded-proto': 'https' } };
-    expect(await strictTransport(env, { ...options, host: DECLARED })).toBe(
+    expect(await strictTransport(env, { ...options, host: 'localhost' })).toBe(
       `${YEAR}; includeSubDomains`,
     );
     expect(await strictTransport(env, { ...options, host: 'alias.example.com' })).toBe(YEAR);

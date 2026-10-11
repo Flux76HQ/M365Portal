@@ -978,7 +978,8 @@ describe('the first migration enforces data-model section 4', () => {
       const names = db
         .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name")
         .all() as { name: string }[];
-      expect(names.map((row) => row.name)).toEqual([
+      // Phase B adds 29 triggers of its own (`migrations.phase-b.test.ts`); these are the audit ones.
+      expect(names.map((row) => row.name).filter((name) => name.startsWith('audit_log_'))).toEqual([
         'audit_log_chain_link',
         'audit_log_no_delete',
         'audit_log_no_update',
@@ -1080,11 +1081,15 @@ async function refusalOf(promise: Promise<unknown>): Promise<MigrationError> {
   throw new Error('the runner should have refused');
 }
 
+/** The schema version of the newest shipped migration: 0 in Phase A, 1 with `0001_phase_b`. */
+const LATEST_VERSION = shippedMigrations(PATHS.migrationsFolder).length - 1;
+
 describe('the runner applies the shipped migrations (FR-A-061)', () => {
-  it('applies 0000 to an empty database and records its hash and created_at', async () => {
+  it('applies every shipped migration to an empty database and records the hash and created_at of each', async () => {
     const { path, backupsDir } = await volume();
     const db = connect(path);
-    const [first] = shippedMigrations(PATHS.migrationsFolder);
+    const shipped = shippedMigrations(PATHS.migrationsFolder);
+    const [first] = shipped;
     if (first === undefined) throw new Error('no migration is shipped');
 
     const result = await runMigrations(db, {
@@ -1093,14 +1098,19 @@ describe('the runner applies the shipped migrations (FR-A-061)', () => {
     });
 
     expect(result).toMatchObject({
-      applied: [first.tag],
+      applied: shipped.map((migration) => migration.tag),
       schemaVersionBefore: null,
-      schemaVersion: 0,
+      schemaVersion: LATEST_VERSION,
       backupFile: null,
     });
     const rows = rowsOf(db);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ hash: first.hash, createdAt: first.createdAt });
+    expect(rows).toHaveLength(shipped.length);
+    shipped.forEach((migration, position) => {
+      expect(rows[position]).toMatchObject({
+        hash: migration.hash,
+        createdAt: migration.createdAt,
+      });
+    });
     // The hash is the SHA-256 of the whole file, the value the stock migrator records.
     expect(first.hash).toBe(
       createHash('sha256')
@@ -1128,8 +1138,8 @@ describe('the runner applies the shipped migrations (FR-A-061)', () => {
     expect(again).toMatchObject({
       applied: [],
       backupFile: null,
-      schemaVersionBefore: 0,
-      schemaVersion: 0,
+      schemaVersionBefore: LATEST_VERSION,
+      schemaVersion: LATEST_VERSION,
     });
     expect(rowsOf(db)).toEqual(before);
     expect(existsSync(backupsDir)).toBe(false);
@@ -1163,8 +1173,8 @@ describe('the runner applies the shipped migrations (FR-A-061)', () => {
     expect(lines[0]?.message).toBe('migrations_applied');
     expect(lines[0]?.fields).toMatchObject({
       event: 'migrations_applied',
-      schemaVersion: 0,
-      applied: 1,
+      schemaVersion: LATEST_VERSION,
+      applied: LATEST_VERSION + 1,
     });
     expect(JSON.stringify(lines)).not.toContain(path);
     expect(JSON.stringify(lines)).not.toMatch(/CREATE TABLE/i);
@@ -1223,7 +1233,8 @@ describe('the runner re-verifies what the stock migrator does not (V-05, PD-06)'
   it('reads a journal `when` that moved earlier as a newer database: the applied row is newer than every shipped one', async () => {
     const { path, backupsDir } = await migratedFile();
     const edited = copyOfMigrations();
-    shiftFirstWhen(edited, -5);
+    // The newest applied row must be newer than every shipped one: move the last entry earlier.
+    shiftLastWhen(edited, -5);
 
     const error = await refusalOf(
       runMigrations(connect(path), { migrationsFolder: edited, backupsDir }),
@@ -1705,10 +1716,11 @@ describe('migrateEmptyDatabase (tooling: snapshots, parity, fixtures)', () => {
   it('builds the shipped schema in a scratch database', () => {
     const db = new Database(':memory:');
     migrateEmptyDatabase(db, PATHS.migrationsFolder);
-    expect(appliedMigrations(db)).toHaveLength(1);
+    expect(appliedMigrations(db)).toHaveLength(LATEST_VERSION + 1);
+    // Three audit triggers of Phase A and the 29 of Phase B.
     expect(
       db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'").get(),
-    ).toEqual({ n: 3 });
+    ).toEqual({ n: 3 + 29 });
     db.close();
   });
 
@@ -1798,6 +1810,15 @@ function copyOfMigrations(): string {
   const folder = join(root, 'drizzle');
   cpSync(PATHS.migrationsFolder, folder, { recursive: true });
   return folder;
+}
+
+function shiftLastWhen(folder: string, milliseconds: number): void {
+  const journalPath = join(folder, 'meta', '_journal.json');
+  const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as { entries: { when: number }[] };
+  const entry = journal.entries[journal.entries.length - 1];
+  if (entry === undefined) throw new Error('no entry');
+  entry.when += milliseconds;
+  writeFileSync(journalPath, JSON.stringify(journal));
 }
 
 function shiftFirstWhen(folder: string, milliseconds: number): void {

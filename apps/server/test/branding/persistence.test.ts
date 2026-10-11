@@ -36,7 +36,9 @@ interface Run {
 
 async function startOn(dataDir: string): Promise<Run> {
   const port = await freePort();
-  const origin = `http://127.0.0.1:${String(port)}`;
+  const socket = `http://127.0.0.1:${String(port)}`;
+  // Phase B: PUBLIC_BASE_URL is https or http://localhost (FR-B-103); the socket stays on 127.0.0.1.
+  const origin = `http://localhost:${String(port)}`;
   const running = await startServer({
     env: {
       PORT: String(port),
@@ -63,7 +65,7 @@ async function startOn(dataDir: string): Promise<Run> {
   return {
     running,
     origin,
-    client: createHttpClient({ fetch: (request) => fetch(request), baseUrl: origin, origin }),
+    client: createHttpClient({ fetch: (request) => fetch(request), baseUrl: socket, origin }),
   };
 }
 

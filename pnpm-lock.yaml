@@ -27,6 +27,9 @@ catalogs:
     '@hookform/resolvers':
       specifier: 5.9.1
       version: 5.9.1
+    '@mswjs/interceptors':
+      specifier: 0.45.7
+      version: 0.45.7
     '@playwright/test':
       specifier: 1.56.1
       version: 1.56.1
@@ -263,6 +266,9 @@ importers:
       '@m365portal/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@mswjs/interceptors':
+        specifier: 'catalog:'
+        version: 0.45.7
       '@seriousme/openapi-schema-validator':
         specifier: 'catalog:'
         version: 2.11.0

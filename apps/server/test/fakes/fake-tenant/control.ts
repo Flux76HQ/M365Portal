@@ -6,7 +6,9 @@ import type { FakeTenantClock, FakeTenantControl } from './types.js';
 /** The client's view of a connection that died after the server had done its work. */
 export class SimulatedNetworkFailure extends TypeError {
   constructor() {
-    super('fetch failed', { cause: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }) });
+    super('fetch failed', {
+      cause: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }),
+    });
     this.name = 'SimulatedNetworkFailure';
   }
 }
@@ -17,10 +19,7 @@ export interface ControlState {
   crashAt: number | null;
 }
 
-export function createControl(
-  clock: FakeTenantClock,
-  state: ControlState,
-): FakeTenantControl {
+export function createControl(clock: FakeTenantClock, state: ControlState): FakeTenantControl {
   return {
     crashAfterMutating(n) {
       if (!Number.isInteger(n) || n < 1) {

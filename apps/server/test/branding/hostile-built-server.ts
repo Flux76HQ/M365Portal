@@ -64,6 +64,8 @@ export async function startBuiltTarget(options: BuiltTargetOptions): Promise<Hos
   const { layout, workspace, fixture } = options;
   const port = await freePort();
   const origin = `http://127.0.0.1:${String(port)}`;
+  // Phase B: PUBLIC_BASE_URL is https or http://localhost (FR-B-103); the socket stays on 127.0.0.1.
+  const publicOrigin = `http://localhost:${String(port)}`;
   const plan = transportPlanOf(fixture);
   const server = await spawnServer({
     layout,
@@ -71,7 +73,7 @@ export async function startBuiltTarget(options: BuiltTargetOptions): Promise<Hos
     env: {
       DATA_DIR: workspace.dataDir,
       TMPDIR: workspace.tmpDir,
-      PUBLIC_BASE_URL: origin,
+      PUBLIC_BASE_URL: publicOrigin,
       PREVIEW_MODE: 'true',
       PREVIEW_MODE_ALLOW_REMOTE: 'true',
       TRUST_PROXY: '1',
@@ -105,7 +107,7 @@ export async function startBuiltTarget(options: BuiltTargetOptions): Promise<Hos
         await server.exited;
       },
     },
-    publicOrigin: origin,
+    publicOrigin,
     csrfToken,
     dataDir: workspace.dataDir,
     readAudit: () => Promise.resolve(readAuditRows(workspace.dataDir)),

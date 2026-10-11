@@ -14,6 +14,7 @@ import https from 'node:https';
 import net from 'node:net';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { resumeMsw, suspendMsw } from '../support/msw.js';
 import {
   ENOEGRESS,
   NoEgressError,
@@ -24,8 +25,14 @@ import {
 } from '../support/no-egress.js';
 
 /** Opens a connection and resolves with the error code it failed with (or `connected`). */
-async function connectAndReport(...args: Parameters<typeof net.connect>): Promise<string> {
-  const socket = net.connect(...args);
+async function connectAndReport(
+  first: net.NetConnectOpts | number | string,
+  host?: string,
+): Promise<string> {
+  const socket =
+    typeof first === 'number' && host !== undefined
+      ? net.connect(first, host)
+      : net.connect(first as net.NetConnectOpts);
   try {
     await once(socket, 'connect');
     return 'connected';
@@ -35,6 +42,11 @@ async function connectAndReport(...args: Parameters<typeof net.connect>): Promis
     socket.destroy();
   }
 }
+
+// MSW answers a `fetch` to a Microsoft host before it reaches a socket; the guard sits below it, so
+// these tests take MSW off `fetch` (the MSW setup is tested in fake-tenant.core.test.ts).
+beforeAll(suspendMsw);
+afterAll(resumeMsw);
 
 describe('the guard is active in every test process (XB14)', () => {
   it('is installed by the Vitest setup file, without any per-test code', () => {
@@ -146,7 +158,7 @@ describe('the hole MSW leaves (V-B05)', () => {
   it('the guard is what stops it: a lenient guard would let this probe through (negative)', async () => {
     // A guard that classifies everything as allowed. `assertBlocks` is the check the table above
     // makes; it must fail for this one, or the table proves nothing.
-    const lenient = (_host: string): boolean => true;
+    const lenient = (): boolean => true;
     expectGuardFails(
       (input: { allows: (host: string) => boolean }) => {
         for (const host of ['graph.microsoft.com', '93.184.216.34', '10.0.0.1']) {
@@ -278,17 +290,31 @@ describe('how the arguments of connect are read', () => {
     [[443, () => undefined], { kind: 'tcp', host: 'localhost', port: 443 }],
     [['/tmp/x.sock'], { kind: 'ipc', path: '/tmp/x.sock' }],
     [[{ path: '/tmp/x.sock' }], { kind: 'ipc', path: '/tmp/x.sock' }],
-    [[{ path: '/tmp/x.sock', host: 'a.example.test', port: 1 }], { kind: 'ipc', path: '/tmp/x.sock' }],
+    [
+      [{ path: '/tmp/x.sock', host: 'a.example.test', port: 1 }],
+      { kind: 'ipc', path: '/tmp/x.sock' },
+    ],
     // What `net.connect` passes on: the normalised `[options, callback]` array as the one argument.
-    [[[{ host: 'a.example.test', port: 443 }, null]], { kind: 'tcp', host: 'a.example.test', port: 443 }],
+    [
+      [[{ host: 'a.example.test', port: 443 }, null]],
+      { kind: 'tcp', host: 'a.example.test', port: 443 },
+    ],
     [[[{ path: '/tmp/x.sock' }, null]], { kind: 'ipc', path: '/tmp/x.sock' }],
   ])('%j', (args, expected) => {
     expect(classifyConnectArguments(args)).toEqual(expected);
   });
 
   it('treats an argument list it cannot read as a network connection to an unknown host', () => {
-    expect(classifyConnectArguments([])).toEqual({ kind: 'tcp', host: 'localhost', port: undefined });
-    expect(classifyConnectArguments([null])).toEqual({ kind: 'tcp', host: 'localhost', port: undefined });
+    expect(classifyConnectArguments([])).toEqual({
+      kind: 'tcp',
+      host: 'localhost',
+      port: undefined,
+    });
+    expect(classifyConnectArguments([null])).toEqual({
+      kind: 'tcp',
+      host: 'localhost',
+      port: undefined,
+    });
     expect(classifyConnectArguments([{ host: 7, port: 1 }])).toEqual({
       kind: 'tcp',
       host: '',

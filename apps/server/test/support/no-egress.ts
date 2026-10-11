@@ -61,7 +61,12 @@ export function classifyConnectArguments(args: readonly unknown[], nested = fals
   if (typeof first === 'object' && first !== null) {
     const options = first as { host?: unknown; port?: unknown; path?: unknown };
     if (typeof options.path === 'string') return { kind: 'ipc', path: options.path };
-    const host = options.host === undefined ? 'localhost' : typeof options.host === 'string' ? options.host : '';
+    const host =
+      options.host === undefined
+        ? 'localhost'
+        : typeof options.host === 'string'
+          ? options.host
+          : '';
     return { kind: 'tcp', host, port: asPortNumber(options.port) };
   }
   if (typeof first === 'string' && asPortNumber(first) === undefined) {
@@ -89,7 +94,11 @@ function ipv6Groups(address: string): number[] | undefined {
   const right = rest === undefined || rest === '' ? [] : rest.split(':');
   const missing = 8 - left.length - right.length;
   if (rest === undefined ? missing !== 0 : missing < 0) return undefined;
-  const groups = [...left, ...Array.from({ length: rest === undefined ? 0 : missing }, () => '0'), ...right];
+  const groups = [
+    ...left,
+    ...Array.from({ length: rest === undefined ? 0 : missing }, () => '0'),
+    ...right,
+  ];
   const numbers = groups.map((group) => Number.parseInt(group, 16));
   return numbers.length === 8 && numbers.every((n) => Number.isInteger(n) && n >= 0 && n <= 0xffff)
     ? numbers
@@ -102,7 +111,8 @@ export function isLoopbackHost(host: string): boolean {
   if (net.isIPv4(host)) return host.startsWith('127.');
   const groups = ipv6Groups(host);
   if (groups === undefined) return false;
-  const isZero = (from: number, to: number): boolean => groups.slice(from, to).every((g) => g === 0);
+  const isZero = (from: number, to: number): boolean =>
+    groups.slice(from, to).every((g) => g === 0);
   if (isZero(0, 7) && groups[7] === 1) return true; // ::1
   if (isZero(0, 5) && groups[5] === 0xffff) return (groups[6] ?? 0) >> 8 === 127; // ::ffff:127.x.x.x
   return false;
@@ -131,13 +141,13 @@ export function installNoEgress(): () => void {
     if (target.kind === 'tcp' && !isLoopbackHost(target.host)) {
       const error = new NoEgressError(target.host, target.port);
       // Node reports a connection that failed through the 'error' event of the socket, later.
-      this.connecting = true;
+      (this as unknown as { connecting: boolean }).connecting = true;
       process.nextTick(() => {
         this.destroy(error);
       });
       return this;
     }
-    return Reflect.apply(original, this, args) as net.Socket;
+    return original.apply(this, args);
   };
 
   uninstallGuard = () => {
