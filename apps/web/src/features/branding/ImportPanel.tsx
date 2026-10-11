@@ -181,9 +181,9 @@ export function ImportPanel({
           className="flex flex-col gap-3 rounded-lg border border-line-subtle bg-surface-raised p-4"
         >
           <div className="flex flex-col gap-1">
-            <h4 id={titleId} className="text-subtitle font-semibold text-fg">
+            <h3 id={titleId} className="text-subtitle font-semibold text-fg">
               {t('appearance.import.resultTitle')}
-            </h4>
+            </h3>
             <p className="text-body-sm text-fg-muted">{t('appearance.import.resultDescription')}</p>
           </div>
           <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-body sm:grid-cols-[max-content_minmax(0,1fr)]">
@@ -195,7 +195,7 @@ export function ImportPanel({
             <dd className="text-fg-secondary">{checked.result.accent}</dd>
           </dl>
           <div className="flex flex-col gap-1">
-            <h5 className="text-body font-medium text-fg">{t('appearance.import.imagesTitle')}</h5>
+            <h4 className="text-body font-medium text-fg">{t('appearance.import.imagesTitle')}</h4>
             <ul className="flex flex-col gap-2 text-body-sm">
               {IMAGES.map(([member, key]) => (
                 <ImageLine key={member} label={t(key)} image={checked.result.images[member]} />

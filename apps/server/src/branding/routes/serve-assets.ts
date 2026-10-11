@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { type DatabaseHandle } from '../../db/index.js';
 import { AssetFileMissingError, type AssetStore } from '../asset-store.js';
 import { findAsset } from '../repository.js';
+import { PROBLEM_ANSWERS } from './request-support.js';
 
 export interface AssetServingDeps {
   /** The open database, or a thrown 503 `storage_unavailable`. */
@@ -62,6 +63,8 @@ export function assetServingRoutes(deps: AssetServingDeps): RouteDefinition[] {
           content: { 'image/png': { schema: { type: 'string', format: 'binary' } } },
         },
         304: { description: 'The browser has this image.' },
+        404: PROBLEM_ANSWERS.notFound,
+        503: PROBLEM_ANSWERS.storage,
       },
       handler: async (c, input) => {
         if (!ASSET_FILE.test(input.params.file)) throw new ProblemError('not_found');

@@ -36,6 +36,7 @@
   "appearance.discard": "Wijzigingen negeren",
   "appearance.export.button": "Exporteren",
   "appearance.export.hint": "Downloadt de naam, de accentkleur en de logo's als één bestand dat je in een ander paneel kunt importeren.",
+  "appearance.failed": "Het uiterlijk is niet opgeslagen",
   "appearance.import.accent": "Accentkleur",
   "appearance.import.applied": "De import is toegepast.",
   "appearance.import.appliedUndo": "Uiterlijk geïmporteerd",

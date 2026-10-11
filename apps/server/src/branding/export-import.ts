@@ -38,7 +38,12 @@ import {
 import { appendAudit, type AuditDetail } from '../audit/index.js';
 import { withTransaction, type DatabaseHandle } from '../db/index.js';
 import { ProblemError, validationProblemParts } from '../http/problem.js';
-import { sha256Hex, type AssetMetadata, type AssetStore } from './asset-store.js';
+import {
+  AssetFileMissingError,
+  sha256Hex,
+  type AssetMetadata,
+  type AssetStore,
+} from './asset-store.js';
 import type { ImageJobRunner } from './pipeline/job-runner.js';
 import type { BrandingService, ChangeContext } from './service.js';
 
@@ -199,7 +204,7 @@ export function createBrandingTransfer(deps: BrandingTransferDeps): BrandingTran
     context: ChangeContext,
     entry: {
       readonly action: 'branding.export' | 'branding.import';
-      readonly outcome: 'success' | 'rejected';
+      readonly outcome: 'success' | 'rejected' | 'error';
       readonly reasonCode?: ProblemCode;
       readonly detail: AuditDetail;
     },
@@ -226,17 +231,34 @@ export function createBrandingTransfer(deps: BrandingTransferDeps): BrandingTran
     const branding = service.get();
     const master = async (hash: string | undefined): Promise<string | null> =>
       hash === undefined ? null : (await assets.read(hash)).toString('base64');
-    const document: BrandingExport = {
-      schemaVersion: 1,
-      orgName: branding.orgName,
-      accent: branding.accent,
-      images: {
-        logoLight: await master(branding.logos.light?.hash),
-        logoDark: await master(branding.logos.dark?.hash),
-        // The explicit compact only: a derived one is made again on import.
-        compact: branding.compactDerived ? null : await master(branding.logos.compact?.hash),
-      },
-    };
+    let document: BrandingExport;
+    try {
+      document = {
+        schemaVersion: 1,
+        orgName: branding.orgName,
+        accent: branding.accent,
+        images: {
+          logoLight: await master(branding.logos.light?.hash),
+          logoDark: await master(branding.logos.dark?.hash),
+          // The explicit compact only: a derived one is made again on import.
+          compact: branding.compactDerived ? null : await master(branding.logos.compact?.hash),
+        },
+      };
+    } catch (error) {
+      // A master file that is gone (s2f-2): damaged storage is a server fault, so the answer stays
+      // a 500 `internal_error` (a 409 would need a code the problem catalogue does not have, and
+      // would tell an operator's monitoring that nothing is wrong). The attempt is audited as
+      // `error`; neither the hash nor a path is in the row or in the answer. No partial document.
+      if (error instanceof AssetFileMissingError) {
+        audit(db, context, {
+          action: 'branding.export',
+          outcome: 'error',
+          reasonCode: 'internal_error',
+          detail: { schemaVersion: 1 },
+        });
+      }
+      throw error;
+    }
     const text = JSON.stringify(document);
     audit(db, context, {
       action: 'branding.export',

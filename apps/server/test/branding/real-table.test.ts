@@ -120,7 +120,13 @@ async function buildReal(mode: 'anonymous' | 'preview' = 'anonymous'): Promise<R
     sweepers: createSweeperRegistry({ log }),
     isShuttingDown: () => false,
   };
-  const module = brandingModule(moduleDeps, { images: inProcessImages() });
+  const module = brandingModule(moduleDeps, {
+    images: {
+      ...inProcessImages(),
+      shutdown: () => Promise.resolve(),
+      stats: () => ({ running: 0, queued: 0, started: 0, peakRunning: 0 }),
+    },
+  });
   await module.start?.(moduleDeps);
   const built = buildApp({
     config,
@@ -144,12 +150,11 @@ async function buildReal(mode: 'anonymous' | 'preview' = 'anonymous'): Promise<R
     built,
     database,
     client: createHttpClient({
-      fetch: (request) => built.fetch(request, PEER as never),
+      fetch: (request) => built.fetch(request, PEER),
       baseUrl: ORIGIN,
       origin: ORIGIN,
     }),
-    rows: () =>
-      database.sqlite.prepare('SELECT * FROM audit_log ORDER BY seq').all() as AuditRow[],
+    rows: () => database.sqlite.prepare('SELECT * FROM audit_log ORDER BY seq').all() as AuditRow[],
   };
 }
 
@@ -217,6 +222,38 @@ describe('the real table (T-A-092): the routes of R6 to R15', () => {
     }
   });
 
+  // Contract sections 4 and 5, status by status: the document must say what the routes answer.
+  const CONTRACT_STATUSES: readonly (readonly [string, string, readonly string[]])[] = [
+    ['get', '/api/v1/branding', ['200', '429', '503']],
+    [
+      'post',
+      '/api/v1/branding/assets',
+      ['200', '201', '403', '409', '413', '415', '422', '429', '503'],
+    ],
+    ['put', '/api/v1/branding', ['200', '403', '412', '413', '415', '422', '428', '429', '503']],
+    ['delete', '/api/v1/branding', ['200', '403', '412', '422', '428', '429', '503']],
+    ['get', '/api/v1/branding/export', ['200', '403', '429', '503']],
+    [
+      'post',
+      '/api/v1/branding/import',
+      ['200', '403', '412', '413', '415', '422', '428', '429', '503'],
+    ],
+    ['get', '/branding/{file}', ['200', '304', '404', '429', '503']],
+    ['get', '/manifest.webmanifest', ['200', '429']],
+    ['get', '/favicon.ico', ['307', '404', '429']],
+    ['get', '/apple-touch-icon.png', ['307', '404', '429']],
+  ];
+
+  it.each(CONTRACT_STATUSES)(
+    'documents every status of the contract for %s %s',
+    async (method, path, statuses) => {
+      const { built } = await buildReal();
+      const item = built.http.document.paths?.[path] as Record<string, { responses: object }>;
+      const documented = Object.keys(item[method]?.responses ?? {});
+      expect(statuses.filter((status) => !documented.includes(status))).toEqual([]);
+    },
+  );
+
   it('negative: a document without the branding upload is found by the parity check', async () => {
     const { built } = await buildReal();
     const trimmed = structuredClone(built.http.document);
@@ -243,8 +280,9 @@ describe('policy over the real table (FR-A-033)', () => {
     }
     // Nothing but denials: the default row's `branding.init` and one denied row per route.
     expect(real.rows().filter((row) => row.outcome === 'denied')).toHaveLength(routes.length);
-    expect(real.rows().filter((row) => row.action.startsWith('branding.') && row.outcome === 'success'))
-      .toHaveLength(1);
+    expect(
+      real.rows().filter((row) => row.action.startsWith('branding.') && row.outcome === 'success'),
+    ).toHaveLength(1);
   });
 
   it('lets the preview actor past authorisation on the same routes (no 403, no denial row)', async () => {
@@ -259,11 +297,12 @@ describe('policy over the real table (FR-A-033)', () => {
   it('negative: a table with a public write route is found by the same check', async () => {
     const real = await buildReal();
     const routes = writeRoutesOf(real.built);
-    const publicWrite: WriteRoute = { ...(routes[0] as WriteRoute), permission: undefined };
+    const publicWrite: WriteRoute = { ...routes[0]!, permission: undefined };
     expectGuardFails(
       (candidate: readonly WriteRoute[]) => {
         const open = candidate.filter((route) => route.permission === undefined);
-        if (open.length > 0) throw new Error(`public write routes: ${open.map((r) => r.id).join()}`);
+        if (open.length > 0)
+          throw new Error(`public write routes: ${open.map((r) => r.id).join()}`);
       },
       [publicWrite, ...routes.slice(1)],
     );
@@ -332,8 +371,9 @@ async function assertDenialsAudited(real: Real, mode: 'anonymous' | 'preview'): 
         );
       }
       const rows = real.rows();
-      if (rows.length !== before + 1) throw new Error(`${where}: ${String(rows.length - before)} new rows`);
-      const row = rows[rows.length - 1] as AuditRow;
+      if (rows.length !== before + 1)
+        throw new Error(`${where}: ${String(rows.length - before)} new rows`);
+      const row = rows[rows.length - 1]!;
       const expected: Partial<AuditRow> = {
         actor_kind: mode,
         actor_id: mode,
@@ -345,12 +385,17 @@ async function assertDenialsAudited(real: Real, mode: 'anonymous' | 'preview'): 
       };
       for (const [field, value] of Object.entries(expected)) {
         if (row[field as keyof AuditRow] !== value) {
-          throw new Error(`${where}: audit field ${field} is ${String(row[field as keyof AuditRow])}`);
+          throw new Error(
+            `${where}: audit field ${field} is ${String(row[field as keyof AuditRow])}`,
+          );
         }
       }
       const detail = JSON.parse(row.detail) as Record<string, unknown>;
       const wanted = { method: route.method, route: route.template, permission: route.permission };
-      if (JSON.stringify(Object.entries(detail).sort()) !== JSON.stringify(Object.entries(wanted).sort())) {
+      if (
+        JSON.stringify(Object.entries(detail).sort()) !==
+        JSON.stringify(Object.entries(wanted).sort())
+      ) {
         throw new Error(`${where}: audit detail is ${row.detail}`);
       }
     }
@@ -371,7 +416,9 @@ describe.each(['anonymous', 'preview'] as const)(
       const verdict = verifyChain(real.database.sqlite);
       expect(verdict.ok).toBe(true);
       expect(verdict.checked).toBe(real.rows().length);
-      expect(real.rows().map((row) => row.seq)).toEqual(real.rows().map((_row, index) => index + 1));
+      expect(real.rows().map((row) => row.seq)).toEqual(
+        real.rows().map((_row, index) => index + 1),
+      );
       expect(real.rows()[0]?.action).toBe('branding.init');
     });
   },

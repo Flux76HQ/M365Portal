@@ -17,7 +17,7 @@
   --radius-md: 6px;
   --radius-lg: 8px;
   --radius-full: 9999px;
-  --font-sans: "Inter Variable", "Inter Fallback", system-ui, sans-serif;
+  --font-sans: 'Inter Variable', 'Inter Fallback', system-ui, sans-serif;
   --font-size-caption: 0.75rem;
   --line-height-caption: 1rem;
   --font-size-body-sm: 0.8125rem;
@@ -83,8 +83,10 @@
   }
 }
 
-:root[data-theme="dark"] {
-  --shadow-1: 0 1px 2px 0 rgb(0 0 0 / 0.3), 0 1px 3px 0 rgb(0 0 0 / 0.36), inset 0 0 0 1px rgb(255 255 255 / 0.07);
+:root[data-theme='dark'] {
+  --shadow-1:
+    0 1px 2px 0 rgb(0 0 0 / 0.3), 0 1px 3px 0 rgb(0 0 0 / 0.36),
+    inset 0 0 0 1px rgb(255 255 255 / 0.07);
   --shadow-2: 0 4px 12px 0 rgb(0 0 0 / 0.4), inset 0 0 0 1px rgb(255 255 255 / 0.07);
   --shadow-3: 0 12px 32px 0 rgb(0 0 0 / 0.5), inset 0 0 0 1px rgb(255 255 255 / 0.07);
 }
@@ -113,7 +115,7 @@
   --focus-ring: #0078d4;
 }
 
-:where(:root[data-theme="dark"]) {
+:where(:root[data-theme='dark']) {
   color-scheme: dark;
   --surface-page: #0f1318;
   --surface-raised: #161b22;

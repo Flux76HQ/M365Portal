@@ -9,7 +9,6 @@
 //   - the `__drizzle_migrations` row count has not changed (a restart migrates nothing);
 //   - the audit chain verifies (`verifyChain`, and `dist/cli.js verify-audit` of the built bundle),
 //     and holds the rows of the first run, once, with no second `branding.init`.
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -147,9 +146,7 @@ describe('branding survives a restart (real HTTP, one DATA_DIR)', () => {
       const bytes = Buffer.from(await response.arrayBuffer());
       expect(createHash('sha256').update(bytes).digest('hex'), url).toBe(served[url]);
     }
-    const page = await (
-      await second.client.get('/', { headers: { accept: 'text/html' } })
-    ).text();
+    const page = await (await second.client.get('/', { headers: { accept: 'text/html' } })).text();
     expect(page).toContain('<title>Zandbergen Online \u{1F680}</title>');
     const manifest = await readJson<{ name: string }>(
       await second.client.get('/manifest.webmanifest'),
@@ -178,17 +175,3 @@ describe('branding survives a restart (real HTTP, one DATA_DIR)', () => {
     expect(databaseFacts(dataDir).actions).toEqual(['branding.init']);
   });
 });
-
-/** Run `node dist/cli.js verify-audit` of a built bundle on a data directory. */
-export function verifyAuditOf(cli: string, dataDir: string): Promise<{ code: number | null; out: string }> {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [cli, 'verify-audit'], {
-      env: { PATH: process.env.PATH ?? '', DATA_DIR: dataDir, PUBLIC_BASE_URL: 'http://localhost:8080' },
-    });
-    let out = '';
-    child.stdout.on('data', (chunk: Buffer) => (out += chunk.toString()));
-    child.once('exit', (code) => {
-      resolve({ code, out });
-    });
-  });
-}

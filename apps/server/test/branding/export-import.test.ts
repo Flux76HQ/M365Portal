@@ -11,6 +11,7 @@ import {
   ImportResultSchema,
   type BrandingExport,
 } from '@m365portal/shared/schemas/export-import';
+import { rm } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { sha256Hex } from '../../src/branding/asset-store.js';
 import { scanImportJson } from '../../src/branding/export-import.js';
@@ -206,6 +207,44 @@ describe('R10 GET /api/v1/branding/export', () => {
     });
     // The audit row holds no image.
     expect(rows[0]?.detail).not.toMatch(/iVBOR/);
+  });
+
+  // Open point s2f-2, decided in T-A-093: a master file that is gone is a 500 `internal_error`, not a
+  // 409. A 409 says the request conflicts with state the client can change, and the problem
+  // catalogue has no code for it (31 codes, fixed by contract section 6); this is damaged storage,
+  // which an operator must see as a server fault. The answer holds neither the hash nor a path.
+  // The attempt is audited as `error`, so the log shows who asked, and no half document is sent.
+  // The state can be repaired from the UI: applying or resetting the branding drops the reference.
+  it('answers 500 internal_error when a master file is gone: no partial document, an error row, repairable', async () => {
+    const storage = await app();
+    const light = await distinctPng(1);
+    const dark = await distinctPng(2);
+    const branding = await applyLogos(storage, { light, dark });
+    const gone = branding.logos.dark?.hash ?? '';
+    await rm(storage.store.pathOf(gone));
+    const before = storage.audit().length;
+
+    const response = await storage.app.client.get(EXPORT);
+    expect(response.status).toBe(500);
+    expect(response.headers.get('content-disposition')).toBeNull();
+    const text = await response.text();
+    expect(text).not.toContain(gone);
+    expect(text).not.toContain(storage.dataDir);
+    expect(JSON.parse(text)).toMatchObject({ code: 'internal_error', status: 500 });
+
+    const rows = storage.audit().slice(before);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      action: 'branding.export',
+      outcome: 'error',
+      reason_code: 'internal_error',
+      actor_kind: 'preview',
+    });
+    expect(rows[0]?.detail).not.toContain(gone);
+
+    // Repair: the branding is reset, the reference to the lost file goes, the export works again.
+    await storage.service.reset(storage.service.get().revision, STAFF);
+    expect((await storage.app.client.get(EXPORT)).status).toBe(200);
   });
 
   it('refuses a cross-site request before any audit row or export is made', async () => {

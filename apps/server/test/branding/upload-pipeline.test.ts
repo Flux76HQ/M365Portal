@@ -1026,8 +1026,15 @@ describe('the sweepers on a fake clock (T-A-084; data-model 9)', () => {
     const second = await stageUpload(storage, await distinctPng(15));
     storage.clock.advance(2 * DAY);
     scheduler.advance(HOUR);
-    await new Promise((resolve) => setImmediate(resolve));
-    await new Promise((resolve) => setImmediate(resolve));
+    // The hourly run is not awaitable from outside and does file system work, so a fixed number of
+    // turns of the event loop is not enough on a busy machine: turn it until the sweep is seen.
+    for (
+      let turns = 0;
+      turns < 5_000 && storage.assets().some((row) => row.sha256 === second.sha256);
+      turns += 1
+    ) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
     expect(storage.assets().some((row) => row.sha256 === second.sha256)).toBe(false);
     expect(warnings).toEqual([]);
     registry.stop();

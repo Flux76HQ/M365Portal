@@ -36,6 +36,7 @@
   "appearance.discard": "Discard changes",
   "appearance.export.button": "Export",
   "appearance.export.hint": "Downloads the name, the accent colour and the logos as one file you can import in another panel.",
+  "appearance.failed": "The appearance was not saved",
   "appearance.import.accent": "Accent colour",
   "appearance.import.applied": "The import was applied.",
   "appearance.import.appliedUndo": "Appearance imported",

@@ -617,6 +617,12 @@ export interface HttpTargetOptions {
   readonly readAudit: () => Promise<readonly AuditObservation[]>;
   /** A server with a shortened `requestTimeout`, for the slow upload (H-37). */
   readonly serverFor?: (plan: TransportPlan) => Promise<ServerHandle>;
+  /**
+   * A distinct client address for each request (sent as `X-Forwarded-For` to a server that trusts one
+   * proxy). The upload rate class allows one client 3 uploads in a burst, so a fixture of 20 simultaneous
+   * uploads (H-39) can only exercise the image queue when every upload comes from another client.
+   */
+  readonly clientAddress?: () => string;
 }
 
 export interface HttpResult {
@@ -772,6 +778,7 @@ export function viaHttp(options: HttpTargetOptions): HostileTarget {
     host: new URL(options.publicOrigin).host,
     origin: options.publicOrigin,
     'x-csrf-token': await options.csrfToken(),
+    ...(options.clientAddress === undefined ? {} : { 'x-forwarded-for': options.clientAddress() }),
     ...headers,
   });
 

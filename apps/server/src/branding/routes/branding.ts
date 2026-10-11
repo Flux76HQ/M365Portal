@@ -8,14 +8,16 @@
 // route wrapper's, in its fixed order; what is left for the handler is the precondition and the
 // service. The audit entry of a success is written by the service in the transaction of the change
 // (I-8); the audit entry of a denial is the wrapper's.
-import {
-  ApplyBrandingRequestSchema,
-  BrandingSchema,
-} from '@m365portal/shared/schemas/branding';
+import { ApplyBrandingRequestSchema, BrandingSchema } from '@m365portal/shared/schemas/branding';
 import { z } from 'zod';
 import { defineRoute, type RouteDefinition } from '../../http/route.js';
 import type { BrandingService } from '../service.js';
-import { changeContextOf, ifMatchRevisionOf, revisionHeaders } from './request-support.js';
+import {
+  changeContextOf,
+  ifMatchRevisionOf,
+  PROBLEM_ANSWERS,
+  revisionHeaders,
+} from './request-support.js';
 
 export interface BrandingRoutesDeps {
   readonly service: BrandingService;
@@ -50,7 +52,7 @@ export function brandingRoutes(deps: BrandingRoutesDeps): RouteDefinition[] {
       summary: 'The applied branding',
       description:
         'Revision, organisation name, chosen accent, the derived token sets, logos, icons and the monogram. Carries an ETag for If-Match; no actor identity.',
-      responses: { 200: brandingResponse('The applied branding.') },
+      responses: { 200: brandingResponse('The applied branding.'), 503: PROBLEM_ANSWERS.storage },
       handler: (c) => {
         const branding = service.get();
         return c.json(branding, 200, revisionHeaders(branding.revision));
@@ -74,7 +76,12 @@ export function brandingRoutes(deps: BrandingRoutesDeps): RouteDefinition[] {
           content: { 'application/json': { schema: ApplyBrandingRequestSchema } },
         },
       },
-      responses: { 200: brandingResponse('The branding at its new revision.') },
+      responses: {
+        200: brandingResponse('The branding at its new revision.'),
+        412: PROBLEM_ANSWERS.stale,
+        428: PROBLEM_ANSWERS.required,
+        503: PROBLEM_ANSWERS.storage,
+      },
       handler: async (c, input) => {
         const revision = ifMatchRevisionOf(c);
         const branding = await service.apply(input.body, revision, changeContextOf(c));
@@ -93,7 +100,12 @@ export function brandingRoutes(deps: BrandingRoutesDeps): RouteDefinition[] {
       description:
         'Name "M365Portal", the default accent, monogram icons, no logos. Requires If-Match. Retired assets keep 24 hours, so Undo can re-apply them.',
       request: { headers: IfMatchHeaders },
-      responses: { 200: brandingResponse('The default branding at its new revision.') },
+      responses: {
+        200: brandingResponse('The default branding at its new revision.'),
+        412: PROBLEM_ANSWERS.stale,
+        428: PROBLEM_ANSWERS.required,
+        503: PROBLEM_ANSWERS.storage,
+      },
       handler: async (c) => {
         const revision = ifMatchRevisionOf(c);
         const branding = await service.reset(revision, changeContextOf(c));

@@ -37,6 +37,7 @@ import { ProblemError } from '../../http/problem.js';
 import { defineRoute, type RouteContext, type RouteDefinition } from '../../http/route.js';
 import { sha256Hex, type AssetStore } from '../asset-store.js';
 import type { ImageJobRunner } from '../pipeline/job-runner.js';
+import { PROBLEM_ANSWERS } from './request-support.js';
 
 export interface AssetsUploadDeps {
   /** The open database, or a thrown 503 `storage_unavailable`. */
@@ -159,6 +160,8 @@ export function assetsUploadRoutes(deps: AssetsUploadDeps): RouteDefinition[] {
           description: 'The processed image was stored.',
           content: { 'application/json': { schema: UploadAssetResponseSchema } },
         },
+        409: PROBLEM_ANSWERS.conflict,
+        503: PROBLEM_ANSWERS.storage,
       },
       handler: async (c, input) => {
         if (deps.isShuttingDown()) throw new ProblemError('shutting_down');

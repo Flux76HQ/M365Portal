@@ -109,9 +109,9 @@ export function AccentPicker({ value, onChange, disabled = false, error }: Accen
 
   return (
     <section aria-labelledby="accent-title" className="flex flex-col gap-5">
-      <h3 id="accent-title" className="text-subtitle font-semibold text-fg">
+      <h2 id="accent-title" className="text-subtitle font-semibold text-fg">
         {t('accent.title')}
-      </h3>
+      </h2>
 
       <FormField
         label={t('accent.hexLabel')}
@@ -198,9 +198,9 @@ export function AccentPicker({ value, onChange, disabled = false, error }: Accen
 
       {tools !== null && normalised !== null && derived !== null ? (
         <section aria-labelledby="accent-result-title" className="flex flex-col gap-3">
-          <h4 id="accent-result-title" className="text-body font-medium text-fg">
+          <h3 id="accent-result-title" className="text-body font-medium text-fg">
             {t('accent.resultTitle')}
-          </h4>
+          </h3>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {THEMES.map((theme) => {
               const set = derived[theme];

@@ -16,7 +16,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { appModules } from '../../src/modules.js';
 import { brandingModule } from '../../src/branding/index.js';
-import { createImageJobRunner, type ImageJobRunner } from '../../src/branding/pipeline/job-runner.js';
+import {
+  createImageJobRunner,
+  type ImageJobRunner,
+} from '../../src/branding/pipeline/job-runner.js';
 import { openDatabase, DATABASE_FILE_NAME } from '../../src/db/index.js';
 import type { AppModule, AppModuleFactory } from '../../src/module.js';
 import { startServer, type RunningServer } from '../../src/start.js';

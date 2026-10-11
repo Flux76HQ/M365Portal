@@ -17,7 +17,12 @@ import {
 import { z } from 'zod';
 import { defineRoute, type RouteDefinition } from '../../http/route.js';
 import { createBrandingTransfer, type BrandingTransferDeps } from '../export-import.js';
-import { changeContextOf, ifMatchRevisionOf, revisionHeaders } from './request-support.js';
+import {
+  changeContextOf,
+  ifMatchRevisionOf,
+  PROBLEM_ANSWERS,
+  revisionHeaders,
+} from './request-support.js';
 
 export type ExportImportRoutesDeps = BrandingTransferDeps;
 
@@ -81,6 +86,7 @@ export function exportImportRoutes(deps: ExportImportRoutesDeps): RouteDefinitio
           },
           content: { 'application/json': { schema: BrandingExportSchema } },
         },
+        503: PROBLEM_ANSWERS.storage,
       },
       handler: async (c) => {
         const { text, fileName } = await transfer.exportDocument(changeContextOf(c));
@@ -109,6 +115,9 @@ export function exportImportRoutes(deps: ExportImportRoutesDeps): RouteDefinitio
           description: 'The outcome of the import (or of the dry run).',
           content: { 'application/json': { schema: ImportResultSchema } },
         },
+        412: PROBLEM_ANSWERS.stale,
+        428: PROBLEM_ANSWERS.required,
+        503: PROBLEM_ANSWERS.storage,
       },
       handler: async (c, input) => {
         const dryRun = input.query.dryRun === 'true';

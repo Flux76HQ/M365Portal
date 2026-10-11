@@ -114,6 +114,23 @@ function inlineStylesheets(
   return { html: replaced, inlined };
 }
 
+/**
+ * Takes the inlined stylesheets out of the chunks' list of imported CSS. Vite builds the dependency list
+ * of every dynamic `import()` from that list, and a lazy chunk with an `import()` of its own (the
+ * Appearance page, T-A-214) would otherwise preload a stylesheet file that is not shipped: "Unable to
+ * preload CSS", and the import fails with it. This runs while the HTML is generated, before Vite's
+ * import analysis builds those lists.
+ */
+function forgetInlinedStylesheets(
+  bundle: Record<string, { type: string; viteMetadata?: { importedCss?: Set<string> } }>,
+  inlined: readonly string[],
+): void {
+  for (const item of Object.values(bundle)) {
+    if (item.type !== 'chunk') continue;
+    for (const fileName of inlined) item.viteMetadata?.importedCss?.delete(fileName);
+  }
+}
+
 // Vite reads every <style> of index.html as CSS and minifies it, and `__M365_THEME_CSS__` is not CSS.
 // The element is therefore set aside as a comment before Vite looks at the document and put back
 // afterwards. (A comment inside the element would not do: the server replaces the token, so the CSS
@@ -171,6 +188,7 @@ export function nonceInline(): Plugin[] {
           config.base,
         );
         for (const fileName of inlined) inlinedStylesheets.add(fileName);
+        forgetInlinedStylesheets(context.bundle, inlined);
         return result;
       },
     },

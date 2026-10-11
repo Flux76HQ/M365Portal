@@ -3,6 +3,7 @@ import type { MessageKey } from '@m365portal/shared/i18n';
 import { RouterProvider, useRouterState } from '@tanstack/react-router';
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import { useEffect, type ReactNode } from 'react';
+import { useApplyBrandingToShell } from '../../features/branding/apply-to-shell';
 import { LanguageProvider, useTranslator, type LanguageController } from '../../lib/locale';
 import { accessOf } from '../../lib/gating';
 import { useBranding } from '../../lib/router-context';
@@ -99,6 +100,8 @@ export function DocumentTitleSync({ children }: { readonly children: ReactNode }
     },
   });
   const organisation = useBranding()?.orgName ?? PRODUCT_NAME;
+  // The accent, theme colour and icons follow the saved branding (T-A-215, seam of S5 in S4's file).
+  useApplyBrandingToShell();
 
   useEffect(() => {
     document.title = titleKey === undefined ? organisation : `${t(titleKey)} - ${organisation}`;

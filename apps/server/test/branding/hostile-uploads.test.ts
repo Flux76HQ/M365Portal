@@ -26,7 +26,7 @@ import { PROBLEM_CODES } from '@m365portal/shared/problem';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { Hono } from 'hono';
 import sharp from 'sharp';
-import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { processUpload } from '../../src/branding/pipeline/process-upload.js';
 import {
   assertCorpusCoversAppendix,
@@ -66,6 +66,7 @@ import {
   walkPng,
 } from '../fixtures/png-chunks.js';
 import { HAND_TEST_FILES, writeHostileFiles } from '../fixtures/write-hostile.js';
+import { buildLayout, type BuiltLayout } from '../helpers/built-server.js';
 import { startLocalListener, type LocalListener } from '../helpers/local-listener.js';
 import { createTestApp } from '../helpers/test-app.js';
 import {
@@ -96,6 +97,7 @@ import {
   type ServerHandle,
   type Workspace,
 } from './hostile-harness.js';
+import { startBuiltTarget, verifyAuditOf } from './hostile-built-server.js';
 
 // The fixtures are large (a 9 MiB import body, a 2 MB profile, a 40,000 by 40,000 pixel bomb) and the
 // machine may be busy; a slow test is not a failing one, the 5 s of Appendix A is checked by the runner.
@@ -2232,8 +2234,46 @@ describe('hostile corpus through the image pipeline (viaPipeline), red until T-A
       await runFixture({ fixture: entry, target: viaPipeline(subject), environment });
     });
   }
+});
 
-  it.todo(
-    '44 of 44 over HTTP with an audit entry per fixture (T-A-093 switches the runner to viaHttp)',
-  );
+// 5. The corpus over real HTTP against the BUILT server (T-A-093) ----------------------------------------------------------------------
+
+describe('hostile corpus over real HTTP against the built server (viaHttp), 44 of 44', () => {
+  let layout: BuiltLayout;
+  beforeAll(async () => {
+    layout = await buildLayout();
+  }, 120_000);
+  afterAll(async () => {
+    await layout.remove();
+  });
+
+  it('the corpus has the 44 fixtures H-01 to H-44 of Appendix A, and every one runs over HTTP', () => {
+    expect(HOSTILE_CORPUS.map((entry) => entry.id)).toEqual(
+      Array.from({ length: 44 }, (_, index) => `H-${String(index + 1).padStart(2, '0')}`),
+    );
+    for (const entry of HOSTILE_CORPUS) {
+      expect(
+        inputsFor(entry, { supports: () => true }).length,
+        `${entry.id} has no input`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  for (const entry of HOSTILE_CORPUS) {
+    it(`${entry.id} ${entry.category}: ${entry.summary}`, async () => {
+      const environment = await createEnvironment();
+      const target = await startBuiltTarget({
+        layout,
+        workspace: environment.workspace,
+        fixture: entry,
+      });
+      onTestFinished(() => target.close());
+      await runFixture({ fixture: entry, target, environment });
+      // Every fixture ended with the entries Appendix A calls for (the runner asserted that per
+      // input); the chain the process wrote must verify as well.
+      await target.close();
+      const verdict = await verifyAuditOf(layout, environment.workspace.dataDir);
+      expect(verdict.code, `${entry.id}: ${verdict.out}`).toBe(0);
+    });
+  }
 });

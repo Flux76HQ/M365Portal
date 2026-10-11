@@ -122,6 +122,12 @@ describe('colours through the CSSOM', () => {
     expect(darkPage).not.toBe('');
     expect(lightPage).not.toBe(darkPage);
     expect(pane('dark').style.getPropertyValue('color-scheme')).toBe('dark');
+    // The two aliases declared once on :root are re-declared in the pane, or its muted text and lines
+    // would keep the page's theme (axe found 2.97:1 for muted text in the dark pane of a light page).
+    for (const theme of ['light', 'dark'] as const) {
+      expect(pane(theme).style.getPropertyValue('--fg-muted')).toBe('var(--text-muted)');
+      expect(pane(theme).style.getPropertyValue('--line-subtle')).toBe('var(--border-subtle)');
+    }
   });
 
   it('never writes a style attribute string, at mount or on update', async () => {

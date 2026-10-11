@@ -1,6 +1,7 @@
 // What the branding routes read out of a request (T-A-086, T-A-087): who is acting and the revision
 // the client says it is changing. Shared by the upload, apply, reset and import routes, so the
 // spelling of `If-Match` handling exists once.
+import { ProblemSchema } from '@m365portal/shared/problem';
 import { parseRevisionEtag, revisionEtag } from '@m365portal/shared/schemas/branding';
 import { ProblemError } from '../../http/problem.js';
 import type { RouteContext } from '../../http/route.js';
@@ -45,3 +46,20 @@ export function ifMatchRevisionOf(c: RouteContext): number {
 export function revisionHeaders(revision: number): Record<string, string> {
   return { ETag: revisionEtag(revision), 'Cache-Control': 'no-store, no-transform' };
 }
+
+const PROBLEM_CONTENT = { 'application/problem+json': { schema: ProblemSchema } } as const;
+
+/** Problem answers a branding route can give that the wrapper does not know about (contract 4, 5). */
+export const PROBLEM_ANSWERS = {
+  notFound: { description: 'No such image, or not for this actor.', content: PROBLEM_CONTENT },
+  conflict: { description: 'The staging quota is full.', content: PROBLEM_CONTENT },
+  stale: {
+    description: 'If-Match names a revision that is not the current one.',
+    content: PROBLEM_CONTENT,
+  },
+  required: { description: 'If-Match is missing.', content: PROBLEM_CONTENT },
+  storage: {
+    description: 'Storage is unavailable or busy, or the server is shutting down.',
+    content: PROBLEM_CONTENT,
+  },
+} as const;

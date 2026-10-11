@@ -63,7 +63,13 @@ function paneVariables(
   accent: AccentTokenSet,
 ): Record<string, string> {
   const { tokens } = tools;
-  const variables: Record<string, string> = { 'color-scheme': theme };
+  // `--fg-muted` and `--line-subtle` are aliases declared once on `:root` (styles/a11y.css), so they
+  // would keep the page's theme inside the pane; declared here they resolve against the pane's roles.
+  const variables: Record<string, string> = {
+    'color-scheme': theme,
+    '--fg-muted': 'var(--text-muted)',
+    '--line-subtle': 'var(--border-subtle)',
+  };
   for (const [name, variable] of Object.entries(tokens.SURFACE_VARIABLES)) {
     variables[variable] = tokens.SURFACES[theme][name as keyof typeof tokens.SURFACE_VARIABLES];
   }
@@ -156,7 +162,7 @@ function PreviewPane({
       data-theme={theme}
       className="flex min-w-0 flex-col gap-2 rounded-lg border border-line-subtle bg-surface-page p-3 text-fg"
     >
-      <h4 className="text-body-sm font-semibold text-fg">{themeName}</h4>
+      <h3 className="text-body-sm font-semibold text-fg">{themeName}</h3>
       <p className="sr-only">
         {t('preview.summary', { theme: themeName, name, accent: accentHex })}
       </p>
@@ -221,9 +227,9 @@ export function LivePreview({ orgName, accent, logos }: LivePreviewProps) {
   return (
     <section aria-labelledby="preview-title" className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
-        <h3 id="preview-title" className="text-subtitle font-semibold text-fg">
+        <h2 id="preview-title" className="text-subtitle font-semibold text-fg">
           {t('preview.title')}
-        </h3>
+        </h2>
         <p className="text-body-sm text-fg-muted">{t('preview.description')}</p>
       </div>
       {tools === null || name === null || accentHex === null || derived === null ? (

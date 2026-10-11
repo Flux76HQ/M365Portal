@@ -8,13 +8,7 @@
 // for a colour that is merely hard to read: the accent is adjusted, not refused.
 import { z } from 'zod';
 import type { BrandingTools } from './tools';
-import type {
-  ApplyBrandingRequest,
-  AssetRef,
-  Branding,
-  ImportResult,
-  LogoVariant,
-} from './types';
+import type { ApplyBrandingRequest, AssetRef, Branding, ImportResult, LogoVariant } from './types';
 
 export interface AppearanceValues {
   /** The name as typed. */

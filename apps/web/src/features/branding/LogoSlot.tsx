@@ -239,9 +239,9 @@ export function LogoSlot({
       className="flex min-w-0 flex-col gap-3 rounded-lg border border-line-subtle bg-surface-raised p-4"
     >
       <div className="flex flex-col gap-1">
-        <h4 id={headingId} className="text-body font-medium text-fg">
+        <h3 id={headingId} className="text-body font-medium text-fg">
           {t(`logo.slot.${variant}.label`)}
-        </h4>
+        </h3>
         <p className="text-body-sm text-fg-muted">{t(`logo.slot.${variant}.hint`)}</p>
       </div>
 
@@ -392,9 +392,9 @@ export function LogoSlots({
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
-        <h3 id={titleId} className="text-subtitle font-semibold text-fg">
+        <h2 id={titleId} className="text-subtitle font-semibold text-fg">
           {t('logo.title')}
-        </h3>
+        </h2>
         <p className="text-body-sm text-fg-muted">{t('logo.accepted')}</p>
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
