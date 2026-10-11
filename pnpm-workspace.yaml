@@ -72,6 +72,13 @@ ignoredBuiltDependencies:
   - esbuild
   - better-sqlite3
 
+# Radix Select 2.3.8 injects an inline <style> through a Trusted Types sink that the production CSP
+# (require-trusted-types-for 'script') blocks. The patch removes it; the same rule is in
+# apps/web/src/styles/app.css. Guard: apps/web/test/csp-sinks.test.ts. Drop the patch when upstream
+# renders the style with a nonce or without a sink.
+patchedDependencies:
+  '@radix-ui/react-select@2.3.8': patches/@radix-ui__react-select@2.3.8.patch
+
 # Silences ONE known peer conflict and nothing else: eslint-plugin-jsx-a11y 6.10.2 (last release
 # 2024-10-26, unmaintained) declares eslint "<=9", yet all its rules fire on ESLint 10 (stack-probe
 # P2). The key names the parent so that any other plugin that does not support ESLint 10 is still

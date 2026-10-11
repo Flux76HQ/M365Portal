@@ -1,0 +1,44 @@
+diff --git a/dist/index.js b/dist/index.js
+index eeb641a912d232bc0a6bae32b46ed09cd55db34a..6b62629fbf4c6a84877e3c21bab70a1d57d98816 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -807,15 +807,8 @@ var SelectViewport = /* @__PURE__ */ React.forwardRef(
+     const composedRefs = (0, import_react_compose_refs.useComposedRefs)(forwardedRef, contentContext.onViewportChange);
+     const prevScrollTopRef = React.useRef(0);
+     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+-        "style",
+-        {
+-          dangerouslySetInnerHTML: {
+-            __html: `[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}`
+-          },
+-          nonce
+-        }
+-      ),
++      // M365Portal patch: the injected inline style element (a Trusted Types sink) is removed;
++      // the same rule lives in apps/web/src/styles/app.css.
+       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Collection.Slot, { scope: __scopeSelect, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+         import_react_primitive.Primitive.div,
+         {
+diff --git a/dist/index.mjs b/dist/index.mjs
+index c646929cab85075584766e8ca76d3307abf8d3b2..a9a4ec42777ab3f6041429519b65a5b8274ddd8f 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -737,15 +737,8 @@ var SelectViewport = /* @__PURE__ */ React.forwardRef(
+     const composedRefs = useComposedRefs(forwardedRef, contentContext.onViewportChange);
+     const prevScrollTopRef = React.useRef(0);
+     return /* @__PURE__ */ jsxs(Fragment2, { children: [
+-      /* @__PURE__ */ jsx(
+-        "style",
+-        {
+-          dangerouslySetInnerHTML: {
+-            __html: `[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}`
+-          },
+-          nonce
+-        }
+-      ),
++      // M365Portal patch: the injected inline style element (a Trusted Types sink) is removed;
++      // the same rule lives in apps/web/src/styles/app.css.
+       /* @__PURE__ */ jsx(Collection.Slot, { scope: __scopeSelect, children: /* @__PURE__ */ jsx(
+         Primitive.div,
+         {

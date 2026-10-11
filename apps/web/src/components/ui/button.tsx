@@ -8,7 +8,9 @@ import { cn } from '../../lib/cn';
 // is no outline utility here. The height is the control height of the pointer (32 px, 40 px on
 // coarse pointers); the small size and the icon sizes keep a target of at least 24 by 24 px
 // (WCAG 2.5.8). A destructive button is outlined: the white-on-danger pair is not guaranteed in the
-// dark theme, where the danger role is a light colour chosen for text on dark surfaces.
+// dark theme, where the danger role is a light colour chosen for text on dark surfaces. The link keeps
+// `accent-text` on hover (accent-hover is a fill colour and fails as text in the dark theme) and shows the
+// hover with the `accent-subtle` fill, the pair that is guaranteed 4.5:1, and a thicker underline.
 export const buttonVariants = cva(
   [
     'inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-transparent',
@@ -26,7 +28,7 @@ export const buttonVariants = cva(
         ghost: 'text-fg hover:bg-accent-subtle active:bg-accent-subtle',
         destructive:
           'border-danger bg-surface-raised text-danger hover:bg-surface-page active:bg-surface-page',
-        link: 'text-accent-text underline underline-offset-4 hover:text-accent-hover',
+        link: 'rounded-sm text-accent-text underline underline-offset-4 hover:bg-accent-subtle hover:decoration-2 active:bg-accent-subtle',
       },
       size: {
         default: 'h-control px-3',

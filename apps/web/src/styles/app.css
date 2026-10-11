@@ -245,4 +245,17 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  /* The Select viewport hides its own scrollbar. Radix injected this as an inline <style> from
+     JavaScript, which Trusted Types (plan 8.1) forbids; the pnpm patch removed it and the rule lives
+     here (test/csp-sinks.test.ts). */
+  [data-radix-select-viewport] {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  [data-radix-select-viewport]::-webkit-scrollbar {
+    display: none;
+  }
 }

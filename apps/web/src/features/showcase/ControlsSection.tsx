@@ -24,7 +24,7 @@ const FORCED_HOVER: Record<(typeof VARIANTS)[number], string> = {
   secondary: 'bg-accent-subtle',
   ghost: 'bg-accent-subtle',
   destructive: 'bg-surface-page',
-  link: 'text-accent-hover',
+  link: 'bg-accent-subtle decoration-2',
 };
 
 function ButtonRow({
@@ -32,12 +32,9 @@ function ButtonRow({
   ...props
 }: Omit<ButtonProps, 'variant' | 'className'> & { readonly force?: 'hover' | 'focus' }) {
   const { t } = useTranslator();
-  // The link variant has no forced hover: its hover colour, `accent-hover` used as text, is below 4.5:1
-  // on the dark page surface (axe, color-contrast), which is S3's token to settle (chunk note, open point).
-  const variants = force === 'hover' ? VARIANTS.filter((variant) => variant !== 'link') : VARIANTS;
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {variants.map((variant) => (
+      {VARIANTS.map((variant) => (
         <Button
           key={variant}
           variant={variant}
