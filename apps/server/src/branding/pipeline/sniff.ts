@@ -189,11 +189,9 @@ function looksLikeSvg(bytes: Uint8Array): boolean {
   if (utf16 !== null) return rootElementIsSvg(utf16);
   const start = startsWith(bytes, [0xef, 0xbb, 0xbf]) ? 3 : 0;
   // Latin-1 maps every byte to one character, which keeps the offsets and the ASCII structure.
-  const window = Buffer.from(
-    bytes.buffer,
-    bytes.byteOffset + start,
-    bytes.length - start,
-  ).toString('latin1');
+  const window = Buffer.from(bytes.buffer, bytes.byteOffset + start, bytes.length - start).toString(
+    'latin1',
+  );
   return rootElementIsSvg(window);
 }
 

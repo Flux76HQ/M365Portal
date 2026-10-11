@@ -1,7 +1,7 @@
 // T-A-031: FR-A-025 (request size and time limits, enforced while the body streams, 413
 // `payload_too_large`), FR-A-020 (415 `unsupported_media_type`), FR-A-040 (the responses Node writes
-// itself are the one documented exception: 400, 408 and 431 with `Connection: close`, no body and
-// no `Server` header).
+// itself are covered too: 400, 408 and 431 are problem+json with the security headers, an
+// `X-Request-Id` and `Connection: close`, written by the clientError handler).
 //
 // Most of this file runs over a real socket on port 0, because a limit that is enforced "while the
 // body streams" can only be seen with a body that streams. The pure parts run in process.
@@ -24,6 +24,7 @@ import {
   requireContentType,
   type ContentTypeKind,
 } from '../src/http/content-type.js';
+import { installClientErrorHandler } from '../src/http/client-error.js';
 import { createErrorHandler, errorBoundary, notFoundHandler } from '../src/http/error-handler.js';
 import { requestContext, type AppEnv } from '../src/http/request-context.js';
 import { CONNECTIONS_CHECKING_INTERVAL_MS, nodeServerOptions } from '../src/http/server-options.js';
@@ -819,24 +820,48 @@ function splitResponse(text: string): {
   return { status, headers, body: rest.join('\r\n\r\n') };
 }
 
-describe('the responses Node writes itself (FR-A-040: the one documented exception)', () => {
-  it('answers a malformed request line with 400, Connection: close, no body and no Server header', async () => {
+/** A response the HTTP parser provoked: the same header profile and a problem+json body as any error. */
+function expectProblemFromNode(
+  answer: { status: string; headers: Map<string, string>; body: string },
+  statusLine: string,
+  status: number,
+): void {
+  expect(answer.status).toBe(statusLine);
+  expect(answer.headers.get('connection')).toBe('close');
+  expect(answer.headers.has('server')).toBe(false);
+  expect(answer.headers.has('x-powered-by')).toBe(false);
+  expect(answer.headers.get('content-type')).toBe('application/problem+json');
+  expect(answer.headers.get('x-content-type-options')).toBe('nosniff');
+  expect(answer.headers.get('content-security-policy')).toContain("default-src 'none'");
+  expect(answer.headers.get('referrer-policy')).toBe('no-referrer');
+  expect(answer.headers.get('cache-control')).toBe('no-store');
+  const requestId = answer.headers.get('x-request-id') ?? '';
+  expect(requestId).toMatch(/^[A-Za-z0-9-]{8,64}$/);
+  expect(answer.headers.get('content-length')).toBe(String(Buffer.byteLength(answer.body)));
+  const body = JSON.parse(answer.body) as Record<string, unknown>;
+  expect(body).toMatchObject({ status, requestId });
+  expect(Object.keys(body).sort()).toEqual(
+    ['code', 'detail', 'requestId', 'status', 'title', 'type'].sort(),
+  );
+}
+
+describe('the responses Node writes itself (FR-A-040: problem+json with the header profile)', () => {
+  it('answers a malformed request line with a 400 problem+json that has the security headers and a request id', async () => {
     const harness = await createTestApp({ buildApp });
     const running = await harness.listen({ serverOptions: nodeServerOptions() });
+    installClientErrorHandler(running.server);
 
     const answer = splitResponse(
       await raw(running.port, ['GET /\u0000bad HTTP/1.1\r\nHost: x\r\n\r\n']),
     );
 
-    expect(answer.status).toBe('HTTP/1.1 400 Bad Request');
-    expect(answer.headers.get('connection')).toBe('close');
-    expect(answer.headers.has('server')).toBe(false);
-    expect(answer.body).toBe('');
+    expectProblemFromNode(answer, 'HTTP/1.1 400 Bad Request', 400);
   });
 
-  it('answers a header block above 16,384 bytes with 431, Connection: close, no body and no Server header', async () => {
+  it('answers a header block above 16,384 bytes with a 431 problem+json that has the security headers and a request id', async () => {
     const harness = await createTestApp({ buildApp });
     const running = await harness.listen({ serverOptions: nodeServerOptions() });
+    installClientErrorHandler(running.server);
 
     const answer = splitResponse(
       await raw(running.port, [
@@ -844,10 +869,19 @@ describe('the responses Node writes itself (FR-A-040: the one documented excepti
       ]),
     );
 
-    expect(answer.status).toBe('HTTP/1.1 431 Request Header Fields Too Large');
-    expect(answer.headers.get('connection')).toBe('close');
-    expect(answer.headers.has('server')).toBe(false);
-    expect(answer.body).toBe('');
+    expectProblemFromNode(answer, 'HTTP/1.1 431 Request Header Fields Too Large', 431);
+  });
+
+  it('answers an oversize request target with a 431 problem+json too', async () => {
+    const harness = await createTestApp({ buildApp });
+    const running = await harness.listen({ serverOptions: nodeServerOptions() });
+    installClientErrorHandler(running.server);
+
+    const answer = splitResponse(
+      await raw(running.port, [`GET /${'a'.repeat(17_000)} HTTP/1.1\r\nHost: x\r\n\r\n`]),
+    );
+
+    expectProblemFromNode(answer, 'HTTP/1.1 431 Request Header Fields Too Large', 431);
   });
 
   it('accepts a header block well inside the limit', async () => {
@@ -874,6 +908,7 @@ describe('the responses Node writes itself (FR-A-040: the one documented excepti
         connectionsCheckingInterval: 25,
       }),
     });
+    installClientErrorHandler(running.server);
 
     const answer = splitResponse(
       await raw(
@@ -885,10 +920,7 @@ describe('the responses Node writes itself (FR-A-040: the one documented excepti
       ),
     );
 
-    expect(answer.status).toBe('HTTP/1.1 408 Request Timeout');
-    expect(answer.headers.get('connection')).toBe('close');
-    expect(answer.headers.has('server')).toBe(false);
-    expect(answer.body).toBe('');
+    expectProblemFromNode(answer, 'HTTP/1.1 408 Request Timeout', 408);
   });
 });
 

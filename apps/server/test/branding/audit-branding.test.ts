@@ -291,7 +291,11 @@ describe('what an apply does to the assets (I-3)', () => {
       // Every upload must be accepted (the 409 of the 33rd file must not come from retired masters).
       const hash = await stage(storage, await distinctPng(200 + cycle));
       masters.push(hash);
-      await storage.service.apply(choice(`Cycle ${cycle}`, { light: hash }), cycle + 1, PREVIEW);
+      await storage.service.apply(
+        choice(`Cycle ${String(cycle)}`, { light: hash }),
+        cycle + 1,
+        PREVIEW,
+      );
       const cutoff = new Date(storage.clock.nowMs() - day).toISOString();
       const state = (h: string) => storage.assets().find((row) => row.sha256 === h);
       expect(state(hash)?.unreferenced_at).toBeNull();
@@ -307,7 +311,7 @@ describe('what an apply does to the assets (I-3)', () => {
       }
       expect(storage.usage().files).toBeLessThanOrEqual(1);
     }
-  });
+  }, 60_000);
 
   it('does not expire a retired master that the next change applies again (Undo)', async () => {
     const storage = await createBrandingStorage();

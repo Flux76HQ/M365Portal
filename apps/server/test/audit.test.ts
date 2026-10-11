@@ -1270,7 +1270,7 @@ describe('node dist/cli.js verify-audit (FR-A-075)', () => {
   });
 
   it('checks the --expect-seq / --expect-hash anchor and exits 1 on a truncated tail', async () => {
-    const { dataDir, db } = await withEntries(5);
+    const { dataDir } = await withEntries(5);
     const reopened = openDatabase({ path: join(dataDir, DATABASE_FILE_NAME) });
     const head = readHead(reopened.sqlite);
     if (head === undefined) throw new Error('no head');
@@ -1280,7 +1280,6 @@ describe('node dist/cli.js verify-audit (FR-A-075)', () => {
     dropTriggers(reopened.sqlite);
     reopened.sqlite.exec('DELETE FROM audit_log WHERE seq = 5');
     reopened.close();
-    void db;
 
     const run = cli(args, { DATA_DIR: dataDir });
     expect(run.code).toBe(1);

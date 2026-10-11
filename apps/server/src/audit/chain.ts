@@ -187,7 +187,7 @@ export function verifyChain(db: SqliteConnection, range: VerifyRange = {}): Chai
     const seqOk = range.expectSeq === undefined || head?.seq === range.expectSeq;
     const hashOk =
       range.expectHash === undefined ||
-      (head !== undefined && head.hash.toString('hex') === range.expectHash.toLowerCase());
+      head?.hash.toString('hex') === range.expectHash.toLowerCase();
     if (!seqOk || !hashOk) {
       return { ok: false, checked, anchorMismatch: true, triggersMissing };
     }

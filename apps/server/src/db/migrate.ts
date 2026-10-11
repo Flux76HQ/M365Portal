@@ -229,6 +229,11 @@ function pendingOrRefuse(
   return state.pending;
 }
 
+/** `inTransaction` read afresh: the compiler cannot know that BEGIN or COMMIT moved it. */
+function stillInTransaction(db: SqliteConnection): boolean {
+  return db.inTransaction;
+}
+
 /**
  * Applies the pending migrations in ONE outer transaction with foreign keys off, and runs
  * `PRAGMA foreign_key_check` INSIDE that transaction before it commits: a violation rolls the
@@ -258,13 +263,17 @@ function applyPending(db: SqliteConnection, migrationsFolder: string): void {
         'INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES (?, ?)',
       );
       for (const migration of files.slice(done)) {
-        for (const statement of migration.sql) db.exec(statement);
+        for (const statement of migration.sql) {
+          // The statements are the shipped migration files, checked against their recorded hash.
+          // eslint-disable-next-line local/no-string-built-sql
+          db.exec(statement);
+        }
         insert.run(migration.hash, migration.folderMillis);
       }
       violations = db.pragma('foreign_key_check') as { table: string }[];
       if (violations.length === 0) db.exec('COMMIT');
     } catch (cause) {
-      if (db.inTransaction) db.exec('ROLLBACK');
+      if (stillInTransaction(db)) db.exec('ROLLBACK');
       throw new MigrationError(
         'migration_failed',
         'applying the pending migrations failed and was rolled back; the database is as it was',
@@ -281,7 +290,7 @@ function applyPending(db: SqliteConnection, migrationsFolder: string): void {
       );
     }
   } finally {
-    if (db.inTransaction) db.exec('ROLLBACK');
+    if (stillInTransaction(db)) db.exec('ROLLBACK');
     db.pragma('foreign_keys = ON');
   }
 }

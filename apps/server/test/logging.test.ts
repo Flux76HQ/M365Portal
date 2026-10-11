@@ -1108,6 +1108,19 @@ describe('logPosture (FR-A-015, E-15)', () => {
     ).toBe('any-host');
   });
 
+  it('says that the host-based preview detection is not a security boundary, only when preview is on', () => {
+    expect(posture({}).line).not.toHaveProperty('previewBoundary');
+    const on = posture({ PREVIEW_MODE: 'true' }).line;
+    expect(on.previewBoundary).toBe('host-detection-not-a-security-boundary');
+    expect(
+      posture({
+        PREVIEW_MODE: 'true',
+        PREVIEW_MODE_ALLOW_REMOTE: 'true',
+        PUBLIC_BASE_URL: 'https://panel.example.com',
+      }).line.previewBoundary,
+    ).toBe('host-detection-not-a-security-boundary');
+  });
+
   it('carries no value of the configuration: no port, host name, directory or base URL', () => {
     const { text } = posture({
       PORT: '12345',

@@ -505,7 +505,12 @@ describe('R7 POST /api/v1/branding/assets: the error answers', () => {
     const filesBefore = app.assets().length;
     const response = await upload(app, await distinctPng(40));
     expect(response.status).toBe(409);
-    expect(await readJson(response)).toMatchObject({ code: 'staging_quota_exceeded' });
+    const problem = await readJson(response);
+    expect(problem).toMatchObject({ code: 'staging_quota_exceeded', status: 409 });
+    // The detail says which part of the quota is full, and what fills it (no hashes, no paths).
+    expect((problem as { detail: string }).detail).toBe(
+      'The file limit of the staging quota is full: 32 of 32 files. 32 uploaded images are waiting to be applied and 0 are kept for 24 hours so the last change can be undone.',
+    );
     expect(app.assets()).toHaveLength(filesBefore);
     expect(app.audit().at(-1)).toMatchObject({
       action: 'branding.asset.stage',

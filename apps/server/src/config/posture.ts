@@ -16,6 +16,8 @@ export interface Posture {
    */
   readonly hsts: 'off' | 'plain' | 'include-subdomains' | 'preload';
   readonly showcase: boolean;
+  /** Present only when preview mode is on: the Host-based detection is not a security boundary. */
+  readonly previewBoundary?: 'host-detection-not-a-security-boundary';
 }
 
 export function readPosture(config: AppConfig): Posture {
@@ -32,5 +34,8 @@ export function readPosture(config: AppConfig): Posture {
     trustProxy: config.trustProxy.mode,
     hsts,
     showcase: config.showcase,
+    ...(config.previewMode
+      ? { previewBoundary: 'host-detection-not-a-security-boundary' as const }
+      : {}),
   };
 }

@@ -10,8 +10,10 @@
 // PREVIEW_MODE_ALLOW_REMOTE=true, a request is the preview actor only if
 //   - its `Host` names a loopback host (`localhost`, `127.0.0.0/8`, `[::1]`), read through the one
 //     host normaliser the HSTS rule uses (`requestHost`), and
-//   - it carries no `Forwarded`, `X-Forwarded-*` or `X-Real-IP` header: a request that went through
-//     a proxy was not typed into a browser on this machine, whatever `Host` says.
+//   - it carries none of the headers that say "a proxy or CDN sent this": `Forwarded`, `X-Forwarded`,
+//     `X-Forwarded-*`, `X-Real-IP`, `Via`, `CF-Connecting-IP`, `True-Client-IP`, `X-Client-IP`,
+//     `X-Envoy-External-Address`, `Fastly-Client-IP`, `X-Original-Forwarded-For`: a request that
+//     went through a proxy was not typed into a browser on this machine, whatever `Host` says.
 // Every other request is anonymous. The rule can lower an actor and never raise one; no header,
 // query parameter or cookie names an actor. It prevents accidental exposure and is not a security
 // boundary: a client that is not a browser can write any `Host`. The boundary is publishing the port
@@ -25,8 +27,21 @@ import { ANONYMOUS_ACTOR, PREVIEW_ACTOR, type Actor } from './actor.js';
 export type ActorConfig = Pick<AppConfig, 'previewMode' | 'previewModeAllowRemote'>;
 
 /** The names of the request headers that say "a proxy sent this to us" (FR-A-036). */
+const PROXY_HEADERS: ReadonlySet<string> = new Set([
+  'forwarded',
+  'x-forwarded',
+  'x-real-ip',
+  'via',
+  'cf-connecting-ip',
+  'true-client-ip',
+  'x-client-ip',
+  'x-envoy-external-address',
+  'fastly-client-ip',
+  'x-original-forwarded-for',
+]);
+
 function isForwardingHeader(name: string): boolean {
-  return name === 'forwarded' || name === 'x-real-ip' || name.startsWith('x-forwarded-');
+  return PROXY_HEADERS.has(name) || name.startsWith('x-forwarded-');
 }
 
 /** Does the request carry any header that says it was forwarded? Presence counts; the value does not. */
@@ -69,10 +84,13 @@ export function createActorResolver(config: ActorConfig): (request: Request) => 
 export const PREVIEW_WARNING = {
   'loopback-only':
     'WARNING: PREVIEW_MODE is on. Requests whose Host is loopback (localhost, 127.0.0.0/8, ::1) and ' +
-    'that carry no Forwarded, X-Forwarded-* or X-Real-IP header are treated as an administrator ' +
+    'that carry no Forwarded, X-Forwarded-*, X-Real-IP, Via, CF-Connecting-IP, True-Client-IP, ' +
+    'X-Client-IP, X-Envoy-External-Address, Fastly-Client-IP or X-Original-Forwarded-For header ' +
+    'are treated as an administrator ' +
     'with all permissions, without any sign-in. Every other request, including one with a ' +
     'non-loopback Host or a forwarding header, is treated as anonymous. This stops accidental ' +
-    'exposure and is not a security boundary: publish the port on loopback only ' +
+    'exposure and is not a security boundary (the Host header and these headers are written by the ' +
+    'client; any client that can reach the port can omit them): publish the port on loopback only ' +
     '(-p 127.0.0.1:<port>:<port>). Preview mode goes away in Phase B.',
   'any-host':
     'WARNING: PREVIEW_MODE is on and PREVIEW_MODE_ALLOW_REMOTE is true. Every request that reaches ' +

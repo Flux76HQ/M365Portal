@@ -116,6 +116,16 @@ const FORWARDING_HEADERS: readonly (readonly [string, string])[] = [
   ['FORWARDED', ''],
   ['X-Real-IP', '203.0.113.5'],
   ['x-real-ip', '127.0.0.1'],
+  // The wider list of the security review: other ways a proxy or CDN says "this came from elsewhere".
+  ['Via', '1.1 proxy'],
+  ['CF-Connecting-IP', '203.0.113.5'],
+  ['True-Client-IP', '203.0.113.5'],
+  ['X-Client-IP', '203.0.113.5'],
+  ['X-Envoy-External-Address', '203.0.113.5'],
+  ['Fastly-Client-IP', '203.0.113.5'],
+  ['X-Original-Forwarded-For', '203.0.113.5'],
+  ['X-Forwarded', 'for=203.0.113.5'],
+  ['x-forwarded', '1'],
 ];
 
 describe('resolveActor: preview mode on, a loopback Host, no forwarding header (FR-A-036)', () => {
@@ -187,15 +197,7 @@ describe('resolveActor: every other request is anonymous (FR-A-036)', () => {
   });
 
   it('does not take a header that only resembles a forwarding header for one', () => {
-    for (const name of [
-      'x-forward',
-      'x-forwarded',
-      'forwarded-for',
-      'x-real',
-      'x-real-ip-x',
-      'via',
-      'x-original-host',
-    ]) {
+    for (const name of ['x-forward', 'forwarded-for', 'x-real', 'x-real-ip-x', 'x-original-host']) {
       expect(resolveActor(ON, requestWith('localhost:8080', { [name]: '1' })), name).toBe(
         PREVIEW_ACTOR,
       );

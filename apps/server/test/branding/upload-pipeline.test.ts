@@ -1357,6 +1357,31 @@ describe('the upload route: the transport (T-A-086, H-36, H-37)', () => {
     });
   }
 
+  it('answers 413 for a request of exactly 2,162,689 bytes before the route runs: no audit row (pinned asymmetry)', async () => {
+    // The body-limit guard (src/http, FR-A-020) answers before the handler exists, so it has no
+    // slot, no file and no audit path: the 413 of the REQUEST cap is not audited, whereas the 413
+    // of the FILE cap (2,097,153 bytes inside a request that fits) is, as `rejected`. This test pins
+    // the asymmetry; changing it is a change to the guard (S1), see chunk-s2fix.md.
+    const served = await onSocket();
+    const auditBefore = served.app.audit().length;
+    const { body, contentType } = multipartBody([
+      { name: 'file', filename: 'x.png', bytes: new Uint8Array(1) },
+    ]);
+    const filler = LIMITS.body.uploadRequestBytes + 1 - body.length;
+    const sized = multipartBody([
+      { name: 'file', filename: 'x.png', bytes: new Uint8Array(1 + filler) },
+    ]);
+    expect(sized.body.length).toBe(LIMITS.body.uploadRequestBytes + 1);
+    expect(contentType).toContain('multipart/form-data');
+    const result = await raw(served, sized.body, sized.contentType);
+    expect(result.status).toBe(413);
+    expect(JSON.parse(Buffer.from(result.body).toString())).toMatchObject({
+      code: 'payload_too_large',
+    });
+    expect(served.app.audit()).toHaveLength(auditBefore);
+    expect(served.app.assets().filter((row) => row.unreferenced_at !== null)).toHaveLength(0);
+  });
+
   it('cuts a chunked body without Content-Length off at the request cap and keeps nothing (H-36)', async () => {
     const served = await onSocket();
     const { body, contentType } = multipartBody([

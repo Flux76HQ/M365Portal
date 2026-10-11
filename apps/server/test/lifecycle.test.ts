@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { connect, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1313,6 +1313,29 @@ describe('the start sequence (plan 7.1)', () => {
       'listen',
     ]);
     expect((await httpRequest(port, '/healthz')).status).toBe(200);
+  });
+
+  it('answers a request Node rejects (malformed line) with problem+json, security headers and a request id', async () => {
+    const { port } = await startIn([]);
+    const reply = await new Promise<string>((resolve) => {
+      const socket = connect({ host: '127.0.0.1', port });
+      let text = '';
+      socket.setEncoding('latin1');
+      socket.on('data', (chunk: string) => {
+        text += chunk;
+      });
+      socket.on('error', () => undefined);
+      socket.on('close', () => {
+        resolve(text);
+      });
+      socket.on('connect', () => {
+        socket.write('GET /\u0000bad HTTP/1.1\r\nHost: x\r\n\r\n', 'latin1');
+      });
+    });
+    expect(reply.startsWith('HTTP/1.1 400 ')).toBe(true);
+    expect(reply.toLowerCase()).toContain('content-type: application/problem+json');
+    expect(reply.toLowerCase()).toContain('x-request-id: ');
+    expect(reply.toLowerCase()).toContain('x-content-type-options: nosniff');
   });
 
   it('stops the modules in reverse order at shutdown and exits 0', async () => {

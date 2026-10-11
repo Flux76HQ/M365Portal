@@ -33,7 +33,7 @@ import {
 import { brandingAssetUrl } from '@m365portal/shared/schemas/branding';
 import { appendAudit } from '../../audit/index.js';
 import { withTransaction, type DatabaseHandle } from '../../db/index.js';
-import { ProblemError } from '../../http/problem.js';
+import { describeProblem, ProblemError, requestIdOf } from '../../http/problem.js';
 import { defineRoute, type RouteContext, type RouteDefinition } from '../../http/route.js';
 import { sha256Hex, type AssetStore } from '../asset-store.js';
 import type { ImageJobRunner } from '../pipeline/job-runner.js';
@@ -175,6 +175,16 @@ export function assetsUploadRoutes(deps: AssetsUploadDeps): RouteDefinition[] {
           auditRejected(c, db, slot, upload, code);
           throw new ProblemError(code);
         };
+        /** 409 whose detail says which part of the quota is full (only numbers; the code is the same). */
+        const rejectQuota = (image: Parameters<AssetStore['fitsQuota']>[1]): Response => {
+          auditRejected(c, db, slot, upload, 'staging_quota_exceeded');
+          const described = describeProblem('staging_quota_exceeded', requestIdOf(c));
+          const detail = assets.quotaRefusal(db, image) ?? described.body.detail;
+          return new Response(JSON.stringify({ ...described.body, detail }), {
+            status: described.status,
+            headers: described.headers,
+          });
+        };
         // The request cap let the part in; the file has its own, one byte tighter than the envelope.
         if (upload.length > LIMITS.body.logoFileBytes) return reject('payload_too_large');
 
@@ -198,7 +208,7 @@ export function assetsUploadRoutes(deps: AssetsUploadDeps): RouteDefinition[] {
         };
         // The quota is asked before the write, so a refused upload leaves no file behind; the check
         // under the write lock below is the one that counts.
-        if (!assets.fitsQuota(db, metadata)) return reject('staging_quota_exceeded');
+        if (!assets.fitsQuota(db, metadata)) return rejectQuota(metadata);
 
         await assets.write(processed.png);
 
@@ -232,7 +242,7 @@ export function assetsUploadRoutes(deps: AssetsUploadDeps): RouteDefinition[] {
         } catch (error) {
           // The quota filled up between the check and the write lock.
           if (error instanceof ProblemError && error.code === 'staging_quota_exceeded') {
-            return reject('staging_quota_exceeded');
+            return rejectQuota(metadata);
           }
           throw error;
         }

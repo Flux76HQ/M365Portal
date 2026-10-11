@@ -32,7 +32,9 @@ import type { DatabaseHandle } from '../db/index.js';
 import {
   findAsset,
   insertUnreferencedAsset,
+  readBranding,
   refreshUnreferenced,
+  retainedUsage,
   stagingUsage,
   type AssetRow,
 } from './repository.js';
@@ -158,6 +160,12 @@ export interface AssetStore {
    * the write lock, which is the check that counts.
    */
   fitsQuota(db: DatabaseHandle, metadata: AssetMetadata): boolean;
+  /**
+   * Why `registerStaged` would refuse this image right now, in a sentence that says which part of
+   * the quota is full (files or bytes) and how much of it is uploads and how much the Undo target
+   * of the last change; null when the image fits. Only numbers, no names, hashes or paths.
+   */
+  quotaRefusal(db: DatabaseHandle, metadata: AssetMetadata): string | null;
   /** Register a variant the server derived: same as `registerStaged`, without the quota. */
   registerDerived(db: DatabaseHandle, metadata: AssetMetadata): Registered;
 }
@@ -185,6 +193,24 @@ export function createAssetStore(options: AssetStoreOptions): AssetStore {
       usage.files + 1 <= LIMITS.staging.quotaFiles &&
       usage.bytes + metadata.bytes <= LIMITS.staging.quotaBytes
     );
+  }
+
+  function refusal(db: DatabaseHandle, metadata: AssetMetadata): string | null {
+    if (findAsset(db, metadata.sha256) !== undefined) return null;
+    const since = liveSince();
+    const usage = stagingUsage(db, since);
+    const filesFull = usage.files + 1 > LIMITS.staging.quotaFiles;
+    const bytesFull = usage.bytes + metadata.bytes > LIMITS.staging.quotaBytes;
+    if (!filesFull && !bytesFull) return null;
+    // The Undo target is what the latest apply retired: it carries that apply's timestamp.
+    const applied = readBranding(db);
+    const kept =
+      applied === undefined ? { files: 0, bytes: 0 } : retainedUsage(db, applied.updatedAt, since);
+    const waiting = usage.files - kept.files;
+    const tail = `${String(waiting)} uploaded images are waiting to be applied and ${String(kept.files)} are kept for 24 hours so the last change can be undone.`;
+    return filesFull
+      ? `The file limit of the staging quota is full: ${String(usage.files)} of ${String(LIMITS.staging.quotaFiles)} files. ${tail}`
+      : `The size limit of the staging quota is full: ${String(usage.bytes)} of ${String(LIMITS.staging.quotaBytes)} bytes are in use and this image needs ${String(metadata.bytes)}. ${tail}`;
   }
 
   function register(db: DatabaseHandle, metadata: AssetMetadata, quota: boolean): Registered {
@@ -252,6 +278,7 @@ export function createAssetStore(options: AssetStoreOptions): AssetStore {
     },
 
     fitsQuota: fits,
+    quotaRefusal: refusal,
     registerStaged: (db, metadata) => register(db, metadata, true),
     registerDerived: (db, metadata) => register(db, metadata, false),
   };

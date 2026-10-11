@@ -75,7 +75,8 @@ export function stagingUsage(
 /**
  * The part of the staging usage that is the Undo target: the masters the most recent apply retired.
  * They carry exactly the timestamp of that apply (`branding.updated_at`, written in the same
- * transaction), which is how they are told from uploads that wait. Only rows whose timer still runs.
+ * transaction), and were created before it, which is how they are told from uploads that wait (an
+ * upload born in the same millisecond as an apply is not mistaken for a retired master). Only rows whose timer still runs.
  */
 export function retainedUsage(
   db: DatabaseHandle,
@@ -89,7 +90,7 @@ export function retainedUsage(
       bytes: sql<number>`coalesce(sum(${brandingAsset.bytes}), 0)`,
     })
     .from(brandingAsset)
-    .where(eq(brandingAsset.unreferencedAt, retiredAt))
+    .where(and(eq(brandingAsset.unreferencedAt, retiredAt), lt(brandingAsset.createdAt, retiredAt)))
     .get();
   return { files: row?.files ?? 0, bytes: row?.bytes ?? 0 };
 }
@@ -100,11 +101,15 @@ export function retainedUsage(
  * older than the retention). Undo only ever goes back one change, so nothing needs them any more.
  * Referenced rows have no timestamp and are never matched.
  */
-export function expireRetiredAssets(db: DatabaseHandle, retiredAt: string, expiredAt: string): void {
+export function expireRetiredAssets(
+  db: DatabaseHandle,
+  retiredAt: string,
+  expiredAt: string,
+): void {
   db.orm
     .update(brandingAsset)
     .set({ unreferencedAt: expiredAt })
-    .where(eq(brandingAsset.unreferencedAt, retiredAt))
+    .where(and(eq(brandingAsset.unreferencedAt, retiredAt), lt(brandingAsset.createdAt, retiredAt)))
     .run();
 }
 

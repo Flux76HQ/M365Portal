@@ -332,6 +332,59 @@ describe('the quota decision of registerStaged', () => {
     ).toThrow(expect.objectContaining({ code: 'staging_quota_exceeded' }));
   });
 
+  it('says which part of the quota is full, and how much of it is the Undo target', async () => {
+    const storage = await createBrandingStorage();
+    expect(storage.store.quotaRefusal(storage.database, metadata(1))).toBeNull();
+    // Retire one master with an apply (the Undo target), then fill the rest with waiting uploads.
+    const processed = await storage.images.process({
+      bytes: await distinctPng(7001),
+      slot: 'logoLight',
+    });
+    const first = await storage.store.write(processed.png);
+    withTransaction(storage.database, (tx) =>
+      storage.store.registerStaged(tx, {
+        sha256: first,
+        bytes: processed.png.length,
+        width: processed.width,
+        height: processed.height,
+        luminance: processed.luminance,
+      }),
+    );
+    const preview = { actor: { kind: 'preview', id: 'preview' } } as const;
+    const choice = (light: string | null) =>
+      ({
+        orgName: 'Acme',
+        accent: '#0078d4',
+        logos: { light, dark: null, compact: null },
+      }) as const;
+    storage.clock.advance(1_000);
+    await storage.service.apply(choice(first), 1, preview);
+    storage.clock.advance(1_000);
+    await storage.service.apply(choice(null), 2, preview);
+    for (let index = 1; index < LIMITS.staging.quotaFiles; index += 1) {
+      withTransaction(storage.database, (tx) => storage.store.registerStaged(tx, metadata(index)));
+    }
+    expect(storage.store.quotaRefusal(storage.database, metadata(5000))).toBe(
+      'The file limit of the staging quota is full: 32 of 32 files. 31 uploaded images are waiting to be applied and 1 are kept for 24 hours so the last change can be undone.',
+    );
+    // A row that exists counts once, so it is no refusal.
+    expect(storage.store.quotaRefusal(storage.database, metadata(1))).toBeNull();
+  });
+
+  it('names the size limit when only the bytes are full', async () => {
+    const storage = await createBrandingStorage();
+    const big = LIMITS.body.logoFileBytes;
+    for (let index = 1; index <= 16; index += 1) {
+      const bytes = index === 16 ? big - 10 : big;
+      withTransaction(storage.database, (tx) =>
+        storage.store.registerStaged(tx, metadata(index, bytes)),
+      );
+    }
+    expect(storage.store.quotaRefusal(storage.database, metadata(99, 11))).toBe(
+      `The size limit of the staging quota is full: ${String(LIMITS.staging.quotaBytes - 10)} of ${String(LIMITS.staging.quotaBytes)} bytes are in use and this image needs 11. 16 uploaded images are waiting to be applied and 0 are kept for 24 hours so the last change can be undone.`,
+    );
+  });
+
   it('refuses a file that would push the bytes over 32 MiB while the file count has room', async () => {
     const storage = await createBrandingStorage();
     // One row holds at most 2 MiB (a CHECK of the table), so 32 MiB takes 15 full files and a rest.

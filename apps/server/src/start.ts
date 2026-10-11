@@ -30,6 +30,7 @@ import { backupsDirOf } from './db/backup.js';
 import { classifyStorageError } from './db/errors.js';
 import { MigrationError, runMigrations } from './db/migrate.js';
 import { databasePathOf, openDatabase, type AppDatabase } from './db/open.js';
+import { installClientErrorHandler } from './http/client-error.js';
 import { nodeServerOptions } from './http/server-options.js';
 import { createReadiness } from './lifecycle/readiness.js';
 import { checkpointAndClose, createShutdown, type Shutdown } from './lifecycle/shutdown.js';
@@ -306,6 +307,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     hostname: config.host,
     serverOptions: nodeServerOptions(),
   }) as Server;
+  installClientErrorHandler(server);
   try {
     await new Promise<void>((resolve, reject) => {
       server.once('listening', resolve);

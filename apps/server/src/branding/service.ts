@@ -37,6 +37,7 @@ import { DEFAULT_BRANDING, SYSTEM_ACTOR, type BrandingChoice } from './defaults.
 import type { IconKind } from './pipeline/job-protocol.js';
 import type { ImageJobRunner } from './pipeline/job-runner.js';
 import {
+  expireRetiredAssets,
   findAssets,
   insertBranding,
   markReferenced,
