@@ -19,6 +19,7 @@ import {
 } from '../../src/branding/asset-store.js';
 import { stagingUsage } from '../../src/branding/repository.js';
 import { DEFAULT_BRANDING } from '../../src/branding/defaults.js';
+import { isPipelineError } from '../../src/branding/pipeline/errors.js';
 import { deriveVariants } from '../../src/branding/pipeline/icons.js';
 import type { ImageJobRunner } from '../../src/branding/pipeline/job-runner.js';
 import { processUpload } from '../../src/branding/pipeline/process-upload.js';
@@ -44,7 +45,10 @@ export type BrandingImages = Pick<ImageJobRunner, 'process' | 'deriveVariants'>;
 export function inProcessImages(): BrandingImages {
   return {
     async process({ bytes, slot }) {
-      const result = await processUpload({ bytes, slot });
+      // The runner turns what the child reports into a problem; so does this stand-in.
+      const result = await processUpload({ bytes, slot }).catch((error: unknown) => {
+        throw isPipelineError(error) ? new ProblemError(error.code) : error;
+      });
       return {
         png: Buffer.from(result.png),
         width: result.width,
@@ -154,6 +158,10 @@ export interface BrandingStorage {
   readonly images: BrandingImages;
   readonly service: BrandingService;
   audit(): AuditRow[];
+  /** Make the storage unavailable the way degraded mode does: the routes then answer 503. */
+  setStorageAvailable(available: boolean): void;
+  /** `ModuleDeps.requireDatabase` of this storage. */
+  readonly requireDatabase: () => DatabaseHandle;
   /** The staging quota in use right now: assets whose 24 hours are still running. */
   usage(): { readonly files: number; readonly bytes: number };
   /** Raw rows of `branding_asset`, oldest first. */
@@ -201,13 +209,21 @@ export async function createBrandingStorage(
     ...(options.randomName === undefined ? {} : { randomName: options.randomName }),
   });
   await store.ensureDirectories();
-  const service = createBrandingService({
-    requireDatabase: () => database,
-    now: () => clock.nowMs(),
-    assets: store,
-    images,
-  });
-  if (options.withDefault !== false) await service.ensureDefault();
+  let storageAvailable = true;
+  const requireDatabase = (): AppDatabase => {
+    if (!storageAvailable) throw new ProblemError('storage_unavailable');
+    return database;
+  };
+  const serviceWith = (given: BrandingImages): BrandingService =>
+    createBrandingService({
+      requireDatabase,
+      now: () => clock.nowMs(),
+      assets: store,
+      images: given,
+    });
+  // The first row is made by the start hook with working images, whatever the test then injects.
+  if (options.withDefault !== false) await serviceWith(inProcessImages()).ensureDefault();
+  const service = serviceWith(images);
 
   return {
     dataDir,
@@ -218,6 +234,10 @@ export async function createBrandingStorage(
     service,
     usage: () =>
       stagingUsage(database, new Date(clock.nowMs() - LIMITS.staging.retentionMs).toISOString()),
+    setStorageAvailable: (available) => {
+      storageAvailable = available;
+    },
+    requireDatabase,
     audit: () =>
       database.sqlite.prepare('SELECT * FROM audit_log ORDER BY seq').all() as AuditRow[],
     assets: () =>
@@ -272,7 +292,7 @@ export async function createBrandingApp(options: BrandingAppOptions = {}): Promi
       ),
       ...brandingRoutes({ service }),
       ...assetsUploadRoutes({
-        requireDatabase: () => database,
+        requireDatabase: storage.requireDatabase,
         now: () => clock.nowMs(),
         assets: store,
         images,

@@ -68,7 +68,7 @@ export function AppShell() {
         <main
           id={MAIN_ID}
           tabIndex={-1}
-          className="mx-auto w-full max-w-content flex-1 px-4 py-6 outline-none sm:px-6"
+          className="mx-auto w-full max-w-content flex-1 px-4 py-6 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring sm:px-6"
         >
           <Outlet />
         </main>

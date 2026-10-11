@@ -8,7 +8,11 @@ import {
   type DataTableRowAction,
 } from '../../components/data-table/DataTable';
 import type { DataTableColumn } from '../../components/data-table/columns';
-import { readQuery, sortToken, type DataTableSearch } from '../../components/data-table/query-state';
+import {
+  readQuery,
+  sortToken,
+  type DataTableSearch,
+} from '../../components/data-table/query-state';
 import { SegmentedControl } from '../../components/ui/segmented-control';
 import { useToast } from '../../components/ui/toast';
 import { useTranslator } from '../../lib/locale';

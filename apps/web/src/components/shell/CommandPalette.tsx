@@ -2,7 +2,7 @@ import { createTranslator, type Translator } from '@m365portal/shared/i18n';
 import { Command as Cmdk } from 'cmdk';
 import { SearchIcon } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { visibleCommands, type Command, type CommandGroup } from '../../lib/commands';
 import { useTranslator } from '../../lib/locale';
 import { useMe } from '../../lib/router-context';
@@ -58,6 +58,32 @@ export default function CommandPalette({ open, onOpenChange, onShortcuts }: Comm
   const [search, setSearch] = useState('');
   const run = useRunCommand({ onShortcuts });
 
+  // cmdk 1.1.1 sets `aria-activedescendant` on the input when the choice is moved with the arrow keys, but
+  // not for the option it chooses by itself when the palette opens or the search changes, so a screen
+  // reader would not announce the highlighted option on Enter. The input is made to point at the chosen
+  // option whenever the options change or the choice moves (checked in Chromium: e2e/keyboard.spec.ts).
+  // A mutation observer, because the options re-render on their own, after this component has rendered.
+  const followChosenOption = useCallback((input: HTMLInputElement | null) => {
+    const root = input?.closest('[cmdk-root]');
+    if (input === null || root === null || root === undefined) return undefined;
+    const point = (): void => {
+      const option = root.querySelector('[cmdk-item][aria-selected="true"]');
+      if (option?.id) input.setAttribute('aria-activedescendant', option.id);
+      else input.removeAttribute('aria-activedescendant');
+    };
+    point();
+    const observer = new MutationObserver(point);
+    observer.observe(root, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['aria-selected'],
+    });
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
   const grouped = useMemo(() => {
     const visible = visibleCommands(me);
     return GROUP_ORDER.map((group) => ({
@@ -95,10 +121,11 @@ export default function CommandPalette({ open, onOpenChange, onShortcuts }: Comm
               <div className="flex items-center gap-3 border-b border-line-subtle px-4">
                 <SearchIcon aria-hidden="true" className="size-4 shrink-0 text-fg-muted" />
                 <Cmdk.Input
+                  ref={followChosenOption}
                   value={search}
                   onValueChange={setSearch}
                   placeholder={t('palette.placeholder')}
-                  className="h-12 min-w-0 flex-1 bg-transparent text-body text-fg outline-none placeholder:text-fg-muted"
+                  className="h-12 min-w-0 flex-1 bg-transparent text-body text-fg outline-none placeholder:text-fg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring"
                 />
               </div>
               <Cmdk.List

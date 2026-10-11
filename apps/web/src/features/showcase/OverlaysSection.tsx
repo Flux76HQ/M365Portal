@@ -1,10 +1,4 @@
-import {
-  CopyIcon,
-  InfoIcon,
-  PencilIcon,
-  PlusIcon,
-  Trash2Icon,
-} from 'lucide-react';
+import { CopyIcon, InfoIcon, PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { Breadcrumbs } from '../../components/ui/breadcrumbs';
@@ -244,8 +238,20 @@ function CommandBarDemo() {
       id: 'edit',
       label: t('showcase.commandBar.edit'),
       items: [
-        { id: 'new', label: t('showcase.commandBar.new'), icon: <PlusIcon />, onSelect: run, disabled },
-        { id: 'edit', label: t('showcase.commandBar.change'), icon: <PencilIcon />, onSelect: run, disabled },
+        {
+          id: 'new',
+          label: t('showcase.commandBar.new'),
+          icon: <PlusIcon />,
+          onSelect: run,
+          disabled,
+        },
+        {
+          id: 'edit',
+          label: t('showcase.commandBar.change'),
+          icon: <PencilIcon />,
+          onSelect: run,
+          disabled,
+        },
         { id: 'copy', label: t('showcase.commandBar.copy'), icon: <CopyIcon />, onSelect: run },
       ],
     },
@@ -253,7 +259,14 @@ function CommandBarDemo() {
       id: 'danger',
       label: t('showcase.commandBar.remove'),
       items: [
-        { id: 'delete', label: t('showcase.commandBar.delete'), icon: <Trash2Icon />, onSelect: run, destructive: true, disabled },
+        {
+          id: 'delete',
+          label: t('showcase.commandBar.delete'),
+          icon: <Trash2Icon />,
+          onSelect: run,
+          destructive: true,
+          disabled,
+        },
       ],
     },
   ];

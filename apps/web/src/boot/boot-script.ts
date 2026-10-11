@@ -78,6 +78,19 @@ function systemPrefersDark(matchMedia: BootEnvironment['matchMedia']): boolean {
   }
 }
 
+/**
+ * Tells Zod not to probe `new Function('')` (stack-probe P17). Under `require-trusted-types-for 'script'`
+ * that probe is a reported violation even though Zod catches it, and it happens when the first schema is
+ * built. Schemas are built when a module is evaluated, and the bundler may evaluate the module that
+ * holds them before any code of the entry runs (a shared chunk), so a `config()` call in the entry can
+ * come too late. This script runs before every module, and Zod keeps its configuration in
+ * `globalThis.__zod_globalConfig`, which it adopts when it finds it there (zod/v4/core, pinned version;
+ * test/boot-script.test.ts proves the adoption). Merged, so a configuration that exists stays.
+ */
+export function disableZodJit(target: { __zod_globalConfig?: Record<string, unknown> }): void {
+  target.__zod_globalConfig = { ...target.__zod_globalConfig, jitless: true };
+}
+
 /** Decides and applies the theme and the language. Returns what it applied. */
 export function runBootScript(environment: BootEnvironment): {
   readonly theme: ResolvedTheme;

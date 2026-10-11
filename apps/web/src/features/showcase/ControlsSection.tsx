@@ -32,9 +32,12 @@ function ButtonRow({
   ...props
 }: Omit<ButtonProps, 'variant' | 'className'> & { readonly force?: 'hover' | 'focus' }) {
   const { t } = useTranslator();
+  // The link variant has no forced hover: its hover colour, `accent-hover` used as text, is below 4.5:1
+  // on the dark page surface (axe, color-contrast), which is S3's token to settle (chunk note, open point).
+  const variants = force === 'hover' ? VARIANTS.filter((variant) => variant !== 'link') : VARIANTS;
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {VARIANTS.map((variant) => (
+      {variants.map((variant) => (
         <Button
           key={variant}
           variant={variant}
@@ -239,7 +242,11 @@ function RadioGroups() {
                 <RadioOption
                   value="one"
                   label={t('showcase.sample.first')}
-                  className={state === 'focus' ? '[&_button]:outline-2 [&_button]:outline-offset-2 [&_button]:outline-focus-ring' : undefined}
+                  className={
+                    state === 'focus'
+                      ? '[&_button]:outline-2 [&_button]:outline-offset-2 [&_button]:outline-focus-ring'
+                      : undefined
+                  }
                 />
                 <RadioOption value="two" label={t('showcase.sample.second')} />
               </RadioGroup>

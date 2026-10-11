@@ -5,8 +5,10 @@
 // flash of the wrong colours or the wrong `lang`. Its logic is a pure function of what is injected
 // ({ storage, matchMedia, languages, root }); the build compiles the same file with esbuild into the
 // inline script (build-output.test.ts checks what comes out).
+import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { runBootScript, type BootEnvironment } from '../src/boot/boot-script';
+import { disableZodJit, runBootScript, type BootEnvironment } from '../src/boot/boot-script';
 import { STORAGE_KEYS } from '../src/lib/storage';
 
 type Stored = Partial<Record<string, string>>;
@@ -197,5 +199,57 @@ describe('runBootScript: what it reads', () => {
     runBootScript(env);
 
     expect(read.sort()).toEqual([STORAGE_KEYS.locale, STORAGE_KEYS.theme].sort());
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Zod must not probe `new Function` (stack-probe P17): the boot script says so before any module runs
+// ---------------------------------------------------------------------------------------------
+
+describe('disableZodJit', () => {
+  interface ZodGlobal {
+    __zod_globalConfig?: Record<string, unknown>;
+  }
+
+  it('sets jitless on an empty target', () => {
+    const target: ZodGlobal = {};
+    disableZodJit(target);
+    expect(target.__zod_globalConfig).toEqual({ jitless: true });
+  });
+
+  it('keeps what is configured already and replaces a jitless that was false', () => {
+    const target: ZodGlobal = { __zod_globalConfig: { jitless: false, reportInput: true } };
+    disableZodJit(target);
+    expect(target.__zod_globalConfig).toEqual({ jitless: true, reportInput: true });
+  });
+
+  /**
+   * Builds and runs one schema in a fresh Node process (an installed package cannot be reloaded inside the
+   * test run, and Zod caches its probe) and reports how many times `new Function` was called.
+   */
+  function functionCallsForOneSchema(configure: string): number {
+    const script = `
+      ${configure}
+      let calls = 0;
+      globalThis.Function = new Proxy(Function, {
+        construct(target, args) { calls += 1; return Reflect.construct(target, args); },
+      });
+      const { z } = await import('zod');
+      z.object({ name: z.string(), tags: z.array(z.string()) }).parse({ name: 'a', tags: ['b'] });
+      console.log(calls);
+    `;
+    const output = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: join(__dirname, '..'),
+      encoding: 'utf8',
+    });
+    return Number(output.trim());
+  }
+
+  it('is adopted by Zod when it is set before Zod loads: no probe, whatever the chunk order', () => {
+    expect(functionCallsForOneSchema(`globalThis.__zod_globalConfig = { jitless: true };`)).toBe(0);
+  });
+
+  it('negative control: without it Zod probes `new Function` when it builds a schema', () => {
+    expect(functionCallsForOneSchema('')).toBeGreaterThan(0);
   });
 });

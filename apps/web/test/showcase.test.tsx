@@ -105,7 +105,8 @@ async function renderShowcase(
     backend?: MemoryBackend;
   } = {},
 ) {
-  const source = options.source ?? createSampleSource({ delayMs: 0, wait: () => Promise.resolve() });
+  const source =
+    options.source ?? createSampleSource({ delayMs: 0, wait: () => Promise.resolve() });
   const shell = await renderShell({
     me: sampleMe({ showcase: true, preview: true }),
     path: options.path ?? '/design',
@@ -158,7 +159,18 @@ describe('the registry', () => {
 
   it('gives every interactive control the focus state and every form control the disabled state', () => {
     const states = (id: string) => SHOWCASE_COMPONENTS.find((c) => c.id === id)?.states ?? [];
-    for (const id of ['button', 'icon-button', 'input', 'textarea', 'select', 'checkbox', 'radio-group', 'switch', 'segmented-control', 'tabs']) {
+    for (const id of [
+      'button',
+      'icon-button',
+      'input',
+      'textarea',
+      'select',
+      'checkbox',
+      'radio-group',
+      'switch',
+      'segmented-control',
+      'tabs',
+    ]) {
       expect(states(id), `${id} focus`).toContain('focus');
       expect(states(id), `${id} disabled`).toContain('disabled');
     }
@@ -178,10 +190,12 @@ describe('the registry', () => {
 });
 
 describe('the page', () => {
-  it('is the /design page with a heading, a sample-data notice and the componentes in groups', async () => {
+  it('is the /design page with a heading, a sample-data notice and the components in groups', async () => {
     await renderShowcase();
 
-    expect(await screen.findByRole('heading', { level: 1, name: en.t('nav.design') })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: en.t('nav.design') }),
+    ).toBeInTheDocument();
     const notice = screen.getByText(en.t('showcase.sample.message'));
     expect(notice).toBeInTheDocument();
     expect(screen.getAllByRole('heading', { level: 2 }).length).toBeGreaterThanOrEqual(5);
@@ -198,7 +212,7 @@ describe('the page', () => {
     );
     const found = new Set(
       [...document.querySelectorAll<HTMLElement>('[data-component][data-state]')].map(
-        (node) => `${node.dataset.component}:${node.dataset.state}`,
+        (node) => `${String(node.dataset.component)}:${String(node.dataset.state)}`,
       ),
     );
     expect([...expected].filter((key) => !found.has(key))).toEqual([]);
@@ -229,9 +243,13 @@ describe('the page', () => {
   it('is written in Dutch when the page is Dutch', async () => {
     await renderShowcase({ language: 'nl' });
 
-    expect(await screen.findByRole('heading', { level: 1, name: nl.t('nav.design') })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: nl.t('nav.design') }),
+    ).toBeInTheDocument();
     expect(screen.getByText(nl.t('showcase.sample.message'))).toBeInTheDocument();
-    expect(screen.getAllByRole('heading', { level: 3, name: nl.t('showcase.component.button') }).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole('heading', { level: 3, name: nl.t('showcase.component.button') }).length,
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -250,7 +268,15 @@ describe('forced states', () => {
   it('draws the focus state with the focus ring, without moving the focus', () => {
     for (const id of ['button', 'icon-button', 'input', 'textarea', 'select']) {
       const focus = specimen(id, 'focus')!;
-      const control = within(focus).getAllByRole(id === 'input' ? 'textbox' : id === 'textarea' ? 'textbox' : id === 'select' ? 'combobox' : 'button')[0]!;
+      const control = within(focus).getAllByRole(
+        id === 'input'
+          ? 'textbox'
+          : id === 'textarea'
+            ? 'textbox'
+            : id === 'select'
+              ? 'combobox'
+              : 'button',
+      )[0]!;
       expect(control, id).toHaveClass('outline-focus-ring');
       expect(control, id).not.toHaveFocus();
     }
@@ -354,7 +380,9 @@ describe('overlays', () => {
 
     const dialog = await screen.findByRole('alertdialog');
     expect(dialog).toHaveTextContent(en.t('showcase.confirm.object'));
-    expect(within(dialog).getByRole('button', { name: en.t('showcase.confirm.cancel') })).toHaveFocus();
+    expect(
+      within(dialog).getByRole('button', { name: en.t('showcase.confirm.cancel') }),
+    ).toHaveFocus();
   });
 
   it('shows a toast of each tone, and an error toast stays', async () => {
@@ -373,7 +401,9 @@ describe('overlays', () => {
     const { user } = await ready();
     await user.click(within(specimen('details-panel', 'open')!).getByRole('button'));
 
-    expect(await screen.findByRole('dialog', { name: en.t('showcase.details.title') })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('dialog', { name: en.t('showcase.details.title') }),
+    ).toBeInTheDocument();
   });
 
   it('opens the real command palette', async () => {
@@ -398,7 +428,10 @@ describe('the form field', () => {
     expect(form.getByText(en.t('showcase.form.nameRequired'))).toBeInTheDocument();
 
     await user.type(name, 'Alder Vance');
-    await user.type(form.getByRole('textbox', { name: new RegExp(en.t('showcase.form.email')) }), 'not-an-address');
+    await user.type(
+      form.getByRole('textbox', { name: new RegExp(en.t('showcase.form.email')) }),
+      'not-an-address',
+    );
     await user.click(form.getByRole('button', { name: en.t('showcase.form.submit') }));
     expect(name).not.toHaveAttribute('aria-invalid');
     expect(form.getByText(en.t('showcase.form.emailInvalid'))).toBeInTheDocument();
@@ -420,6 +453,8 @@ describe('the form field', () => {
 describe('the DataTable demo', () => {
   const liveName = en.t('showcase.table.live');
   const live = () => screen.getByRole('table', { name: liveName });
+  /** Everything of the live demo (the static state specimens have toolbars of their own). */
+  const area = () => within(specimen('data-table', 'ready')!);
   const firstNames = (count: number): string[] =>
     within(live())
       .getAllByRole('row')
@@ -454,7 +489,8 @@ describe('the DataTable demo', () => {
     await renderShowcase({ source: controlled.source });
     await screen.findByRole('table', { name: liveName });
 
-    expect(live()).toHaveAttribute('aria-busy', 'true');
+    const body = () => live().querySelector('tbody')!;
+    expect(body()).toHaveAttribute('aria-busy', 'true');
     expect(live().querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
 
     await act(async () => {
@@ -462,7 +498,7 @@ describe('the DataTable demo', () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(live()).not.toHaveAttribute('aria-busy', 'true');
+      expect(body()).toHaveAttribute('aria-busy', 'false');
     });
     expect(live().querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
   });
@@ -471,29 +507,40 @@ describe('the DataTable demo', () => {
     const { router, user } = await renderShowcase({ path: '/design?q=an&page=2&size=10' });
     await screen.findByRole('table', { name: liveName });
 
-    expect(screen.getByRole('searchbox', { name: en.t('showcase.table.searchLabel') })).toHaveValue('an');
+    expect(area().getByRole('searchbox', { name: en.t('showcase.table.searchLabel') })).toHaveValue(
+      'an',
+    );
 
     await user.click(within(live()).getByRole('button', { name: en.t('showcase.table.name') }));
+    // The table sorts by name unless told otherwise, so the first click on Name asks for descending.
     await waitFor(() => {
-      expect(router.state.location.search).toMatchObject({ sort: 'name' });
+      expect(router.state.location.search).toMatchObject({ q: 'an', sort: '-name', size: 10 });
     });
   });
 
   it('sorts on the server: the order of the source is the order shown', async () => {
     const { user, router } = await renderShowcase();
     await screen.findByRole('table', { name: liveName });
-    const ascending = [...SAMPLE_PEOPLE].sort((a, b) => a.name.localeCompare(b.name, 'en')).slice(0, 3).map((p) => p.name);
+    const ascending = [...SAMPLE_PEOPLE]
+      .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+      .slice(0, 3)
+      .map((p) => p.name);
     expect(firstNames(3)).toEqual(ascending);
 
     await user.click(within(live()).getByRole('button', { name: en.t('showcase.table.name') }));
     await waitFor(() => {
       expect(router.state.location.search).toMatchObject({ sort: '-name' });
     });
-    const descending = [...SAMPLE_PEOPLE].sort((a, b) => b.name.localeCompare(a.name, 'en')).slice(0, 3).map((p) => p.name);
+    const descending = [...SAMPLE_PEOPLE]
+      .sort((a, b) => b.name.localeCompare(a.name, 'en'))
+      .slice(0, 3)
+      .map((p) => p.name);
     await waitFor(() => {
       expect(firstNames(3)).toEqual(descending);
     });
-    expect(screen.getByRole('columnheader', { name: en.t('showcase.table.name') })).toHaveAttribute('aria-sort', 'descending');
+    expect(
+      within(live()).getByRole('columnheader', { name: en.t('showcase.table.name') }),
+    ).toHaveAttribute('aria-sort', 'descending');
   });
 
   it('searches on the server and shows the count', async () => {
@@ -502,7 +549,7 @@ describe('the DataTable demo', () => {
     const target = SAMPLE_PEOPLE[7]!;
 
     await user.type(
-      screen.getByRole('searchbox', { name: en.t('showcase.table.searchLabel') }),
+      area().getByRole('searchbox', { name: en.t('showcase.table.searchLabel') }),
       `${target.name}{Enter}`,
     );
 
@@ -513,29 +560,33 @@ describe('the DataTable demo', () => {
       expect(within(live()).getAllByRole('row').length - 1).toBeGreaterThanOrEqual(1);
     });
     expect(firstNames(1)).toEqual([target.name]);
-    expect(screen.getByText(en.t('common.table.resultCount', { count: 1 }))).toBeInTheDocument();
+    expect(area().getByText(en.t('common.table.resultCount', { count: 1 }))).toBeInTheDocument();
   });
 
   it('filters by department', async () => {
     const { user, router } = await renderShowcase();
     await screen.findByRole('table', { name: liveName });
 
-    await user.click(screen.getByRole('combobox', { name: en.t('showcase.table.department') }));
-    await user.click(await screen.findByRole('option', { name: en.t('showcase.table.dept.finance') }));
+    await user.click(area().getByRole('combobox', { name: en.t('showcase.table.department') }));
+    await user.click(
+      await screen.findByRole('option', { name: en.t('showcase.table.dept.finance') }),
+    );
 
     await waitFor(() => {
       expect(router.state.location.search).toMatchObject({ 'f.department': 'finance' });
     });
     const finance = SAMPLE_PEOPLE.filter((person) => person.department === 'finance').length;
     await waitFor(() => {
-      expect(screen.getByText(en.t('common.table.resultCount', { count: finance }))).toBeInTheDocument();
+      expect(
+        area().getByText(en.t('common.table.resultCount', { count: finance })),
+      ).toBeInTheDocument();
     });
   });
 
   it('pages and changes the page size', async () => {
     const { user, router } = await renderShowcase();
     await screen.findByRole('table', { name: liveName });
-    const pager = screen.getByRole('navigation', { name: en.t('common.table.pagination') });
+    const pager = area().getByRole('navigation', { name: en.t('common.table.pagination') });
 
     await user.click(within(pager).getByRole('button', { name: en.t('common.table.nextPage') }));
     await waitFor(() => {
@@ -546,8 +597,12 @@ describe('the DataTable demo', () => {
       expect(firstNames(1)).toEqual([second]);
     });
 
-    await user.click(screen.getByRole('combobox', { name: en.t('common.table.pageSizeLabel') }));
-    await user.click(await screen.findByRole('option', { name: en.t('common.table.pageSizeOption', { size: 10 }) }));
+    await user.click(area().getByRole('combobox', { name: en.t('common.table.pageSizeLabel') }));
+    await user.click(
+      await screen.findByRole('option', {
+        name: en.t('common.table.pageSizeOption', { size: 10 }),
+      }),
+    );
     await waitFor(() => {
       expect(within(live()).getAllByRole('row').length - 1).toBe(10);
     });
@@ -558,31 +613,44 @@ describe('the DataTable demo', () => {
     const { user } = await renderShowcase({ backend });
     await screen.findByRole('table', { name: liveName });
 
-    await user.click(screen.getByRole('button', { name: en.t('common.table.columns') }));
+    await user.click(area().getByRole('button', { name: en.t('common.table.columns') }));
     const dialog = await screen.findByRole('dialog');
-    const toggle = within(dialog).getAllByRole('checkbox').find((box) => /role/i.test(box.getAttribute('aria-label') ?? box.parentElement?.textContent ?? ''));
-    expect(toggle).toBeDefined();
-    await user.click(toggle!);
+    await user.click(within(dialog).getByRole('checkbox', { name: en.t('showcase.table.role') }));
 
     const stored = backend.values.get(`${STORAGE_KEYS.columnsPrefix}showcase-people`);
     expect(stored).toBeDefined();
-    expect(JSON.parse(stored!)).toMatchObject({ hidden: expect.arrayContaining(['role']) });
+    expect(JSON.parse(stored!) as unknown).toMatchObject({
+      hidden: expect.arrayContaining(['role']) as unknown,
+    });
   });
 
   it('selects rows on this page and, explicitly, all results; a bulk action is told which', async () => {
     const { user } = await renderShowcase();
     await screen.findByRole('table', { name: liveName });
 
-    await user.click(screen.getByRole('checkbox', { name: en.t('common.table.selectAllRows') }));
-    expect(screen.getByText(en.t('common.table.selectionOnPage', { count: 25 }))).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: en.t('common.table.selectAllResults', { total: SAMPLE_PEOPLE.length }) }));
-    expect(screen.getByText(en.t('common.table.allResultsSelected', { total: SAMPLE_PEOPLE.length }))).toBeInTheDocument();
+    await user.click(area().getByRole('checkbox', { name: en.t('common.table.selectAllRows') }));
+    expect(
+      area().getByText(en.t('common.table.selectionOnPage', { count: 25 })),
+    ).toBeInTheDocument();
+    await user.click(
+      area().getByRole('button', {
+        name: en.t('common.table.selectAllResults', { total: SAMPLE_PEOPLE.length }),
+      }),
+    );
+    expect(
+      area().getByText(en.t('common.table.allResultsSelected', { total: SAMPLE_PEOPLE.length })),
+    ).toBeInTheDocument();
 
     await user.click(
-      within(screen.getByRole('group', { name: en.t('common.table.bulkActions') })).getByRole('button', { name: en.t('showcase.table.bulk') }),
+      within(area().getByRole('group', { name: en.t('common.table.bulkActions') })).getByRole(
+        'button',
+        { name: en.t('showcase.table.bulk') },
+      ),
     );
 
-    expect(await screen.findByText(en.t('showcase.table.bulkDone', { count: SAMPLE_PEOPLE.length }))).toBeInTheDocument();
+    expect(
+      await screen.findByText(en.t('showcase.table.bulkDone', { count: SAMPLE_PEOPLE.length })),
+    ).toBeInTheDocument();
   });
 
   it('opens the details of a row in a panel', async () => {
@@ -590,7 +658,11 @@ describe('the DataTable demo', () => {
     await screen.findByRole('table', { name: liveName });
     const first = [...SAMPLE_PEOPLE].sort((a, b) => a.name.localeCompare(b.name, 'en'))[0]!.name;
 
-    await user.click(within(live()).getByRole('button', { name: en.t('common.table.openDetails', { row: first }) }));
+    await user.click(
+      within(live()).getByRole('button', {
+        name: en.t('common.table.openDetails', { row: first }),
+      }),
+    );
 
     expect(await screen.findByRole('dialog', { name: first })).toBeInTheDocument();
   });
@@ -599,18 +671,23 @@ describe('the DataTable demo', () => {
     await renderShowcase();
     await screen.findByRole('table', { name: liveName });
 
-    expect(within(live()).getAllByRole('columnheader')[0]!.closest('thead')).toHaveClass('sticky');
+    expect(within(live()).getAllByRole('columnheader')[0]).toHaveClass('sticky');
   });
 
   it('shows the empty state for the empty scenario and the error state, with retry, for the error scenario', async () => {
     const controlled = controlledSource();
-    const { user, router } = await renderShowcase({ source: controlled.source, path: '/design?scenario=empty' });
-    expect(await screen.findByRole('heading', { name: en.t('common.table.emptyTitle') })).toBeInTheDocument();
+    const { user, router } = await renderShowcase({
+      source: controlled.source,
+      path: '/design?scenario=empty',
+    });
+    expect(
+      await area().findByRole('heading', { name: en.t('common.table.emptyTitle') }),
+    ).toBeInTheDocument();
 
     await act(async () => {
       await router.navigate({ to: '/design', search: { scenario: 'error' } });
     });
-    const alert = await screen.findByRole('alert', { name: undefined }, { timeout: 2000 });
+    const alert = await area().findByRole('alert');
     expect(within(alert).getByText(en.t('common.table.errorTitle'))).toBeInTheDocument();
 
     const before = controlled.queries.length;
@@ -623,8 +700,10 @@ describe('the DataTable demo', () => {
   it('shows "no results" with a way to clear the filters', async () => {
     const { user } = await renderShowcase({ path: '/design?q=zzzznomatch' });
 
-    expect(await screen.findByRole('heading', { name: en.t('common.table.noResultsTitle') })).toBeInTheDocument();
-    await user.click(screen.getAllByRole('button', { name: en.t('common.table.clearFilters') })[0]!);
+    expect(
+      await area().findByRole('heading', { name: en.t('common.table.noResultsTitle') }),
+    ).toBeInTheDocument();
+    await user.click(area().getByRole('button', { name: en.t('common.table.clearFilters') }));
     await screen.findByRole('table', { name: liveName });
   });
 });
@@ -652,8 +731,12 @@ describe('the sample source', () => {
   });
 
   it('sorts, filters, searches and slices like a server', async () => {
-    const page = await fast.fetchPage(query({ sort: '-name', size: 10, page: 2, department: 'design' }));
-    const design = SAMPLE_PEOPLE.filter((person) => person.department === 'design').sort((a, b) => b.name.localeCompare(a.name, 'en'));
+    const page = await fast.fetchPage(
+      query({ sort: '-name', size: 10, page: 2, department: 'design' }),
+    );
+    const design = SAMPLE_PEOPLE.filter((person) => person.department === 'design').sort((a, b) =>
+      b.name.localeCompare(a.name, 'en'),
+    );
     expect(page.total).toBe(design.length);
     expect(page.rows.map((row) => row.id)).toEqual(design.slice(10, 20).map((row) => row.id));
   });
@@ -694,14 +777,35 @@ describe('the sample source', () => {
 describe('validateShowcaseSearch', () => {
   it('keeps the table keys as strings and numbers, and the scenario when known', () => {
     expect(
-      validateShowcaseSearch({ q: 'ada', sort: '-name', page: 2, size: '50', scenario: 'error', 'f.department': 'finance' }),
-    ).toEqual({ q: 'ada', sort: '-name', page: 2, size: 50, scenario: 'error', 'f.department': 'finance' });
+      validateShowcaseSearch({
+        q: 'ada',
+        sort: '-name',
+        page: 2,
+        size: '50',
+        scenario: 'error',
+        'f.department': 'finance',
+      }),
+    ).toEqual({
+      q: 'ada',
+      sort: '-name',
+      page: 2,
+      size: 50,
+      scenario: 'error',
+      'f.department': 'finance',
+    });
   });
 
   it('turns a number typed as q into text and drops values that make no sense', () => {
     expect(validateShowcaseSearch({ q: 123 })).toEqual({ q: '123' });
     expect(
-      validateShowcaseSearch({ page: -1, size: 'x', scenario: 'nope', 'f.department': 'unknown', q: { a: 1 }, other: 'x' }),
+      validateShowcaseSearch({
+        page: -1,
+        size: 'x',
+        scenario: 'nope',
+        'f.department': 'unknown',
+        q: { a: 1 },
+        other: 'x',
+      }),
     ).toEqual({});
   });
 });
@@ -712,10 +816,10 @@ describe('the DataTable wiring', () => {
       const labels = createTableLabels(translator, 'My table');
       expect(labels.tableLabel).toBe('My table');
       for (const [name, value] of Object.entries(labels)) {
-        const text =
+        const text: string =
           typeof value === 'function'
             ? (value as (...args: unknown[]) => string)(2, 5, 7)
-            : value;
+            : String(value);
         expect(text, name).not.toBe('');
         expect(text, name).not.toMatch(/^common\.table\./);
       }
@@ -747,7 +851,13 @@ describe('the DataTable wiring', () => {
   it('never throws: garbage, a wrong shape and a bad table id read as no choice', () => {
     const backend = new MemoryBackend();
     const storage = createColumnStorage(createStorage(backend));
-    for (const garbage of ['not json', '{"hidden":"x","order":[]}', '{"hidden":[1],"order":[]}', 'null', '[]']) {
+    for (const garbage of [
+      'not json',
+      '{"hidden":"x","order":[]}',
+      '{"hidden":[1],"order":[]}',
+      'null',
+      '[]',
+    ]) {
       backend.values.set('m365portal.columns.people', garbage);
       expect(storage.read('people'), garbage).toBeNull();
     }

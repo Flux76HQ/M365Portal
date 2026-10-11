@@ -22,9 +22,10 @@ import { GLYPHS, GLYPH_KEYS, PICTOGRAM } from '@m365portal/shared/branding/glyph
 import { iconPlateFor, logoPlateColour } from '@m365portal/shared/branding/logo-plate';
 import { monogramFor } from '@m365portal/shared/branding/monogram';
 import { LIMITS } from '@m365portal/shared/limits';
+import { UploadAssetResponseSchema } from '@m365portal/shared/schemas/assets';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import sharp from 'sharp';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import {
   composeIcons,
   deriveCompact,
@@ -35,6 +36,7 @@ import {
   type IconKind,
   type IconSet,
 } from '../../src/branding/pipeline/icons.js';
+import { createImageJobRunner } from '../../src/branding/pipeline/job-runner.js';
 import { createAssetStore } from '../../src/branding/asset-store.js';
 import { referencedHashes } from '../../src/branding/repository.js';
 import {
@@ -50,7 +52,17 @@ import { withTransaction } from '../../src/db/index.js';
 import { createSweeperRegistry } from '../../src/lifecycle/sweepers.js';
 import { createFakeScheduler } from '../helpers/fake-scheduler.js';
 import { createTempDataDir } from '../helpers/temp-data-dir.js';
-import { createBrandingStorage, distinctPng } from './branding-fixture.js';
+import { readJson } from '../helpers/http-client.js';
+import { noisePng, padPngToSize } from '../fixtures/png-chunks.js';
+import type { HttpResult } from './hostile-harness.js';
+import { multipartBody, sendRaw } from './hostile-harness.js';
+import type { TransportPlan } from '../fixtures/hostile/types.js';
+import {
+  createBrandingApp,
+  createBrandingStorage,
+  detailOf,
+  distinctPng,
+} from './branding-fixture.js';
 import { pathInkBounds, placeGlyphs } from '../../src/branding/pipeline/monogram-render.js';
 import { bilevelBombPng, OUTPUT_CHUNK_TYPES, walkPng } from '../fixtures/png-chunks.js';
 
@@ -1002,9 +1014,9 @@ describe('the sweepers on a fake clock (T-A-084; data-model 9)', () => {
       'branding-orphans',
     ]);
     // A second registration of the same names is refused by the registry.
-    expect(() => registerBrandingSweepers(registry, sweeping(storage))).toThrow(
-      /already registered/,
-    );
+    expect(() => {
+      registerBrandingSweepers(registry, sweeping(storage));
+    }).toThrow(/already registered/);
 
     const stale = await stageUpload(storage, await distinctPng(14));
     storage.clock.advance(2 * DAY);
@@ -1043,4 +1055,384 @@ describe('the sweepers on a fake clock (T-A-084; data-model 9)', () => {
     ).toEqual([]);
     expect(quiet).toEqual([]);
   });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T-A-086: the upload route over HTTP (FR-A-080 R7, FR-A-084, FR-A-085; PD-07; E-02; H-35 to H-38)
+// ---------------------------------------------------------------------------------------------
+
+type App = Awaited<ReturnType<typeof createBrandingApp>>;
+
+const UPLOAD_PATH = '/api/v1/branding/assets';
+
+/** One multipart upload through the in-process client; the file name and part type are the test's. */
+function formWith(
+  bytes: Uint8Array,
+  options: { filename?: string; type?: string; field?: string } = {},
+): FormData {
+  const form = new FormData();
+  form.set(
+    options.field ?? 'file',
+    new Blob([bytes], { type: options.type ?? 'application/octet-stream' }),
+    options.filename ?? 'logo.png',
+  );
+  return form;
+}
+
+async function postUpload(
+  app: App,
+  bytes: Uint8Array,
+  options: { slot?: string; filename?: string; type?: string; field?: string } = {},
+): Promise<Response> {
+  return app.app.client.post(`${UPLOAD_PATH}?slot=${options.slot ?? 'logoLight'}`, {
+    body: formWith(bytes, options),
+  });
+}
+
+/** Everything the upload may leave on disk: the image directory and its temporary directory. */
+async function filesOf(app: App): Promise<string[]> {
+  return [...(await readdir(app.store.directory)), ...(await readdir(app.store.tempDirectory))]
+    .filter((name) => name !== '.tmp')
+    .sort();
+}
+
+/**
+ * The source-scan of PD-07: a handler that reads the client's file name or the part's media type
+ * (`part.name`, `part.type`, `part['name']`) is a handler that can be made to store or echo them.
+ * Comments are not code and are removed first.
+ */
+export function partReadsOf(source: string): string[] {
+  const code = source.replaceAll(/\/\*[\s\S]*?\*\//g, '').replaceAll(/^\s*\/\/.*$/gm, '');
+  const found: string[] = [];
+  for (const match of code.matchAll(/\.\s*(name|type)\b|\[\s*['"`](name|type)['"`]\s*\]/g)) {
+    found.push(match[0].replaceAll(/\s+/g, ''));
+  }
+  return found;
+}
+
+/** A form whose only field is a plain string called file. */
+function textOnly(): FormData {
+  const form = new FormData();
+  form.set('file', 'just text');
+  return form;
+}
+
+describe('the upload route: the request (T-A-086)', () => {
+  it('takes exactly one part named file and answers 422 validation_failed for anything else', async () => {
+    const app = await createBrandingApp();
+    const png = await distinctPng(30);
+    const before = { files: await filesOf(app), rows: app.assets(), audit: app.audit() };
+
+    const two = new FormData();
+    two.set('file', new Blob([png]), 'a.png');
+    two.append('file', new Blob([png]), 'b.png');
+    const cases: [string, FormData][] = [
+      ['another field name', formWith(png, { field: 'image' })],
+      ['two parts', two],
+      ['a text field instead of a file', textOnly()],
+      ['no part at all', new FormData()],
+    ];
+    for (const [name, body] of cases) {
+      const response = await app.app.client.post(`${UPLOAD_PATH}?slot=logoLight`, { body });
+      expect(response.status, name).toBe(422);
+      expect(await readJson(response), name).toMatchObject({ code: 'validation_failed' });
+    }
+
+    // A body that says it is multipart and is not.
+    const broken = await app.app.client.post(`${UPLOAD_PATH}?slot=logoLight`, {
+      body: 'this is not a multipart body',
+      headers: { 'Content-Type': 'multipart/form-data; boundary=zzz' },
+    });
+    expect(broken.status).toBe(422);
+    expect(await readJson(broken)).toMatchObject({ code: 'validation_failed' });
+
+    // Nothing was stored, written or audited for any of them.
+    expect(await filesOf(app)).toEqual(before.files);
+    expect(app.assets()).toEqual(before.rows);
+    expect(app.audit()).toEqual(before.audit);
+  });
+
+  it('never reads the client file name or the part media type (source scan, + negative)', async () => {
+    const source = await readFile(
+      new URL('../../src/branding/routes/assets-upload.ts', import.meta.url),
+      'utf8',
+    );
+    expect(partReadsOf(source)).toEqual([]);
+    for (const bad of [
+      'const n = file.name;',
+      'const t = part.type;',
+      "const n = file['name'];",
+      'const n = file . name;',
+    ]) {
+      expect(() => {
+        const reads = partReadsOf(bad);
+        if (reads.length > 0) throw new Error(`reads ${reads.join(', ')}`);
+      }, bad).toThrow(/reads/);
+    }
+    expect(partReadsOf('// file.name in a comment\n/* part.type */\nconst x = 1;')).toEqual([]);
+  });
+
+  it('ignores hostile file names and part types: the stored name is the hash (H-38)', async () => {
+    const app = await createBrandingApp();
+    const marker = 'name-marker-9f31c2';
+    const tricks = [
+      `../../${marker}`,
+      `..\\..\\${marker}.exe`,
+      `..%2f..%2f${marker}`,
+      `${marker}%00.png`,
+      `${marker}%0d%0aSet-Cookie:%20${marker}=1.png`,
+    ];
+    for (const [index, filename] of tricks.entries()) {
+      const { body, contentType } = multipartBody([
+        {
+          name: 'file',
+          filename,
+          contentType: 'application/x-msdownload',
+          bytes: await distinctPng(100 + index),
+        },
+      ]);
+      const response = await app.app.client.post(`${UPLOAD_PATH}?slot=logoLight`, {
+        body,
+        headers: { 'Content-Type': contentType },
+      });
+      expect(response.status, filename).toBe(201);
+      const answer = UploadAssetResponseSchema.parse(await readJson(response));
+      expect(answer.asset.url).toBe(`/branding/${answer.asset.hash}.png`);
+      expect(await app.store.has(answer.asset.hash)).toBe(true);
+    }
+    // Only hashes on disk, and the marker is nowhere: not in a name, not in the audit trail.
+    expect((await filesOf(app)).every((name) => /^[0-9a-f]{64}\.png$/.test(name))).toBe(true);
+    expect(JSON.stringify(app.audit())).not.toContain(marker);
+  });
+
+  it('accepts a file of exactly 2,097,152 bytes and refuses 2,097,153 with 413 once the part is parsed (H-35)', async () => {
+    const app = await createBrandingApp();
+    const exact = padPngToSize(noisePng(32, 32, 35), LIMITS.body.logoFileBytes);
+    const over = padPngToSize(noisePng(32, 32, 35), LIMITS.body.logoFileBytes + 1);
+    expect(exact.length).toBe(2_097_152);
+    expect(over.length).toBe(2_097_153);
+
+    const accepted = await postUpload(app, exact);
+    expect(accepted.status).toBe(201);
+
+    const refused = await postUpload(app, over);
+    expect(refused.status).toBe(413);
+    expect(await readJson(refused)).toMatchObject({ code: 'payload_too_large' });
+
+    // The refusal is audited as a rejected upload with the reason, and stored nothing.
+    const entry = app.audit().at(-1);
+    expect(entry).toMatchObject({
+      action: 'branding.asset.stage',
+      outcome: 'rejected',
+      reason_code: 'payload_too_large',
+    });
+    expect(app.assets().filter((row) => row.unreferenced_at !== null)).toHaveLength(1);
+  });
+
+  it('answers 201 for new bytes and 200 with created:false for identical bytes, and audits both', async () => {
+    const app = await createBrandingApp();
+    const png = await distinctPng(31);
+    const first = await postUpload(app, png);
+    const second = await postUpload(app, png, { filename: 'other.png' });
+    expect([first.status, second.status]).toEqual([201, 200]);
+    const one = UploadAssetResponseSchema.parse(await readJson(first));
+    const two = UploadAssetResponseSchema.parse(await readJson(second));
+    expect(one.asset.created).toBe(true);
+    expect(two.asset.created).toBe(false);
+    expect(two.asset.hash).toBe(one.asset.hash);
+    expect(one.asset.bytes).toBe((await readFile(app.store.pathOf(one.asset.hash))).length);
+    expect(sha256Of(await readFile(app.store.pathOf(one.asset.hash)))).toBe(one.asset.hash);
+
+    const entries = app.audit().filter((row) => row.action === 'branding.asset.stage');
+    expect(entries.map((row) => row.outcome)).toEqual(['success', 'success']);
+    expect(entries.map((row) => detailOf(row).created)).toEqual([true, false]);
+    expect(detailOf(entries[0] as never)).toMatchObject({
+      slot: 'logoLight',
+      bytes: png.length,
+      sha256: one.asset.hash,
+      warnings: [],
+    });
+    expect(entries[0]).toMatchObject({ target_type: 'branding_asset', target_id: one.asset.hash });
+    expect(entries[0]?.client_ip).toBeTruthy();
+    expect(entries[0]?.request_id).toBeTruthy();
+  });
+
+  it('reports the warnings of the pipeline in the answer and in the audit entry', async () => {
+    const app = await createBrandingApp();
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><script>alert(1)</script><rect width="10" height="10" fill="#c00"/></svg>',
+    );
+    const response = await postUpload(app, svg, { slot: 'logoDark', type: 'image/svg+xml' });
+    expect(response.status).toBe(201);
+    const answer = UploadAssetResponseSchema.parse(await readJson(response));
+    expect(answer.warnings).toEqual([{ code: 'svg_content_removed', categories: ['script'] }]);
+    const entry = app.audit().at(-1);
+    expect(detailOf(entry as never)).toMatchObject({
+      slot: 'logoDark',
+      warnings: ['svg_content_removed'],
+    });
+    // What is stored is a PNG, never the SVG.
+    expect((await readFile(app.store.pathOf(answer.asset.hash))).subarray(1, 4).toString()).toBe(
+      'PNG',
+    );
+  });
+
+  it('audits a refused file as rejected with its code, the hash of the upload and no target', async () => {
+    const app = await createBrandingApp();
+    const html = Buffer.from('<html><script>alert(1)</script></html>');
+    const response = await postUpload(app, html);
+    expect(response.status).toBe(415);
+    expect(await readJson(response)).toMatchObject({ code: 'image_type_unsupported' });
+    const entry = app.audit().at(-1);
+    expect(entry).toMatchObject({
+      action: 'branding.asset.stage',
+      outcome: 'rejected',
+      reason_code: 'image_type_unsupported',
+      target_type: 'branding_asset',
+      target_id: null,
+    });
+    expect(detailOf(entry as never)).toMatchObject({
+      slot: 'logoLight',
+      bytes: html.length,
+      sha256: sha256Of(html),
+      created: false,
+    });
+    expect(app.assets().filter((row) => row.unreferenced_at !== null)).toHaveLength(0);
+    expect(await filesOf(app)).toEqual(
+      (await filesOf(app)).filter((name) => /^[0-9a-f]{64}\.png$/.test(name)),
+    );
+  });
+
+  it('refuses an empty file with image_empty', async () => {
+    const app = await createBrandingApp();
+    const response = await postUpload(app, new Uint8Array(0));
+    expect(response.status).toBe(422);
+    expect(await readJson(response)).toMatchObject({ code: 'image_empty' });
+    expect(app.audit().at(-1)).toMatchObject({ outcome: 'rejected', reason_code: 'image_empty' });
+  });
+
+  it('leaves no temporary file after a success, a refusal or a failed write', async () => {
+    const app = await createBrandingApp();
+    await postUpload(app, await distinctPng(32));
+    await postUpload(app, Buffer.from('not an image'));
+    expect(await readdir(app.store.tempDirectory)).toEqual([]);
+  });
+});
+
+describe('the upload route: the transport (T-A-086, H-36, H-37)', () => {
+  async function onSocket(
+    options: { requestTimeout?: number; connectionsCheckingInterval?: number } = {},
+  ) {
+    const app = await createBrandingApp();
+    const server = await app.app.listen({ serverOptions: options });
+    const token = await server.client.csrfToken();
+    return { app, server, token };
+  }
+
+  function raw(
+    served: Awaited<ReturnType<typeof onSocket>>,
+    body: Uint8Array,
+    contentType: string,
+    plan?: TransportPlan,
+  ): Promise<HttpResult> {
+    return sendRaw({
+      origin: served.server.origin,
+      method: 'POST',
+      path: `${UPLOAD_PATH}?slot=logoLight`,
+      headers: {
+        host: new URL(served.app.app.publicOrigin).host,
+        origin: served.app.app.publicOrigin,
+        'x-csrf-token': served.token,
+        'content-type': contentType,
+      },
+      body,
+      ...(plan === undefined ? {} : { plan }),
+    });
+  }
+
+  it('cuts a chunked body without Content-Length off at the request cap and keeps nothing (H-36)', async () => {
+    const served = await onSocket();
+    const { body, contentType } = multipartBody([
+      {
+        name: 'file',
+        filename: 'big.png',
+        bytes: padPngToSize(noisePng(32, 32, 36), 4 * 1024 * 1024),
+      },
+    ]);
+    const result = await raw(served, body, contentType, {
+      framing: 'chunked',
+      chunkBytes: 64 * 1024,
+    });
+    // Either the 413 reached the client before the connection went, or the connection was cut.
+    expect(result.status === 413 || result.status === undefined).toBe(true);
+    if (result.status === 413) {
+      expect(JSON.parse(Buffer.from(result.body).toString())).toMatchObject({
+        code: 'payload_too_large',
+      });
+      expect(result.headers.connection).toBe('close');
+    }
+    expect(await filesOf(served.app)).toEqual(
+      (await filesOf(served.app)).filter((name) => /^[0-9a-f]{64}\.png$/.test(name)),
+    );
+    expect(served.app.assets().filter((row) => row.unreferenced_at !== null)).toHaveLength(0);
+  });
+
+  it('leaves no temporary file when the client aborts in the middle of the body (H-36)', async () => {
+    const served = await onSocket();
+    const { body, contentType } = multipartBody([
+      { name: 'file', filename: 'x.png', bytes: padPngToSize(noisePng(32, 32, 36), 1024 * 1024) },
+    ]);
+    const result = await raw(served, body, contentType, {
+      framing: 'content-length',
+      chunkBytes: 64 * 1024,
+      abortAfterBytes: 256 * 1024,
+    });
+    expect(result.closed).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await readdir(served.app.store.tempDirectory)).toEqual([]);
+    expect(served.app.assets().filter((row) => row.unreferenced_at !== null)).toHaveLength(0);
+    expect(served.app.audit().filter((row) => row.action === 'branding.asset.stage')).toEqual([]);
+  });
+
+  it('closes a body that is sent a few bytes at a time with 408 under a shortened timeout (H-37)', async () => {
+    const served = await onSocket({ requestTimeout: 1_000, connectionsCheckingInterval: 100 });
+    const { body, contentType } = multipartBody([
+      { name: 'file', filename: 'slow.png', bytes: noisePng(32, 32, 37) },
+    ]);
+    const result = await raw(served, body, contentType, {
+      framing: 'content-length',
+      chunkBytes: 16,
+      delayMsPerChunk: 50,
+    });
+    expect(result.status).toBe(408);
+    expect(result.closed).toBe(true);
+    expect(await readdir(served.app.store.tempDirectory)).toEqual([]);
+    expect(served.app.assets().filter((row) => row.unreferenced_at !== null)).toHaveLength(0);
+  });
+});
+
+describe('the upload route through the real image runner (T-A-086, T-A-083)', () => {
+  it('stages and applies an image processed by a child process', async () => {
+    const runner = createImageJobRunner();
+    onTestFinished(() => runner.shutdown());
+    const app = await createBrandingApp({ images: runner });
+    const response = await postUpload(app, await distinctPng(70));
+    expect(response.status).toBe(201);
+    const answer = UploadAssetResponseSchema.parse(await readJson(response));
+    expect(runner.stats().started).toBeGreaterThanOrEqual(1);
+
+    const applied = await app.app.client.put('/api/v1/branding', {
+      json: {
+        orgName: 'Via child',
+        accent: '#0078d4',
+        logos: { light: answer.asset.hash, dark: null, compact: null },
+      },
+      headers: { 'If-Match': '"1"' },
+    });
+    expect(applied.status).toBe(200);
+    const branding = await readJson<{ revision: number; compactDerived: boolean }>(applied);
+    expect(branding).toMatchObject({ revision: 2, compactDerived: true });
+    // The runner was used for the upload and for the variants of the apply.
+    expect(runner.stats().started).toBeGreaterThanOrEqual(2);
+  }, 60_000);
 });

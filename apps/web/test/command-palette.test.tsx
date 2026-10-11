@@ -47,22 +47,40 @@ describe('the palette as a combobox', () => {
     expect(within(dialog).getAllByRole('option').length).toBeGreaterThan(5);
   });
 
-  it('points aria-activedescendant at the chosen option as the arrow keys move', async () => {
-    // cmdk 1.1.1 sets aria-activedescendant when the choice is moved with the keyboard; the option
-    // that is chosen when the palette opens is marked aria-selected but is not yet the descendant
-    // (checked in a real browser by e2e/keyboard.spec.ts; see the gate note, open point).
+  it('points aria-activedescendant at the chosen option: when it opens, as the search changes and as the arrow keys move', async () => {
+    // cmdk 1.1.1 sets the attribute only for the arrow keys; the palette puts it right after every render.
     const { dialog, user } = await openPalette({ me: sampleMe({ preview: true }) });
     const input = within(dialog).getByRole('combobox');
     const chosen = () => dialog.querySelector('[role="option"][aria-selected="true"]');
+
+    await waitFor(() => {
+      expect(chosen()).not.toBeNull();
+      expect(input).toHaveAttribute('aria-activedescendant', chosen()?.id);
+    });
     const first = chosen()?.id;
 
     await user.keyboard('{ArrowDown}');
-
     await waitFor(() => {
       expect(input).toHaveAttribute('aria-activedescendant', chosen()?.id);
     });
     expect(chosen()?.id).not.toBe(first);
-    expect(input.getAttribute('aria-activedescendant')).toBe(chosen()?.id);
+
+    await user.keyboard('appear');
+    await waitFor(() => {
+      expect(chosen()).toHaveTextContent(en.t('palette.command.settingsAppearance'));
+      expect(input).toHaveAttribute('aria-activedescendant', chosen()?.id);
+    });
+  });
+
+  it('has no aria-activedescendant when nothing matches', async () => {
+    const { dialog, user } = await openPalette();
+    const input = within(dialog).getByRole('combobox');
+
+    await user.keyboard('qqzzxx');
+
+    await waitFor(() => {
+      expect(input).not.toHaveAttribute('aria-activedescendant');
+    });
   });
 
   it('closes with Escape and restores the focus to the search trigger', async () => {

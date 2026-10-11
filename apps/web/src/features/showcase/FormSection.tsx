@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, type SyntheticEvent } from 'react';
 import { Button } from '../../components/ui/button';
 import { FormField } from '../../components/ui/form-field';
 import { Input } from '../../components/ui/input';
@@ -31,7 +31,7 @@ function FormDemo() {
   const [values, setValues] = useState<Values>({ name: '', email: '' });
   const [problems, setProblems] = useState<Problems>({});
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     const found = validate(values);
     setProblems(found);

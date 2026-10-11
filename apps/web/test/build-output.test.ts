@@ -317,6 +317,9 @@ describe('the inlined boot script (plan 8.2)', () => {
     expect(code).toMatch(/dataset\.theme/);
     expect(code).toMatch(/colorScheme/);
     expect(code).toMatch(/\.lang\s*=/);
+    // Zod is told not to probe `new Function` before any module (and so any schema) exists (P17).
+    expect(code).toContain('__zod_globalConfig');
+    expect(code).toContain('jitless');
     expect(code).not.toContain('import ');
     expect(code).not.toContain('__M365_');
   });

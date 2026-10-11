@@ -31,9 +31,10 @@ export interface CompiledBootScript {
 // pure function of boot-script.ts to the real browser. `getBrowserStorage` is the one function of
 // lib/storage.ts that touches storage (guarded), so the lint rule still has a single exception.
 const BOOT_ENTRY = `
-import { runBootScript } from './src/boot/boot-script.ts';
+import { disableZodJit, runBootScript } from './src/boot/boot-script.ts';
 import { getBrowserStorage } from './src/lib/storage.ts';
 
+disableZodJit(globalThis);
 runBootScript({
   storage: getBrowserStorage(),
   matchMedia: typeof window.matchMedia === 'function' ? (query) => window.matchMedia(query) : null,

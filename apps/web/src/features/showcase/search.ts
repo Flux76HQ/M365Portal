@@ -17,7 +17,8 @@ const SORTABLE = new Set(['name', 'email', 'department', 'role']);
 const SIZES = new Set([10, 25, 50, 100]);
 
 function positiveInteger(value: unknown): number | null {
-  const text = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : '';
+  const text =
+    typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : '';
   if (!/^\d{1,7}$/.test(text)) return null;
   const parsed = Number(text);
   return parsed >= 1 ? parsed : null;

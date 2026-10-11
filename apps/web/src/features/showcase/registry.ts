@@ -49,22 +49,62 @@ export interface ShowcaseComponent {
 }
 
 export const SHOWCASE_COMPONENTS: readonly ShowcaseComponent[] = Object.freeze([
-  { id: 'button', nameKey: 'showcase.component.button', states: ['default', 'hover', 'focus', 'disabled', 'loading'] },
-  { id: 'icon-button', nameKey: 'showcase.component.iconButton', states: ['default', 'hover', 'focus', 'disabled'] },
-  { id: 'input', nameKey: 'showcase.component.input', states: ['default', 'focus', 'disabled', 'invalid'] },
-  { id: 'textarea', nameKey: 'showcase.component.textarea', states: ['default', 'focus', 'disabled', 'invalid'] },
-  { id: 'select', nameKey: 'showcase.component.select', states: ['default', 'focus', 'disabled', 'invalid'] },
-  { id: 'checkbox', nameKey: 'showcase.component.checkbox', states: ['default', 'focus', 'disabled', 'invalid'] },
-  { id: 'radio-group', nameKey: 'showcase.component.radioGroup', states: ['default', 'focus', 'disabled', 'invalid'] },
+  {
+    id: 'button',
+    nameKey: 'showcase.component.button',
+    states: ['default', 'hover', 'focus', 'disabled', 'loading'],
+  },
+  {
+    id: 'icon-button',
+    nameKey: 'showcase.component.iconButton',
+    states: ['default', 'hover', 'focus', 'disabled'],
+  },
+  {
+    id: 'input',
+    nameKey: 'showcase.component.input',
+    states: ['default', 'focus', 'disabled', 'invalid'],
+  },
+  {
+    id: 'textarea',
+    nameKey: 'showcase.component.textarea',
+    states: ['default', 'focus', 'disabled', 'invalid'],
+  },
+  {
+    id: 'select',
+    nameKey: 'showcase.component.select',
+    states: ['default', 'focus', 'disabled', 'invalid'],
+  },
+  {
+    id: 'checkbox',
+    nameKey: 'showcase.component.checkbox',
+    states: ['default', 'focus', 'disabled', 'invalid'],
+  },
+  {
+    id: 'radio-group',
+    nameKey: 'showcase.component.radioGroup',
+    states: ['default', 'focus', 'disabled', 'invalid'],
+  },
   { id: 'switch', nameKey: 'showcase.component.switch', states: ['default', 'focus', 'disabled'] },
-  { id: 'segmented-control', nameKey: 'showcase.component.segmentedControl', states: ['default', 'hover', 'focus', 'disabled'] },
-  { id: 'tabs', nameKey: 'showcase.component.tabs', states: ['default', 'hover', 'focus', 'disabled'] },
+  {
+    id: 'segmented-control',
+    nameKey: 'showcase.component.segmentedControl',
+    states: ['default', 'hover', 'focus', 'disabled'],
+  },
+  {
+    id: 'tabs',
+    nameKey: 'showcase.component.tabs',
+    states: ['default', 'hover', 'focus', 'disabled'],
+  },
   { id: 'menu', nameKey: 'showcase.component.menu', states: ['open'] },
   { id: 'tooltip', nameKey: 'showcase.component.tooltip', states: ['open'] },
   { id: 'dialog', nameKey: 'showcase.component.dialog', states: ['open'] },
   { id: 'confirm-dialog', nameKey: 'showcase.component.confirmDialog', states: ['open'] },
   { id: 'toast', nameKey: 'showcase.component.toast', states: ['open'] },
-  { id: 'banner', nameKey: 'showcase.component.banner', states: ['info', 'success', 'warning', 'danger'] },
+  {
+    id: 'banner',
+    nameKey: 'showcase.component.banner',
+    states: ['info', 'success', 'warning', 'danger'],
+  },
   { id: 'breadcrumbs', nameKey: 'showcase.component.breadcrumbs', states: ['default'] },
   { id: 'command-bar', nameKey: 'showcase.component.commandBar', states: ['default', 'disabled'] },
   { id: 'details-panel', nameKey: 'showcase.component.detailsPanel', states: ['open'] },
@@ -73,8 +113,16 @@ export const SHOWCASE_COMPONENTS: readonly ShowcaseComponent[] = Object.freeze([
   { id: 'skeleton', nameKey: 'showcase.component.skeleton', states: ['loading'] },
   { id: 'empty-state', nameKey: 'showcase.component.emptyState', states: ['empty'] },
   { id: 'error-state', nameKey: 'showcase.component.errorState', states: ['error'] },
-  { id: 'data-table', nameKey: 'showcase.component.dataTable', states: ['loading', 'ready', 'empty', 'no-results', 'error'] },
-  { id: 'form-field', nameKey: 'showcase.component.formField', states: ['default', 'disabled', 'invalid'] },
+  {
+    id: 'data-table',
+    nameKey: 'showcase.component.dataTable',
+    states: ['loading', 'ready', 'empty', 'no-results', 'error'],
+  },
+  {
+    id: 'form-field',
+    nameKey: 'showcase.component.formField',
+    states: ['default', 'disabled', 'invalid'],
+  },
 ] satisfies readonly ShowcaseComponent[]);
 
 export function componentById(id: string): ShowcaseComponent {

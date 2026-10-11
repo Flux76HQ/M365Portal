@@ -25,7 +25,12 @@ import {
   type AssetMetadata,
   type StoreFileOperations,
 } from '../../src/branding/asset-store.js';
-import { referencedHashes } from '../../src/branding/repository.js';
+import {
+  readBranding,
+  referencedHashes,
+  refreshUnreferenced,
+  replaceBranding,
+} from '../../src/branding/repository.js';
 import { withTransaction } from '../../src/db/index.js';
 import { createFakeClock } from '../helpers/fake-clock.js';
 import { createTempDataDir } from '../helpers/temp-data-dir.js';
@@ -389,5 +394,30 @@ describe('the quota decision of registerStaged', () => {
       storage.store.registerDerived(tx, metadata(500)),
     );
     expect(derived.created).toBe(true);
+  });
+});
+
+describe('the repository guards that stand behind the service (defence in depth)', () => {
+  it('refreshUnreferenced never touches a row the applied branding references', async () => {
+    const storage = await createBrandingStorage();
+    const [hash] = referencedHashes(storage.database);
+    expect(hash).toBeDefined();
+    expect(refreshUnreferenced(storage.database, hash ?? '', '2030-01-01T00:00:00.000Z')).toBe(
+      false,
+    );
+    expect(storage.assets().find((row) => row.sha256 === hash)?.unreferenced_at).toBeNull();
+  });
+
+  it('replaceBranding changes the row only at the revision it names, and moves it by one', async () => {
+    const storage = await createBrandingStorage();
+    const row = readBranding(storage.database);
+    if (row === undefined) throw new Error('the branding row does not exist');
+    const { id, revision, ...values } = row;
+    expect([id, revision]).toEqual([1, 1]);
+    const changed = { ...values, orgName: 'Changed' };
+    expect(replaceBranding(storage.database, 7, changed)).toBe(false);
+    expect(readBranding(storage.database)).toMatchObject({ revision: 1, orgName: 'M365Portal' });
+    expect(replaceBranding(storage.database, 1, changed)).toBe(true);
+    expect(readBranding(storage.database)).toMatchObject({ revision: 2, orgName: 'Changed' });
   });
 });

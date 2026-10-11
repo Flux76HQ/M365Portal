@@ -47,14 +47,14 @@ const LAST_NAMES = [
 
 export const SAMPLE_PEOPLE: readonly SamplePerson[] = Object.freeze(
   Array.from({ length: FIRST_NAMES.length * LAST_NAMES.length }, (_unused, index) => {
-    const first = FIRST_NAMES[index % FIRST_NAMES.length] as string;
-    const last = LAST_NAMES[Math.floor(index / FIRST_NAMES.length)] as string;
+    const first = FIRST_NAMES[index % FIRST_NAMES.length] ?? '';
+    const last = LAST_NAMES[Math.floor(index / FIRST_NAMES.length)] ?? '';
     return Object.freeze({
       id: `sample-${String(index + 1).padStart(3, '0')}`,
       name: `${first} ${last}`,
       email: `${first}.${last}@example.test`.toLowerCase(),
-      department: DEPARTMENTS[(index * 3) % DEPARTMENTS.length] as DepartmentId,
-      role: ROLES[(index * 5) % ROLES.length] as RoleId,
+      department: DEPARTMENTS[(index * 3) % DEPARTMENTS.length] ?? 'design',
+      role: ROLES[(index * 5) % ROLES.length] ?? 'member',
     });
   }),
 );
@@ -152,9 +152,7 @@ export function createSampleSource(options: SampleSourceOptions = {}): SampleSou
       if (query.sort !== null) {
         const descending = query.sort.startsWith('-');
         const column = query.sort.replace(/^-/, '');
-        matches = [...matches].sort(
-          (a, b) => (descending ? -1 : 1) * compare(a, b, column),
-        );
+        matches = [...matches].sort((a, b) => (descending ? -1 : 1) * compare(a, b, column));
       }
       const start = (Math.max(1, query.page) - 1) * query.size;
       return { rows: matches.slice(start, start + query.size), total: matches.length };

@@ -102,7 +102,10 @@ export function createColumnStorage(storage: AppStorage): DataTableColumnStorage
     },
     write(tableId, prefs) {
       try {
-        storage.write(columnsKey(tableId), JSON.stringify({ hidden: prefs.hidden, order: prefs.order }));
+        storage.write(
+          columnsKey(tableId),
+          JSON.stringify({ hidden: prefs.hidden, order: prefs.order }),
+        );
       } catch {
         // A table id the key rule refuses cannot be stored; the choice then lasts as long as the table.
       }

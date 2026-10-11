@@ -20,7 +20,11 @@ export function FeedbackSection() {
       <ComponentSection id="banner">
         {TONES.map((tone) => (
           <Specimen key={tone} component="banner" state={tone} className="sm:col-span-2">
-            <Banner tone={tone} title={t(`showcase.banner.${tone}Title`)} className="w-full rounded-md border">
+            <Banner
+              tone={tone}
+              title={t(`showcase.banner.${tone}Title`)}
+              className="w-full rounded-md border"
+            >
               {t('showcase.banner.message')}
             </Banner>
           </Specimen>
@@ -30,9 +34,21 @@ export function FeedbackSection() {
       <ComponentSection id="persona">
         <Specimen component="persona" state="default">
           <div className="flex items-center gap-3">
-            <Persona size="sm" initials={t('showcase.persona.initials')} label={t('showcase.persona.small')} />
-            <Persona size="md" initials={t('showcase.persona.initials')} label={t('showcase.persona.medium')} />
-            <Persona size="lg" initials={t('showcase.persona.initials')} label={t('showcase.persona.large')} />
+            <Persona
+              size="sm"
+              initials={t('showcase.persona.initials')}
+              label={t('showcase.persona.small')}
+            />
+            <Persona
+              size="md"
+              initials={t('showcase.persona.initials')}
+              label={t('showcase.persona.medium')}
+            />
+            <Persona
+              size="lg"
+              initials={t('showcase.persona.initials')}
+              label={t('showcase.persona.large')}
+            />
           </div>
         </Specimen>
       </ComponentSection>
