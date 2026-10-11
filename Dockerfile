@@ -86,9 +86,11 @@ RUN set -eu; \
     test "${found}" = 1; \
     : "autoInstallPeers installs the optional peers of drizzle-orm and sharp (@types/better-sqlite3," ; \
     : "@types/node, undici-types): type declarations nothing loads at runtime. pnpm also leaves a link" ; \
-    : "to the workspace package itself, which points outside /app. Remove both."; \
+    : "to the workspace package itself (it resolves to /src here, and to nothing in the runtime image)." ; \
+    : "Remove both, and whatever link is left dangling."; \
     rm -rf /app/node_modules/.pnpm/@types+* /app/node_modules/.pnpm/undici-types@* \
-           /app/node_modules/.pnpm/node_modules/@types /app/node_modules/.pnpm/node_modules/undici-types; \
+           /app/node_modules/.pnpm/node_modules/@types /app/node_modules/.pnpm/node_modules/undici-types \
+           /app/node_modules/.pnpm/node_modules/@m365portal; \
     find /app/node_modules -xtype l -delete
 
 # ---------------------------------------------------------------------------------------------
