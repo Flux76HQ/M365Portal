@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { cn } from '../../lib/cn';
+import { useCssProperties } from './use-css-properties';
 
 export interface ColourChipProps {
   /** `#rrggbb`. A chosen or derived colour of the organisation, so it cannot be a utility class. */
@@ -14,10 +15,7 @@ export interface ColourChipProps {
  * written next to it as text, so nothing depends on seeing it.
  */
 export function ColourChip({ colour, className, children }: ColourChipProps) {
-  const reference = useRef<HTMLSpanElement>(null);
-  useLayoutEffect(() => {
-    reference.current?.style.setProperty('background-color', colour);
-  }, [colour]);
+  const reference = useCssProperties<HTMLSpanElement>({ 'background-color': colour });
   return (
     <span
       ref={reference}

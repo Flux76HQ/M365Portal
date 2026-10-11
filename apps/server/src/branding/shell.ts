@@ -24,7 +24,7 @@
 // Degraded mode (storage unusable, FR-A-013): the in-memory defaults, no icon links, and
 // `"branding": null` in the boot data (there is no applied branding to embed; the web app then asks
 // the API like it does without boot data, and learns `storageAvailable: false` from `me`).
-import { deriveAccentTokens } from '@m365portal/shared/branding/accent';
+import { deriveAccentTokens, tryNormalizeAccent } from '@m365portal/shared/branding/accent';
 import { brandingAssetUrl, type Branding } from '@m365portal/shared/schemas/branding';
 import type { MeResponseSchema } from '@m365portal/shared/schemas/meta';
 import { renderTokenCss } from '@m365portal/shared/tokens';
@@ -48,7 +48,6 @@ export interface BrandingShellDeps {
 
 /** What a nonce looks like: standard base64 of at least 128 bits, as `createNonce` makes it. */
 const NONCE_SHAPE = /^[A-Za-z0-9+/]{22,128}={0,2}$/;
-const HEX_COLOUR = /^#[0-9a-f]{6}$/;
 const PLACEHOLDER = /__M365_(?:NONCE|TITLE|THEME_CSS|ICON_LINKS|THEME_COLOR|BOOT_JSON)__/g;
 
 const HTML_ESCAPES: Readonly<Record<string, string>> = {
@@ -100,7 +99,10 @@ export function createBrandingShell(deps: BrandingShellDeps): ShellRenderer {
         const applied = appliedBranding(deps.service);
         const branding = applied ?? degradedBranding();
         const themeColor = branding.tokens.light.accent;
-        if (!HEX_COLOUR.test(themeColor)) throw new TypeError('the accent is not #rrggbb');
+        // The shared normaliser is the one judge of a colour (FR-A-008): only its own output goes in.
+        if (tryNormalizeAccent(themeColor) !== themeColor) {
+          throw new TypeError('the accent is not #rrggbb');
+        }
         const css = renderTokenCss({ accent: deriveAccentTokens(branding.accent) });
         if (css.includes('<')) throw new TypeError('the theme css holds markup');
 

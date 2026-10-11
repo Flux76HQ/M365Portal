@@ -8,6 +8,8 @@ export interface BrandingTools {
   readonly accent: typeof import('@m365portal/shared/branding/accent');
   readonly contrast: typeof import('@m365portal/shared/branding/contrast');
   readonly logoPlate: typeof import('@m365portal/shared/branding/logo-plate');
+  readonly monogram: typeof import('@m365portal/shared/branding/monogram');
+  readonly orgName: typeof import('@m365portal/shared/branding/org-name');
   readonly tokens: typeof import('@m365portal/shared/tokens');
 }
 
@@ -20,9 +22,11 @@ export function loadBrandingTools(): Promise<BrandingTools> {
     import('@m365portal/shared/branding/accent'),
     import('@m365portal/shared/branding/contrast'),
     import('@m365portal/shared/branding/logo-plate'),
+    import('@m365portal/shared/branding/monogram'),
+    import('@m365portal/shared/branding/org-name'),
     import('@m365portal/shared/tokens'),
-  ]).then(([accent, contrast, logoPlate, tokens]) => {
-    loaded = { accent, contrast, logoPlate, tokens };
+  ]).then(([accent, contrast, logoPlate, monogram, orgName, tokens]) => {
+    loaded = { accent, contrast, logoPlate, monogram, orgName, tokens };
     return loaded;
   });
   return pending;

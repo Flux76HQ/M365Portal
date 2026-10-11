@@ -8,7 +8,11 @@
 // instead of sending a manifest the browser would silently half-read.
 import { shortOrgName } from '@m365portal/shared/branding/org-name';
 import type { Branding } from '@m365portal/shared/schemas/branding';
-import { WebManifestSchema, type ManifestIcon, type WebManifest } from '@m365portal/shared/schemas/manifest';
+import {
+  WebManifestSchema,
+  type ManifestIcon,
+  type WebManifest,
+} from '@m365portal/shared/schemas/manifest';
 import { SURFACES } from '@m365portal/shared/tokens';
 import { ProblemError } from '../http/problem.js';
 import type { DegradedBranding } from './defaults.js';

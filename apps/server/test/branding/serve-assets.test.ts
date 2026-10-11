@@ -133,7 +133,10 @@ describe('R12 assets the applied branding does not reference', () => {
     const missing = await storage.app.client.get(`/branding/${unknown}.png`);
     expect(hidden.status).toBe(404);
     expect(missing.status).toBe(404);
-    const [a, b] = [ProblemSchema.parse(await readJson(hidden)), ProblemSchema.parse(await readJson(missing))];
+    const [a, b] = [
+      ProblemSchema.parse(await readJson(hidden)),
+      ProblemSchema.parse(await readJson(missing)),
+    ];
     expect({ ...a, requestId: '' }).toEqual({ ...b, requestId: '' });
     expect(hidden.headers.get('cache-control')).toBe(missing.headers.get('cache-control'));
     // A conditional request does not reveal it either.

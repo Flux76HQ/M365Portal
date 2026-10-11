@@ -72,7 +72,7 @@ describe('the six placeholders (C8)', () => {
     const html = await shellOf(storage).render({ nonce: nonceA, request: REQUEST });
     for (const kept of [
       '<link rel="preload" href="/assets/inter-latin.woff2" as="font" type="font/woff2" crossorigin />',
-      'body { margin: 0; }',
+      'body {\n        margin: 0;\n      }',
       '<link rel="manifest" href="/manifest.webmanifest" />',
       `<script type="module" nonce="${nonceA}" src="/assets/index-abc.js"></script>`,
     ]) {
@@ -98,7 +98,14 @@ describe('the six placeholders (C8)', () => {
 });
 
 describe('one pass, a replacer function: hostile names stay literal text', () => {
-  const names = ['__M365_NONCE__', '$&', '$`', "$'", '$1 $$ $<x>', '__M365_BOOT_JSON__ __M365_TITLE__'];
+  const names = [
+    '__M365_NONCE__',
+    '$&',
+    '$`',
+    "$'",
+    '$1 $$ $<x>',
+    '__M365_BOOT_JSON__ __M365_TITLE__',
+  ];
   it.each(names)('the name %j is text in the title and in the boot data', async (name) => {
     const storage = await createBrandingStorage();
     await rename(storage, name);
@@ -165,7 +172,9 @@ describe('the boot data', () => {
     const text = bootText(html);
     expect(text).not.toContain('<');
     expect(text).toContain('\\u003c/script>');
-    expect(JSON.parse(text).branding.orgName).toBe('</script><script>x</script><!-- a');
+    expect((JSON.parse(text) as { branding: { orgName: string } }).branding.orgName).toBe(
+      '</script><script>x</script><!-- a',
+    );
     const escaped = escapeJsonForScript(JSON.stringify({ name }));
     expect(escaped).not.toMatch(/[<\u2028\u2029]/);
     expect(JSON.parse(escaped)).toEqual({ name });

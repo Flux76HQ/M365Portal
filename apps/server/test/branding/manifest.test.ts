@@ -101,7 +101,7 @@ describe('R13 GET /manifest.webmanifest', () => {
     '"><img src=x onerror=alert(1)>',
     '</title><script>alert(1)</script>',
     '\\"},"icons":[{"src":"//evil"}],"x":{"y":"',
-    '$& $` $\' __M365_NONCE__',
+    "$& $` $' __M365_NONCE__",
     '<!-- -->\u202e'.replace('\u202e', ''),
   ];
   it.each(hostile)('serialises the name %j as data: valid JSON, one string value', async (name) => {

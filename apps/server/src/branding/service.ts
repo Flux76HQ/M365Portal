@@ -472,13 +472,7 @@ export function createBrandingService(dependencies: BrandingServiceDependencies)
     },
 
     apply: (choice, expectedRevision, context, options = {}) =>
-      change(
-        options.action ?? 'branding.apply',
-        choice,
-        expectedRevision,
-        context,
-        options.detail,
-      ),
+      change(options.action ?? 'branding.apply', choice, expectedRevision, context, options.detail),
 
     reset: (expectedRevision, context) =>
       change('branding.reset', DEFAULT_BRANDING, expectedRevision, context),

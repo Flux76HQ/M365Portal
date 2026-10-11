@@ -72,7 +72,7 @@ function swatchColours(
 
 const THEMES = ['light', 'dark'] as const;
 
-function lowestContrast(
+function weakestAgainstSurfaces(
   tools: BrandingTools,
   theme: (typeof THEMES)[number],
   accent: string,
@@ -226,7 +226,7 @@ export function AccentPicker({ value, onChange, disabled = false, error }: Accen
                   </p>
                   <p className="text-caption text-fg-muted">
                     {t('accent.contrast', {
-                      ratio: n(lowestContrast(tools, theme, set.accent), {
+                      ratio: n(weakestAgainstSurfaces(tools, theme, set.accent), {
                         minimumFractionDigits: 1,
                         maximumFractionDigits: 1,
                       }),

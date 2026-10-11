@@ -72,18 +72,25 @@ function tooLarge(): ApiError {
 }
 
 /** A retry that unlocks when the server's `Retry-After` has run out. */
-function RetryButton({ seconds, onRetry }: { readonly seconds: number; readonly onRetry: () => void }) {
+function RetryButton({
+  seconds,
+  onRetry,
+}: {
+  readonly seconds: number;
+  readonly onRetry: () => void;
+}) {
   const { t } = useTranslator();
   const [remaining, setRemaining] = useState(seconds);
+  const counting = remaining > 0;
   useEffect(() => {
-    if (remaining <= 0) return;
+    if (!counting) return;
     const timer = setInterval(() => {
       setRemaining((value) => Math.max(0, value - 1));
     }, 1000);
     return () => {
       clearInterval(timer);
     };
-  }, [remaining <= 0]); // eslint-disable-line react-hooks/exhaustive-deps -- one interval per countdown
+  }, [counting]);
   return (
     <Button variant="secondary" size="sm" disabled={remaining > 0} onClick={onRetry}>
       {remaining > 0 ? t('logo.retryWait', { seconds: remaining }) : t('logo.retry')}
@@ -91,7 +98,13 @@ function RetryButton({ seconds, onRetry }: { readonly seconds: number; readonly 
   );
 }
 
-function Warnings({ warnings, label }: { readonly warnings: readonly UploadWarning[]; readonly label: string }) {
+function Warnings({
+  warnings,
+  label,
+}: {
+  readonly warnings: readonly UploadWarning[];
+  readonly label: string;
+}) {
   const { t, locale } = useTranslator();
   if (warnings.length === 0) return null;
   const list = new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' });
@@ -132,8 +145,13 @@ export function LogoSlot({
   const stage = useStageAsset(api);
 
   const [dragging, setDragging] = useState(false);
-  const [failure, setFailure] = useState<{ readonly error: unknown; readonly file: File } | null>(null);
-  const [notes, setNotes] = useState<{ readonly hash: string; readonly warnings: readonly UploadWarning[] } | null>(null);
+  const [failure, setFailure] = useState<{ readonly error: unknown; readonly file: File } | null>(
+    null,
+  );
+  const [notes, setNotes] = useState<{
+    readonly hash: string;
+    readonly warnings: readonly UploadWarning[];
+  } | null>(null);
 
   const pending = stage.isPending;
   const locked = disabled || pending;
@@ -188,7 +206,8 @@ export function LogoSlot({
     event.dataTransfer.dropEffect = 'copy';
   };
   const onDragLeave = (event: DragEvent<HTMLDivElement>): void => {
-    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))
+      return;
     setDragging(false);
   };
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
@@ -205,8 +224,11 @@ export function LogoSlot({
     (failure.error instanceof NetworkError ||
       (failure.error instanceof ApiError && failure.error.retryAfterSeconds !== null));
   const retrySeconds =
-    failure !== null && failure.error instanceof ApiError ? (failure.error.retryAfterSeconds ?? 0) : 0;
-  const warnings = notes !== null && asset !== null && notes.hash === asset.hash ? notes.warnings : [];
+    failure !== null && failure.error instanceof ApiError
+      ? (failure.error.retryAfterSeconds ?? 0)
+      : 0;
+  const warnings =
+    notes !== null && asset !== null && notes.hash === asset.hash ? notes.warnings : [];
 
   return (
     <div
@@ -265,7 +287,9 @@ export function LogoSlot({
             variant="secondary"
             size="sm"
             disabled={locked}
-            aria-label={t(shown === null ? 'logo.chooseLabel' : 'logo.replaceLabel', { slot: slotName })}
+            aria-label={t(shown === null ? 'logo.chooseLabel' : 'logo.replaceLabel', {
+              slot: slotName,
+            })}
             onClick={() => {
               input.current?.click();
             }}
@@ -356,7 +380,13 @@ export interface LogoSlotsProps {
 }
 
 /** The three slots in the order the page shows them. */
-export function LogoSlots({ value, compactDerived, disabled = false, onChange, api }: LogoSlotsProps) {
+export function LogoSlots({
+  value,
+  compactDerived,
+  disabled = false,
+  onChange,
+  api,
+}: LogoSlotsProps) {
   const { t } = useTranslator();
   const titleId = useId();
   return (

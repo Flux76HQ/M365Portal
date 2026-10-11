@@ -76,9 +76,11 @@ export function problemResponse(
  * An API client over a fake `fetch`. `handler` answers every request except the CSRF token. It may
  * return a promise, so a test can hold a request open.
  */
-export function fakeApi(
-  handler: (call: RecordedCall) => Response | Promise<Response>,
-): { readonly api: ApiClient; readonly calls: RecordedCall[]; readonly writes: () => RecordedCall[] } {
+export function fakeApi(handler: (call: RecordedCall) => Response | Promise<Response>): {
+  readonly api: ApiClient;
+  readonly calls: RecordedCall[];
+  readonly writes: () => RecordedCall[];
+} {
   const calls: RecordedCall[] = [];
   const send: FetchFunction = (input, init) => {
     const call: RecordedCall = {

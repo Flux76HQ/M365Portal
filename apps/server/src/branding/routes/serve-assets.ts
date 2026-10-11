@@ -30,7 +30,7 @@ export interface AssetServingDeps {
 }
 
 /** The only names that are looked up (FR-A-090). */
-const ASSET_FILE = /^([0-9a-f]{64})\.png$/;
+const ASSET_FILE = /^[0-9a-f]{64}\.png$/;
 
 const FileParams = z.object({ file: z.string() });
 
@@ -64,9 +64,8 @@ export function assetServingRoutes(deps: AssetServingDeps): RouteDefinition[] {
         304: { description: 'The browser has this image.' },
       },
       handler: async (c, input) => {
-        const matched = ASSET_FILE.exec(input.params.file);
-        const hash = matched?.[1];
-        if (hash === undefined) throw new ProblemError('not_found');
+        if (!ASSET_FILE.test(input.params.file)) throw new ProblemError('not_found');
+        const hash = input.params.file.slice(0, 64);
 
         const row = findAsset(deps.requireDatabase(), hash);
         if (row === undefined) throw new ProblemError('not_found');

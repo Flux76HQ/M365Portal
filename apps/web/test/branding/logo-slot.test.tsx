@@ -10,7 +10,8 @@ import { join, relative } from 'node:path';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LogoSlot, LogoSlots } from '../../src/features/branding/LogoSlot';
-import type { AssetRef } from '../../src/features/branding/types';
+import type { AssetRef, LogoVariant } from '../../src/features/branding/types';
+import type { ApiClient } from '../../src/lib/api';
 import { fakeApi, jsonResponse, problemResponse, renderInLanguage } from './helpers';
 
 const en = enCatalogue as Record<string, string>;
@@ -40,7 +41,8 @@ const asset = (hash = HASH): AssetRef => ({
   luminance: 0.4,
 });
 
-const png = (name = 'logo.png') => new File([new Uint8Array([137, 80, 78, 71])], name, { type: 'image/png' });
+const png = (name = 'logo.png') =>
+  new File([new Uint8Array([137, 80, 78, 71])], name, { type: 'image/png' });
 
 function fileInput(container: HTMLElement): HTMLInputElement {
   const input = container.querySelector<HTMLInputElement>('input[type="file"]');
@@ -52,18 +54,38 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** A slot whose parent keeps the asset, as the form does. */
+function Controlled({
+  variant = 'light',
+  api,
+  initial = null,
+}: {
+  readonly variant?: LogoVariant;
+  readonly api: ApiClient;
+  readonly initial?: AssetRef | null;
+}) {
+  const [current, setCurrent] = useState<AssetRef | null>(initial);
+  return <LogoSlot variant={variant} asset={current} onChange={setCurrent} api={api} />;
+}
+
 describe('choosing a file (the non-drag alternative, WCAG 2.5.7)', () => {
   it('always has a file button next to the drop zone, with and without a logo', () => {
     const { api } = fakeApi(() => jsonResponse(stagedResponse()));
     const empty = renderInLanguage(
       <LogoSlot variant="light" asset={null} onChange={() => undefined} api={api} />,
     );
-    expect(screen.getByRole('button', { name: 'Choose file for the light theme logo' })).toBeEnabled();
+    expect(
+      screen.getByRole('button', { name: 'Choose file for the light theme logo' }),
+    ).toBeEnabled();
     expect(empty.container.querySelector('[data-slot="logo-dropzone"]')).not.toBeNull();
     empty.unmount();
 
-    renderInLanguage(<LogoSlot variant="light" asset={asset()} onChange={() => undefined} api={api} />);
-    expect(screen.getByRole('button', { name: 'Replace the file of the light theme logo' })).toBeEnabled();
+    renderInLanguage(
+      <LogoSlot variant="light" asset={asset()} onChange={() => undefined} api={api} />,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Replace the file of the light theme logo' }),
+    ).toBeEnabled();
     expect(document.querySelector('[data-slot="logo-dropzone"]')).not.toBeNull();
   });
 
@@ -150,7 +172,9 @@ describe('drag and drop', () => {
     fireEvent.drop(target, { dataTransfer: { files: [], types: ['text/plain'] } });
     expect(writes()).toHaveLength(0);
 
-    fireEvent.drop(target, { dataTransfer: { files: [png('one.png'), png('two.png')], types: ['Files'] } });
+    fireEvent.drop(target, {
+      dataTransfer: { files: [png('one.png'), png('two.png')], types: ['Files'] },
+    });
     await waitFor(() => {
       expect(writes()).toHaveLength(1);
     });
@@ -169,25 +193,34 @@ describe('drag and drop', () => {
 });
 
 describe('the processed result', () => {
-  it('is an <img> of the server\'s /branding/<hash>.png, with its size in words', () => {
+  it("is an <img> of the server's /branding/<hash>.png, with its size in words", () => {
     const { api } = fakeApi(() => jsonResponse(stagedResponse()));
-    renderInLanguage(<LogoSlot variant="light" asset={asset()} onChange={() => undefined} api={api} />);
+    renderInLanguage(
+      <LogoSlot variant="light" asset={asset()} onChange={() => undefined} api={api} />,
+    );
     const image = screen.getByRole('img', { name: 'Preview of the light theme logo' });
     expect(image).toHaveAttribute('src', `/branding/${HASH}.png`);
     expect(image.tagName).toBe('IMG');
     expect(screen.getByText('240 × 80 px')).toBeInTheDocument();
   });
 
-  it('never renders a url that is not the server\'s asset path', () => {
+  it("never renders a url that is not the server's asset path", () => {
     const { api } = fakeApi(() => jsonResponse(stagedResponse()));
     const hostile = { ...asset(), url: 'javascript:alert(1)' };
-    renderInLanguage(<LogoSlot variant="light" asset={hostile} onChange={() => undefined} api={api} />);
+    renderInLanguage(
+      <LogoSlot variant="light" asset={hostile} onChange={() => undefined} api={api} />,
+    );
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 
   it('shows the new asset only after the server answered; until then the old one stays', async () => {
     let release: (response: Response) => void = () => undefined;
-    const { api } = fakeApi(() => new Promise<Response>((resolve) => { release = resolve; }));
+    const { api } = fakeApi(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve;
+        }),
+    );
     const onChange = vi.fn();
     const { container, user } = renderInLanguage(
       <LogoSlot variant="light" asset={asset(OTHER_HASH)} onChange={onChange} api={api} />,
@@ -211,15 +244,16 @@ describe('warnings', () => {
     const { api } = fakeApi(() =>
       jsonResponse(
         stagedResponse(HASH, [
-          { code: 'svg_content_removed', categories: ['script', 'event_handler', 'external_reference'] },
+          {
+            code: 'svg_content_removed',
+            categories: ['script', 'event_handler', 'external_reference'],
+          },
           { code: 'animation_flattened' },
         ]),
         { status: 201 },
       ),
     );
-    const { container, user } = renderInLanguage(
-      <LogoSlot variant="light" asset={null} onChange={() => undefined} api={api} />,
-    );
+    const { container, user } = renderInLanguage(<Controlled api={api} />);
     await user.upload(fileInput(container), png('logo.svg'));
     const region = await screen.findByRole('status', { name: 'About the light theme logo' });
     const items = within(region).getAllByRole('listitem');
@@ -232,14 +266,14 @@ describe('warnings', () => {
 
   it('writes the words in Dutch in Dutch', async () => {
     const { api } = fakeApi(() =>
-      jsonResponse(stagedResponse(HASH, [{ code: 'svg_content_removed', categories: ['script'] }]), {
-        status: 201,
-      }),
+      jsonResponse(
+        stagedResponse(HASH, [{ code: 'svg_content_removed', categories: ['script'] }]),
+        {
+          status: 201,
+        },
+      ),
     );
-    const { container, user } = renderInLanguage(
-      <LogoSlot variant="compact" asset={null} onChange={() => undefined} api={api} />,
-      'nl',
-    );
+    const { container, user } = renderInLanguage(<Controlled variant="compact" api={api} />, 'nl');
     await user.upload(fileInput(container), png('logo.svg'));
     const region = await screen.findByRole('status', { name: 'Over: compact logo' });
     expect(region).toHaveTextContent('scripts');
@@ -295,20 +329,24 @@ describe('rejections show the translated problem message', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(nl['problem.image_corrupt']!);
   });
 
-  it.each(['svg_text_unsupported', 'image_type_unsupported', 'staging_quota_exceeded', 'rate_limited'])(
-    '%s has its own message',
-    async (code) => {
-      const status = code === 'staging_quota_exceeded' ? 409 : code === 'rate_limited' ? 429 : 422;
-      const { api } = fakeApi(() => problemResponse(status, code, {}, code === 'rate_limited' ? { 'Retry-After': '2' } : {}));
-      const { container, user } = renderInLanguage(
-        <LogoSlot variant="light" asset={null} onChange={() => undefined} api={api} />,
-      );
-      await user.upload(fileInput(container), png());
-      const alert = await screen.findByRole('alert');
-      const expected = en[`problem.${code}`]!.replace('{seconds}', '2');
-      expect(alert).toHaveTextContent(expected);
-    },
-  );
+  it.each([
+    'svg_text_unsupported',
+    'image_type_unsupported',
+    'staging_quota_exceeded',
+    'rate_limited',
+  ])('%s has its own message', async (code) => {
+    const status = code === 'staging_quota_exceeded' ? 409 : code === 'rate_limited' ? 429 : 422;
+    const { api } = fakeApi(() =>
+      problemResponse(status, code, {}, code === 'rate_limited' ? { 'Retry-After': '2' } : {}),
+    );
+    const { container, user } = renderInLanguage(
+      <LogoSlot variant="light" asset={null} onChange={() => undefined} api={api} />,
+    );
+    await user.upload(fileInput(container), png());
+    const alert = await screen.findByRole('alert');
+    const expected = en[`problem.${code}`]!.replace('{seconds}', '2');
+    expect(alert).toHaveTextContent(expected);
+  });
 
   it('a file over the limit is refused with payload_too_large before any request', async () => {
     const { api, calls } = fakeApi(() => jsonResponse(stagedResponse()));
@@ -329,7 +367,9 @@ describe('rejections show the translated problem message', () => {
       <LogoSlot variant="light" asset={null} onChange={() => undefined} api={api} />,
     );
     await user.upload(fileInput(container), png());
-    expect(await screen.findByRole('alert')).toHaveTextContent(en['problem.network_error']!);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Something went wrong (code network_error, request ID -).',
+    );
   });
 });
 
@@ -353,11 +393,11 @@ describe('image_processing_busy', () => {
     const retry = screen.getByRole('button', { name: 'Try again in 3 s' });
     expect(retry).toBeDisabled();
 
-    await act(async () => {
+    act(() => {
       vi.advanceTimersByTime(1000);
     });
     expect(screen.getByRole('button', { name: 'Try again in 2 s' })).toBeDisabled();
-    await act(async () => {
+    act(() => {
       vi.advanceTimersByTime(2000);
     });
     const ready = screen.getByRole('button', { name: 'Try again' });
@@ -391,7 +431,9 @@ describe('cancelling and progress', () => {
       <LogoSlot variant="light" asset={null} onChange={onChange} api={api} />,
     );
     await user.upload(fileInput(container), png());
-    const bar = await screen.findByRole('progressbar', { name: 'Uploading and processing the light theme logo' });
+    const bar = await screen.findByRole('progressbar', {
+      name: 'Uploading and processing the light theme logo',
+    });
     expect(bar).not.toHaveAttribute('aria-valuenow');
     expect(screen.getByRole('button', { name: /^Choose file/ })).toBeDisabled();
 
@@ -487,8 +529,11 @@ const HTML_SINKS =
   /dangerouslySetInnerHTML|\.innerHTML|\.outerHTML|insertAdjacentHTML|document\.write|new\s+DOMParser|createContextualFragment|FileReader|createObjectURL|\.readAsText|\.readAsDataURL|<object[\s>]|<embed[\s>]|<iframe[\s>]/;
 
 function assertNoHtmlSink(files: readonly SourceFile[]): void {
-  const stripped = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-  const offenders = files.filter((file) => HTML_SINKS.test(stripped(file.text))).map((file) => file.path);
+  const stripped = (text: string) =>
+    text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const offenders = files
+    .filter((file) => HTML_SINKS.test(stripped(file.text)))
+    .map((file) => file.path);
   if (offenders.length > 0) throw new Error(`HTML sink in: ${offenders.join(', ')}`);
 }
 

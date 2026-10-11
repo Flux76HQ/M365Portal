@@ -84,7 +84,8 @@ export function pwaRoutes(deps: PwaRoutesDeps): RouteDefinition[] {
       access: { public: true },
       rateLimit: 'read',
       summary: 'Redirect to the apple touch icon',
-      description: 'For browsers and crawlers that ask by convention: 307 to the hashed 180 pixel icon.',
+      description:
+        'For browsers and crawlers that ask by convention: 307 to the hashed 180 pixel icon.',
       responses: REDIRECT_RESPONSE,
       handler: () => {
         const branding = appliedBranding(deps.service);
