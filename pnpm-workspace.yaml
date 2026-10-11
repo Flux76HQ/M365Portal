@@ -12,6 +12,7 @@ catalog:
   '@hono/zod-openapi': 1.6.3
   '@hookform/resolvers': 5.9.1
   '@mswjs/interceptors': 0.45.7
+  '@peculiar/x509': 2.1.0
   '@playwright/test': 1.56.1
   '@seriousme/openapi-schema-validator': 2.11.0
   '@tailwindcss/vite': 4.3.3
@@ -44,6 +45,8 @@ catalog:
   globals: 17.13.0
   happy-dom: 20.14.6
   hono: 4.13.13
+  jose: 6.2.12
+  libsodium-wrappers: 0.8.4
   lighthouse: 13.5.0
   lucide-react: 1.55.0
   motion: 14.1.0
@@ -55,6 +58,7 @@ catalog:
   react: 19.3.0
   react-dom: 19.3.0
   react-hook-form: 7.89.0
+  reflect-metadata: 0.2.2
   saxes: 6.0.0
   sharp: 0.35.5
   tailwindcss: 4.3.3

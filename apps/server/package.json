@@ -16,10 +16,14 @@
   "dependencies": {
     "@hono/node-server": "catalog:",
     "@hono/zod-openapi": "catalog:",
+    "@peculiar/x509": "catalog:",
     "better-sqlite3": "catalog:",
     "drizzle-orm": "catalog:",
     "hono": "catalog:",
+    "jose": "catalog:",
+    "libsodium-wrappers": "catalog:",
     "pino": "catalog:",
+    "reflect-metadata": "catalog:",
     "saxes": "catalog:",
     "sharp": "catalog:",
     "zod": "catalog:"
