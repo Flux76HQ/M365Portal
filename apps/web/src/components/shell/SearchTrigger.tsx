@@ -22,8 +22,8 @@ export function SearchTrigger({ onOpen, className }: SearchTriggerProps) {
       aria-haspopup="dialog"
       aria-keyshortcuts="Control+K Meta+K"
       className={cn(
-        'inline-flex h-control min-w-target items-center gap-2 rounded-md border border-line-control bg-surface-raised px-2.5 text-body text-fg-secondary',
-        'transition-colors duration-fast ease-standard hover:text-fg sm:min-w-56 sm:justify-start',
+        'inline-flex h-control min-w-target shrink items-center gap-2 rounded-md border border-line-control bg-surface-raised px-2.5 text-body text-fg-secondary',
+        'transition-colors duration-fast ease-standard hover:text-fg sm:min-w-0 sm:justify-start lg:min-w-56',
         className,
       )}
     >

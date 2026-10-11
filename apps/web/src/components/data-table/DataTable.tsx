@@ -641,9 +641,9 @@ function Toolbar({ labels, searchable, filters, query, onChange, trailing }: Too
           role="search"
           aria-label={labels.searchLabel}
           onSubmit={submit}
-          className="flex items-center gap-2"
+          className="flex min-w-0 max-w-full items-center gap-2"
         >
-          <div className="relative">
+          <div className="relative w-64 min-w-0 shrink">
             <SearchIcon
               aria-hidden="true"
               className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-fg-muted"
@@ -657,7 +657,7 @@ function Toolbar({ labels, searchable, filters, query, onChange, trailing }: Too
               onChange={(event) => {
                 setDraft(event.target.value);
               }}
-              className="w-64 ps-9"
+              className="w-full ps-9"
             />
           </div>
           {draft !== '' || query.q !== '' ? (
@@ -675,7 +675,7 @@ function Toolbar({ labels, searchable, filters, query, onChange, trailing }: Too
         </form>
       ) : null}
       {filters.map((filter) => (
-        <div key={filter.key} className="w-48">
+        <div key={filter.key} className="w-48 max-w-full">
           <Select
             aria-label={filter.label}
             placeholder={filter.allLabel}

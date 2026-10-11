@@ -72,6 +72,14 @@ describe('the header', () => {
     expect(header.querySelector('[data-slot="org-mark"]')).not.toBeNull();
   });
 
+  it('lets the search trigger shrink between 640 and 1023 px so the header cluster fits beside the sidebar (FR-A-153)', async () => {
+    await renderShell();
+    const header = await screen.findByRole('banner');
+    const trigger = within(header).getByRole('button', { name: en.t('shell.search.label') });
+    expect(trigger).toHaveClass('shrink', 'sm:min-w-0', 'lg:min-w-56');
+    expect(trigger).not.toHaveClass('sm:min-w-56');
+  });
+
   it('shows the actor as a persona with initials and a translated name', async () => {
     await renderShell({ me: sampleMe({ preview: true }) });
     const header = await screen.findByRole('banner');

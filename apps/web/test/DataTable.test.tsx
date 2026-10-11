@@ -369,6 +369,20 @@ describe('search and filters', () => {
   });
 });
 
+describe('toolbar at 320 px (FR-A-153)', () => {
+  it('lets the search form, its field and the filters shrink instead of widening the page', () => {
+    render(<Harness />);
+    const form = screen.getByRole('search');
+    expect(form).toHaveClass('min-w-0', 'max-w-full');
+    const field = form.querySelector('input')?.parentElement;
+    expect(field).toHaveClass('min-w-0', 'shrink');
+    expect(form.querySelector('input')).toHaveClass('w-full');
+    expect(form.querySelector('input')).not.toHaveClass('w-64');
+    for (const filter of document.querySelectorAll('[data-slot="data-table"] .w-48'))
+      expect(filter).toHaveClass('max-w-full');
+  });
+});
+
 describe('pagination', () => {
   it('shows the page, moves with next and previous, and disables the ends', async () => {
     const user = userEvent.setup();
