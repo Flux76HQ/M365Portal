@@ -1579,6 +1579,58 @@ describe('foreign keys and transactions (probe P12, V-05)', () => {
     expect(db.pragma('foreign_keys', { simple: true })).toBe(1);
   });
 
+  it('leaves the database unchanged when the foreign key check fails, so the next start refuses too', async () => {
+    const { path, backupsDir } = await volume();
+    const db = connect(path);
+    await runMigrations(db, { migrationsFolder: writeFolder([step(0, [NOTE_TABLE])]), backupsDir });
+    const rowsBefore = rowsOf(db);
+    const folder = writeFolder([
+      step(0, [NOTE_TABLE]),
+      step(1, [
+        'CREATE TABLE p (id integer PRIMARY KEY NOT NULL)',
+        'CREATE TABLE c (pid integer REFERENCES p(id))',
+        'INSERT INTO c VALUES (5)',
+      ]),
+    ]);
+    const tablesOf = (): string[] =>
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as {
+        name: string;
+      }[]).map((row) => row.name);
+    const tablesBefore = tablesOf();
+
+    for (const attempt of [1, 2]) {
+      const error = await refusalOf(runMigrations(db, { migrationsFolder: folder, backupsDir }));
+      expect(error.code, `attempt ${String(attempt)}`).toBe('migration_foreign_key_check_failed');
+      expect(error.exitCode).toBe(1);
+      expect(rowsOf(db)).toEqual(rowsBefore);
+      expect(tablesOf()).toEqual(tablesBefore);
+      expect(db.inTransaction).toBe(false);
+      expect(db.pragma('foreign_keys', { simple: true })).toBe(1);
+    }
+  });
+
+  it('leaves a first install without any table when the foreign key check fails', async () => {
+    const { path, backupsDir } = await volume();
+    const db = connect(path);
+    const error = await refusalOf(
+      runMigrations(db, {
+        migrationsFolder: writeFolder([
+          step(0, [
+            'CREATE TABLE p (id integer PRIMARY KEY NOT NULL)',
+            'CREATE TABLE c (pid integer REFERENCES p(id))',
+            'INSERT INTO c VALUES (5)',
+          ]),
+        ]),
+        backupsDir,
+      }),
+    );
+    expect(error.code).toBe('migration_foreign_key_check_failed');
+    expect(rowsOf(db)).toEqual([]);
+    expect(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name IN ('p', 'c')").get()).toEqual({
+      n: 0,
+    });
+  });
+
   it('runs all pending migrations in one transaction: a failing second migration rolls back the first', async () => {
     const { path, backupsDir } = await volume();
     const db = connect(path);
