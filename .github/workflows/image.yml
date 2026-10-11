@@ -1,0 +1,382 @@
+name: image
+
+# Job `image` builds the image for linux/amd64 without pushing it, smoke-tests it, scans it and
+# writes a CycloneDX SBOM; it runs for every pull request (including forks: no secrets, no push).
+# Job `publish` runs only after a merge to main (or by hand on main): it pushes a multi-arch
+# image to GHCR, signs the digest keylessly with cosign (public repositories only), attests build
+# provenance and the SBOM, and verifies what it made. The job and step names are asserted by
+# scripts/test_workflows.py and cited by AGENTS.md and the docs.
+#
+# Action pins re-resolved on 2026-10-11 with `python scripts/resolve_action_pins.py` (git ls-remote
+# --tags, highest stable tag, annotated tags peeled to their commit). Every third-party action is
+# pinned by full commit SHA with its version in a trailing comment (FR-A-174).
+#
+# Release gate (baseline section 5, plan 12.4): `publish` asks the Git refs API whether the tag
+# v<VERSION> exists BEFORE it builds. Only when it does not, it creates the tag (a second creation
+# fails, which makes the gate atomic) and only then the version image tag is enabled. When the tag
+# exists the job says why and only the channel tags (latest, sha-<short>) move. There is no
+# exception for a re-run of the same commit: a run that failed after creating the tag is repaired
+# by hand (delete the unpublished tag and its release, or bump VERSION), never by this workflow
+# writing a version tag onto an existing git tag.
+#
+# Supply-chain claims: build provenance is a GitHub artifact attestation, SLSA v1.0 Build Level 2
+# at most (a higher level needs a reusable workflow). Not proven until the first run on GitHub:
+# the cosign 3.x command syntax, the multi-arch index digest flow, `push-to-registry`, the
+# CycloneDX predicate type used when verifying the SBOM attestation, and the Trivy scan of a
+# multi-arch digest (plan PR-12). This workflow has never run; see the gate note
+# specs/001-m365portal/gate-notes/chunk-s7a.md.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Superseded pull-request runs are cancelled. A run for a push or a manual dispatch gets its own
+# group, so a newer merge never cancels or replaces the pending publish of an earlier version.
+concurrency:
+  group: image-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The smoke test is a TypeScript script run through tsx, so the workspace is installed.
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: |
+          pnpm install --frozen-lockfile || {
+            echo "::error::Install failed. Remediation: run 'pnpm install' locally through tools/INSTALL-PROTOCOL.md and commit pnpm-lock.yaml."
+            exit 1
+          }
+
+      # VERSION is the single source of truth; GHCR needs a lower-case repository path.
+      - name: Read version
+        id: version
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::VERSION is not MAJOR.MINOR.PATCH. Remediation: fix the VERSION file (python scripts/bump_version.py)."
+            exit 1
+          fi
+          {
+            echo "version=${version}"
+            echo "image=ghcr.io/${GITHUB_REPOSITORY,,}"
+            echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build image (amd64)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: m365portal:local
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.version.outputs.created }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Container smoke test
+        run: |
+          pnpm image:smoke || {
+            echo "::error::The container smoke test failed. Remediation: build locally with 'docker build -t m365portal:local .' and run 'pnpm image:smoke' (set SMOKE_NETWORK=host where bridge networking is unavailable)."
+            exit 1
+          }
+
+      - name: Image size budget
+        run: |
+          python scripts/check_image_size.py m365portal:local || {
+            echo "::error::The image is over its size ceiling. Remediation: run 'python scripts/check_image_size.py m365portal:local' locally and remove what the check names; never raise the ceiling without an ADR."
+            exit 1
+          }
+
+      - name: Image contents check
+        run: |
+          python scripts/check_image_contents.py m365portal:local || {
+            echo "::error::The image holds something it must not, or lacks something it must. Remediation: run 'python scripts/check_image_contents.py m365portal:local' locally and fix the Dockerfile or .dockerignore."
+            exit 1
+          }
+
+      - name: Compose config check
+        run: |
+          docker compose config -q || {
+            echo "::error::docker-compose.yml does not resolve. Remediation: run 'docker compose config' locally and fix the reported line."
+            exit 1
+          }
+
+      - name: Trivy image scan
+        id: trivy_image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: m365portal:local
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Trivy image scan hint
+        if: ${{ failure() && steps.trivy_image.outcome == 'failure' }}
+        run: |
+          echo "::error::Trivy found a HIGH or CRITICAL vulnerability that has a fix. Remediation: update the base image digest or the dependency named in the report (Dependabot proposes both); an accepted risk needs a .trivyignore entry with a reason and an exp:YYYY-MM-DD expiry (FR-A-176)."
+
+      - name: Trivy secret scan
+        id: trivy_secret
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: m365portal:local
+          scanners: secret
+          exit-code: "1"
+
+      - name: Trivy secret scan hint
+        if: ${{ failure() && steps.trivy_secret.outcome == 'failure' }}
+        run: |
+          echo "::error::Trivy found a secret-like value in the image. Remediation: remove the file from the build context (check .dockerignore), rotate the secret, and rebuild."
+
+      - name: Generate CycloneDX SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: m365portal:local
+          format: cyclonedx
+          output: sbom-image.cdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-cyclonedx
+          path: sbom-image.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    # Never for a pull request: a push to main (a merge) or a manual dispatch on main.
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write # create the version tag and the GitHub release
+      packages: write # push to GHCR
+      id-token: write # keyless cosign signature and attestations
+      attestations: write # build provenance and SBOM attestations
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read version
+        id: version
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::VERSION is not MAJOR.MINOR.PATCH. Remediation: fix the VERSION file (python scripts/bump_version.py)."
+            exit 1
+          fi
+          {
+            echo "version=${version}"
+            echo "image=ghcr.io/${GITHUB_REPOSITORY,,}"
+            echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "${GITHUB_OUTPUT}"
+
+      # matching-refs answers with a list (possibly empty) and never a 404, so "does not exist"
+      # cannot be confused with an API failure. It matches by prefix; the filter makes it exact.
+      - name: Decide release tag
+        id: decide_tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="v${VERSION}"
+          count="$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${tag}" \
+            --jq "[.[] | select(.ref == \"refs/tags/${tag}\")] | length")" || {
+            echo "::error::Could not ask the Git refs API whether ${tag} exists. Remediation: re-run the job; if it keeps failing, check that the token may read the repository."
+            exit 1
+          }
+          if [ "${count}" = "0" ]; then
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+            echo "::notice::The tag ${tag} already exists, so the version image tag is NOT published; only latest and sha-<short> move. Remediation if this is unexpected: bump VERSION, or remove the unpublished tag and its release by hand and run the workflow again (never overwrite a tag)."
+          fi
+
+      # POST fails with 422 when the reference exists, which makes the gate atomic.
+      - name: Create release tag
+        id: release_tag
+        if: ${{ steps.decide_tag.outputs.exists == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="v${VERSION}"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${tag}" -f sha="${GITHUB_SHA}" > /dev/null || {
+            echo "::error::Could not create the tag ${tag}. Remediation: if it now exists, another run created it; bump VERSION or remove the unpublished tag by hand."
+            exit 1
+          }
+          echo "created=true" >> "${GITHUB_OUTPUT}"
+          echo "::notice::Created the tag ${tag} at ${GITHUB_SHA}; this run publishes the version image tag."
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # The version tag is enabled only by the output of "Create release tag". Nothing else may
+      # enable it: not an existing tag, not a re-run of the same commit (plan 12.4).
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.version.outputs.image }}
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+            type=raw,value=v${{ steps.version.outputs.version }},enable=${{ steps.release_tag.outputs.created == 'true' }}
+
+      # provenance and sbom are off here: the attestations are made explicitly below, from the
+      # digest of the multi-arch index.
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.version.outputs.created }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # SHOULD, not MUST: arm64 under QEMU is slow and its feasibility is unproven (PR-06).
+      - name: Smoke test arm64 image
+        continue-on-error: true
+        env:
+          IMAGE_REF: ${{ steps.version.outputs.image }}@${{ steps.build.outputs.digest }}
+        run: |
+          docker run --rm --platform linux/arm64 --entrypoint /nodejs/bin/node "${IMAGE_REF}" \
+            -e "const D=require('better-sqlite3'); new D(':memory:').prepare('select 1').get(); console.log('arm64 ok', process.arch)" || {
+            echo "::warning::The arm64 image did not start under QEMU. Remediation: run the same command on an arm64 machine; the native better-sqlite3 prebuild for linux-arm64 may be missing from the image."
+            exit 1
+          }
+
+      # Keyless signing writes the workflow identity to the public Sigstore transparency log, which
+      # would disclose the name of a private repository. Private repositories get the GitHub
+      # attestations below only (A-62, R-13).
+      - name: Install cosign
+        if: ${{ github.event.repository.private == false }}
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign image (public repositories)
+        if: ${{ github.event.repository.private == false }}
+        env:
+          IMAGE_REF: ${{ steps.version.outputs.image }}@${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE_REF}" || {
+            echo "::error::Signing failed. Remediation: check that the job has id-token: write and that the registry accepted the push; cosign 3.x syntax is unproven until the first run."
+            exit 1
+          }
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.version.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Generate CycloneDX SBOM from digest
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ github.token }}
+        with:
+          scan-type: image
+          image-ref: ${{ steps.version.outputs.image }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx
+          output: sbom-publish.cdx.json
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ steps.version.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: sbom-publish.cdx.json
+          push-to-registry: true
+
+      - name: Verify signature and attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_REF: ${{ steps.version.outputs.image }}@${{ steps.build.outputs.digest }}
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+        run: |
+          {
+            gh attestation verify "oci://${IMAGE_REF}" --repo "${GITHUB_REPOSITORY}" &&
+            gh attestation verify "oci://${IMAGE_REF}" --repo "${GITHUB_REPOSITORY}" \
+              --predicate-type https://cyclonedx.org/bom &&
+            if [ "${PRIVATE_REPOSITORY}" = "false" ]; then
+              cosign verify "${IMAGE_REF}" \
+                --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/image\.yml@" \
+                --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+            fi
+          } || {
+            echo "::error::Verification of the signature or an attestation failed. Remediation: run the same 'gh attestation verify' and 'cosign verify' commands by hand against the digest; do not announce the release until they pass."
+            exit 1
+          }
+
+      - name: Create GitHub release
+        if: ${{ steps.release_tag.outputs.created == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "v${VERSION}" --verify-tag --generate-notes --title "v${VERSION}" || {
+            echo "::error::Could not create the GitHub release. Remediation: create it by hand for the existing tag v${VERSION} with generated notes; the image is already published."
+            exit 1
+          }
