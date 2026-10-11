@@ -1,6 +1,6 @@
 {
-  "initialJsGzipBytes": 240000,
+  "initialJsGzipBytes": 237500,
   "entryCssRawBytes": 45500,
-  "firstLoadBrotliBytes": 270000,
-  "note": "Calibrated 2026-10-11 on a real `vite build` of apps/web (S4 shell, before T-A-173): initial JS 237,250 B gzip, entry CSS 44,681 B raw, first load 266,197 B Brotli, each plus about 1.5 percent headroom. The spec targets are 250 KiB (256,000 B) gzip JS, 80 KiB (81,920 B) CSS and 150 KiB (153,600 B) Brotli first load: the first two are met, the third is NOT (about 260 KiB measured); T-A-173 lowers the numbers as the entry shrinks, and T-A-334 recalibrates on the final build. The budget only ratchets down."
+  "firstLoadBrotliBytes": 269000,
+  "note": "Calibrated 2026-10-11 on a real `vite build` of apps/web. Before T-A-173 (D-3 fix included): initial JS 246,245 B gzip, entry CSS 45,548 B raw, first load 274,588 B Brotli (all three over the first calibration, which was 240,000 / 45,500 / 270,000). After T-A-173 (precompiled cn tables, static shell, deferred and staged start, one stale vendor property removed from the CSS): 236,309 / 45,491 / 267,982, each plus about 0.5 percent headroom (the CSS stays at 45,500: it only ratchets down). The deferred start lists its files in the `m365-start` block of the HTML and scripts/bundle-budget.ts reads that block, so the numbers still count every file the first visit loads. The spec targets are 250 KiB (256,000 B) gzip JS, 80 KiB (81,920 B) CSS and 150 KiB (153,600 B) Brotli first load: the first two are met, the third is NOT (about 262 KiB measured); T-A-334 recalibrates on the final build. The budget only ratchets down."
 }

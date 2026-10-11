@@ -6,7 +6,7 @@ import { Button } from '../components/ui/button';
 import { ErrorState } from '../components/ui/error-state';
 import { Skeleton } from '../components/ui/skeleton';
 import { AppearanceForm } from '../features/branding/AppearanceForm';
-import { useBrandingTools } from '../features/branding/tools';
+import { loadBrandingTools, useBrandingTools } from '../features/branding/tools';
 import { ApiError } from '../lib/api';
 import { gatedPage, requirePermission } from '../lib/gating';
 import { useTranslator } from '../lib/locale';
@@ -68,5 +68,11 @@ function AppearancePage() {
 export const Route = createFileRoute('/settings/appearance')({
   staticData: { titleKey: 'nav.appearance' },
   beforeLoad: requirePermission(['settings:branding']),
+  // The shared branding code is part of what the route needs: loaded before the page renders, the form
+  // is in the first render pass (which React slices) and not in a second, synchronous one that the
+  // arrival of the tools would cause (T-A-173; a 40 ms task on a phone).
+  loader: async () => {
+    await loadBrandingTools();
+  },
   component: gatedPage(AppearancePage, NoAccess),
 });

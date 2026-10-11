@@ -296,16 +296,26 @@ describe('the inlined boot script (plan 8.2)', () => {
       (tag) => !tag.attributes.has('src') && !tag.attributes.has('type'),
     );
 
-  it('is one classic inline <script nonce> before the style and the entry script', () => {
+  it('is the first of the inline classic <script nonce>, before the style and the loader', () => {
+    // Three inline scripts, in this order: the boot script (theme and language), the static shell's
+    // small script (organisation name, preview banner) and the loader that starts the application.
     const scripts = inlineScripts();
-    expect(scripts).toHaveLength(1);
+    expect(scripts).toHaveLength(3);
+    for (const script of scripts) expect(script.attributes.get('nonce')).toBe(NONCE);
     const boot = scripts[0]!;
-    expect(boot.attributes.get('nonce')).toBe(NONCE);
+    expect(contentAfter(html, boot)).toContain('m365portal.theme');
 
     const firstStyle = tagsOf(html, ['style'])[0]!;
-    const entry = tagsOf(html, ['script']).find((tag) => tag.attributes.get('type') === 'module')!;
     expect(boot.index).toBeLessThan(firstStyle.index);
-    expect(boot.index).toBeLessThan(entry.index);
+    expect(boot.index).toBeLessThan(scripts[1]!.index);
+    expect(scripts[1]!.index).toBeLessThan(scripts[2]!.index);
+    // No module script and no modulepreload in the document: the loader adds them after first paint.
+    expect(
+      tagsOf(html, ['script']).filter((tag) => tag.attributes.get('type') === 'module'),
+    ).toEqual([]);
+    expect(
+      tagsOf(html, ['link']).filter((tag) => tag.attributes.get('rel') === 'modulepreload'),
+    ).toEqual([]);
   });
 
   it('is compiled from boot-script.ts: it reads the two keys and sets the three attributes', () => {
@@ -379,6 +389,122 @@ describe('font preload', () => {
     ).toEqual([]);
     const fontFiles = emitted.filter((file) => file.endsWith('.woff2'));
     expect(fontFiles).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The static shell and the deferred start (plan 14.2 tactics 5 and 6; T-A-173)
+// ---------------------------------------------------------------------------------------------
+
+describe('the static app shell', () => {
+  const catalogue = (locale: 'en' | 'nl') =>
+    JSON.parse(
+      readFileSync(
+        join(WEB_ROOT, '..', '..', 'packages/shared/src/i18n/locales', `${locale}.json`),
+        'utf8',
+      ),
+    ) as Record<string, string>;
+  const shell = () => /<div id="root">([\s\S]*?)<\/div>\s*<script/.exec(html)?.[1] ?? '';
+
+  it('is inside #root, hidden from assistive technology and inert: a picture, not a page', () => {
+    const markup = shell();
+    expect(markup).toContain('data-slot="static-shell"');
+    expect(markup).toMatch(/aria-hidden="true"/);
+    expect(markup).toMatch(/\sinert[\s>]/);
+    // No landmark and nothing to focus or follow: the real shell brings those (and the end-to-end
+    // helpers wait for the real `main`, so a `main` here would let them run before the app exists).
+    expect(markup).not.toMatch(/<(?:a|button|input|h1|main|header|aside|nav)\b/);
+  });
+
+  it('has the preview banner text of the catalogues, in both languages and escaped', () => {
+    // Prettier wraps `</span\n>` in the source; the markup is compared without that whitespace.
+    const markup = shell().replace(/<\/span\s+>/g, '</span>');
+    for (const locale of ['en', 'nl'] as const) {
+      const entries = catalogue(locale);
+      for (const key of ['banner.preview.title', 'banner.preview.message']) {
+        const text = entries[key]!;
+        expect(markup, `${locale} ${key}`).toContain(
+          `<span data-shell-lang="${locale}" hidden>${text.replace(/&/g, '&amp;')}</span>`,
+        );
+      }
+    }
+    expect(html).not.toMatch(/\{\{(?:en|nl):/);
+  });
+
+  it('is replaced by the application: it is the content of the one root the app renders into', () => {
+    // React's createRoot clears the container at the first commit. The test pins the two facts that
+    // make that work: one #root, and nothing of the shell outside it.
+    expect(occurrences(html, 'id="root"')).toBe(1);
+    expect(occurrences(html, 'data-slot="static-shell"')).toBe(1);
+  });
+
+  it('has its own small inline script right after the shell', () => {
+    const scripts = tagsOf(html, ['script']).filter(
+      (tag) => !tag.attributes.has('src') && !tag.attributes.has('type'),
+    );
+    const root = html.indexOf('<div id="root">');
+    const own = scripts.filter((tag) => tag.index > root);
+    expect(own.length).toBeGreaterThanOrEqual(1);
+    expect(contentAfter(html, own[0]!)).toContain('data-shell-org');
+    expect(contentAfter(html, own[0]!)).toContain('data-shell-banner');
+    expect(contentAfter(html, own[0]!)).toContain('data-shell-lang');
+  });
+});
+
+describe('the deferred start of the application', () => {
+  const loader = () => {
+    const scripts = tagsOf(html, ['script']).filter(
+      (tag) => !tag.attributes.has('src') && !tag.attributes.has('type'),
+    );
+    return contentAfter(html, scripts[scripts.length - 1]!);
+  };
+  const listed = () => {
+    const block = tagsOf(html, ['script']).find((tag) => tag.attributes.get('id') === 'm365-start');
+    expect(block?.attributes.get('type')).toBe('application/json');
+    expect(block?.attributes.get('nonce')).toBe(NONCE);
+    const data = JSON.parse(contentAfter(html, block!)) as { entry: string; preload: string[] };
+    return { entry: data.entry, preloads: data.preload };
+  };
+
+  it('starts the entry with import() after two frames, with a timer as the fallback', () => {
+    const code = loader();
+    expect(code).toContain('requestAnimationFrame');
+    expect(code).toContain('import(d.entry)');
+    expect(code).toMatch(/setTimeout\(go,\s*\d+\)/);
+    expect(code).not.toContain('createElement("script")');
+  });
+
+  it('names an entry and preloads that exist as files of the build', () => {
+    const { entry, preloads } = listed();
+    const emitted = new Set(files.map((file) => `/${relative(outDir, file).split(sep).join('/')}`));
+    expect(emitted.has(entry), entry).toBe(true);
+    expect(preloads.length).toBeGreaterThan(5);
+    for (const url of preloads) expect(emitted.has(url), url).toBe(true);
+  });
+
+  it('preloads the chunks of the start-up stages in parallel, and no lazy route', () => {
+    const { preloads } = listed();
+    for (const stage of ['stage-react', 'stage-data', 'stage-router', 'stage-ui']) {
+      expect(
+        preloads.some((url) => url.startsWith(`/assets/${stage}-`)),
+        stage,
+      ).toBe(true);
+    }
+    const routeChunks = Object.values(manifest)
+      .filter((chunk) =>
+        /src\/routes\/(?:design|settings\.appearance|users)\.tsx/.test(chunk.src ?? ''),
+      )
+      .map((chunk) => `/${chunk.file}`);
+    expect(routeChunks.length).toBeGreaterThan(0);
+    for (const chunk of routeChunks) expect(preloads, chunk).not.toContain(chunk);
+  });
+
+  it('is a classic inline script with the nonce, and the last script of the page', () => {
+    const scripts = tagsOf(html, ['script']);
+    const last = scripts[scripts.length - 1]!;
+    expect(last.attributes.get('nonce')).toBe(NONCE);
+    expect(last.attributes.has('src')).toBe(false);
+    expect(last.attributes.has('type')).toBe(false);
   });
 });
 
@@ -475,7 +601,8 @@ describe('the service worker', () => {
     expect(files).toContain(join(outDir, 'sw.js'));
     expect(files).toContain(join(outDir, 'sw.js.br'));
     expect(files).toContain(join(outDir, 'sw.js.gz'));
-    expect(files.filter((file) => /sw-[\w-]+\.js$/.test(file))).toEqual([]);
+    // `sw-register-<hash>.js` is the module that registers the worker; the worker itself has no hash.
+    expect(files.filter((file) => /sw-(?!register)[\w-]+\.js$/.test(file))).toEqual([]);
   });
 
   it('carries the product version, so a new version changes the bytes and the cache names', () => {

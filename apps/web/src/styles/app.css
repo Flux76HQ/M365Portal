@@ -248,11 +248,11 @@
 
   /* The Select viewport hides its own scrollbar. Radix injected this as an inline <style> from
      JavaScript, which Trusted Types (plan 8.1) forbids; the pnpm patch removed it and the rule lives
-     here (test/csp-sinks.test.ts). */
+     here (test/csp-sinks.test.ts). Radix's own rule also set `-ms-overflow-style` (legacy Edge) and
+     `-webkit-overflow-scrolling` (ignored since iOS 13): 55 bytes of entry CSS for browsers that
+     are not supported, so they are not repeated here. */
   [data-radix-select-viewport] {
     scrollbar-width: none;
-    -ms-overflow-style: none;
-    -webkit-overflow-scrolling: touch;
   }
 
   [data-radix-select-viewport]::-webkit-scrollbar {

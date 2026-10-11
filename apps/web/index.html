@@ -15,7 +15,76 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div
+        data-slot="static-shell"
+        aria-hidden="true"
+        inert
+        class="flex min-h-dvh bg-surface-page text-fg"
+      >
+        <div
+          class="glass-sidebar sticky top-0 z-chrome hidden h-dvh w-64 shrink-0 flex-col border-e border-line-subtle md:flex"
+        >
+          <div class="flex h-14 shrink-0 items-center px-4">
+            <span class="flex min-w-0 items-center gap-3">
+              <span class="inline-flex size-8 shrink-0 rounded-md bg-accent"></span>
+              <bdi
+                data-shell-org
+                class="block min-w-0 truncate text-subtitle font-semibold text-fg"
+              ></bdi>
+            </span>
+          </div>
+        </div>
+        <div class="flex min-w-0 flex-1 flex-col">
+          <div
+            data-shell-banner
+            hidden
+            class="items-start gap-3 border-b border-s-4 border-b-line-subtle border-s-warning bg-surface-raised px-4 py-2 text-body text-fg"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="mt-0.5 size-4 shrink-0 text-warning"
+            >
+              <path
+                d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
+              ></path>
+              <path d="M12 9v4"></path>
+              <path d="M12 17h.01"></path>
+            </svg>
+            <div class="flex min-w-0 flex-1 flex-col">
+              <p class="font-semibold">
+                <span data-shell-lang="en" hidden>{{en:banner.preview.title}}</span
+                ><span data-shell-lang="nl" hidden>{{nl:banner.preview.title}}</span>
+              </p>
+              <div class="text-fg-secondary">
+                <span data-shell-lang="en" hidden>{{en:banner.preview.message}}</span
+                ><span data-shell-lang="nl" hidden>{{nl:banner.preview.message}}</span>
+              </div>
+            </div>
+          </div>
+          <div
+            class="glass-header sticky top-0 z-chrome flex h-14 shrink-0 items-center gap-2 border-b border-line-subtle px-4"
+          >
+            <span class="flex min-w-0 shrink items-center gap-3 md:hidden">
+              <span class="inline-flex size-8 shrink-0 rounded-md bg-accent"></span>
+              <bdi
+                data-shell-org
+                class="block min-w-0 truncate text-subtitle font-semibold text-fg"
+              ></bdi>
+            </span>
+          </div>
+          <div class="mx-auto w-full max-w-content flex-1 px-4 py-6 sm:px-6"></div>
+        </div>
+      </div>
+    </div>
     <noscript>
       <p lang="nl">
         Deze toepassing heeft JavaScript nodig. Schakel JavaScript in en laad de pagina opnieuw.

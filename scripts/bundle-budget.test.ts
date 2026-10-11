@@ -93,6 +93,44 @@ describe('findAssets', () => {
   });
 });
 
+describe('findAssets with a deferred start (T-A-173)', () => {
+  const deferred = `<!doctype html><html><head>
+<style nonce="n">${inlineCss}</style>
+</head><body>
+<script type="application/json" id="m365-start" nonce="n">{"entry":"/assets/index-1.js","preload":["/assets/shared-1.js","/assets/index-1.js"]}</script>
+<script nonce="n">/* the loader */</script>
+</body></html>`;
+
+  it('reads the entry and the preloads from the start block', () => {
+    expect(findAssets(deferred).scripts).toEqual(['/assets/index-1.js', '/assets/shared-1.js']);
+  });
+
+  it('measures the same files as the tags of an immediate start', () => {
+    const immediate = measure(makeBuild());
+    const later = measure(
+      makeBuild({
+        html: deferred.replace(
+          '</head>',
+          '<link rel="stylesheet" href="/assets/entry-1.css" nonce="n"></head>',
+        ),
+      }),
+    );
+    expect(later.initialJsGzipBytes).toBe(immediate.initialJsGzipBytes);
+  });
+
+  it('fails to find scripts when the block is missing, so a build cannot hide its weight (negative fixture)', () => {
+    expectGuardFails(
+      () =>
+        measure(
+          makeBuild({
+            html: deferred.replace(/<script type="application\/json"[\s\S]*?<\/script>/, ''),
+          }),
+        ),
+      { reason: 'no module script' },
+    );
+  });
+});
+
 describe('measure', () => {
   it('computes the three numbers from the fixture build and skips lazy chunks', () => {
     expect(measure(makeBuild())).toEqual(expected);

@@ -180,7 +180,8 @@ test.describe('saving', () => {
       title: document.title,
       themeColor: document.querySelector('meta[name="theme-color"]')?.getAttribute('content'),
       accent: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),
-      rootChildren: document.getElementById('root')?.childElementCount ?? -1,
+      // The static shell (index.html) is in #root until the app replaces it; the app is anything else.
+      rootChildren: document.querySelectorAll('#root > :not([data-slot="static-shell"])').length,
     }));
     expect(before.rootChildren, 'the app has not started').toBe(0);
     expect(before.title).toBe('Acme Test');

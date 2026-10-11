@@ -4,10 +4,13 @@ import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vitest/config';
+import { cnTables } from './build/plugins/cn-tables.ts';
+import { deferEntry } from './build/plugins/defer-entry.ts';
 import { fontPreload } from './build/plugins/font-preload.ts';
 import { nonceInline } from './build/plugins/nonce-inline.ts';
 import { precompress } from './build/plugins/precompress.ts';
 import { serviceWorker } from './build/plugins/sw.ts';
+import { staticShell } from './build/plugins/static-shell.ts';
 
 // Where `pnpm dev` finds the API server: the same PORT the server reads, with the same default
 // (FR-A-016; @m365portal/shared/limits defines it once). The `dev` script of the server pins
@@ -26,10 +29,14 @@ export default defineConfig({
     tanstackRouter({ target: 'react', autoCodeSplitting: true }),
     react(),
     tailwindcss(),
+    // The class-merge tables are compiled here, not in the browser (plan 14.2 tactic 4).
+    cnTables(),
     // The HTML template and the files next to the build (plan 8.2, 7.5). Order matters: the boot script
     // goes in first, the font preload after it, and the compressed siblings are made last.
     ...nonceInline(),
     fontPreload(),
+    staticShell(),
+    deferEntry(),
     serviceWorker({ version: appVersion }),
     precompress(),
   ],

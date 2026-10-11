@@ -31,7 +31,9 @@ export function isolatedMessage(
   isolated: Readonly<Record<string, string>>,
 ): ReactNode {
   const names = Object.keys(isolated);
-  const markers = Object.fromEntries(names.map((name, index) => [name, `${OPEN}${index}${CLOSE}`]));
+  const markers = Object.fromEntries(
+    names.map((name, index) => [name, `${OPEN}${String(index)}${CLOSE}`]),
+  );
   const sentence = t(key, { ...params, ...markers });
   const parts: ReactNode[] = [];
   let last = 0;

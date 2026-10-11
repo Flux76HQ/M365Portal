@@ -2,7 +2,8 @@
 // (apps/web/dist) and compares three numbers with scripts/bundle-budget.json:
 //
 //   initialJsGzipBytes       every JavaScript file the first HTML response makes the browser load
-//                            (the module entry plus its modulepreload chunks), gzip level 9, summed;
+//                            (the module entry plus its modulepreload chunks, or the entry and the
+//                            files named by the start block of a deferred start), gzip level 9, summed;
 //   entryCssRawBytes         the entry CSS, raw: every inline <style> block of index.html plus any
 //                            linked stylesheet file;
 //   firstLoadBrotliBytes     what a first visit to `/` transfers: the HTML, the linked CSS and the
@@ -85,6 +86,17 @@ export function findAssets(html: string): Assets {
       if (rel === 'modulepreload') assets.scripts.push(target);
       else if (rel === 'stylesheet') assets.stylesheets.push(target);
       else if (rel === 'preload' && attrs.get('as') === 'font') assets.fonts.push(target);
+    }
+  }
+  // The application can start after the first paint (T-A-173): the document then holds no module script,
+  // and `<script type="application/json" id="m365-start">` names the entry and the files to preload.
+  // They are what the HTML makes the browser load, so they are measured like the tags above.
+  const start = /<script\b[^>]*\bid="m365-start"[^>]*>([\s\S]*?)<\/script>/.exec(html)?.[1];
+  if (start !== undefined) {
+    const data = JSON.parse(start) as { entry?: unknown; preload?: unknown };
+    if (typeof data.entry === 'string') assets.scripts.push(data.entry);
+    if (Array.isArray(data.preload)) {
+      for (const file of data.preload) if (typeof file === 'string') assets.scripts.push(file);
     }
   }
   assets.scripts = [...new Set(assets.scripts)];

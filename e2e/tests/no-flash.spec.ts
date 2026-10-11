@@ -36,7 +36,8 @@ async function stateBeforeTheApp(page: Page): Promise<{
     scheme: document.documentElement.style.colorScheme,
     lang: document.documentElement.lang,
     background: getComputedStyle(document.body).backgroundColor,
-    rootChildren: document.getElementById('root')?.childElementCount ?? -1,
+    // The static shell (index.html) is in #root until the app replaces it; the app is anything else.
+    rootChildren: document.querySelectorAll('#root > :not([data-slot="static-shell"])').length,
   }));
 }
 

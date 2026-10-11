@@ -3,34 +3,58 @@
 //   2. app.css      the stylesheet (the server inlines the built result into the HTML shell).
 //   3. the nonce    libraries that inject a <style> at run time read `__webpack_nonce__` (probe P15).
 //   4. the cache    `me` and `branding` come embedded in the page, so the first render needs no request.
+//
+// The stage modules (boot/stage-*.ts) are the dynamic imports of the start-up; build/plugins/defer-entry.ts
+// finds their chunks by that name and preloads them all in parallel, so the chain of tasks is not a chain
+// of network round trips.
+//
+// The start-up is a chain of short tasks (T-A-173, plan 14.2 tactic 4). One static import graph is
+// evaluated in ONE task of 40 ms or more, and a task over 12 ms on a phone counts against Total Blocking
+// Time, so each part of the application is a dynamic `import()` with the main thread handed back in
+// between (boot/yield.ts), and the first render is a transition, which React slices itself. The static
+// shell in index.html is on screen the whole time (build/plugins/static-shell.ts).
 import './boot/zod-config';
 import './styles/app.css';
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
 import { installNonceShim } from './boot/nonce-shim';
-import { RootProviders } from './components/pages/root-providers';
-import { getApiClient } from './lib/api';
-import { readBootData } from './lib/boot-data';
-import { createAppQueryClient, seedQueryClient } from './lib/query';
-import { registerServiceWorkerWhenLoaded } from './lib/sw-register';
-import { createAppRouter } from './router';
+import { yieldToMain } from './boot/yield';
 
-const nonce = installNonceShim();
-const api = getApiClient();
-const queryClient = createAppQueryClient();
-const bootData = readBootData();
-if (bootData) seedQueryClient(queryClient, bootData, api);
+async function start(): Promise<void> {
+  const nonce = installNonceShim();
+  const rootElement = document.getElementById('root');
+  if (!rootElement) throw new Error('#root element is missing from index.html');
 
-const router = createAppRouter(undefined, { queryClient, api });
+  const { StrictMode, startTransition, createRoot } = await import('./boot/stage-react');
+  await yieldToMain();
+  const data = await import('./boot/stage-data');
+  await yieldToMain();
+  const queryClient = data.createAppQueryClient();
+  const api = data.getApiClient();
+  const bootData = data.readBootData();
+  if (bootData) data.seedQueryClient(queryClient, bootData, api);
+  const { createAppRouter } = await import('./boot/stage-router');
+  await yieldToMain();
+  const router = createAppRouter(undefined, { queryClient, api });
+  // Match the URL and load its route's code and data before the first render: the first render is then
+  // one pass that React slices, instead of a frame followed by a second, synchronous pass when the
+  // route arrives (the router's store updates are synchronous and cannot be sliced).
+  await router.load();
+  await yieldToMain();
+  const { RootProviders } = await import('./boot/stage-ui');
+  await yieldToMain();
 
-const rootElement = document.getElementById('root');
-if (!rootElement) throw new Error('#root element is missing from index.html');
+  const root = createRoot(rootElement);
+  // A transition lane: React renders the first tree in slices of about 5 ms and yields in between.
+  startTransition(() => {
+    root.render(
+      <StrictMode>
+        <RootProviders router={router} queryClient={queryClient} nonce={nonce} />
+      </StrictMode>,
+    );
+  });
 
-createRoot(rootElement).render(
-  <StrictMode>
-    <RootProviders router={router} queryClient={queryClient} nonce={nonce} />
-  </StrictMode>,
-);
+  // After the first render and the load event: the worker must never compete with the first paint.
+  const { registerServiceWorkerWhenLoaded } = await import('./lib/sw-register');
+  registerServiceWorkerWhenLoaded();
+}
 
-// After the first render and the load event: the worker must never compete with the first paint.
-registerServiceWorkerWhenLoaded();
+void start();
