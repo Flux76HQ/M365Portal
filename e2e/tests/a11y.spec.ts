@@ -11,7 +11,7 @@ import type { Page } from '@playwright/test';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { isWaived, loadWaivers, readWaiverFile, todayUtc } from '../axe-waivers.js';
 import { ROUTES } from '../routes.js';
-import { expect, luminanceOf, test, type InstanceName } from '../fixtures.js';
+import { expect, cssColourBrightness, test, type InstanceName } from '../fixtures.js';
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 const fixture = (name: string): unknown =>
@@ -136,8 +136,8 @@ test.describe('the dark run is really dark (P19)', () => {
       .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
       .not.toBe(own);
     const other = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(Math.abs(luminanceOf(own) - luminanceOf(other))).toBeGreaterThan(0.5);
-    expect(luminanceOf(appTheme === 'dark' ? own : other)).toBeLessThan(0.2);
+    expect(Math.abs(cssColourBrightness(own) - cssColourBrightness(other))).toBeGreaterThan(0.5);
+    expect(cssColourBrightness(appTheme === 'dark' ? own : other)).toBeLessThan(0.2);
   });
 });
 

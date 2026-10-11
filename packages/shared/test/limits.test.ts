@@ -125,7 +125,7 @@ describe('LIMITS: spec section 6.5', () => {
   });
 
   it('has the default port of the container, defined here once (FR-A-016)', () => {
-    expect(DEFAULT_PORT).toBe(8080);
+    expect(DEFAULT_PORT).toBe(9300);
   });
 
   it('has only safe integers (a refill rate is an interval in milliseconds, not a fraction)', () => {

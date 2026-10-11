@@ -1,7 +1,7 @@
 // No flash of the wrong theme or language (FR-A-121, FR-A-113, E-20, US-5.4). The inline boot script of
 // the HTML shell sets `data-theme`, `color-scheme` and `<html lang>` before first paint. The test holds
 // back the entry script of the app, so that nothing but the shell exists, and looks at that moment.
-import { expect, test, luminanceOf, STORAGE_KEY_LOCALE, STORAGE_KEY_THEME } from '../fixtures.js';
+import { expect, test, cssColourBrightness, STORAGE_KEY_LOCALE, STORAGE_KEY_THEME } from '../fixtures.js';
 import type { Page } from '@playwright/test';
 
 interface Held {
@@ -78,7 +78,7 @@ test.describe('a stored choice is on the page before the app starts', () => {
       expect(before.theme).toBe(theme);
       expect(before.scheme).toBe(theme);
       expect(before.lang).toBe(lang);
-      const luminance = luminanceOf(before.background);
+      const luminance = cssColourBrightness(before.background);
       if (dark) expect(luminance, 'dark background before the app').toBeLessThan(0.2);
       else expect(luminance, 'light background before the app').toBeGreaterThan(0.6);
 
@@ -113,7 +113,7 @@ test.describe('system follows the operating system from the first paint', () => 
       expect(before.rootChildren).toBe(0);
       expect(before.theme).toBe('dark');
       expect(before.lang).toBe('nl');
-      expect(luminanceOf(before.background)).toBeLessThan(0.2);
+      expect(cssColourBrightness(before.background)).toBeLessThan(0.2);
       held.release();
       await appIsUp(page);
       expect((await stateBeforeTheApp(page)).theme).toBe('dark');

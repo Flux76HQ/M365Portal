@@ -147,7 +147,7 @@ function buildApp() {
   // Responses a handler builds itself: a plain Response, one with immutable headers, and one that a
   // guard returns before the handler runs. The id has to be on all of them.
   app.get('/raw', () => new Response('raw'));
-  app.get('/immutable', () => Response.redirect('http://localhost:8080/ok', 302));
+  app.get('/immutable', () => Response.redirect('http://localhost:9300/ok', 302));
   app.use('/guarded', (c) => Promise.resolve(c.json({ denied: true }, 403)));
   app.get('/guarded', (c) => c.json({ reached: true }));
   app.get('/fails', () => {

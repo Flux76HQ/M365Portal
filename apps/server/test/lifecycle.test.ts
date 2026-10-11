@@ -691,7 +691,7 @@ describe('healthcheck.ts (FR-A-016, FR-A-162 script)', () => {
   it('aborts after the timeout (3 s by default) and exits 1 when the server never answers', async () => {
     const { port } = await listening(() => undefined);
     await expect(runHealthcheck({ PORT: String(port) }, { timeoutMs: 100 })).resolves.toBe(1);
-    expect(DEFAULT_PORT).toBe(8080);
+    expect(DEFAULT_PORT).toBe(9300);
   });
 
   it('exits 1 when nothing listens', async () => {
@@ -710,7 +710,7 @@ describe('healthcheck.ts (FR-A-016, FR-A-162 script)', () => {
     // in itself and a bad one is never turned into the default.
     const unset = await runHealthcheck({}, { timeoutMs: 200 });
     expect([0, 1]).toContain(unset);
-    for (const bad of ['', '0', '80x', '65536', '-1', 'abc', '8080 ']) {
+    for (const bad of ['', '0', '80x', '65536', '-1', 'abc', '9300 ']) {
       await expect(runHealthcheck({ PORT: bad }, { timeoutMs: 200 })).resolves.toBe(1);
     }
   });

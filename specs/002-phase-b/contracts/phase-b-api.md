@@ -605,7 +605,7 @@ Unlocking setup, wrong token, then a lock.
 
 ```http
 POST /api/v1/setup/unlock HTTP/1.1
-Origin: http://localhost:8080
+Origin: http://localhost:9300
 X-CSRF-Token: v1.1760000000.1760028800.Q3x1...fA.7bK...Zk
 Content-Type: application/json
 

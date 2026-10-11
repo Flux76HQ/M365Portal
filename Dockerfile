@@ -116,7 +116,7 @@ COPY --from=build --chown=65532:65532 /app /app
 COPY --from=build --chown=65532:65532 /data /data
 
 WORKDIR /app
-ENV NODE_ENV=production PORT=8080 DATA_DIR=/data
+ENV NODE_ENV=production PORT=9300 DATA_DIR=/data
 USER 65532:65532
 EXPOSE ${PORT}
 

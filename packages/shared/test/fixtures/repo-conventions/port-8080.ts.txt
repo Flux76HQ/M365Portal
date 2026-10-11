@@ -1,2 +1,0 @@
-mount: apps/server/src/stray-port.ts
-export const listenPort = Number(process.env.PORT ?? 8080);

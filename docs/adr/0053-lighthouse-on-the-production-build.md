@@ -22,5 +22,7 @@ This ADR records the method, not a result. The first-load size budget has a ratc
 
 ## Evidence
 
+- The result and the decision rule for the default instance are in ADR-0056 (`G4.md`, `chunk-s9c.md`).
+
 - Plan 6.2 row PD-27.
 - Lighthouse and the e2e suite belong to S9; at the time of writing no Lighthouse number is recorded in the gate notes this ADR was written from.

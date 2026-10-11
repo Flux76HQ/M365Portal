@@ -1,0 +1,1 @@
+- [ ] **T-1** covers FR-A-001, FR-A-002, FR-A-003 and FR-A-004.

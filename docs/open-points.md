@@ -57,7 +57,7 @@ environment.
 | UV3 | Trivy ignore format (a `# reason` comment above and `exp:YYYY-MM-DD` on the entry in `.trivyignore`) | `chunk-s7a.md` | Defined by the test; no entry exists | Verify against Trivy documentation at the first entry |
 | UV4 | Dependabot accepts glob `directories` and updates entries in the pnpm `catalog:` of `pnpm-workspace.yaml` keeping the lockfile consistent | `chunk-s7c.md` | Glob support is documented by GitHub; no run | First Dependabot run |
 | UV5 | arm64 build and run (`TARGETARCH` prune, `better-sqlite3` and `sharp` prebuilds, ICU data), QEMU smoke | PR-06, G6, `s1d` R1 | Never built or run: amd64 only | The `publish` job |
-| UV6 | Compose nested default `${PUBLIC_BASE_URL:-http://localhost:${HOST_PORT:-8080}}` on older Compose v2 plugins | PA-16, `s6a-6` | Proven with Compose v5.6.0 only | CI runner plugin; `REQUIRE_DOCKER=1` |
+| UV6 | Compose nested default `${PUBLIC_BASE_URL:-http://localhost:${HOST_PORT:-9300}}` on older Compose v2 plugins | PA-16, `s6a-6` | Proven with Compose v5.6.0 only | CI runner plugin; `REQUIRE_DOCKER=1` |
 | UV7 | The Caddy example works | `s6a-8` | Directive names checked against Caddy's documentation on 2026-10-10; not executed | `caddy validate --config deploy/caddy/Caddyfile.example` with a real name |
 | UV8 | Service worker, COEP, Trusted Types and Permissions-Policy names in Firefox and Safari | PR-09 | Chromium 141 only | A manual pass in those browsers |
 | UV9 | Public scanner grades (securityheaders.com, Mozilla Observatory) and whether the HSTS opt-ins are needed for them | BC-01 | Scanner rules not read; needs a public host | A run on a public host |
@@ -83,9 +83,11 @@ Defaults apply if the owner stays silent; nothing in Phase A is blocked by any o
 | OD-10 | Retention of audit entries (they hold client addresses) | Keep everything until Phase D | Phase D | owner |
 | OD-11 | Pin actions by commit SHA | Answered in the plan: SHA pins | Phase A gate | closed (SA-01, V-07) |
 | OD-12 | Release gate: the literal rule (default) or the refinement that lets a re-run of a failed `publish` write the version tag (SA-23) | Literal rule | Phase A gate | owner |
-| OD-13 | A global cap on audit rows written for denied requests (per-client buckets do not bound many source addresses, R-09) | Not built in Phase A; decide with OD-10 | Phase D | owner |
+| OD-13 | A global cap on audit rows written for denied requests (per-client buckets do not bound many source addresses, R-09) | Not built in Phase A; decide with OD-10. Proposal: a global cap on audit rows for denied requests per hour, with one summary row when the cap is hit | Phase D | owner |
 | OD-14 | Mid-tone accents get black text by default; offer an option that darkens the colour until white text passes (s3a-OP3) | Default as designed (plan 10.4) | Phase A gate | owner |
-| OD-15 | If mobile LCP stays at or above 2.0 s after the tactics, accept a measured gate or approve more work (PR-01, plan 14.3). Current budget: first load 260 KiB Brotli against a 150 KiB target (s7c) | Report the numbers, change nothing | Phase A gate | owner |
+| OD-15 | Mobile LCP below 2.0 s (PR-01, plan 14.3, ADR-0056). **Measured 2026-10-11 (version 0.2.40, Lighthouse 13.5.0):** preview instance (the e2e instance) mobile LCP 1.06 to 1.51 s, Performance 98 to 100, all 11 routes pass; default instance (no `PREVIEW_MODE`) mobile LCP 3.55 to 3.80 s and Performance 84 to 90, not below 2.0 s (desktop 0.71 to 0.78 s, 100). The harness accepts the miss under a recorded gate (3,740 ms plus 10 percent = 4,114 ms); 11 of 44 cells are `accepted-miss`. First load 262 KiB Brotli against the 150 KiB target (a SHOULD) is **not met**; the budget is 269,000 B and ratchets down | Accept the recorded gate for the default instance (ADR-0056, the recommendation of G4 OP-1); alternatives: approve more work (a smaller entry: about 40 KB less, LCP about 3 s, still not below 2.0 s; or static page content, which needs the actor's permissions) or drop the default-instance rows from the gate | Phase A gate | owner |
+| OD-16 | The Performance floor of 75.6 (recorded 84 minus 10 percent) for the default instance on mobile is an extension that the S9c agent added to the OP-1 rule; G4 only named LCP. Without it `pnpm lighthouse` would be red on a decision the owner has not reversed (ADR-0056) | Kept as implemented until the owner confirms or removes it | Phase A gate | owner |
+| OD-17 | The lint rule `local/no-string-built-sql` does not cover `apps/server/src/db/migrate.ts`, which runs the shipped SQL through the helper `runShippedStatement` (`Database.prototype.exec.call(db, statement)`, an indirect call that the rule does not see). Proposal: an explicit, documented allowance in the rule for that one file (a named path in the rule's options and a negative fixture proving that any other file still fails), instead of an indirect call that reads as a bypass | Indirect call stays (check 10 of `repo-conventions` is green with it) | Phase A gate | owner |
 
 Brief conflicts and ambiguities (spec section 10). Resolutions are in the spec; they are listed so that
 none is lost.
@@ -149,7 +151,7 @@ Spec risks (section 12) and plan risks. Status is as at 2026-10-11.
 | R-06 | sharp on distroless: SVG shapes rasterise, text does not | Answered: yes, the distroless image rasterises SVG (G6); text refused (A-38). closed |
 | R-07 | arm64 cannot be tested here | UV5. open |
 | R-08 | Preview mode on a reachable network is unauthenticated administration | Remote guard, loopback `Host` rule, banner, loopback publishing, removal in Phase B (OD-03). The `Host` rule is not a boundary (security.md). open |
-| R-09 | A hostile client can grow the audit table through denied writes | Write bucket per client; 429 not audited; retention in Phase D (OD-10, OD-13). Residual: many source addresses. open |
+| R-09 | A hostile client can grow the audit table through denied writes | Write bucket per client; 429 not audited; retention in Phase D (OD-10, OD-13). Anonymous denied writes are audited (403), so an unauthenticated client can grow `audit_log` without bound (disk fill) from many source addresses; the 413 of the request cap is not audited. Proposal for OD-13: a global cap on denied-request rows per hour with one summary row. Not built. open |
 | R-10 | NAS or network volumes break SQLite WAL | Documented unsupported. recorded |
 | R-11 | The version guard does not cover root configuration files | OD-09. owner |
 | R-12 | `eslint-plugin-jsx-a11y` is unmaintained and caps ESLint at 9 | axe in e2e is the primary control; the peer is forced for ESLint 10 for that plugin only (PR-04). recorded |
@@ -158,7 +160,7 @@ Spec risks (section 12) and plan risks. Status is as at 2026-10-11.
 | R-15 | Phases B to D rest on UNVERIFIED Microsoft claims | U1 to U17 above; the owner tests against a real tenant after B and D. open |
 | R-16 | The registry is ahead of the brief's assumptions | Exact pins, frozen lockfile. recorded |
 | R-17 | Playwright pinned to 1.56.x is behind the registry | Dependabot ignore rule DR-3. recorded |
-| PR-01 | Mobile LCP below 2.0 s is unproven; first load is 260 KiB Brotli against the 150 KiB target | Budgets, tactics, decision rule (OD-15); `T-A-173`, `T-A-331`, `T-A-334`. open |
+| PR-01 | Mobile LCP below 2.0 s is met on the preview instance (1.06 to 1.51 s, 11 of 11 routes) and **not** on the default instance (3.55 to 3.80 s; it waits for JavaScript that renders the first page's description). First load is 262 KiB Brotli against the 150 KiB target: not met (budget 269,000 B, a ratchet) | Budgets, tactics (static shell, deferred and staged start, route chunk preloads, build-time `cn` tables), the decision rule of ADR-0056 (OD-15, OD-16); `T-A-173`, `T-A-331`, `T-A-330`. open: owner decides; `T-A-334` recalibrates the budget on the final build |
 | PR-02 | TanStack Table 9 is a new major; known conflict with `exactOptionalPropertyTypes` | The DataTable wrapper hides the API; the option stays off, guarded by a test. recorded |
 | PR-03 | A UI dependency violates CSP or Trusted Types in a way static inspection did not show | e2e guard; shim for the Radix scroll-lock nonce; the Radix Select patch. open |
 | PR-04 | `eslint-plugin-jsx-a11y` forced onto ESLint 10 | axe in e2e; fallback ESLint 9 or drop the plugin. recorded |
@@ -245,7 +247,7 @@ and review. Severity as the review rated it. Fix hints are in that file.
 | GR-18 | LOW: `no-direct-route-registration` misses `app.use` handlers that answer | recorded (route-table test is the other control) |
 | GR-19 | LOW: the file walker ignores symlinks | recorded |
 | GR-20 | LOW: `routeTree.gen.ts` exemption matches any file with that name | recorded |
-| GR-21 | LOW: the port scan checks by extension, so `:8080` in a `Caddyfile` or `.service` is not seen | recorded |
+| GR-21 | LOW: the port scan checks by extension, so `:9300` in a `Caddyfile` or `.service` is not seen | recorded |
 | GR-22 | False positives: `requirePermission(have, need)` and `storeLocalePreference` are flagged; CSS id selectors read as hex; `'tracked in issue #123'` flagged | recorded; S4 renamed (`requireAnyOf`, `selectMessage`, s4b A-11) |
 | GR-23 | Carry-over: `documentElement.lang` reader and a `detectLocale`-like inline script in `index.html` still evade | recorded |
 
@@ -272,7 +274,7 @@ and review. Severity as the review rated it. Fix hints are in that file.
 | s1f-6 | The rule `no-direct-route-registration` still allows `new Hono()` in `app.ts`, which nothing needs now | open (S0, optional) |
 | s1f-8 | The image health check asks 127.0.0.1; with `HOST` set to a single non-loopback address it fails although the server is fine. Documented in operations.md | owner: document only, or let the script read `HOST` |
 | s1f-9 | Not exercised: the process as PID 1 (covered later by the image smoke), arm64, a bind-mounted volume, a real EROFS turn during run | recorded (UV5) |
-| s1-fix-1 | The parser-level errors `bad_request` (400), `request_timeout` (408) and `request_header_fields_too_large` (431) are not in the 31-code registry; their bodies are shaped like a problem | owner: register them (a contract amendment) or keep |
+| s1-fix-1 | The parser-level errors `bad_request` (400), `request_timeout` (408) and `request_header_fields_too_large` (431) are registered since amendment 1: the registry has 34 codes, with Dutch and English messages (`chunk-amend1.md`); older gate notes still say 31 | closed (2026-10-11) |
 | s1-fix-2 | Anonymous denied writes can grow the audit table without bound | see R-09, OD-13 |
 | s1-fix-3 | Residual of preview mode: a client that reaches the port directly can send `Host: localhost` without forwarding headers | recorded (R-08) |
 | s1-fix-4 | The migration runner re-implements the stock migrator's loop (about 20 lines); a Drizzle change of the bookkeeping table fails `verifyApplied` and the upgrade tests loudly | recorded |
@@ -294,7 +296,9 @@ and review. Severity as the review rated it. Fix hints are in that file.
 | s2b-risk | Hand-built HEIC and PDF fixtures; sharp output is part of the bytes of raster fixtures (a sharp upgrade may change bytes, not meaning); the corpus asserts `metadata()` calibration, the rendering claims are `T-A-081`'s | recorded |
 | s2c-risk | `failOn: 'warning'` is also used when rendering the rebuilt SVG: a librsvg warning on our own output would be refused as `image_corrupt`; relax to `error` for SVG if the Appearance acceptance shows it. The value grammar is ours: `calc()`, `var()` and `env()` lose their attributes with `unknown_attribute` | open (Appearance acceptance `T-A-216`) |
 | s2e-risk | File modification times drive the orphan and `.tmp` sweepers (a restore resets them: harmless); the directory is not fsynced after the rename, so a power loss can lose the newest file while its row survives (start logs `branding_asset_missing`, the UI shows the monogram) | recorded |
-| s2e-3 | Quota order deviates from plan 8.5 (stage 4 after the image job, again under the lock); derived variants retire already expired; the quota counts waiting assets only (I-5 wording in `chunk-s2fix.md`). The data-model I-5 text and the "retired assets keep 24 hours" sentences in the spec still need the rewording given there | open (wording carried by the orchestrator) |
+| s2e-3 | Quota order deviates from plan 8.5 (stage 4 after the image job, again under the lock); derived variants retire already expired; the quota counts waiting assets only. The wording of `chunk-s2fix.md` is now in data-model I-5 and section 5, spec FR-A-091, section 6.4 (the specific 409 detail) and section 6.6 | closed (2026-10-11; the spec row 6.5 of the quota is unchanged) |
+| s2fix-1 | Undo goes back ONE change: masters retired by the previous apply lose their 24 hours at the next apply, so at most 3 files are the Undo target and count toward the quota. Residual: an upload whose timer was refreshed in the same millisecond as an apply is taken for a retired master and expires at the next apply (the administrator uploads again) | recorded |
+| s2fix-2 | The 413 of the request cap (2,162,689-byte upload, 9,437,185-byte import) is answered by the body-limit guard in `src/http` and is not audited; pinned by tests. An audit of it needs an `onBodyLimit` hook in the route wrapper (S1) and flipping two assertions | owner |
 | s2f-risk | An import holds about 40 MB at peak; three images are processed one after the other (up to 30 s of image time); `prototype` is refused as a key too (not in FR-A-093's list) | recorded |
 | s2g-1 | `compress.ts` weakens every strong ETag when it compresses; branding avoids it with `Cache-Control: no-transform`. Phase B routes that use `If-Match` (secrets, setup, RBAC) will meet the same trap | open (S1/Phase B): each route sets `no-transform`, or compression leaves such ETags alone |
 | s2g-2 | `routes/meta.ts` exports no builder for the `me` body; `module.ts` has a tested copy | open (S1, any time) |
@@ -412,6 +416,22 @@ and review. Severity as the review rated it. Fix hints are in that file.
 | s7c-2 | `pnpm docs:check` failed in the `quality` job until these documents existed | closed once README.md lands (T-A-279) |
 | s7c-3 | The `Bundle budget` ratchet in a shallow pull-request checkout depends on the script's own `git fetch --depth=1`; shellcheck findings on the runner; CodeQL may flag existing code on a first run; `visual-baselines.yml` assumes `visual.spec.ts` and its default snapshot path | open (UV1) |
 
+### Stream S9 (verification, G4 follow-ups)
+
+| # | Point | Status |
+|---|---|---|
+| G4-OP1 | Default-instance mobile LCP and Performance: see OD-15, OD-16 and ADR-0056 | owner |
+| G4-OP4 | First load 262 KiB Brotli against 150 KiB (FR-A-155 is a SHOULD). Candidates: zod's core (20 KB), both catalogues in the first load (about 8 KB), the Radix toast, tooltip and menu parts, the drawer's dialog | open (PR-01; `T-A-334`) |
+| G4-OP6 | `form-field.tsx` puts `font-normal` on the "required" hint; the theme resets weights, so the class generates no CSS (`font-regular` is the theme's class). Changing it changes pixels | open (S3) |
+| G4-OP7 | Lighthouse's lab spread is real (TBT moves by about 100 ms between runs); FR-A-154 judges Performance on the first run, so a rare noisy first run (94 where 99 is usual) fails. Left as written | owner (PD-27) |
+| G4-OP5 | A Phase B display name (actor label, document title) is user text: use `isolatedMessage` or `<bdi>` | open (Phase B) |
+| s9c-1 | The best-of-3 rule for timing and the 10 percent wide default-mobile gate lose sensitivity: a regression smaller than the run-to-run spread (LCP 0.03 to 0.3 s, Performance 1 to 10 points) passes | recorded |
+| s9c-2 | `T-A-330` says three runs; the baseline rule (repeat only on a timing miss) is followed, `--always-repeat` gives three | recorded |
+| s9c-3 | `pnpm lighthouse` takes about 20 minutes for the full pass; on GitHub it needs the same, Node 22.19 or newer and a Chromium | open (CI first run, UV1) |
+| s9c-4 | No Phase A git tag exists; the no-Phase-B guard switches on the constant `CURRENT_PHASE` in `tools/traceability/phase-guard.ts` (change it to `'B'` in the commit of the first Phase B file) | recorded |
+| s9c-5 | The README images (`docs/media`, made by `pnpm media`) show the version string (0.2.40) and go stale at the next bump. Re-run `pnpm media` for a release, or mask the version (a one-line change) | owner |
+| s9c-6 | The step and job reader of the traceability check is line-based (no YAML parser: the workspace-deps guard forbids an undeclared one); another indentation makes a step "missing" and fails loudly | recorded |
+
 ### Gates and cross-stream
 
 | # | Point | Status |
@@ -420,15 +440,15 @@ and review. Severity as the review rated it. Fix hints are in that file.
 | G1-6 | Carried over at G1: s1c-9 (not taken), `serveStatic` synchronous calls (s1e-11), the install protocol for the next native dependency (s1d-3) | see those rows |
 | G2-4 | Plate thresholds (G2a OP-3) are for the owner's review | s2a-4 |
 | G2-5 | The upload rate class makes H-39 unrunnable from one client over HTTP, which is the intended protection: the row runs from distinct client addresses behind a trusted proxy | recorded |
-| amend1-1 | `runShippedStatement` is the one place that runs shipped SQL, and the lint rule's header says migrations are out of its scope; the Dutch and English texts of three messages are unreviewed; older gate notes still say 31 codes | owner |
-| S9-pending | Gate notes of S9 (e2e, accessibility, visual, Lighthouse, media: T-A-320 to T-A-334) were not available | open: add their points when they land (T-A-999) |
-| T-A-279 | `README.md` (T-A-279) is not written yet; `docs/open-points.md` is complete for Phase A except the S9 row above | open |
+| amend1-1 | `runShippedStatement` is the one place that runs shipped SQL, and the lint rule's header says migrations are out of its scope; see OD-17 for the proposal of an explicit allowance. The Dutch and English texts of the three new messages are unreviewed | owner |
+| S9-pending | Gate notes of S9 later than `chunk-s9c.md` (T-A-334 to T-A-337: budget recalibration, accessibility and responsive passes, the Phase A report) were not available when this file was consolidated | open: add their points when they land (T-A-999) |
+| T-A-279 | `README.md`, English and Dutch, written 2026-10-11 and checked by `pnpm docs:check` (`G8.md`) | closed |
 
 ## Nederlands
 
 Dit bestand bundelt de onverifieerde Microsoft-aannames (U1 tot en met U18), de overige onverifieerde
 punten (UV1 tot en met UV12), de beslissingen van de eigenaar en de conflicten met de briefing (OD-01 tot
-en met OD-15, BC-01 tot en met BC-19), de plan-aannames (PA-01 tot en met PA-18), de risico's (R-01 tot en met
+en met OD-17, BC-01 tot en met BC-19), de plan-aannames (PA-01 tot en met PA-18), de risico's (R-01 tot en met
 R-17 en PR-01 tot en met PR-18), de afhankelijkheidsregels (DR-1 tot en met DR-5, SA-10, RP-1 tot en met RP-4)
 en alle open punten uit de gate-notities van de streams S0 tot en met S7 (in de ids van de chunk-notities,
 zoals `s1c-9`), plus de bekende beperkingen van de repository-bewakers (GR-1 tot en met GR-23).
@@ -443,8 +463,9 @@ zoals `s1c-9`), plus de bekende beperkingen van de repository-bewakers (GR-1 tot
   bij de Fase B-poort), OD-03 (preview-modus verwijderen), OD-01 (licentie en publiek of privé), OD-13 (een
   globale grens op auditregels van geweigerde verzoeken) en de ontwerpkeuzes uit de S3-punten (accentkleur,
   zwarte tekst op middentonen, lussende animaties, plaatdrempels voor logo's).
-- **Bekende risico's:** de eerste-contentpaint is nog niet binnen het streefbudget (PR-01: 260 KiB tegenover
-  150 KiB); anonieme geweigerde schrijfacties laten het auditlog groeien (R-09); preview-modus is geen
+- **Bekende risico's:** de standaardinstantie haalt mobiel geen LCP onder 2,0 s (3,55 tot 3,80 s; de previewinstantie
+  wel: 1,06 tot 1,51 s; ADR-0056, OD-15, OD-16) en de eerste lading is 262 KiB tegenover 150 KiB (PR-01); anonieme geweigerde schrijfacties laten het auditlog groeien (R-09); preview-modus is geen
   beveiligingsgrens (R-08).
-- De punten van de e2e-, Lighthouse- en mediastream (S9) en de README (T-A-279) ontbreken nog en worden
-  toegevoegd zodra die klaar zijn.
+- De punten van de e2e-, Lighthouse- en mediastream (S9) staan in de sectie 'Stream S9'; de README (T-A-279) is af.
+  Nieuw: OD-17 (een expliciete, gedocumenteerde uitzondering in de SQL-lintregel voor `migrate.ts` in plaats van een
+  indirecte aanroep) en de drie probleemcodes van de parser (nu 34 codes in het register).

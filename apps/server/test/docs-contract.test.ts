@@ -321,7 +321,7 @@ function operationsSample(): string {
 
 const GOOD_ENV_ROWS = (): string[][] => [
   ...ENV_VARIABLES.map((variable) => [variable.name, variable.defaultText]),
-  ['HOST_PORT', '8080'],
+  ['HOST_PORT', '9300'],
 ];
 
 function environmentTable(rows: string[][]): string {
@@ -399,7 +399,7 @@ describe('docs/operations.md (FR-A-181, FR-A-182, FR-A-011, FR-A-177, E-25)', ()
 
   it('the environment guard fails on a missing, an extra and a different variable', () => {
     const example =
-      ENV_VARIABLES.map((variable) => `${variable.name}=x`).join('\n') + '\nHOST_PORT=8080\n';
+      ENV_VARIABLES.map((variable) => `${variable.name}=x`).join('\n') + '\nHOST_PORT=9300\n';
     const guard = (rows: string[][]) => {
       assertEnvironmentTable(environmentTable(rows), example);
     };
@@ -964,7 +964,7 @@ describe('docs/architecture.md (FR-A-006, FR-A-185)', () => {
 // docs/adr (FR-A-185)
 // =============================================================================================
 
-const ADR_COUNT = 55;
+const ADR_COUNT = 56;
 const ADR_FIELDS = ['Status', 'Context', 'Decision', 'Consequences', 'Evidence'];
 const ADR_STATUSES = ['Accepted', 'Adjusted', 'Plan'];
 const pad = (n: number, width: number): string => String(n).padStart(width, '0');
@@ -1090,7 +1090,7 @@ describe('docs/adr (FR-A-185)', () => {
       adrDirectory((files) => {
         files.delete('0030-decision.md');
       }),
-      { reason: /has 54 ADRs, expected 55/ },
+      { reason: /has 55 ADRs, expected 56/ },
     );
     expectGuardFails(
       assertAdrDirectory,
@@ -1151,7 +1151,7 @@ describe('docs/adr (FR-A-185)', () => {
     );
   });
 
-  it('has the template and ADR-0001 to ADR-0055 with their fields, D1 to D26 first and PD-01 onwards after', () => {
+  it('has the template and ADR-0001 to ADR-0056 with their fields, D1 to D26 first and PD-01 onwards after', () => {
     assertAdrDirectory(join(repositoryRoot, 'docs/adr'));
   });
 });

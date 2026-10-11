@@ -723,7 +723,7 @@ describe('createPlaceholderShell (C6)', () => {
     const template = readFileSync(join(FIXTURE_DIST, 'index.html'), 'utf8');
     const html = await createPlaceholderShell(template).render({
       nonce: NONCE,
-      request: new Request('http://localhost:8080/users'),
+      request: new Request('http://localhost:9300/users'),
     });
     expect(html).not.toContain(NONCE_PLACEHOLDER);
     expect(html.split(NONCE).length - 1).toBe(template.split(NONCE_PLACEHOLDER).length - 1);
@@ -743,7 +743,7 @@ describe('createPlaceholderShell (C6)', () => {
     const template = `<a nonce="${NONCE_PLACEHOLDER}">$& $' $\` $$ $1 ${NONCE_PLACEHOLDER}</a>`;
     const html = await createPlaceholderShell(template).render({
       nonce: NONCE,
-      request: new Request('http://localhost:8080/'),
+      request: new Request('http://localhost:9300/'),
     });
     expect(html).toBe(`<a nonce="${NONCE}">$& $' $\` $$ $1 ${NONCE}</a>`);
   });
@@ -751,7 +751,7 @@ describe('createPlaceholderShell (C6)', () => {
   it('gives two nonces two documents that differ only in the nonce', async () => {
     const template = readFileSync(join(FIXTURE_DIST, 'index.html'), 'utf8');
     const shell = createPlaceholderShell(template);
-    const request = new Request('http://localhost:8080/');
+    const request = new Request('http://localhost:9300/');
     const first = await shell.render({ nonce: NONCE, request });
     const second = await shell.render({ nonce: 'ZyXw+/VuTsRqPoNmLkJiHg==', request });
     expect(first).not.toBe(second);
@@ -772,14 +772,14 @@ describe('createPlaceholderShell (C6)', () => {
   ])('refuses the nonce %j: it is written into attributes', async (nonce) => {
     const shell = createPlaceholderShell(`<p nonce="${NONCE_PLACEHOLDER}"></p>`);
     await expect(
-      shell.render({ nonce, request: new Request('http://localhost:8080/') }),
+      shell.render({ nonce, request: new Request('http://localhost:9300/') }),
     ).rejects.toThrow(TypeError);
   });
 
   it('does not mind the template containing the placeholder zero times', async () => {
     const html = await createPlaceholderShell('<p>no nonce</p>').render({
       nonce: NONCE,
-      request: new Request('http://localhost:8080/'),
+      request: new Request('http://localhost:9300/'),
     });
     expect(html).toBe('<p>no nonce</p>');
   });

@@ -27,7 +27,9 @@ function collect(response: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     response.on('data', (chunk: Buffer) => chunks.push(chunk));
-    response.on('end', () => { resolve(Buffer.concat(chunks)); });
+    response.on('end', () => {
+      resolve(Buffer.concat(chunks));
+    });
     response.on('error', reject);
   });
 }
@@ -90,6 +92,8 @@ export async function startVersionProxy(): Promise<VersionProxy> {
 function closeServer(server: Server): Promise<void> {
   return new Promise((resolve) => {
     server.closeAllConnections();
-    server.close(() => { resolve(); });
+    server.close(() => {
+      resolve();
+    });
   });
 }

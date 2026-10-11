@@ -1022,7 +1022,7 @@ describe('the YAML reader of this test (it only has to be exact for the Compose 
 });
 
 /** The active mapping line, in either quote style (Prettier writes single quotes). */
-const MAPPING_LINE = /- (["'])\$\{HOST_PORT:-8080\}:\$\{PORT:-8080\}\1/;
+const MAPPING_LINE = /- (["'])\$\{HOST_PORT:-9300\}:\$\{PORT:-9300\}\1/;
 
 /** Variables the image fixes and the Compose file therefore does not pass on (see the file). */
 const IMAGE_LEVEL = ['HOST', 'DATA_DIR'] as const;
@@ -1208,7 +1208,7 @@ describe('docker-compose.yml (FR-A-166, FR-A-016)', () => {
     }).not.toThrow();
   });
 
-  it('has the mapping "${HOST_PORT:-8080}:${PORT:-8080}" as an active line, unchanged', () => {
+  it('has the mapping "${HOST_PORT:-9300}:${PORT:-9300}" as an active line, unchanged', () => {
     const port = String(DEFAULT_PORT);
     const active = composeFile
       .split('\n')
@@ -1231,7 +1231,7 @@ describe('docker-compose.yml (FR-A-166, FR-A-016)', () => {
   it('tells the operator, next to the mapping, how to publish in preview mode', () => {
     const comment = commentAbove(composeFile, 'ports:');
     expect(comment).toContain('PREVIEW_MODE=true');
-    expect(comment).toContain('127.0.0.1:${HOST_PORT:-8080}:${PORT:-8080}');
+    expect(comment).toContain('127.0.0.1:${HOST_PORT:-9300}:${PORT:-9300}');
   });
 
   it('passes on every variable of .env.example that the application reads, except the two the image fixes', () => {
@@ -1323,12 +1323,12 @@ describe('docker-compose.yml (FR-A-166, FR-A-016)', () => {
     ],
     [
       'a mapping that ignores PORT',
-      mutated((text) => replaceOnce(text, MAPPING_LINE, '- "${HOST_PORT:-8080}:8080"')),
+      mutated((text) => replaceOnce(text, MAPPING_LINE, '- "${HOST_PORT:-9300}:9300"')),
       /ports must be/,
     ],
     [
       'a mapping that ignores HOST_PORT',
-      mutated((text) => replaceOnce(text, MAPPING_LINE, '- "${PORT:-8080}:${PORT:-8080}"')),
+      mutated((text) => replaceOnce(text, MAPPING_LINE, '- "${PORT:-9300}:${PORT:-9300}"')),
       /ports must be/,
     ],
     [
@@ -1336,8 +1336,8 @@ describe('docker-compose.yml (FR-A-166, FR-A-016)', () => {
       mutated((text) =>
         replaceOnce(
           text,
-          /http:\/\/localhost:\$\{HOST_PORT:-8080\}\}/,
-          'http://localhost:${PORT:-8080}}',
+          /http:\/\/localhost:\$\{HOST_PORT:-9300\}\}/,
+          'http://localhost:${PORT:-9300}}',
         ),
       ),
       /PUBLIC_BASE_URL must default to/,
@@ -1351,7 +1351,7 @@ describe('docker-compose.yml (FR-A-166, FR-A-016)', () => {
     [
       'HOST_PORT passed into the container',
       mutated((text) =>
-        replaceOnce(text, '      PORT:', '      HOST_PORT: ${HOST_PORT:-8080}\n      PORT:'),
+        replaceOnce(text, '      PORT:', '      HOST_PORT: ${HOST_PORT:-9300}\n      PORT:'),
       ),
       /unexpected \[HOST_PORT\]/,
     ],
@@ -1593,7 +1593,7 @@ describe.skipIf(!composeAvailable && !dockerRequired)('docker compose config (PA
     const directory = scratchDirectory('m365portal-compose-negative-');
     writeFileSync(
       join(directory, 'docker-compose.yml'),
-      replaceOnce(composeFile, MAPPING_LINE, '- "${PORT:-8080}:${PORT:-8080}"'),
+      replaceOnce(composeFile, MAPPING_LINE, '- "${PORT:-9300}:${PORT:-9300}"'),
     );
     writeFileSync(join(directory, '.env'), 'HOST_PORT=9090\n');
     const result = dockerCompose(directory, ['config', '--format', 'json']);

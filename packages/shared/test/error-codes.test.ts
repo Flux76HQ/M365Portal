@@ -239,7 +239,7 @@ describe('ProblemSchema (RFC 9457 plus code, requestId, errors[], expectedOrigin
   it.each(CODES)('accepts the body for %s, built from the registry', (code) => {
     const body =
       code === 'origin_not_allowed'
-        ? { ...problemFor(code), expectedOrigin: 'http://localhost:8080' }
+        ? { ...problemFor(code), expectedOrigin: 'http://localhost:9300' }
         : problemFor(code);
     expect(valid(body)).toBe(true);
   });
@@ -292,16 +292,16 @@ describe('ProblemSchema (RFC 9457 plus code, requestId, errors[], expectedOrigin
     expect(
       valid({ ...problemFor('origin_not_allowed'), expectedOrigin: 'https://panel.example.org' }),
     ).toBe(true);
-    expect(valid({ ...problemFor('csrf_invalid'), expectedOrigin: 'http://localhost:8080' })).toBe(
+    expect(valid({ ...problemFor('csrf_invalid'), expectedOrigin: 'http://localhost:9300' })).toBe(
       false,
     );
     expect(
-      valid({ ...problemFor('internal_error'), expectedOrigin: 'http://localhost:8080' }),
+      valid({ ...problemFor('internal_error'), expectedOrigin: 'http://localhost:9300' }),
     ).toBe(false);
   });
 
   it.each([
-    ['an expectedOrigin with a path', { expectedOrigin: 'http://localhost:8080/x' }],
+    ['an expectedOrigin with a path', { expectedOrigin: 'http://localhost:9300/x' }],
     ['an expectedOrigin that is not an origin', { expectedOrigin: 'localhost' }],
   ])('rejects %s', (_label, change) => {
     expect(valid({ ...problemFor('origin_not_allowed'), ...change })).toBe(false);

@@ -534,7 +534,7 @@ interface Probe {
 }
 
 const THINGS = '/api/v1/fixture/things';
-const ORIGIN = 'http://localhost:8080';
+const ORIGIN = 'http://localhost:9300';
 const FOREIGN = 'https://evil.example';
 const VALID_BODY = { name: 'ok' };
 

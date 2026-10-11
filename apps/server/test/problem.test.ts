@@ -38,7 +38,7 @@ import { readJson } from './helpers/http-client.js';
 import { createTestApp, type TestAppContext } from './helpers/test-app.js';
 
 const REQUEST_ID = 'req-0001-test';
-const ORIGIN = 'http://localhost:8080';
+const ORIGIN = 'http://localhost:9300';
 
 const CODES = Object.keys(PROBLEM_CODES) as ProblemCode[];
 
@@ -157,7 +157,7 @@ describe('problem bodies (FR-A-022)', () => {
 
   it.each([
     ['is missing', undefined],
-    ['has a path', 'http://localhost:8080/panel'],
+    ['has a path', 'http://localhost:9300/panel'],
     ['is not an origin', 'localhost'],
   ])('refuses an expectedOrigin that %s', (_name, value) => {
     expect(() =>

@@ -38,7 +38,7 @@ import { createTempDataDir } from './helpers/temp-data-dir.js';
 const SERVER_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const WEB = join(SERVER_ROOT, 'test', 'fixtures', 'web-dist');
 const MIGRATIONS = join(SERVER_ROOT, 'drizzle');
-const ORIGIN = 'http://localhost:8080';
+const ORIGIN = 'http://localhost:9300';
 
 const Ok = z.strictObject({ ok: z.literal(true) }).meta({ id: 'AppTestOk' });
 const ok = {

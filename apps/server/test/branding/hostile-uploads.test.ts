@@ -2075,7 +2075,7 @@ describe('hostile corpus: the HTTP adapter on a plain Node server', () => {
     const server = await startRawServer({ cap: LIMITS.body.uploadRequestBytes });
     const target = viaHttp({
       server,
-      publicOrigin: 'http://localhost:8080',
+      publicOrigin: 'http://localhost:9300',
       csrfToken: () => Promise.resolve('t'),
       dataDir: environment.workspace.dataDir,
       readAudit: () => Promise.resolve([]),
@@ -2091,7 +2091,7 @@ describe('hostile corpus: the HTTP adapter on a plain Node server', () => {
     const server = await startRawServer({});
     const target = viaHttp({
       server,
-      publicOrigin: 'http://localhost:8080',
+      publicOrigin: 'http://localhost:9300',
       csrfToken: () => Promise.resolve('t'),
       dataDir: environment.workspace.dataDir,
       readAudit: () => Promise.resolve([]),
@@ -2109,7 +2109,7 @@ describe('hostile corpus: the HTTP adapter on a plain Node server', () => {
     const main = await startRawServer({});
     const target = viaHttp({
       server: main,
-      publicOrigin: 'http://localhost:8080',
+      publicOrigin: 'http://localhost:9300',
       csrfToken: () => Promise.resolve('t'),
       dataDir: environment.workspace.dataDir,
       readAudit: () => Promise.resolve([]),
@@ -2134,7 +2134,7 @@ describe('hostile corpus: the HTTP adapter on a plain Node server', () => {
     const patient = await startRawServer({ answerEarly: true });
     const target = viaHttp({
       server: patient,
-      publicOrigin: 'http://localhost:8080',
+      publicOrigin: 'http://localhost:9300',
       csrfToken: () => Promise.resolve('t'),
       dataDir: environment.workspace.dataDir,
       readAudit: () => Promise.resolve([]),

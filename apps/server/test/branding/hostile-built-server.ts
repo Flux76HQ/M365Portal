@@ -127,7 +127,7 @@ export function verifyAuditOf(
       env: {
         PATH: process.env.PATH ?? '',
         DATA_DIR: dataDir,
-        PUBLIC_BASE_URL: 'http://localhost:8080',
+        PUBLIC_BASE_URL: 'http://localhost:9300',
       },
     });
     let out = '';

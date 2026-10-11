@@ -87,8 +87,7 @@ on every response including errors.
 - **The one exception to "headers on every response" (FR-A-040).** Responses that Node writes itself
   before routing (400, 408, 431 from the `clientError` handler) carry the `other` profile, a fresh
   request id and `Connection: close`, but no HSTS, because the scheme of an unparsed request is unknown.
-  `bad_request`, `request_timeout` and `request_header_fields_too_large` are not in the 31-code problem
-  registry; their bodies are shaped like a problem.
+  `bad_request`, `request_timeout` and `request_header_fields_too_large` are registered (34 codes since amendment 1); their bodies are problem-shaped.
 - **413 and `Connection: close`.** A 413 is answered with `Connection: close`. A denied write is recorded with the method, the route template and the permission asked for, and never with a body, a header value or a path.
 - **Conditional requests.** The branding documents carry a strong quoted `ETag` and `Cache-Control: no-store, no-transform`; `no-transform` stops the compression layer from weakening the tag, which would make the client's own `If-Match` fail (422 `invalid_etag`). An export whose master file is gone answers 500 `internal_error` on purpose and writes one audit row with outcome `error`.
 - **Trusted Types.** Exactly one web module creates the policy `m365portal-sw` (it accepts only
