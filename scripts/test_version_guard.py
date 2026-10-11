@@ -20,6 +20,7 @@ class ProtectedPaths(unittest.TestCase):
             "apps/web/src/main.tsx",
             "apps/web/src/locales/nl.json",
             "packages/shared/src/permissions.ts",
+            "patches/@radix-ui__react-select@2.3.8.patch",
             "deploy/azure/main.bicep",
             "scripts/check_version_bump.py",
             ".github/workflows/ci.yml",

@@ -25,9 +25,9 @@ const require = createRequire(join(webRoot, 'package.json'));
 /** Findings in the text of one built file; each is a Trusted Types sink or a nonce-less style. */
 function findStyleSinks(source: string): readonly string[] {
   const findings: string[] = [];
-  if (/dangerouslySetInnerHTML/.test(source)) findings.push('dangerouslySetInnerHTML');
+  if (source.includes('dangerouslySetInnerHTML')) findings.push('dangerouslySetInnerHTML');
   if (/\.innerHTML\s*=[^=]/.test(source)) findings.push('innerHTML assignment');
-  if (/\.insertAdjacentHTML\(/.test(source)) findings.push('insertAdjacentHTML');
+  if (source.includes('.insertAdjacentHTML(')) findings.push('insertAdjacentHTML');
   // A style element made by hand must be given a nonce in the same file.
   if (
     /createElement\(\s*["']style["']\s*\)/.test(source) &&
@@ -44,14 +44,15 @@ function findStyleSinks(source: string): readonly string[] {
 
 function radixPackageDirs(): Map<string, string> {
   const radixUiDir = dirname(require.resolve('radix-ui/package.json'));
-  const radixRequire = createRequire(join(radixUiDir, 'package.json'));
+  // pnpm lays the dependencies of radix-ui out as siblings of its own folder.
+  const siblings = dirname(radixUiDir);
   const manifest = JSON.parse(readFileSync(join(radixUiDir, 'package.json'), 'utf8')) as {
     dependencies: Record<string, string>;
   };
   const dirs = new Map<string, string>();
   for (const name of Object.keys(manifest.dependencies)) {
     if (!name.startsWith('@radix-ui/react-')) continue;
-    dirs.set(name, dirname(radixRequire.resolve(`${name}/package.json`)));
+    dirs.set(name, join(siblings, name));
   }
   return dirs;
 }

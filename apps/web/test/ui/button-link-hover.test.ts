@@ -23,7 +23,7 @@ function classes(variant: 'link' | 'primary') {
 
 describe('link button hover', () => {
   it('never uses accent-hover as a text colour', () => {
-    expect(classes('link').filter((c) => /text-accent-hover/.test(c))).toEqual([]);
+    expect(classes('link').filter((c) => c.includes('text-accent-hover'))).toEqual([]);
   });
 
   it('keeps accent-text on hover, over the guaranteed accent-subtle fill', () => {

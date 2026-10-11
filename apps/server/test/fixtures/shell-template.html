@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="__M365_THEME_COLOR__" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>__M365_TITLE__</title>
+    <style nonce="__M365_NONCE__">
+      body { margin: 0; }
+    </style>
+    <style nonce="__M365_NONCE__">
+      __M365_THEME_CSS__
+    </style>
+    <link rel="preload" href="/assets/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="modulepreload" nonce="__M365_NONCE__" href="/assets/index-abc.js" />
+    __M365_ICON_LINKS__
+    <script nonce="__M365_NONCE__">
+      document.documentElement.dataset.theme = 'light';
+    </script>
+    <script type="application/json" id="m365-boot" nonce="__M365_NONCE__">
+      __M365_BOOT_JSON__
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <p lang="en">This application needs JavaScript.</p>
+    </noscript>
+    <script type="module" nonce="__M365_NONCE__" src="/assets/index-abc.js"></script>
+  </body>
+</html>

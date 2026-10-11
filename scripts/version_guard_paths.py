@@ -11,6 +11,7 @@ PROTECTED_PATTERNS = (
     # Runtime code
     re.compile(r"^apps/"),
     re.compile(r"^packages/"),
+    re.compile(r"^patches/"),
     # Build, deploy and CI surfaces
     re.compile(r"^deploy/"),
     re.compile(r"^scripts/"),

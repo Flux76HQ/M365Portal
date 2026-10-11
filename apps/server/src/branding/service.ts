@@ -66,6 +66,13 @@ export interface BrandingServiceDependencies {
   readonly images: Pick<ImageJobRunner, 'deriveVariants'>;
 }
 
+/** What differs when an apply is an import: the audit action and the detail it adds. */
+export interface ApplyOptions {
+  readonly action?: 'branding.apply' | 'branding.import';
+  /** Added to the detail of the audit entry (`dryRun`, `schemaVersion`): flat, allowed keys only. */
+  readonly detail?: AuditDetail;
+}
+
 export interface BrandingService {
   /** Create the first branding row if there is none. Returns whether this call created it. */
   ensureDefault(): Promise<{ readonly created: boolean }>;
@@ -73,11 +80,16 @@ export interface BrandingService {
   get(): Branding;
   /** The revision of the applied branding. */
   revision(): number;
-  /** Replace the whole branding. `expectedRevision` is the value of `If-Match`. */
+  /**
+   * Replace the whole branding. `expectedRevision` is the value of `If-Match`. `options` lets the
+   * import (T-A-088) write its own audit action, `branding.import`, with its extra detail, in the
+   * same transaction.
+   */
   apply(
     choice: BrandingChoice,
     expectedRevision: number,
     context: ChangeContext,
+    options?: ApplyOptions,
   ): Promise<Branding>;
   /** Restore the defaults: name, accent, monogram icons, no logos. */
   reset(expectedRevision: number, context: ChangeContext): Promise<Branding>;
@@ -100,7 +112,7 @@ const ICON_ROLES: Readonly<Record<IconKind, AssetRole>> = {
 
 type Hashes = Record<AssetRole, string | null>;
 
-type ChangeAction = 'branding.init' | 'branding.apply' | 'branding.reset';
+type ChangeAction = 'branding.init' | 'branding.apply' | 'branding.import' | 'branding.reset';
 
 interface Change {
   readonly action: ChangeAction;
@@ -111,6 +123,8 @@ interface Change {
   readonly hashes: Hashes;
   readonly compactDerived: boolean;
   readonly context: ChangeContext;
+  /** Extra audit detail (an import's `dryRun` and `schemaVersion`). */
+  readonly extraDetail?: AuditDetail;
 }
 
 function fieldProblem(code: 'org_name_invalid' | 'accent_invalid', pointer: string): ProblemError {
@@ -378,10 +392,11 @@ export function createBrandingService(dependencies: BrandingServiceDependencies)
   }
 
   async function change(
-    action: 'branding.apply' | 'branding.reset',
+    action: 'branding.apply' | 'branding.import' | 'branding.reset',
     choice: BrandingChoice,
     expectedRevision: number,
     context: ChangeContext,
+    extraDetail?: AuditDetail,
   ): Promise<Branding> {
     const db = dependencies.requireDatabase();
     const { orgName, accent } = normalise(choice);
@@ -411,6 +426,7 @@ export function createBrandingService(dependencies: BrandingServiceDependencies)
       hashes,
       compactDerived: choice.logos.compact === null && variants.compact !== null,
       context,
+      ...(extraDetail === undefined ? {} : { extraDetail }),
     });
     if (result === null) throw new Error('an update produced no branding');
     return result;
@@ -455,8 +471,14 @@ export function createBrandingService(dependencies: BrandingServiceDependencies)
       return row.revision;
     },
 
-    apply: (choice, expectedRevision, context) =>
-      change('branding.apply', choice, expectedRevision, context),
+    apply: (choice, expectedRevision, context, options = {}) =>
+      change(
+        options.action ?? 'branding.apply',
+        choice,
+        expectedRevision,
+        context,
+        options.detail,
+      ),
 
     reset: (expectedRevision, context) =>
       change('branding.reset', DEFAULT_BRANDING, expectedRevision, context),
@@ -475,6 +497,7 @@ function auditDetailOf(
   }
   const hashes = change.hashes;
   return {
+    ...change.extraDetail,
     fromRevision: current?.revision ?? 0,
     toRevision,
     orgNameOld: current?.orgName,

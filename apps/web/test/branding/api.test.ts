@@ -7,7 +7,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { createElement, type ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type MockInstance } from 'vitest';
 import { ApiError, createApiClient, type FetchFunction } from '../../src/lib/api';
 import { queryKeys } from '../../src/lib/query';
 import {
@@ -228,7 +228,11 @@ describe('typed errors', () => {
     expect(error).toBeInstanceOf(BrandingConflictError);
     expect(error).toBeInstanceOf(ApiError);
     expect(isBrandingConflict(error)).toBe(true);
-    expect(error).toMatchObject({ code: 'branding_conflict', status: 412, requestId: 'req-0123456789' });
+    expect(error).toMatchObject({
+      code: 'branding_conflict',
+      status: 412,
+      requestId: 'req-0123456789',
+    });
   });
 
   it('does not call another 412 or another error a conflict', async () => {
@@ -247,16 +251,30 @@ describe('typed errors', () => {
     expect(error).toBeInstanceOf(ApiError);
     expect(expectedOriginOf(error)).toBe('https://panel.example.com');
     expect(expectedOriginOf(new Error('x'))).toBeNull();
-    expect(expectedOriginOf(new ApiError({ code: 'permission_denied', status: 403, requestId: null, errors: [], expectedOrigin: null, retryAfterSeconds: null }))).toBeNull();
+    expect(
+      expectedOriginOf(
+        new ApiError({
+          code: 'permission_denied',
+          status: 403,
+          requestId: null,
+          errors: [],
+          expectedOrigin: null,
+          retryAfterSeconds: null,
+        }),
+      ),
+    ).toBeNull();
   });
 
   it('keeps Retry-After on image_processing_busy for the retry offer', async () => {
     const { branding } = clientFor(
       () =>
-        new Response(JSON.stringify({ code: 'image_processing_busy', requestId: 'req-0123456789' }), {
-          status: 429,
-          headers: { 'Content-Type': 'application/problem+json', 'Retry-After': '4' },
-        }),
+        new Response(
+          JSON.stringify({ code: 'image_processing_busy', requestId: 'req-0123456789' }),
+          {
+            status: 429,
+            headers: { 'Content-Type': 'application/problem+json', 'Retry-After': '4' },
+          },
+        ),
     );
     const file = new File([new Uint8Array([1])], 'a.png');
     await expect(branding.stage('compact', file)).rejects.toMatchObject({
@@ -326,7 +344,7 @@ describe('lazy schemas', () => {
     ]) {
       expectGuardFails(assertNoStaticSchemaImport, [{ path: 'Sneaky.ts', text }], {
         name: 'assertNoStaticSchemaImport',
-        reason: 'static schema import',
+        reason: 'static import',
       });
     }
     expect(() => {
@@ -355,9 +373,11 @@ function harness(handler: (call: Call) => Response) {
   return { net, api, queryClient, invalidate, wrapper };
 }
 
-const brandingInvalidated = (invalidate: ReturnType<typeof vi.spyOn>): boolean =>
+const brandingInvalidated = (invalidate: MockInstance<QueryClient['invalidateQueries']>): boolean =>
   invalidate.mock.calls.some(
-    ([filters]) => JSON.stringify((filters as { queryKey?: unknown } | undefined)?.queryKey) === JSON.stringify(queryKeys.branding),
+    ([filters]) =>
+      JSON.stringify((filters as { queryKey?: unknown } | undefined)?.queryKey) ===
+      JSON.stringify(queryKeys.branding),
   );
 
 describe('query invalidation', () => {
@@ -412,7 +432,9 @@ describe('query invalidation', () => {
   });
 
   it('a failed apply leaves the cache alone and invalidates nothing', async () => {
-    const { api, queryClient, invalidate, wrapper } = harness(() => problem(412, 'branding_conflict'));
+    const { api, queryClient, invalidate, wrapper } = harness(() =>
+      problem(412, 'branding_conflict'),
+    );
     const { result } = renderHook(() => useApplyBranding(api), { wrapper });
     await act(async () => {
       await result.current.mutateAsync({ request: REQUEST, revision: 1 }).catch(() => undefined);
@@ -440,7 +462,10 @@ describe('query invalidation', () => {
     const { api, invalidate, wrapper } = harness(() => json(response));
     const { result } = renderHook(() => useStageAsset(api), { wrapper });
     await act(async () => {
-      await result.current.mutateAsync({ slot: 'logoLight', file: new File([new Uint8Array([1])], 'a.png') });
+      await result.current.mutateAsync({
+        slot: 'logoLight',
+        file: new File([new Uint8Array([1])], 'a.png'),
+      });
     });
     expect(brandingInvalidated(invalidate)).toBe(false);
   });
