@@ -1,7 +1,7 @@
 name: codeql
 
 # Static analysis of the JavaScript and TypeScript sources (FR-A-173). Job `analyze` is the only
-# job in the repository that holds `security-events: write`; the workflow itself is read-only.
+# job in the repository that holds `security-events: write` (and `actions: read`); the workflow itself is read-only.
 #
 # Action pins re-resolved on 2026-10-11 with `python scripts/resolve_action_pins.py` (git ls-remote
 # --tags, highest stable tag, annotated tags peeled to their commit). `init` and `analyze` are
@@ -33,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      actions: read # the CodeQL action reads its own workflow run (needed on private repositories)
       contents: read
       security-events: write
     steps:
