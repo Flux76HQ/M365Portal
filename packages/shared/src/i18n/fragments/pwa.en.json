@@ -1,10 +1,10 @@
 {
-  "pwa.update.title": "Update available",
-  "pwa.update.description": "A new version is ready. Update now to use it; unsaved changes on this page are lost.",
+  "pwa.offline.description": "There is no connection to the server. Changes cannot be saved until it is back, and nothing is queued or sent later.",
+  "pwa.offline.retry": "Try again",
+  "pwa.offline.saveDisabled": "Saving is not available while you are offline.",
+  "pwa.offline.title": "You are offline",
   "pwa.update.action": "Update now",
   "pwa.update.actionAlt": "Reload the page to use the new version",
-  "pwa.offline.title": "You are offline",
-  "pwa.offline.description": "There is no connection to the server. Changes cannot be saved until it is back, and nothing is queued or sent later.",
-  "pwa.offline.saveDisabled": "Saving is not available while you are offline.",
-  "pwa.offline.retry": "Try again"
+  "pwa.update.description": "A new version is ready. Update now to use it; unsaved changes on this page are lost.",
+  "pwa.update.title": "Update available"
 }

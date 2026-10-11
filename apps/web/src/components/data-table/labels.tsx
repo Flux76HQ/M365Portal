@@ -61,6 +61,8 @@ export interface DataTableLabels {
   readonly resetColumns: string;
   readonly closeLabel: string;
 
+  /** The (visually hidden) header of the actions column. */
+  readonly actionsColumn: string;
   /** The name of a row's actions menu button: "Actions for Ada Lovelace". */
   readonly rowActions: (row: string) => string;
   /** The name of the button that opens the details of a row. */

@@ -12,6 +12,7 @@ import { RootProviders } from './components/pages/root-providers';
 import { getApiClient } from './lib/api';
 import { readBootData } from './lib/boot-data';
 import { createAppQueryClient, seedQueryClient } from './lib/query';
+import { registerServiceWorkerWhenLoaded } from './lib/sw-register';
 import { createAppRouter } from './router';
 
 const nonce = installNonceShim();
@@ -30,3 +31,6 @@ createRoot(rootElement).render(
     <RootProviders router={router} queryClient={queryClient} nonce={nonce} />
   </StrictMode>,
 );
+
+// After the first render and the load event: the worker must never compete with the first paint.
+registerServiceWorkerWhenLoaded();

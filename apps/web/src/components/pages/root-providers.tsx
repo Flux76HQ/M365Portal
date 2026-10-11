@@ -5,6 +5,7 @@ import { useEffect, type ReactNode } from 'react';
 import { LanguageProvider, useTranslator, type LanguageController } from '../../lib/locale';
 import { useBranding } from '../../lib/router-context';
 import type { AppRouter } from '../../router';
+import { UpdateToast } from '../shell/UpdateToast';
 import { MotionProvider } from '../ui/motion-provider';
 import { ToastProvider } from '../ui/toast';
 
@@ -50,6 +51,7 @@ export function AppToastProvider({ children }: { readonly children: ReactNode })
       notificationLabel={t('common.notification')}
       closeLabel={t('common.close')}
     >
+      <UpdateToast />
       {children}
     </ToastProvider>
   );

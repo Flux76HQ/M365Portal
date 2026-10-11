@@ -365,7 +365,7 @@ describe('search and filters', () => {
   it('can be left out: no search box without `searchable`, no filter without filters', () => {
     render(<DataTable {...baseProps({ searchable: false })} />);
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Department' })).not.toBeInTheDocument();
   });
 });
 
@@ -532,9 +532,10 @@ function fakeStorage(initial: Record<string, DataTableColumnPrefs> = {}) {
 }
 
 function headerNames(): string[] {
+  // `hidden`: an open dialog hides the page behind it from the accessibility tree.
   return screen
-    .getAllByRole('columnheader')
-    .map((header) => header.textContent ?? '')
+    .getAllByRole('columnheader', { hidden: true })
+    .map((header) => header.textContent)
     .filter((text) => text !== '' && text !== 'Actions');
 }
 
@@ -673,7 +674,7 @@ describe('column picker', () => {
     return screen.findByRole('dialog', { name: 'Choose columns' });
   }
 
-  it('offers the picker only when a column can be hidden or moved, and lists every column', async () => {
+  it('lists every column, with the name column locked on', async () => {
     const user = userEvent.setup();
     const { storage } = fakeStorage();
     render(<DataTable {...baseProps({ columnStorage: storage })} />);
@@ -681,11 +682,7 @@ describe('column picker', () => {
     expect(
       within(dialog).getByText('Show, hide and reorder the columns of this table.'),
     ).toBeVisible();
-    expect(
-      within(dialog)
-        .getAllByRole('checkbox')
-        .map((box) => box.getAttribute('aria-label') ?? box.id),
-    ).toHaveLength(3);
+    expect(within(dialog).getAllByRole('checkbox')).toHaveLength(3);
     // The name column cannot be hidden: its checkbox is checked and disabled.
     const name = within(dialog).getByRole('checkbox', { name: 'Name' });
     expect(name).toBeChecked();
@@ -908,7 +905,7 @@ describe('details panel', () => {
 describe('keyboard walk', () => {
   function describeFocus(): string {
     const element = document.activeElement as HTMLElement;
-    const name = element.getAttribute('aria-label') ?? element.textContent ?? '';
+    const name = element.getAttribute('aria-label') ?? element.textContent;
     return `${element.getAttribute('role') ?? element.tagName.toLowerCase()}:${name}`;
   }
 
@@ -931,7 +928,7 @@ describe('keyboard walk', () => {
       visited.push(describeFocus());
     }
     expect(visited).toEqual([
-      'searchbox:Search people',
+      'input:Search people',
       'button:Search',
       'combobox:Department',
       'button:Columns',

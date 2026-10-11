@@ -16,7 +16,12 @@ body {
   padding: 24px 16px;
   background: Canvas;
   color: CanvasText;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
   line-height: 1.5;
 }
 
@@ -25,15 +30,6 @@ main {
   gap: 32px;
   width: 100%;
   max-width: 40rem;
-}
-
-/* The preferred language comes first (offline.js sets data-preferred on the root element). */
-:root[data-preferred='nl'] section[data-language='nl'] {
-  order: -1;
-}
-
-:root[data-preferred='en'] section[data-language='en'] {
-  order: -1;
 }
 
 section {

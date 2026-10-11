@@ -33,5 +33,13 @@
   "problem.svg_too_complex": "Dit SVG-bestand is te complex. Vereenvoudig het, of gebruik een PNG-afbeelding.",
   "problem.unknown": "Er is iets misgegaan (code {code}, verzoek-ID {requestId}). Probeer het opnieuw, of geef deze gegevens door aan je beheerder.",
   "problem.unsupported_media_type": "Het verzoek is verstuurd in een formaat dat het panel niet accepteert.",
-  "problem.validation_failed": "Een of meer waarden zijn ongeldig. Controleer de gemarkeerde velden en probeer het opnieuw."
+  "problem.validation_failed": "Een of meer waarden zijn ongeldig. Controleer de gemarkeerde velden en probeer het opnieuw.",
+  "pwa.offline.description": "Er is geen verbinding met de server. Wijzigingen kunnen pas worden opgeslagen als die terug is, en er wordt niets in de wachtrij gezet of later verstuurd.",
+  "pwa.offline.retry": "Opnieuw proberen",
+  "pwa.offline.saveDisabled": "Opslaan is niet beschikbaar zolang je offline bent.",
+  "pwa.offline.title": "Je bent offline",
+  "pwa.update.action": "Nu bijwerken",
+  "pwa.update.actionAlt": "Laad de pagina opnieuw om de nieuwe versie te gebruiken",
+  "pwa.update.description": "Er staat een nieuwe versie klaar. Werk nu bij om die te gebruiken; niet-opgeslagen wijzigingen op deze pagina gaan verloren.",
+  "pwa.update.title": "Update beschikbaar"
 }

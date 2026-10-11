@@ -1,7 +1,8 @@
 // The routing decision of the service worker (FR-A-140, PD-17, plan 9.8): a pure function of the
 // request's URL, mode and method, and the origin of the worker. It is an allow-list, never a deny-list:
 //
-//   cache-first   `GET /assets/<name>` and `GET /branding/<64 hex>.png`, same origin, nothing else
+//   cache-first   `GET /assets/<name>`, `GET /branding/<64 hex>.png` and the two files of the offline page
+//                 (`/offline.css`, `/offline.js`), same origin, nothing else
 //   navigate      a same-origin `GET` navigation that is not the API and not the worker itself
 //   pass          everything else, which the worker does not touch: the browser fetches it as if there
 //                 were no worker (so `/api` is never served from a cache, in any encoding)
@@ -28,6 +29,12 @@ export interface RoutedRequest {
 export const ASSET_PATH = /^\/assets\/[A-Za-z0-9._-]+$/;
 /** A processed branding image, named by the SHA-256 of its bytes. */
 export const BRANDING_PATH = /^\/branding\/[0-9a-f]{64}\.png$/;
+
+/**
+ * The two files the offline page loads. They are precached at install (src/sw/sw.ts) and answered from
+ * that copy, so the page is complete with the server gone. Exact paths: nothing else is added this way.
+ */
+export const OFFLINE_ASSETS: ReadonlySet<string> = new Set(['/offline.css', '/offline.js']);
 
 const MAX_DECODE_ROUNDS = 5;
 
@@ -65,8 +72,7 @@ function canonicalSegments(path: string): string[] {
 
 /** True when any spelling of the path could be taken for the API (`/api...`) by a server or a proxy. */
 export function looksLikeApi(pathname: string): boolean {
-  const first = canonicalSegments(fullyDecoded(pathname))[0];
-  return first !== undefined && first.startsWith('api');
+  return canonicalSegments(fullyDecoded(pathname))[0]?.startsWith('api') ?? false;
 }
 
 /** The worker script itself is never part of a navigation or a cache. */
@@ -91,5 +97,7 @@ export function decideRoute(request: RoutedRequest, origin: string): RouteDecisi
   if (request.mode === 'navigate') return 'navigate';
 
   if (pathname.includes('%')) return 'pass';
-  return ASSET_PATH.test(pathname) || BRANDING_PATH.test(pathname) ? 'cache-first' : 'pass';
+  return ASSET_PATH.test(pathname) || BRANDING_PATH.test(pathname) || OFFLINE_ASSETS.has(pathname)
+    ? 'cache-first'
+    : 'pass';
 }

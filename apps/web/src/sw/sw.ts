@@ -2,6 +2,7 @@
 // build (build/plugins/sw.ts) compiles this file to /sw.js with `__APP_VERSION__` defined.
 //
 //   hashed assets and branding images   cache-first, only a real 200 of the expected type is stored
+//   the offline page's css and script   answered from the install-time precache
 //   navigations                         network-first; a network failure answers /offline.html
 //   everything else                     untouched: the worker does not call `respondWith`
 //
@@ -14,7 +15,7 @@
 // the scope as an argument so a test can hand it a fake one. The worker's global scope is not typed
 // (the web package compiles with the DOM library), so the few members used are declared below.
 import { SKIP_WAITING_MESSAGE } from './contract';
-import { decideRoute } from './routing';
+import { decideRoute, OFFLINE_ASSETS } from './routing';
 
 declare const __APP_VERSION__: string;
 
@@ -45,13 +46,17 @@ export interface WorkerScope {
   readonly clients: { claim(): Promise<void> };
   fetch(input: Request | string, init?: RequestInit): Promise<Response>;
   skipWaiting(): Promise<void>;
-  addEventListener(type: 'install' | 'activate', listener: (event: ExtendableEventLike) => void): void;
+  addEventListener(
+    type: 'install' | 'activate',
+    listener: (event: ExtendableEventLike) => void,
+  ): void;
   addEventListener(type: 'fetch', listener: (event: FetchEventLike) => void): void;
   addEventListener(type: 'message', listener: (event: MessageEventLike) => void): void;
 }
 
 /** The content types a stored asset may have: what the build emits under /assets, never HTML or JSON. */
-const ASSET_CONTENT_TYPE = /^(?:text\/javascript|application\/javascript|text\/css|font\/[a-z0-9.+-]+|image\/[a-z0-9.+-]+)\s*(?:;|$)/i;
+const ASSET_CONTENT_TYPE =
+  /^(?:text\/javascript|application\/javascript|text\/css|font\/[a-z0-9.+-]+|image\/[a-z0-9.+-]+)\s*(?:;|$)/i;
 const BRANDING_CONTENT_TYPE = /^image\/png\s*(?:;|$)/i;
 
 /** May this response be put in the cache? Status 200, not redirected, not opaque, and the type expected. */
@@ -100,6 +105,13 @@ export function createServiceWorker(scope: WorkerScope, version: string): void {
     // The key is the path: the server ignores a query string on a static file, so `?x=1` must not
     // make a second entry.
     const key = `${origin}${url.pathname}`;
+
+    // The offline page's own files come from the precache of this version and are never stored again.
+    if (OFFLINE_ASSETS.has(url.pathname)) {
+      const precached = await (await scope.caches.open(offlineName)).match(key);
+      return precached ?? scope.fetch(request);
+    }
+
     const cache = await scope.caches.open(staticName);
     const hit = await cache.match(key);
     if (hit) return hit;

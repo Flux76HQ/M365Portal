@@ -1,29 +1,27 @@
-import { serve } from '@hono/node-server';
-import { createApp } from './app.js';
-import { formatConfigIssues, loadConfig } from './config/index.js';
-import { APP_VERSION } from './version.js';
+// The process entry (the composition root, FR-A-012): read the environment, run the start sequence
+// of `start.ts`, and tie the signals to the shutdown sequence. Nothing else lives here.
+//
+// A failed start ends the process with the exit code of the failure (1 for every refusal) before the
+// port opens; the log already says why, by code, never with a value. SIGTERM and SIGINT run the
+// shutdown; the handlers are installed explicitly because the process is PID 1 in the container and
+// PID 1 gets no default action for a signal.
+import { StartError, startServer, type RunningServer } from './start.js';
 
-// Plan 7.1 step 1: validate the configuration before anything else. An invalid configuration
-// prints the variable names (never the values) and exits 1 without opening a port.
-const loaded = loadConfig(process.env);
-if (!loaded.ok) {
-  process.stderr.write(formatConfigIssues(loaded.issues));
+let running: RunningServer;
+try {
+  running = await startServer({ env: process.env });
+} catch (error) {
+  if (error instanceof StartError) process.exit(error.exitCode);
+  // Not a refusal we know: say what kind of failure it was (never its message) and stop.
+  const name = error instanceof Error ? error.name : typeof error;
+  process.stderr.write(`start_failed: unexpected ${name}\n`);
   process.exit(1);
 }
-const { config } = loaded;
 
-const server = serve(
-  { fetch: createApp().fetch, port: config.port, hostname: config.host },
-  (info) => {
-    console.info(`m365portal ${APP_VERSION} listening on ${info.address}:${String(info.port)}`);
-  },
-);
-
-// tsx watch restarts, Playwright and Docker all stop the process with SIGTERM or SIGINT.
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
-    server.close(() => {
-      process.exit(0);
+    void running.stop(signal).then((code) => {
+      process.exit(code);
     });
   });
 }

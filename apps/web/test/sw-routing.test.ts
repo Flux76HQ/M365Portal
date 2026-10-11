@@ -17,6 +17,8 @@ describe('decideRoute: the allowed cases', () => {
     ['/assets/inter-latin-wght-normal-Dx9.woff2', 'cache-first'],
     ['/assets/a.b_c-d.css', 'cache-first'],
     [`/branding/${HASH}.png`, 'cache-first'],
+    ['/offline.css', 'cache-first'],
+    ['/offline.js', 'cache-first'],
     ['/assets/x.js?v=1', 'cache-first'],
     ['/assets/x.js#frag', 'cache-first'],
   ] as [string, RouteDecision][])('%s is %s', (path, expected) => {
@@ -108,7 +110,11 @@ describe('decideRoute: everything that is not on the allow-list is pass', () => 
     '/manifest.webmanifest',
     '/favicon.ico',
     '/sw.js',
-    '/offline.css',
+    '/offline.html',
+    '/offline.css/',
+    '/offline.js.map',
+    '/Offline.css',
+    '/x/offline.css',
     '/healthz',
   ])('the subresource %s is pass', (path) => {
     expect(decide(path)).toBe('pass');
@@ -136,7 +142,13 @@ describe('decideRoute: everything that is not on the allow-list is pass', () => 
   });
 
   it('is pass for a url it cannot parse or a scheme that is not http(s)', () => {
-    for (const url of ['', 'not a url', 'blob:https://panel.example/uuid', 'data:text/plain,x', 'chrome-extension://abc/assets/x.js']) {
+    for (const url of [
+      '',
+      'not a url',
+      'blob:https://panel.example/uuid',
+      'data:text/plain,x',
+      'chrome-extension://abc/assets/x.js',
+    ]) {
       expect(decideRoute({ url, mode: 'no-cors', method: 'GET' }, ORIGIN)).toBe('pass');
     }
   });

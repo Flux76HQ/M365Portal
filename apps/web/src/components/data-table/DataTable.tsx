@@ -9,6 +9,7 @@ import { useId, useMemo, useState, type SyntheticEvent, type ReactNode } from 'r
 import { cn } from '../../lib/cn';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
+import { DetailsPanel } from '../ui/details-panel';
 import { EmptyState } from '../ui/empty-state';
 import { ErrorState } from '../ui/error-state';
 import { IconButton } from '../ui/icon-button';
@@ -16,12 +17,21 @@ import { Input } from '../ui/input';
 import { Select } from '../ui/select';
 import { Skeleton } from '../ui/skeleton';
 import {
+  ColumnPicker,
+  defaultPrefs,
+  moveColumn,
+  reconcilePrefs,
+  type DataTableColumnPrefs,
+  type DataTableColumnStorage,
+} from './column-picker';
+import {
   TABLE_FEATURES,
   assertUniqueColumnIds,
   toTableColumns,
   type DataTableColumn,
 } from './columns';
 import type { DataTableLabels } from './labels';
+import { PageSizeSelect } from './page-size';
 import {
   hasActiveFilters,
   nextSort,
@@ -32,6 +42,16 @@ import {
   type DataTableSearch,
   type QueryDefaults,
 } from './query-state';
+import { RowActions, type DataTableRowAction } from './row-actions';
+import { SelectionBar, type DataTableBulkAction, type DataTableSelection } from './selection';
+
+export type {
+  DataTableBulkAction,
+  DataTableColumnPrefs,
+  DataTableColumnStorage,
+  DataTableRowAction,
+  DataTableSelection,
+};
 
 export type DataTableStatus = 'loading' | 'ready' | 'error';
 
@@ -75,6 +95,19 @@ export interface DataTableProps<Row extends RowData> {
   readonly emptyAction?: ReactNode;
   /** The heading level of the empty and error states; fits the page outline. Default 3. */
   readonly stateHeadingLevel?: 2 | 3 | 4;
+  /** Actions offered once rows are selected. They receive the page's ids or "all results" (selection.tsx). */
+  readonly bulkActions?: readonly DataTableBulkAction[];
+  /** The actions of one row; an empty list means the row has none. Giving this adds the actions column. */
+  readonly rowActions?: (row: Row) => readonly DataTableRowAction[];
+  readonly onRowAction?: (actionId: string, row: Row) => void;
+  /** Makes the first visible column of each row a button that opens a side panel with the row's details. */
+  readonly details?: {
+    readonly title: (row: Row) => string;
+    readonly description?: (row: Row) => string;
+    readonly render: (row: Row) => ReactNode;
+  };
+  /** Where the column choice is remembered (per table id). Without it the choice lasts as long as the table. */
+  readonly columnStorage?: DataTableColumnStorage;
   readonly className?: string;
 }
 
@@ -144,10 +177,38 @@ export function DataTable<Row extends RowData>(props: DataTableProps<Row>) {
   const currentKey = queryKey(query);
   const [selectionKey, setSelectionKey] = useState(currentKey);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [allResults, setAllResults] = useState(false);
   if (selectionKey !== currentKey) {
     setSelectionKey(currentKey);
     setRowSelection({});
+    setAllResults(false);
   }
+  function clearSelection() {
+    setRowSelection({});
+    setAllResults(false);
+  }
+
+  // ---- columns: visibility and order, remembered through the injected storage ---------------------
+  const [storedPrefs, setStoredPrefs] = useState<DataTableColumnPrefs>(
+    () => props.columnStorage?.read(props.id) ?? defaultPrefs(columns),
+  );
+  const prefs = useMemo(() => reconcilePrefs(columns, storedPrefs), [columns, storedPrefs]);
+  const [announcement, setAnnouncement] = useState('');
+  function savePrefs(next: DataTableColumnPrefs) {
+    const reconciled = reconcilePrefs(columns, next);
+    setStoredPrefs(reconciled);
+    props.columnStorage?.write(props.id, reconciled);
+  }
+  function headerOf(columnId: string): string {
+    return columns.find((column) => column.id === columnId)?.header ?? columnId;
+  }
+
+  // ---- details panel ------------------------------------------------------------------------------
+  // The row is kept while the panel animates out, so its title does not vanish mid-exit.
+  const [detailsRow, setDetailsRow] = useState<{
+    readonly row: Row;
+    readonly open: boolean;
+  } | null>(null);
 
   // ---- the table model ----------------------------------------------------------------------------
   assertUniqueColumnIds(columns);
@@ -168,19 +229,38 @@ export function DataTable<Row extends RowData>(props: DataTableProps<Row>) {
           : [{ id: query.sort.column, desc: query.sort.direction === 'desc' }],
       pagination: { pageIndex: page - 1, pageSize: query.size },
       rowSelection,
+      columnVisibility: Object.fromEntries(prefs.hidden.map((id) => [id, false])),
+      columnOrder: [...prefs.order],
     },
     onRowSelectionChange: setRowSelection,
   });
 
   const headers = table.getHeaderGroups().flatMap((group) => group.headers);
   const tableRows = table.getRowModel().rows;
-  // The selection column, plus the visible data columns.
-  const columnCount = headers.length + 1;
-  const pageRowsSelected = tableRows.length > 0 && tableRows.every((row) => row.getIsSelected());
-  const someRowsSelected = tableRows.some((row) => row.getIsSelected());
+  const hasRowActions = props.rowActions !== undefined;
+  // The selection column, the visible data columns and, when rows have actions, the actions column.
+  const columnCount = headers.length + 1 + (hasRowActions ? 1 : 0);
+  const selectedRows = tableRows.filter((row) => row.getIsSelected());
+  const pageRowsSelected = tableRows.length > 0 && selectedRows.length === tableRows.length;
+  const someRowsSelected = selectedRows.length > 0;
+  const primaryColumnId = headers[0]?.column.id;
 
   const showStateRows = status !== 'ready' || tableRows.length === 0;
   const filtered = hasActiveFilters(query);
+
+  function runBulkAction(action: DataTableBulkAction) {
+    if (allResults) {
+      // Every result, not the rows on screen: the server acts on the query (without the page).
+      action.onSelect({
+        scope: 'all',
+        total: totalCount,
+        query: writeSearch({ ...query, page: 1 }, defaults, search),
+      });
+    } else {
+      const ids = selectedRows.map((row) => row.id);
+      action.onSelect({ scope: 'page', ids, total: ids.length });
+    }
+  }
 
   function clearFilters() {
     commit({ ...query, q: '', filters: {}, page: 1 });
@@ -194,6 +274,58 @@ export function DataTable<Row extends RowData>(props: DataTableProps<Row>) {
         filters={filters}
         query={query}
         onChange={change}
+        trailing={
+          <ColumnPicker
+            labels={labels}
+            columns={columns}
+            prefs={prefs}
+            announcement={announcement}
+            onToggle={(columnId, visible) => {
+              savePrefs({
+                ...prefs,
+                hidden: visible
+                  ? prefs.hidden.filter((id) => id !== columnId)
+                  : [...prefs.hidden, columnId],
+              });
+              setAnnouncement(
+                visible
+                  ? labels.columnShown(headerOf(columnId))
+                  : labels.columnHidden(headerOf(columnId)),
+              );
+            }}
+            onMove={(columnId, delta) => {
+              const moved = moveColumn(prefs, columnId, delta);
+              savePrefs(moved);
+              setAnnouncement(
+                labels.columnMoved(
+                  headerOf(columnId),
+                  moved.order.indexOf(columnId) + 1,
+                  moved.order.length,
+                ),
+              );
+            }}
+            onReset={() => {
+              setStoredPrefs(defaultPrefs(columns));
+              props.columnStorage?.clear(props.id);
+              setAnnouncement('');
+            }}
+          />
+        }
+      />
+
+      <SelectionBar
+        labels={labels}
+        count={allResults ? tableRows.length : selectedRows.length}
+        totalCount={totalCount}
+        pageFullySelected={pageRowsSelected}
+        hasMoreResults={totalCount > tableRows.length}
+        allResults={allResults}
+        actions={props.bulkActions ?? []}
+        onSelectAllResults={() => {
+          setAllResults(true);
+        }}
+        onClear={clearSelection}
+        onAction={runBulkAction}
       />
 
       <div
@@ -213,6 +345,7 @@ export function DataTable<Row extends RowData>(props: DataTableProps<Row>) {
                   disabled={tableRows.length === 0}
                   checked={pageRowsSelected ? true : someRowsSelected ? 'indeterminate' : false}
                   onCheckedChange={(checked) => {
+                    setAllResults(false);
                     setRowSelection(
                       checked === true
                         ? Object.fromEntries(tableRows.map((row) => [row.id, true]))
@@ -253,6 +386,11 @@ export function DataTable<Row extends RowData>(props: DataTableProps<Row>) {
                   </th>
                 );
               })}
+              {hasRowActions ? (
+                <th scope="col" className={cn(HEADER_CELL, 'w-12 px-3')}>
+                  <span className="sr-only">{labels.actionsColumn}</span>
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody aria-busy={status === 'loading'}>
@@ -267,6 +405,7 @@ export function DataTable<Row extends RowData>(props: DataTableProps<Row>) {
                         <Skeleton height={16} />
                       </td>
                     ))}
+                    {hasRowActions ? <td /> : null}
                   </tr>
                 ))
               : null}
@@ -326,15 +465,42 @@ export function DataTable<Row extends RowData>(props: DataTableProps<Row>) {
                           aria-label={labels.selectRow(getRowLabel(row.original))}
                           checked={selected}
                           onCheckedChange={(checked) => {
+                            setAllResults(false);
                             row.toggleSelected(checked === true);
                           }}
                         />
                       </td>
                       {row.getVisibleCells().map((cell) => (
                         <td key={cell.id} className="px-3 py-2 align-middle">
-                          <table.FlexRender cell={cell} />
+                          {props.details !== undefined && cell.column.id === primaryColumnId ? (
+                            <button
+                              type="button"
+                              aria-haspopup="dialog"
+                              aria-label={labels.openDetails(getRowLabel(row.original))}
+                              onClick={() => {
+                                setDetailsRow({ row: row.original, open: true });
+                              }}
+                              className="-mx-1 min-h-target rounded-sm px-1 text-start font-medium text-accent-text underline-offset-4 hover:underline"
+                            >
+                              <table.FlexRender cell={cell} />
+                            </button>
+                          ) : (
+                            <table.FlexRender cell={cell} />
+                          )}
                         </td>
                       ))}
+                      {hasRowActions ? (
+                        <td className="px-3 text-end">
+                          <RowActions
+                            labels={labels}
+                            rowLabel={getRowLabel(row.original)}
+                            actions={props.rowActions(row.original)}
+                            onSelect={(actionId) => {
+                              props.onRowAction?.(actionId, row.original);
+                            }}
+                          />
+                        </td>
+                      ) : null}
                     </tr>
                   );
                 })}
@@ -351,31 +517,57 @@ export function DataTable<Row extends RowData>(props: DataTableProps<Row>) {
               : ''}
         </div>
         {status !== 'error' && totalCount > 0 ? (
-          <nav aria-label={labels.paginationLabel} className="flex items-center gap-2">
-            <Button
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => {
-                commit({ ...query, page: page - 1 });
+          <div className="flex flex-wrap items-center gap-3">
+            <PageSizeSelect
+              labels={labels}
+              size={query.size}
+              options={defaults.sizeOptions}
+              onChange={(size) => {
+                change({ size });
               }}
-            >
-              {labels.previousPage}
-            </Button>
-            <span className="text-body-sm text-fg-secondary">
-              {labels.pageStatus(page, pageCount)}
-            </span>
-            <Button
-              size="sm"
-              disabled={page >= pageCount}
-              onClick={() => {
-                commit({ ...query, page: page + 1 });
-              }}
-            >
-              {labels.nextPage}
-            </Button>
-          </nav>
+            />
+            <nav aria-label={labels.paginationLabel} className="flex items-center gap-2">
+              <Button
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => {
+                  commit({ ...query, page: page - 1 });
+                }}
+              >
+                {labels.previousPage}
+              </Button>
+              <span className="text-body-sm text-fg-secondary">
+                {labels.pageStatus(page, pageCount)}
+              </span>
+              <Button
+                size="sm"
+                disabled={page >= pageCount}
+                onClick={() => {
+                  commit({ ...query, page: page + 1 });
+                }}
+              >
+                {labels.nextPage}
+              </Button>
+            </nav>
+          </div>
         ) : null}
       </div>
+
+      {props.details === undefined || detailsRow === null ? null : (
+        <DetailsPanel
+          open={detailsRow.open}
+          onOpenChange={(open) => {
+            setDetailsRow({ row: detailsRow.row, open });
+          }}
+          title={props.details.title(detailsRow.row)}
+          {...(props.details.description === undefined
+            ? {}
+            : { description: props.details.description(detailsRow.row) })}
+          closeLabel={labels.detailsClose}
+        >
+          {props.details.render(detailsRow.row)}
+        </DetailsPanel>
+      )}
     </div>
   );
 }
@@ -422,9 +614,11 @@ interface ToolbarProps {
   readonly filters: readonly DataTableFilter[];
   readonly query: DataTableQuery;
   readonly onChange: (partial: Partial<DataTableQuery>) => void;
+  /** Controls at the end of the bar (the column picker). */
+  readonly trailing?: ReactNode;
 }
 
-function Toolbar({ labels, searchable, filters, query, onChange }: ToolbarProps) {
+function Toolbar({ labels, searchable, filters, query, onChange, trailing }: ToolbarProps) {
   const inputId = useId();
   // The draft is what is typed; the query is what is applied. A search is applied on submit (Enter or
   // the button), so typing never fires a request per key and no timer is involved.
@@ -440,7 +634,6 @@ function Toolbar({ labels, searchable, filters, query, onChange }: ToolbarProps)
     onChange({ q: draft.trim() });
   }
 
-  if (!searchable && filters.length === 0) return null;
   return (
     <div className="flex flex-wrap items-center gap-2">
       {searchable ? (
@@ -502,6 +695,7 @@ function Toolbar({ labels, searchable, filters, query, onChange }: ToolbarProps)
           />
         </div>
       ))}
+      {trailing === undefined ? null : <div className="ms-auto">{trailing}</div>}
     </div>
   );
 }
