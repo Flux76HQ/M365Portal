@@ -213,6 +213,67 @@ describe('ratchet (down only)', () => {
   });
 });
 
+describe('approved growth (a phase that may be bigger, once)', () => {
+  const base: Budget = {
+    initialJsGzipBytes: 1000,
+    entryCssRawBytes: 500,
+    firstLoadBrotliBytes: 2000,
+  };
+  const growth = {
+    phase: 'B',
+    approvedBy: 'owner',
+    approvedOn: '2026-10-12',
+    reason: 'plan 15',
+    initialJsGzipBytes: 100,
+    entryCssRawBytes: 20,
+  };
+
+  it('lets a value rise by the approved bytes in the change that adds the block', () => {
+    const current: Budget = {
+      ...base,
+      initialJsGzipBytes: 1100,
+      entryCssRawBytes: 520,
+      approvedGrowth: growth,
+    };
+    expect(ratchetViolations(current, base)).toEqual([]);
+  });
+
+  it('refuses a rise beyond the approved bytes, and a metric without an allowance', () => {
+    const over = ratchetViolations(
+      { ...base, initialJsGzipBytes: 1101, approvedGrowth: growth },
+      base,
+    );
+    expect(over).toHaveLength(1);
+    expect(over[0]).toContain('more than the approved growth of 100 B');
+    expect(
+      ratchetViolations({ ...base, firstLoadBrotliBytes: 2001, approvedGrowth: growth }, base),
+    ).toHaveLength(1);
+  });
+
+  it('grants nothing again once the same block is in the base (it is not a standing allowance)', () => {
+    const grown: Budget = { ...base, initialJsGzipBytes: 1100, approvedGrowth: growth };
+    expect(ratchetViolations({ ...grown, initialJsGzipBytes: 1101 }, grown)).toHaveLength(1);
+    expect(ratchetViolations(grown, grown)).toEqual([]);
+  });
+
+  it('needs every field of the block (who approved it, when, and why)', () => {
+    const incomplete = { ...growth, approvedBy: ' ' };
+    expect(
+      ratchetViolations({ ...base, initialJsGzipBytes: 1050, approvedGrowth: incomplete }, base),
+    ).toHaveLength(1);
+  });
+
+  it('is a guard that fails on purpose when growth is claimed without a block', () => {
+    expectGuardFails(
+      () => {
+        const problems = ratchetViolations({ ...base, initialJsGzipBytes: 1050 }, base);
+        if (problems.length > 0) throw new Error(problems.join('\n'));
+      },
+      { reason: 'budget went up from 1000 B to 1050 B' },
+    );
+  });
+});
+
 describe('parseBudget', () => {
   it('accepts the committed shape', () => {
     expect(parseBudget(JSON.stringify(expected), 'x').initialJsGzipBytes).toBe(
@@ -261,9 +322,16 @@ describe('command line', () => {
 });
 
 describe('the committed Phase B budget (T-B-307, XB32; plan 15)', () => {
-  const PHASE_A = { initialJsGzipBytes: 237_500, entryCssRawBytes: 45_500, firstLoadBrotliBytes: 269_000 };
+  const PHASE_A = {
+    initialJsGzipBytes: 237_500,
+    entryCssRawBytes: 45_500,
+    firstLoadBrotliBytes: 269_000,
+  };
   const committed = (): Budget =>
-    parseBudget(readFileSync(join(import.meta.dirname, 'bundle-budget.json'), 'utf8'), 'bundle-budget.json');
+    parseBudget(
+      readFileSync(join(import.meta.dirname, 'bundle-budget.json'), 'utf8'),
+      'bundle-budget.json',
+    );
 
   it('allows the entry JavaScript at most 8 KiB gzip over the Phase A budget, and a budget never below the Phase A one for the other two (they cannot ratchet below what the Phase B pages need)', () => {
     const budget = committed();
@@ -274,7 +342,10 @@ describe('the committed Phase B budget (T-B-307, XB32; plan 15)', () => {
   it('negative: a budget that gives the entry more than the plan allows fails the same check', () => {
     expectGuardFails(
       () => {
-        const loose = { ...committed(), initialJsGzipBytes: PHASE_A.initialJsGzipBytes + 8 * 1024 + 1 };
+        const loose = {
+          ...committed(),
+          initialJsGzipBytes: PHASE_A.initialJsGzipBytes + 8 * 1024 + 1,
+        };
         expect(loose.initialJsGzipBytes).toBeLessThanOrEqual(PHASE_A.initialJsGzipBytes + 8 * 1024);
       },
       { name: 'Phase B entry allowance', reason: /less than or equal to/ },

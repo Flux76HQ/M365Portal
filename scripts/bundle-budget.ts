@@ -26,9 +26,22 @@ export const METRICS = ['initialJsGzipBytes', 'entryCssRawBytes', 'firstLoadBrot
 export type Metric = (typeof METRICS)[number];
 export type Measurement = Record<Metric, number>;
 
+/**
+ * A one-off, owner-approved growth of the budget (a phase that is allowed to be bigger than the one
+ * before it). It lifts the "down only" rule by at most the stated bytes per metric, and only in the
+ * pull request that adds or changes this block: once it is in the base, it grants nothing again.
+ */
+export interface ApprovedGrowth extends Partial<Measurement> {
+  phase: string;
+  approvedBy: string;
+  approvedOn: string;
+  reason: string;
+}
+
 export interface Budget extends Measurement {
   // Free text for people (the spec targets and how the numbers were calibrated); never compared.
   note?: string;
+  approvedGrowth?: ApprovedGrowth;
 }
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -179,13 +192,32 @@ export function overBudget(measured: Measurement, budget: Budget): string[] {
   return problems;
 }
 
-/** Problems of the budget file against the base ref's copy: any value that went up fails. */
+function growthIsComplete(growth: ApprovedGrowth | undefined): growth is ApprovedGrowth {
+  return (
+    growth !== undefined &&
+    [growth.phase, growth.approvedBy, growth.approvedOn, growth.reason].every(
+      (text) => typeof text === 'string' && text.trim() !== '',
+    )
+  );
+}
+
+/**
+ * Problems of the budget file against the base ref's copy: any value that went up fails, except by
+ * the bytes of an owner-approved growth that this change adds or changes (see ApprovedGrowth).
+ */
 export function ratchetViolations(current: Budget, base: Budget): string[] {
   const problems: string[] = [];
+  const growthIsNew =
+    growthIsComplete(current.approvedGrowth) &&
+    JSON.stringify(current.approvedGrowth) !== JSON.stringify(base.approvedGrowth);
   for (const metric of METRICS) {
-    if (current[metric] > base[metric]) {
+    const allowance = growthIsNew ? Math.max(0, current.approvedGrowth?.[metric] ?? 0) : 0;
+    if (current[metric] > base[metric] + allowance) {
       problems.push(
-        `${metric}: the budget went up from ${String(base[metric])} B to ${String(current[metric])} B. ` +
+        `${metric}: the budget went up from ${String(base[metric])} B to ${String(current[metric])} B` +
+          (allowance > 0
+            ? `, which is more than the approved growth of ${String(allowance)} B. `
+            : '. ') +
           'The budget only ratchets down: reduce the bundle instead of raising the number.',
       );
     }
