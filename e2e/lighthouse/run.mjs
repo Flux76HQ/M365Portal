@@ -3,7 +3,9 @@
 // It starts the e2e topology (e2e/lighthouse/topology.ts runs the e2e global setup: the fake tenant,
 // instance A configured, instance B empty, the Owner signed in), runs the Lighthouse CLI 13.5.0 with
 // the mobile and the desktop preset against the PRODUCTION build, in three groups:
-//   a-public  A, no session: /signin, /no-access?reason=no_role, /break-glass and the Not-found page.
+//   a-public  A, no session: /signin, /no-access?reason=no_role and /break-glass. (An unknown path is not
+//             here: an anonymous visitor is sent to /signin before the Not-found page can show, FR-B-607,
+//             so the harness would measure the sign-in page under another name. It is measured in a-owner.)
 //   b-setup   B, unconfigured: the token form of /setup.
 //             Both groups are GATED with the targets of the spec (Performance, Accessibility, Best
 //             Practices >= 95, LCP < 2.0 s, CLS <= 0.01).
@@ -185,7 +187,7 @@ export function measurementFrom(lhr, run) {
 }
 
 /** The cells of each group: [path, query]. The paths are the ones of e2e/routes.ts. */
-function groupsOf(topology, routesOf, UNKNOWN_ROUTE) {
+function groupsOf(topology, routesOf) {
   const signedIn = routesOf.filter(
     (route) => !['/signin', '/setup', '/break-glass', '/no-access'].includes(route),
   );
@@ -197,7 +199,6 @@ function groupsOf(topology, routesOf, UNKNOWN_ROUTE) {
         ['/signin', ''],
         ['/no-access', '?reason=no_role'],
         ['/break-glass', ''],
-        [UNKNOWN_ROUTE, ''],
       ],
     },
     'b-setup': { origin: topology.b, gated: true, pages: [['/setup', '']] },
@@ -205,14 +206,14 @@ function groupsOf(topology, routesOf, UNKNOWN_ROUTE) {
       origin: topology.a,
       gated: false,
       headers: { Cookie: topology.ownerCookie },
-      pages: signedIn.filter((route) => route !== UNKNOWN_ROUTE).map((route) => [route, '']),
+      pages: signedIn.map((route) => [route, '']),
     },
   };
 }
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const { ROUTES, UNKNOWN_ROUTE } = await import('../routes.ts');
+  const { ROUTES } = await import('../routes.ts');
   for (const file of [
     serverEntry,
     join(repoRoot, 'apps/web/dist/index.html'),
@@ -227,7 +228,7 @@ async function main() {
   }
   const chrome = await chromePath();
   const topology = await startTopology();
-  const groups = groupsOf(topology, [...ROUTES], UNKNOWN_ROUTE);
+  const groups = groupsOf(topology, [...ROUTES]);
   const cells = [];
   try {
     rmSync(options.out, { recursive: true, force: true });
