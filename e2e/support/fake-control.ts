@@ -29,6 +29,38 @@ export interface SignInOptions {
   readonly nonce?: string | null;
 }
 
+/** The panel's application as Microsoft Entra holds it. */
+export interface PanelApplication {
+  readonly appId: string;
+  readonly objectId: string;
+  readonly displayName: string;
+  readonly description: string | null;
+  readonly tags: string[];
+  readonly redirectUris: string[];
+  readonly implicitGrant: { enableIdTokenIssuance: boolean; enableAccessTokenIssuance: boolean };
+  readonly optionalClaimNames: string[];
+  readonly graphRoles: string[];
+  readonly exchangeRoles: string[];
+  readonly entraRoleTemplateIds: string[];
+  readonly keyCredentials: number;
+  readonly thumbprintsSha1: string[];
+  readonly passwordCredentials: number;
+  readonly owners: number;
+}
+
+export interface ManualApplicationSpec {
+  readonly displayName: string;
+  readonly description: string;
+  readonly tags: readonly string[];
+  readonly redirectUris: readonly string[];
+  readonly optionalClaimNames: readonly string[];
+  readonly graphRoles: readonly string[];
+  readonly exchangeRoles: readonly string[];
+  readonly entraRoleTemplateId?: string;
+  /** The certificate the person downloaded, DER as base64. */
+  readonly certificateBase64: string;
+}
+
 export class FakeControl {
   readonly #tenant: InstanceName;
 
@@ -95,6 +127,72 @@ export class FakeControl {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
     throw new Error('the panel never asked for a device code');
+  }
+
+  panelApplication(): Promise<PanelApplication> {
+    return this.call('panelApplication');
+  }
+
+  /** The panel's application, or `null` while the fake holds none with an install tag. */
+  async panelApplicationOrNull(): Promise<PanelApplication | null> {
+    try {
+      return await this.panelApplication();
+    } catch {
+      return null;
+    }
+  }
+
+  tenantId(): Promise<string> {
+    return this.call('tenantId');
+  }
+
+  seedManualApplication(spec: ManualApplicationSpec): Promise<{ appId: string; tenantId: string }> {
+    return this.call('seedManualApplication', { ...spec });
+  }
+
+  /** The first `calls` Exchange calls answer 403, as before a role has propagated. */
+  exchangePropagation(calls: number): Promise<void> {
+    return this.call('exchange.propagation', { calls });
+  }
+
+  /** A tenant without Exchange Online (no Exchange service principal). */
+  removeExchangeServicePrincipal(): Promise<void> {
+    return this.call('removeExchangeServicePrincipal');
+  }
+
+  /** Conditional Access blocks the device sign-in. */
+  blockDevice(): Promise<void> {
+    return this.call('device.block');
+  }
+
+  /** Every device flow that is waiting expires (the code of a flow nobody finished). */
+  expireDevice(): Promise<void> {
+    return this.call('device.expire');
+  }
+
+  declineDevice(): Promise<void> {
+    return this.call('device.decline');
+  }
+
+  /** New objects are "not found" for this many calls (replication). */
+  replicationDelay(calls: number): Promise<void> {
+    return this.call('graph.replicationDelay', { calls });
+  }
+
+  addForeignApplication(displayName: string): Promise<{ objectId: string; appId: string }> {
+    return this.call('addForeignApplication', { displayName });
+  }
+
+  driftRemoveGraphGrant(role: string): Promise<{ removed: number }> {
+    return this.call('drift.removeGraphGrant', { role });
+  }
+
+  driftSetRedirectUris(uris: readonly string[]): Promise<void> {
+    return this.call('drift.setRedirectUris', { uris });
+  }
+
+  failToken(fault: Record<string, unknown>): Promise<void> {
+    return this.call('entra.failToken', fault);
   }
 
   calls(): Promise<FakeCall[]> {

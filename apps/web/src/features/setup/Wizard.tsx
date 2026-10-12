@@ -55,13 +55,17 @@ export function Wizard({ api }: WizardProps) {
   });
   const actions = useWizardActions(api, poke);
 
-  if (state.error instanceof ApiError && (state.error.status === 401 || state.error.status === 403)) {
-    // The setup session ended: the token form opens the wizard again.
+  const sessionEnded = (error: unknown): boolean =>
+    error instanceof ApiError && (error.status === 401 || error.status === 403);
+  // The setup session ended: the token form opens the wizard again. The run poll notices first when the
+  // server restarted under an open page (the session lived in memory), so it counts as much as the state.
+  if (sessionEnded(state.error) || sessionEnded(poll.error)) {
     return (
       <TokenForm
         api={api}
         onUnlocked={() => {
           void state.refetch();
+          refreshSnapshot();
         }}
       />
     );

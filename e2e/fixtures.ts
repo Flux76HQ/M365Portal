@@ -278,12 +278,16 @@ export function allowLockedSetup(guard: Guard): void {
 export async function contextAs(
   browser: Browser,
   principal: StoredPrincipalName | 'anonymous',
+  options: { readonly ownClientAddress?: boolean } = {},
 ): Promise<BrowserContext> {
   return browser.newContext({
     locale: 'en-US',
     timezoneId: 'UTC',
     ignoreHTTPSErrors: true,
-    extraHTTPHeaders: { 'x-forwarded-for': freshClientAddress() },
+    // Instance A trusts one proxy hop; instance B trusts none and answers a forwarded request with 404.
+    ...(options.ownClientAddress === false
+      ? {}
+      : { extraHTTPHeaders: { 'x-forwarded-for': freshClientAddress() } }),
     ...(principal === 'anonymous' ? {} : { storageState: join(statesDir(), `${principal}.json`) }),
   });
 }
