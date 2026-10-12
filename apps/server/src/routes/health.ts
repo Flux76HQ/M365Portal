@@ -22,7 +22,7 @@ export interface ReadinessResult {
 }
 
 /**
- * Whether the application is ready, as three named checks. The implementation never throws for a
+ * Whether the application is ready, as four named checks. The implementation never throws for a
  * failing check (that is a result); the answer may be cached by the implementation, which is why the
  * route asks it on every request and keeps nothing itself.
  */
@@ -62,7 +62,7 @@ export function healthRoutes(deps: HealthRoutesDeps): RouteDefinition[] {
       rateLimit: 'exempt',
       summary: 'Readiness',
       description:
-        'Database open, schema at the expected version, data directory writable. Failing checks carry a stable code and never raw error text.',
+        'Database open, schema at the expected version, data directory writable, application key and certificate usable once setup has run. Failing checks carry a stable code and never raw error text.',
       responses: {
         200: {
           description: 'Every check passed.',

@@ -1221,8 +1221,10 @@ describe('the posture line of the built server (FR-A-015)', () => {
       showcase: true,
       breakGlass: 'off',
       mfa: 'on',
-      setupState: 'unknown',
-      sealedStorage: 'unknown',
+      // T-B-022 supplies both: the singleton row was just created; this fixture server runs
+      // without the secrets module, whose holder therefore still says it has no key.
+      setupState: 'unconfigured',
+      sealedStorage: 'key_missing',
       storageWritable: true,
       schemaVersion: 1,
     });

@@ -653,7 +653,7 @@ describe('the port signatures (plan 8.1)', () => {
     expectTypeOf<DirectoryGroup['groupTypes']>().toEqualTypeOf<readonly string[] | null>();
   });
 
-  it('TenantProvisioner has exactly the eleven calls of the call sheet', () => {
+  it('TenantProvisioner has the eleven calls of the call sheet and the two adoption-trust reads of FR-B-318', () => {
     expectTypeOf<keyof TenantProvisioner>().toEqualTypeOf<
       | 'findServicePrincipalByAppId'
       | 'getApplication'
@@ -666,6 +666,8 @@ describe('the port signatures (plan 8.1)', () => {
       | 'grantAppRole'
       | 'listDirectoryRoleAssignments'
       | 'createDirectoryRoleAssignment'
+      | 'inspectApplication'
+      | 'inspectServicePrincipal'
     >();
   });
 

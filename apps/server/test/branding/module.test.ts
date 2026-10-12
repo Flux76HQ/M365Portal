@@ -10,11 +10,13 @@
 //   - the stop hook shuts the image runner down;
 //   - the shell is the module's renderer, and degraded mode renders it with the in-memory defaults;
 //   - `GET /api/v1/me` and the boot data of the shell are built by the same actor resolution.
+//   The writes are made by a signed-in user (rows written to the live database), not by a preview actor.
 import { mkdir, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { appModules } from '../../src/modules.js';
+import { rbacModule } from '../../src/rbac/module.js';
 import { brandingModule } from '../../src/branding/index.js';
 import {
   createImageJobRunner,
@@ -26,6 +28,7 @@ import { startServer, type RunningServer } from '../../src/start.js';
 import { freePort } from '../helpers/built-server.js';
 import { createHttpClient, readJson } from '../helpers/http-client.js';
 import { createLogCapture } from '../helpers/log-capture.js';
+import { seedSession, type SeedSessionOptions } from '../helpers/signed-in.js';
 import { createTempDataDir } from '../helpers/temp-data-dir.js';
 import { unwritableDataDir } from '../helpers/unwritable-data-dir.js';
 
@@ -47,6 +50,8 @@ async function start(
     readonly dataDir?: string;
     readonly env?: Record<string, string>;
     readonly nowMs?: () => number;
+    /** Sign a user in (rows in the database, a cookie on the client), as the sign-in would. */
+    readonly signedIn?: SeedSessionOptions;
   } = {},
 ): Promise<Started> {
   const dataDir = options.dataDir ?? (await createTempDataDir()).path;
@@ -82,12 +87,28 @@ async function start(
     stopped = true;
     return original(signal);
   };
+  // The session of a signed-in user is a row the server reads on every request, so it can be written
+  // to the live database through a second connection.
+  let headers: Record<string, string> = {};
+  if (options.signedIn !== undefined && running.storageAvailable) {
+    const database = openDatabase({ path: join(dataDir, DATABASE_FILE_NAME) });
+    try {
+      headers = { ...seedSession(database, origin, options.signedIn).headers };
+    } finally {
+      database.close();
+    }
+  }
   return {
     running,
     origin,
     dataDir,
     logs,
-    client: createHttpClient({ fetch: (request) => fetch(request), baseUrl: socket, origin }),
+    client: createHttpClient({
+      fetch: (request) => fetch(request),
+      baseUrl: socket,
+      origin,
+      headers,
+    }),
   };
 }
 
@@ -241,7 +262,10 @@ describe('the ETag of the revision stays strong over a real connection that acce
   // reads `W/"1"` and sends it back in If-Match is refused (422): the contract says the tag is strong.
   // The branding documents are over 1 KiB, so they would be compressed; they are marked no-transform.
   it('GET, PUT and DELETE answer a strong tag, without a content coding', async () => {
-    const { client } = await start({ modules: [brandingModule], env: { PREVIEW_MODE: 'true' } });
+    const { client } = await start({
+      modules: [brandingModule, rbacModule],
+      signedIn: { roles: ['admin'] },
+    });
     const headers = { 'accept-encoding': 'gzip, br' };
     const read = await client.get('/api/v1/branding', { headers });
     expect(read.headers.get('content-encoding')).toBeNull();
@@ -287,10 +311,10 @@ describe('the shell and the me callback', () => {
     expect(data.me).toEqual(me);
   });
 
-  it('boot me equals GET /api/v1/me for the preview actor too', async () => {
+  it('boot me equals GET /api/v1/me for a signed-in user too', async () => {
     const { client } = await start({
-      modules: [brandingModule],
-      env: { PREVIEW_MODE: 'true' },
+      modules: [brandingModule, rbacModule],
+      signedIn: { roles: ['admin'] },
     });
     const page = await client.get('/', { headers: { accept: 'text/html' } });
     const html = await page.text();
@@ -299,7 +323,7 @@ describe('the shell and the me callback', () => {
     const me = await readJson<{ actor: { kind: string }; permissions: string[] }>(
       await client.get('/api/v1/me'),
     );
-    expect(me.actor.kind).toBe('preview');
+    expect(me.actor.kind).toBe('user');
     expect(me.permissions).toContain('settings:branding');
     expect(data.me).toEqual(me);
   });

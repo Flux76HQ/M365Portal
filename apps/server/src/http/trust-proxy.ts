@@ -123,3 +123,37 @@ export function requestHost(request: { readonly headers: Headers }): string | un
   const host = request.headers.get('host');
   return host === null ? undefined : normalizeHost(host);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Has the request been through a proxy? (FR-A-036, FR-B-206)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The names of the request headers that say "a proxy or CDN sent this to us". Phase A used the list
+ * to keep the preview actor off requests that did not come from a browser on this machine; Phase B
+ * uses it for the setup loopback guard (FR-B-206): one normaliser serves both (baseline section 10).
+ */
+const PROXY_HEADERS: ReadonlySet<string> = new Set([
+  'forwarded',
+  'x-forwarded',
+  'x-real-ip',
+  'via',
+  'cf-connecting-ip',
+  'true-client-ip',
+  'x-client-ip',
+  'x-envoy-external-address',
+  'fastly-client-ip',
+  'x-original-forwarded-for',
+]);
+
+function isForwardingHeader(name: string): boolean {
+  return PROXY_HEADERS.has(name) || name.startsWith('x-forwarded-');
+}
+
+/** Does the request carry any header that says it was forwarded? Presence counts; the value does not. */
+export function carriesForwardingHeader(headers: Headers): boolean {
+  for (const name of headers.keys()) {
+    if (isForwardingHeader(name)) return true;
+  }
+  return false;
+}

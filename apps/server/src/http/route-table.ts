@@ -5,30 +5,110 @@
 // What the boot check refuses (every message names the route id and a rule, never a value that came
 // from a definition):
 //   - an entry that did not come through `defineRoute` or `defineFallback`;
-//   - access that is not exactly one of `{ public: true }` or `{ permission }`, or a permission that
-//     is not in the catalogue (the compiler stops both; this stops a cast and untyped JavaScript);
+//   - access that is not exactly one word of `public`, `authenticated`, `permission`, `setup` and
+//     `connection`, a modifier on the wrong word, a permission that is not in the catalogue, or a
+//     permission with a resource type that declares neither `scoped` nor `unscopedReason` (the
+//     compiler stops most of it; this stops a cast and untyped JavaScript);
 //   - a duplicate id, or two routes for one method and path;
 //   - a write route outside `/api/v1`, a write route whose id is not an audit action (the id is the
-//     `action` of its denial entries), or a rate class that does not fit the method;
+//     `action` of its denial entries), or a rate class that does not fit the method or the path
+//     (`auth` belongs to the sign-in paths, `setup` to `setup.status` and `setup.unlock`);
+//   - `availability` that is not one of the two gates, `secFetch` anywhere but `auth.callback`,
+//     `slidesSession: false` anywhere but the two polled reads, and a setup or connection route
+//     without the gate or the setup or connection access (T-B-237);
 //   - a fallback that is documented, or a route that is not.
 //
 // A path uses `{name}` for a parameter (the OpenAPI spelling). A fallback may end in `*`.
-import { PERMISSIONS, type Permission } from '@m365portal/shared/permissions';
+import { PERMISSIONS, PERMISSION_RESOURCE, type Permission } from '@m365portal/shared/permissions';
+import { RESOURCE_TYPES, type ResourceType } from '@m365portal/shared/rbac/resources';
+import { AVAILABILITY_GATES, type AvailabilityGate } from '../module.js';
+import type { SessionActorKind } from '../policy/actor.js';
 
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 /** A rate class, or `exempt` for the probes, the worker and the build output. */
-export const RATE_SETTINGS = ['read', 'write', 'upload', 'exempt'] as const;
+export const RATE_SETTINGS = ['read', 'write', 'upload', 'auth', 'setup', 'exempt'] as const;
 export type RateSetting = (typeof RATE_SETTINGS)[number];
 
 /** A fallback may also take the class of the request's method (a 404 is rated like any request). */
 export type FallbackRateSetting = RateSetting | 'by-method';
 
-/** Exactly one of the two, or the route does not compile. */
+/** The kinds a route may require with `actorKinds`: the ones that hold a session of some kind. */
+export const SESSION_KINDS: readonly SessionActorKind[] = ['user', 'setup', 'break_glass'];
+
+/** The words of the access declaration and the modifiers that go with them. */
+type AccessKeys =
+  | 'public'
+  | 'authenticated'
+  | 'permission'
+  | 'setup'
+  | 'connection'
+  | 'actorKinds'
+  | 'stepUp'
+  | 'scoped'
+  | 'unscopedReason';
+
+/** `Own`, and every other key of the declaration forbidden: one word, its own modifiers, nothing else. */
+type Exclusive<Own extends object> = Own &
+  Readonly<Partial<Record<Exclude<AccessKeys, keyof Own>, never>>>;
+
+/**
+ * Exactly one access word, or the route does not compile (contracts section 1, plan 11.8):
+ *
+ *   public          no actor needed
+ *   authenticated   a user or break-glass session (the setup actor is not authenticated in this sense)
+ *   permission      a permission; `stepUp` for user actors, `actorKinds` to restrict the kind, and
+ *                   `scoped` (the resource type the handler applies) or `unscopedReason` for a
+ *                   permission that has a resource type (FR-B-505)
+ *   setup           the setup actor
+ *   connection      the setup actor while setup is open, otherwise `settings:connection`
+ */
 export type RouteAccess =
-  | { readonly public: true; readonly permission?: never }
-  | { readonly permission: Permission; readonly public?: never };
+  | Exclusive<{ readonly public: true }>
+  | Exclusive<{
+      readonly authenticated: true;
+      readonly actorKinds?: readonly SessionActorKind[];
+    }>
+  | Exclusive<{
+      readonly permission: Permission;
+      readonly stepUp?: true;
+      readonly actorKinds?: readonly SessionActorKind[];
+      readonly scoped?: ResourceType;
+      readonly unscopedReason?: string;
+    }>
+  | Exclusive<{ readonly setup: true }>
+  | Exclusive<{ readonly connection: true; readonly stepUp?: true }>;
+
+export type AccessWord = 'public' | 'authenticated' | 'permission' | 'setup' | 'connection';
+
+const ACCESS_WORDS: readonly AccessWord[] = [
+  'public',
+  'authenticated',
+  'permission',
+  'setup',
+  'connection',
+];
+
+/** The word a declaration uses. The declaration is valid, or the table check has refused it. */
+export function accessWordOf(access: RouteAccess): AccessWord {
+  return ACCESS_WORDS.find((word) => access[word] !== undefined) ?? 'public';
+}
+
+/**
+ * The one GET that Entra redirects to from another site (SB-25): the `Sec-Fetch-Site` rule of an
+ * audited read does not apply to it. The list is closed.
+ */
+export const SEC_FETCH_EXEMPT_ROUTES: readonly string[] = ['auth.callback'];
+
+/**
+ * The polled reads that must not keep a user session alive (FR-B-420). The flag `slidesSession:
+ * false` is accepted on these two routes and nowhere else.
+ */
+export const NON_SLIDING_ROUTES: readonly string[] = ['connection.log', 'connection.runs.current'];
+
+/** The routes that may be rated in the `setup` class (FR-B-415). */
+const SETUP_CLASS_ROUTES: readonly string[] = ['setup.status', 'setup.unlock'];
 
 export interface RouteTableEntry {
   readonly kind: 'route' | 'fallback';
@@ -43,6 +123,12 @@ export interface RouteTableEntry {
   readonly openapi: boolean;
   /** The audit action a successful call writes. A GET that declares one also checks `Sec-Fetch-Site`. */
   readonly audit?: string | undefined;
+  /** The gate that decides whether the route exists for a request (T-B-237). */
+  readonly availability?: AvailabilityGate | undefined;
+  /** `cross-site-allowed` on `auth.callback` only. */
+  readonly secFetch?: 'cross-site-allowed' | undefined;
+  /** Does a request keep a user session alive? Default true. */
+  readonly slidesSession?: boolean | undefined;
 }
 
 /** The table check failed: the application must not start. `problems` lists every rule that broke. */
@@ -69,8 +155,14 @@ const PARAMETER = /^\{[A-Za-z][A-Za-z0-9]*\}$/;
 const API_PREFIX = '/api/v1/';
 
 const METHOD_SET: ReadonlySet<unknown> = new Set(HTTP_METHODS);
+const WRITE_CLASSES: ReadonlySet<unknown> = new Set(['write', 'upload', 'auth', 'setup']);
+const READ_CLASSES: ReadonlySet<unknown> = new Set(['read', 'exempt', 'auth', 'setup']);
+const AUTH_PATH = /^\/(?:api\/v1\/)?auth\//;
 const RATE_SET: ReadonlySet<unknown> = new Set([...RATE_SETTINGS, 'by-method']);
 const PERMISSION_SET: ReadonlySet<unknown> = new Set(PERMISSIONS);
+const GATE_SET: ReadonlySet<unknown> = new Set(AVAILABILITY_GATES);
+const SESSION_KIND_SET: ReadonlySet<unknown> = new Set(SESSION_KINDS);
+const RESOURCE_TYPE_SET: ReadonlySet<unknown> = new Set(RESOURCE_TYPES);
 
 type Raw = Readonly<Record<string, unknown>>;
 
@@ -103,19 +195,71 @@ function pathProblem(path: unknown, allowWildcard: boolean): string | undefined 
 }
 
 function accessProblem(access: unknown): string | undefined {
-  if (!isRaw(access)) return 'declares no access: use { public: true } or { permission }';
-  const isPublic = access.public === true;
-  const hasPermission = 'permission' in access && access.permission !== undefined;
-  if (access.public !== undefined && access.public !== true) {
-    return 'declares public as something other than true; declare exactly one of public: true or permission';
+  if (!isRaw(access)) {
+    return 'declares no access: declare exactly one of public, authenticated, permission, setup or connection';
   }
-  if (isPublic === hasPermission) {
-    return isPublic
-      ? 'declares both public: true and a permission; declare exactly one'
-      : 'declares no access: declare exactly one of public: true or permission';
+  for (const word of ['public', 'authenticated', 'setup', 'connection'] as const) {
+    if (access[word] !== undefined && access[word] !== true) {
+      return `declares ${word} as something other than true; declare exactly one access word`;
+    }
   }
-  if (hasPermission && !PERMISSION_SET.has(access.permission)) {
+  const present = ACCESS_WORDS.filter((word) => access[word] !== undefined);
+  if (present.length !== 1) {
+    return present.length === 0
+      ? 'declares no access: declare exactly one of public, authenticated, permission, setup or connection'
+      : `declares more than one access word (${present.join(', ')}); declare exactly one`;
+  }
+  const word = present[0];
+
+  if (word === 'permission' && !PERMISSION_SET.has(access.permission)) {
     return 'names a permission that is not in the catalogue';
+  }
+
+  if (access.actorKinds !== undefined) {
+    if (word !== 'authenticated' && word !== 'permission') {
+      return 'actorKinds belongs to authenticated or permission access';
+    }
+    const kinds = access.actorKinds;
+    if (
+      !Array.isArray(kinds) ||
+      kinds.length === 0 ||
+      kinds.some((k) => !SESSION_KIND_SET.has(k))
+    ) {
+      return `actorKinds is a non-empty list of ${SESSION_KINDS.join(', ')}`;
+    }
+  }
+
+  if (access.stepUp !== undefined) {
+    if (word !== 'permission' && word !== 'connection') {
+      return 'stepUp belongs to permission or connection access';
+    }
+    if (access.stepUp !== true) return 'stepUp is true or absent';
+  }
+
+  if (access.scoped !== undefined || access.unscopedReason !== undefined) {
+    if (word !== 'permission') return 'scoped and unscopedReason belong to permission access';
+    if (access.scoped !== undefined && access.unscopedReason !== undefined) {
+      return 'declares both scoped and unscopedReason; declare one';
+    }
+  }
+  if (word === 'permission') {
+    const permission = access.permission as Permission;
+    const resource = PERMISSION_RESOURCE[permission];
+    const reason = access.unscopedReason;
+    const reasonDeclared = typeof reason === 'string' && reason.trim() !== '';
+    if (access.unscopedReason !== undefined && !reasonDeclared) {
+      return `${permission}: unscopedReason is a sentence; declare scoped or unscopedReason`;
+    }
+    if (access.scoped !== undefined) {
+      if (!RESOURCE_TYPE_SET.has(access.scoped) || resource === null) {
+        return `${permission} has no resource type, so scoped does not apply`;
+      }
+      if (access.scoped !== resource) {
+        return `scoped names another resource type than ${permission} applies to (${resource})`;
+      }
+    } else if (resource !== null && !reasonDeclared) {
+      return `names ${permission}, which has a resource type: declare scoped or unscopedReason`;
+    }
   }
   return undefined;
 }
@@ -175,14 +319,14 @@ export function validateRouteTable(entries: readonly unknown[]): string[] {
 
     // `by-method` is for fallbacks only: a route names its class.
     if (!RATE_SET.has(candidate.rateLimit) || (isRoute && candidate.rateLimit === 'by-method')) {
-      complain('rate must be read, write, upload or exempt');
+      complain('rate must be read, write, upload, auth, setup or exempt');
     }
 
     const isWrite = methods.some((method) => method !== 'GET');
     if (isRoute && methods.length === 1 && METHOD_SET.has(methods[0])) {
       if (isWrite) {
-        if (candidate.rateLimit !== 'write' && candidate.rateLimit !== 'upload') {
-          complain('a write route is rated write or upload');
+        if (!WRITE_CLASSES.has(candidate.rateLimit)) {
+          complain('a write route is rated write, upload, auth or setup');
         }
         const path = paths[0];
         if (typeof path === 'string' && !path.startsWith(API_PREFIX)) {
@@ -193,8 +337,74 @@ export function validateRouteTable(entries: readonly unknown[]): string[] {
             'a write route id must fit an audit action (lower case words), it is the action of its denial entries',
           );
         }
-      } else if (candidate.rateLimit !== 'read' && candidate.rateLimit !== 'exempt') {
-        complain('a GET route is rated read or exempt');
+      } else if (!READ_CLASSES.has(candidate.rateLimit)) {
+        complain('a GET route is rated read, exempt, auth or setup');
+      }
+    }
+
+    if (isRoute && candidate.rateLimit === 'auth') {
+      const path = paths[0];
+      if (typeof path !== 'string' || !AUTH_PATH.test(path)) {
+        complain('the auth class belongs to the sign-in paths /auth and /api/v1/auth');
+      }
+    }
+    if (isRoute && candidate.rateLimit === 'setup') {
+      if (typeof id !== 'string' || !SETUP_CLASS_ROUTES.includes(id)) {
+        complain('the setup class belongs to setup.status and setup.unlock only');
+      }
+    }
+
+    if (candidate.availability !== undefined) {
+      if (!isRoute) complain('a fallback has no availability gate');
+      else if (!GATE_SET.has(candidate.availability)) {
+        complain(`availability must be one of ${AVAILABILITY_GATES.join(' or ')}`);
+      }
+    }
+
+    if (candidate.secFetch !== undefined) {
+      const getRoute = methods.length === 1 && methods[0] === 'GET';
+      if (
+        candidate.secFetch !== 'cross-site-allowed' ||
+        !isRoute ||
+        !getRoute ||
+        typeof id !== 'string' ||
+        !SEC_FETCH_EXEMPT_ROUTES.includes(id)
+      ) {
+        complain(
+          `secFetch cross-site-allowed is accepted on a GET route of the list ${SEC_FETCH_EXEMPT_ROUTES.join(', ')} only`,
+        );
+      }
+    }
+
+    if (candidate.slidesSession !== undefined) {
+      if (typeof candidate.slidesSession !== 'boolean') {
+        complain('slidesSession is true or false');
+      } else if (!candidate.slidesSession) {
+        const getRoute = methods.length === 1 && methods[0] === 'GET';
+        if (!isRoute || !getRoute || typeof id !== 'string' || !NON_SLIDING_ROUTES.includes(id)) {
+          complain(
+            `slidesSession: false is accepted on the GET routes ${NON_SLIDING_ROUTES.join(' and ')} only`,
+          );
+        }
+      }
+    }
+
+    if (
+      isRoute &&
+      paths.length === 1 &&
+      typeof paths[0] === 'string' &&
+      accessFault === undefined
+    ) {
+      const path = paths[0];
+      const gated =
+        path.startsWith('/api/v1/setup/') ||
+        path === '/api/v1/connection' ||
+        path.startsWith('/api/v1/connection/');
+      const access = candidate.access as Raw;
+      if (gated && candidate.availability === undefined && !access.setup && !access.connection) {
+        complain(
+          'lives under /api/v1/setup or /api/v1/connection and carries neither the availability gate nor the setup or connection access',
+        );
       }
     }
 
@@ -280,12 +490,15 @@ export class RouteTable {
 
   /**
    * The methods the routes answer at `path`, sorted, with HEAD wherever there is a GET. Empty when
-   * no route matches. A fallback does not count: it answers whatever is left over.
+   * no route matches. A fallback does not count: it answers whatever is left over. `isOpen` lets the
+   * caller leave out a route whose availability gate is closed for the request, so that a closed
+   * route cannot show itself as a 405 (T-B-237).
    */
-  allowFor(path: string): readonly string[] {
+  allowFor(path: string, isOpen?: (entry: RouteTableEntry) => boolean): readonly string[] {
     const methods = new Set<string>();
     for (const { entry, pattern } of this.#patterns) {
       if (!pattern.test(path)) continue;
+      if (isOpen !== undefined && !isOpen(entry)) continue;
       const method = entry.methods[0];
       if (method === undefined) continue;
       methods.add(method);

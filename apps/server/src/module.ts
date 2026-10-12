@@ -21,7 +21,10 @@ import type { DatabaseHandle } from './db/index.js';
 import type { RouteDefinition } from './http/route.js';
 import { ProblemError } from './http/problem.js';
 import type { Logger } from './logging/logger.js';
-import type { Sweeper } from './lifecycle/sweepers.js';
+import type { Scheduler, Sweeper } from './lifecycle/sweepers.js';
+import type { ActorResolver, PolicyPorts } from './policy/index.js';
+import type { RandomSource } from './ports/clock.js';
+import type { SecretsRuntime } from './secrets/state.js';
 import type { ShellRenderer } from './shell-port.js';
 
 /** What a module may use of the server. One object, built once, shared by all modules. */
@@ -45,6 +48,32 @@ export interface ModuleDeps {
   readonly sweepers: { register(sweeper: Sweeper): void };
   /** True from the moment shutdown begins; an upload in progress ends with 503 `shutting_down`. */
   readonly isShuttingDown: () => boolean;
+  /**
+   * Randomness (Phase B, T-B-022): identifiers, nonces, salts, jitter. Production passes a source over
+   * `node:crypto` (`systemRandom`); a test passes a seeded one. Code under `src/{setup,connection,auth,
+   * rbac,policy,integrations}` takes it from here and never calls an ambient random function.
+   */
+  readonly random: RandomSource;
+  /** Timers (Phase B, T-B-022): the same four-method scheduler the sweepers use. */
+  readonly scheduler: Scheduler;
+  /**
+   * The secrets state and services (Phase B, T-B-019, SB-32): a holder built before any module and
+   * filled by the `secrets` module's `start` hook. Reading it before that fails closed
+   * (`key_missing`). Other modules read `secrets.state()` per call and never keep the result.
+   */
+  readonly secrets: SecretsRuntime;
+  /**
+   * The ports of the policy layer (Phase B, T-B-240, CB10, SB-32): holders built before any module.
+   * The auth module registers its session store, the setup module its setup sessions and the rbac
+   * module the grants of a user; a holder that is still empty fails closed (anonymous).
+   */
+  readonly policy: PolicyPorts;
+  /**
+   * Who a request acts as: the one resolver of the application. The pipeline calls it lazily on the
+   * first read of the actor; the HTML shell calls it for the boot data, so the page and
+   * `GET /api/v1/me` can never disagree (SB-32, SB-38).
+   */
+  readonly resolveActor: ActorResolver;
 }
 
 /**

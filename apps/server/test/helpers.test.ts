@@ -5,17 +5,23 @@
 //
 // The helpers accept a `buildApp` factory, so this file works before the composition root exists
 // (T-A-045): the application under test here is a handful of Hono routes written in this file.
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { afterAll, describe, expect, it } from 'vitest';
 import { DEFAULT_PORT } from '@m365portal/shared/limits';
 import { IsoTimestampSchema } from '@m365portal/shared/schemas/common';
 import { expectGuardFails } from '@m365portal/shared/testing';
+import type { Grant } from '@m365portal/shared/rbac/effective';
+import type { ScopeItem } from '@m365portal/shared/rbac/scope';
+import { hashSessionId } from '../src/policy/index.js';
 import { createFakeClock, FakeClock } from './helpers/fake-clock.js';
+import { createFixtureApp } from './helpers/http-app.js';
+import { guid } from './helpers/rbac-db.js';
 import { createHttpClient, readJson } from './helpers/http-client.js';
 import { createLogCapture } from './helpers/log-capture.js';
 import { createTestApp, type TestAppContext } from './helpers/test-app.js';
@@ -585,13 +591,13 @@ describe('test-app', () => {
   it('merges environment overrides over the defaults', async () => {
     const testApp = await createTestApp({
       buildApp: buildFakeApp,
-      env: { LOG_LEVEL: 'debug', PREVIEW_MODE: 'true' },
+      env: { LOG_LEVEL: 'debug', SHOWCASE: 'true' },
       publicOrigin: 'http://localhost:18080',
     });
 
     expect(testApp.env).toMatchObject({
       LOG_LEVEL: 'debug',
-      PREVIEW_MODE: 'true',
+      SHOWCASE: 'true',
       PUBLIC_BASE_URL: 'http://localhost:18080',
       DATA_DIR: testApp.dataDir,
     });
@@ -671,5 +677,201 @@ describe('the leftover check fails loudly (negative fixture)', () => {
     expect(() => {
       assertGone(dir.path);
     }).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// T-B-244, CB16: signed-in test actors replace the preview actor
+// ---------------------------------------------------------------------------------------------
+
+describe('signedInAs (CB16, XB21)', () => {
+  const THINGS = '/api/v1/fixture/things';
+  const SALES: ScopeItem = {
+    target: 'group',
+    match: { by: 'prefix', attr: 'displayName', value: 'sales' },
+  };
+
+  it('writes the rows of a signed-in user the way the session store does, with the same hash', async () => {
+    const app = await createFixtureApp({ identity: true });
+    const admin = app.signedInAs({ kind: 'user', roles: ['admin'], label: 'Alice Admin' });
+    const value = admin.cookies.session ?? '';
+    expect(value).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    const session = app.identity.db.sqlite
+      .prepare('SELECT * FROM session WHERE id_hash = ?')
+      .get(hashSessionId(value)) as Record<string, unknown>;
+    expect(session).toMatchObject({ kind: 'user', oid: admin.oid });
+    // Only the hash is stored: a scan of the table finds no raw id.
+    expect(
+      JSON.stringify(app.identity.db.sqlite.prepare('SELECT * FROM session').all()),
+    ).not.toContain(value);
+    expect(
+      app.identity.db.sqlite
+        .prepare('SELECT name_label FROM app_user WHERE oid = ?')
+        .get(admin.oid),
+    ).toEqual({ name_label: 'Alice Admin' });
+    expect(
+      app.identity.db.sqlite
+        .prepare(
+          "SELECT count(*) AS n FROM rbac_assignment WHERE principal_id = ? AND source = 'api'",
+        )
+        .get(admin.oid),
+    ).toEqual({ n: 1 });
+  });
+
+  it('returns the cookies, a CSRF token that matches them, and a client that writes', async () => {
+    const app = await createFixtureApp({ identity: true });
+    const admin = app.signedInAs({ kind: 'user', roles: ['admin'] });
+    expect(admin.headers.cookie).toBe(`m365portal_session=${admin.cookies.session ?? ''}`);
+    const token = await admin.csrfToken();
+    expect(token).toMatch(/^v1\./);
+
+    const created = await admin.client.post(THINGS, { json: { name: 'x' } });
+    expect(created.status).toBe(201);
+    // The same token works from another client that holds the same cookies, and from no other.
+    const same = app.clientFor({ headers: admin.headers });
+    expect((await same.post(THINGS, { json: { name: 'x' }, csrf: { token } })).status).toBe(201);
+    const stranger = app.clientFor({});
+    expect((await stranger.post(THINGS, { json: { name: 'x' }, csrf: { token } })).status).toBe(
+      403,
+    );
+  });
+
+  it('adds the Origin of PUBLIC_BASE_URL to a write', async () => {
+    const app = await createFixtureApp({ identity: true });
+    const admin = app.signedInAs({ kind: 'user', roles: ['admin'] });
+    const foreign = await admin.client.post(THINGS, {
+      json: { name: 'x' },
+      origin: 'https://evil.example',
+    });
+    expect(foreign.status).toBe(403);
+    expect((await readJson<{ code: string }>(foreign)).code).toBe('origin_not_allowed');
+  });
+
+  it('gives a user without roles a valid session and no permission (403, not 401)', async () => {
+    const app = await createFixtureApp({ identity: true });
+    const nobody = app.signedInAs({ kind: 'user' });
+    const response = await nobody.client.post(THINGS, { json: { name: 'x' } });
+    expect(response.status).toBe(403);
+    expect((await readJson<{ code: string }>(response)).code).toBe('permission_denied');
+  });
+
+  it('assigns scoped roles and roles through a group', async () => {
+    const app = await createFixtureApp({ identity: true });
+    const group = guid(300);
+    const user = app.signedInAs({
+      kind: 'user',
+      assignments: [
+        { role: 'helpdesk', scope: [SALES] },
+        { role: 'reader', viaGroup: group },
+      ],
+    });
+    const actor = app.identity.resolve(app.identity.request(user.session));
+    expect(actor.kind).toBe('user');
+    // The reader role through the group covers every group, so it absorbs the scoped helpdesk item
+    // (grants merge per permission and qualifier, SB-13).
+    expect(actor.grants.filter((grant) => grant.permission === 'groups:read')).toEqual([
+      { permission: 'groups:read', qualifier: 'full', scope: 'all' },
+    ]);
+    // Members are written only by the scoped role.
+    expect(actor.grants.filter((grant) => grant.permission === 'groups:members:write')).toEqual([
+      { permission: 'groups:members:write', qualifier: 'full', scope: [SALES] },
+    ]);
+  });
+
+  it('gives exactly the grants it is asked for', async () => {
+    const app = await createFixtureApp({ identity: true });
+    const wanted: Grant[] = [
+      { permission: 'audit:read', qualifier: 'full', scope: 'all' },
+      { permission: 'users:read', qualifier: 'basic', scope: 'all' },
+      { permission: 'groups:members:write', qualifier: 'full', scope: [SALES] },
+    ];
+    const user = app.signedInAs({ kind: 'user', grants: wanted });
+    const actor = app.identity.resolve(app.identity.request(user.session));
+    const sorted = (grants: readonly Grant[]): string[] =>
+      grants.map((grant) => JSON.stringify(grant)).sort();
+    expect(sorted(actor.grants)).toEqual(sorted(wanted));
+  });
+
+  it('signs in the setup actor: settings:branding and settings:connection, nothing else', async () => {
+    const app = await createFixtureApp({ identity: true });
+    const setup = app.signedInAs({ kind: 'setup' });
+    expect(setup.headers.cookie).toBe(`m365portal_setup=${setup.cookies.setup ?? ''}`);
+    expect((await setup.client.post(THINGS, { json: { name: 'x' } })).status).toBe(201);
+    expect((await setup.client.get('/api/v1/fixture/secret')).status).toBe(403);
+    const actor = app.identity.resolve(app.identity.request(setup.session));
+    expect([...actor.permissions]).toEqual(['settings:branding', 'settings:connection']);
+  });
+
+  it('signs in break-glass: rbac:manage only, so the write routes of other permissions refuse it', async () => {
+    const app = await createFixtureApp({ identity: true });
+    const breakGlass = app.signedInAs({ kind: 'break_glass' });
+    expect((await breakGlass.client.post(THINGS, { json: { name: 'x' } })).status).toBe(403);
+    const actor = app.identity.resolve(app.identity.request(breakGlass.session));
+    expect([...actor.permissions]).toEqual(['rbac:manage']);
+    expect(actor.session?.idleExpiresAt).toBeNull();
+  });
+
+  describe('a session that is not live answers 401 session_expired (setup: unauthenticated)', () => {
+    it('expired', async () => {
+      const app = await createFixtureApp({ identity: true });
+      const user = app.signedInAs({ kind: 'user', roles: ['admin'], sessionAge: 'expired' });
+      const response = await user.client.get('/api/v1/fixture/secret');
+      expect(response.status).toBe(401);
+      expect((await readJson<{ code: string }>(response)).code).toBe('session_expired');
+    });
+
+    it('revoked', async () => {
+      const app = await createFixtureApp({ identity: true });
+      const user = app.signedInAs({ kind: 'user', roles: ['admin'] });
+      expect((await user.client.get('/api/v1/fixture/secret')).status).toBe(200);
+      user.revoke();
+      const response = await user.client.get('/api/v1/fixture/secret');
+      expect(response.status).toBe(401);
+      expect((await readJson<{ code: string }>(response)).code).toBe('session_expired');
+    });
+
+    it('a setup session that ended', async () => {
+      const app = await createFixtureApp({ identity: true });
+      const setup = app.signedInAs({ kind: 'setup' });
+      setup.revoke();
+      const response = await setup.client.post(THINGS, { json: { name: 'x' } });
+      expect(response.status).toBe(401);
+      expect((await readJson<{ code: string }>(response)).code).toBe('unauthenticated');
+    });
+
+    it('an idle session, by the injected clock', async () => {
+      const app = await createFixtureApp({ identity: true });
+      const user = app.signedInAs({ kind: 'user', roles: ['admin'] });
+      app.identity.clock.advance(30 * 60_000);
+      expect((await user.client.get('/api/v1/fixture/secret')).status).toBe(401);
+    });
+  });
+
+  it('keeps two signed-in users apart', async () => {
+    const app = await createFixtureApp({ identity: true });
+    const admin = app.signedInAs({ kind: 'user', roles: ['admin'] });
+    const reader = app.signedInAs({ kind: 'user', roles: ['reader'] });
+    expect(admin.oid).not.toBe(reader.oid);
+    expect((await admin.client.post(THINGS, { json: { name: 'x' } })).status).toBe(201);
+    expect((await reader.client.post(THINGS, { json: { name: 'x' } })).status).toBe(403);
+  });
+
+  it('cannot be imported from the source of the server', () => {
+    const root = fileURLToPath(new URL('../src', import.meta.url));
+    const files = (directory: string): string[] =>
+      readdirSync(directory, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory()
+          ? files(join(directory, entry.name))
+          : entry.name.endsWith('.ts')
+            ? [join(directory, entry.name)]
+            : [],
+      );
+    const importers = files(root).filter((file) =>
+      /from\s+['"][^'"]*\/test\/|from\s+['"][^'"]*helpers\/(test-app|signed-in|policy-harness)/.test(
+        readFileSync(file, 'utf8'),
+      ),
+    );
+    expect(importers).toEqual([]);
   });
 });

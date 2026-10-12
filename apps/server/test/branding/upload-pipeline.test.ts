@@ -738,7 +738,7 @@ const sha256Of = sha256;
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
 const DAY = 24 * HOUR;
-const PREVIEW = { actor: { kind: 'preview', id: 'preview' } } as const;
+const STAFF = { actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa' } } as const;
 
 type Storage = Awaited<ReturnType<typeof createBrandingStorage>>;
 
@@ -845,7 +845,7 @@ describe('staging: identical bytes, the timer and the quota (T-A-084)', () => {
     await storage.service.apply(
       { orgName: 'Acme', accent: '#0078d4', logos: { light: sha256, dark: null, compact: null } },
       1,
-      PREVIEW,
+      STAFF,
     );
     storage.clock.advance(HOUR);
     const again = await stageUpload(storage, bytes);
@@ -885,7 +885,7 @@ describe('staging: identical bytes, the timer and the quota (T-A-084)', () => {
         logos: { light: waiting?.sha256 ?? '', dark: null, compact: null },
       },
       1,
-      PREVIEW,
+      STAFF,
     );
     expect(storage.store.fitsQuota(storage.database, metadata)).toBe(true);
   });
@@ -903,7 +903,7 @@ describe('the sweepers on a fake clock (T-A-084; data-model 9)', () => {
         logos: { light: kept.sha256, dark: null, compact: null },
       },
       1,
-      PREVIEW,
+      STAFF,
     );
     const referenced = new Set(referencedHashes(storage.database));
     expect(referenced.has(kept.sha256)).toBe(true);
@@ -930,9 +930,9 @@ describe('the sweepers on a fake clock (T-A-084; data-model 9)', () => {
         logos: { light: logo.sha256, dark: null, compact: null },
       },
       1,
-      PREVIEW,
+      STAFF,
     );
-    await storage.service.reset(2, PREVIEW);
+    await storage.service.reset(2, STAFF);
     const retiredAt = storage.clock.nowMs();
     storage.clock.set(retiredAt + DAY - 1);
     expect(await sweepExpiredAssets(sweeping(storage))).not.toContain(logo.sha256);

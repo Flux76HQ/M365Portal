@@ -47,8 +47,11 @@ import { runMigrations } from '../src/db/migrate.js';
 import { createDenialAudit } from '../src/http/denial-audit.js';
 import type { OnRouteDenied } from '../src/http/route.js';
 import { createLogger } from '../src/logging/logger.js';
+import { appendReference } from './helpers/audit-reference.js';
 import { createFakeClock } from './helpers/fake-clock.js';
+import { createPolicyHarness } from './helpers/policy-harness.js';
 import {
+  ADMIN,
   createFixtureApp,
   requestBodyFor,
   writeRoutesOf,
@@ -77,6 +80,8 @@ interface AuditRow {
 
 interface Audited {
   readonly app: FixtureApp;
+  /** Who the default client acts as, as the audit entries name it. */
+  readonly actor: { readonly kind: string; readonly id: string };
   readonly dataDir: string;
   rows(): AuditRow[];
   verdict(): ChainVerdict;
@@ -87,7 +92,8 @@ interface Audited {
 type Storage = 'working' | 'read-only' | 'locked' | 'absent';
 
 interface AuditedOptions {
-  readonly mode?: 'anonymous' | 'preview';
+  /** `admin`: an administrator is signed in and is the default client. */
+  readonly mode?: 'anonymous' | 'admin';
   readonly storage?: Storage;
   /** Wrap or replace the real denial audit, for the negative fixtures. */
   readonly hook?: (real: OnRouteDenied) => OnRouteDenied;
@@ -135,7 +141,10 @@ async function audited(options: AuditedOptions = {}): Promise<Audited> {
     now: () => clock.nowMs(),
   });
   const app = await createFixtureApp({
-    env: options.mode === 'preview' ? { PREVIEW_MODE: 'true' } : {},
+    // The resolver reads sessions through `reader`, the connection that never fails.
+    ...(options.mode === 'admin'
+      ? { identity: await createPolicyHarness({ db: reader, clock }), signedIn: ADMIN }
+      : {}),
     clock,
     context: { dataDir: dir.path },
     // Roomy buckets: the tables below send far more writes than the real limits allow in a burst.
@@ -144,6 +153,10 @@ async function audited(options: AuditedOptions = {}): Promise<Audited> {
   });
   return {
     app,
+    actor:
+      app.signedIn === undefined
+        ? { kind: 'anonymous', id: 'anonymous' }
+        : { kind: 'user', id: app.signedIn.oid },
     dataDir: dir.path,
     rows: () => reader.sqlite.prepare('SELECT * FROM audit_log ORDER BY seq').all() as AuditRow[],
     verdict: () => verifyChain(reader.sqlite),
@@ -157,43 +170,57 @@ async function audited(options: AuditedOptions = {}): Promise<Audited> {
 
 interface Scenario {
   readonly name: string;
-  readonly code: 'permission_denied' | 'origin_not_allowed' | 'csrf_invalid';
+  /** The status and the problem code of the answer. */
+  readonly status: 401 | 403;
+  readonly code: 'unauthenticated' | 'origin_not_allowed' | 'csrf_invalid';
+  /** The `reason_code` of the audit entry (FR-B-602 for an authorisation denial). */
+  readonly reason: 'permission_missing' | 'origin_not_allowed' | 'csrf_invalid';
   /** Can this scenario happen for this actor and route? */
-  readonly applies: (mode: 'anonymous' | 'preview', route: WriteRoute) => boolean;
+  readonly applies: (mode: 'anonymous' | 'admin', route: WriteRoute) => boolean;
   readonly send: (client: HttpClient, route: WriteRoute) => Promise<Response>;
 }
 
 const SCENARIOS: readonly Scenario[] = [
   {
-    name: 'a missing permission',
-    code: 'permission_denied',
+    name: 'a missing permission (the anonymous actor is asked to sign in: 401, was 403 in Phase A)',
+    status: 401,
+    code: 'unauthenticated',
+    reason: 'permission_missing',
     applies: (mode, route) => mode === 'anonymous' && route.permission !== undefined,
     send: (client, route) => client.request(route.method, route.path, requestBodyFor(route)),
   },
   {
     name: 'a foreign Origin',
+    status: 403,
     code: 'origin_not_allowed',
+    reason: 'origin_not_allowed',
     applies: () => true,
     send: (client, route) =>
       client.request(route.method, route.path, { ...requestBodyFor(route), origin: FOREIGN }),
   },
   {
     name: 'a missing Origin',
+    status: 403,
     code: 'origin_not_allowed',
+    reason: 'origin_not_allowed',
     applies: () => true,
     send: (client, route) =>
       client.request(route.method, route.path, { ...requestBodyFor(route), origin: null }),
   },
   {
     name: 'a missing CSRF token',
+    status: 403,
     code: 'csrf_invalid',
+    reason: 'csrf_invalid',
     applies: () => true,
     send: (client, route) =>
       client.request(route.method, route.path, { ...requestBodyFor(route), csrf: 'none' }),
   },
   {
     name: 'a forged CSRF token',
+    status: 403,
     code: 'csrf_invalid',
+    reason: 'csrf_invalid',
     applies: () => true,
     send: (client, route) =>
       client.request(route.method, route.path, {
@@ -212,10 +239,10 @@ function detailOf(row: AuditRow): Record<string, unknown> {
 
 /**
  * The guard: for every write route of the table and every way to be denied, the request is refused
- * with 403 and exactly one audit row exists afterwards, with the fields of FR-A-034. Throws on the
+ * with its status (401 for a missing permission of the anonymous actor, 403 for Origin and CSRF) and exactly one audit row exists afterwards, with the fields of FR-A-034. Throws on the
  * first deviation, naming the route and the scenario.
  */
-async function assertDenialsAudited(target: Audited, mode: 'anonymous' | 'preview'): Promise<void> {
+async function assertDenialsAudited(target: Audited, mode: 'anonymous' | 'admin'): Promise<void> {
   const routes = writeRoutesOf(target.app);
   if (routes.length === 0) throw new Error('the table has no write route');
   for (const route of routes) {
@@ -224,9 +251,9 @@ async function assertDenialsAudited(target: Audited, mode: 'anonymous' | 'previe
       const before = target.rows().length;
       const response = await scenario.send(target.app.client, route);
       const body = await readJson<{ code?: string }>(response);
-      if (response.status !== 403 || body.code !== scenario.code) {
+      if (response.status !== scenario.status || body.code !== scenario.code) {
         throw new Error(
-          `${where}: expected 403 ${scenario.code}, got ${String(response.status)} ${String(body.code)}`,
+          `${where}: expected ${String(scenario.status)} ${scenario.code}, got ${String(response.status)} ${String(body.code)}`,
         );
       }
       const rows = target.rows();
@@ -238,11 +265,11 @@ async function assertDenialsAudited(target: Audited, mode: 'anonymous' | 'previe
       const row = rows[rows.length - 1];
       if (row === undefined) throw new Error(`${where}: no audit row`);
       const expected: Partial<AuditRow> = {
-        actor_kind: mode,
-        actor_id: mode,
+        actor_kind: target.actor.kind,
+        actor_id: target.actor.id,
         action: route.id,
         outcome: 'denied',
-        reason_code: scenario.code,
+        reason_code: scenario.reason,
         request_id: response.headers.get('x-request-id'),
         client_ip: '127.0.0.1',
       };
@@ -275,7 +302,7 @@ function sortKeys(value: Record<string, unknown>): Record<string, unknown> {
 // Every write route, every denial
 // ---------------------------------------------------------------------------------------------
 
-describe.each(['anonymous', 'preview'] as const)(
+describe.each(['anonymous', 'admin'] as const)(
   'every denied write is audited, actor %s (FR-A-034, SC-A-009)',
   (mode) => {
     it('writes an entry for each write route and each way to be denied, with the fields of FR-A-034', async () => {
@@ -305,7 +332,8 @@ describe('the entry of a denial (FR-A-034, FR-A-073)', () => {
       json: { name: 'x' },
       headers: { 'x-request-id': 'request-id-0001' },
     });
-    expect(response.status).toBe(403);
+    // An anonymous caller is asked to sign in (401); the entry still names the denied permission.
+    expect(response.status).toBe(401);
     const [row] = target.rows();
     expect(row).toMatchObject({
       seq: 1,
@@ -313,7 +341,7 @@ describe('the entry of a denial (FR-A-034, FR-A-073)', () => {
       actor_id: 'anonymous',
       action: 'fixture.create',
       outcome: 'denied',
-      reason_code: 'permission_denied',
+      reason_code: 'permission_missing',
       client_ip: '127.0.0.1',
       request_id: 'request-id-0001',
     });
@@ -345,16 +373,16 @@ describe('the entry of a denial (FR-A-034, FR-A-073)', () => {
     });
   });
 
-  it('names the preview actor when preview mode is on', async () => {
-    const target = await audited({ mode: 'preview' });
+  it('names the signed-in user: kind user and the oid, never a name', async () => {
+    const target = await audited({ mode: 'admin' });
     await target.app.client.post('/api/v1/fixture/things', {
       json: { name: 'x' },
       origin: FOREIGN,
     });
     const [row] = target.rows();
     expect(row).toMatchObject({
-      actor_kind: 'preview',
-      actor_id: 'preview',
+      actor_kind: 'user',
+      actor_id: target.actor.id,
       reason_code: 'origin_not_allowed',
     });
   });
@@ -413,7 +441,7 @@ describe('the entry of a denial (FR-A-034, FR-A-073)', () => {
     expect(target.rows()).toHaveLength(0);
     release();
     const response = await pending;
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
     expect(target.rows()).toHaveLength(1);
   });
 });
@@ -434,14 +462,15 @@ describe('what is not audited (FR-A-034, PA-15)', () => {
     });
     const first = await target.app.client.post('/api/v1/fixture/things', { json: { name: 'x' } });
     const second = await target.app.client.post('/api/v1/fixture/things', { json: { name: 'x' } });
-    expect(first.status).toBe(403);
+    expect(first.status).toBe(401);
     expect(second.status).toBe(429);
     expect(target.rows()).toHaveLength(1);
   });
 
   it('a denied read, a refused audited read and a read of a permission route', async () => {
     const target = await audited();
-    expect((await target.app.client.get('/api/v1/fixture/secret')).status).toBe(403);
+    // Anonymous: 401 and no entry (attacker-reachable volume, FR-B-602).
+    expect((await target.app.client.get('/api/v1/fixture/secret')).status).toBe(401);
     expect(
       (
         await target.app.client.get('/api/v1/fixture/export', {
@@ -449,12 +478,12 @@ describe('what is not audited (FR-A-034, PA-15)', () => {
         })
       ).status,
     ).toBe(403);
-    expect((await target.app.client.get('/api/v1/fixture/export')).status).toBe(403);
+    expect((await target.app.client.get('/api/v1/fixture/export')).status).toBe(401);
     expect(target.rows()).toHaveLength(0);
   });
 
   it('a 404, a 405, an OPTIONS, a 413, a 415 and a 422', async () => {
-    const target = await audited({ mode: 'preview' });
+    const target = await audited({ mode: 'admin' });
     const { client } = target.app;
     expect((await client.get('/api/v1/nowhere')).status).toBe(404);
     expect((await client.post('/api/v1/fixture/read')).status).toBe(405);
@@ -480,7 +509,7 @@ describe('what is not audited (FR-A-034, PA-15)', () => {
   });
 
   it('a request that is allowed', async () => {
-    const target = await audited({ mode: 'preview' });
+    const target = await audited({ mode: 'admin' });
     expect(
       (await target.app.client.post('/api/v1/fixture/things', { json: { name: 'x' } })).status,
     ).toBe(201);
@@ -509,8 +538,8 @@ describe('when the audit entry cannot be written the request fails closed (FR-A-
     expect(target.rows()).toHaveLength(0);
   });
 
-  it('does not let a preview-mode write through when its Origin denial cannot be written', async () => {
-    const target = await audited({ mode: 'preview', storage: 'read-only' });
+  it('does not let a signed-in write through when its Origin denial cannot be written', async () => {
+    const target = await audited({ mode: 'admin', storage: 'read-only' });
     const response = await target.app.client.post('/api/v1/fixture/things', {
       json: { name: 'x' },
       origin: FOREIGN,
@@ -608,7 +637,7 @@ describe('negative fixtures: the guard fails on an application that does not aud
   it('fails when only permission denials are audited (Origin and CSRF denials are lost)', async () => {
     const target = await audited({
       hook: (real) => async (c, denial) => {
-        if (denial.code === 'permission_denied') await real(c, denial);
+        if (denial.code === 'permission_missing') await real(c, denial);
       },
     });
     await expectGuardFails((t: Audited) => assertDenialsAudited(t, 'anonymous'), target, {
@@ -756,12 +785,15 @@ describe('the actor kinds of the writer (FR-B-601, DM-05)', () => {
   it('still reads a Phase A row written by the preview actor, and the chain still verifies across old and new rows', async () => {
     const database = await auditDatabase();
     // A Phase A install wrote these: a preview row and an anonymous denial with permission_denied.
-    append(database, {
+    // The real writer no longer takes `preview`, so the old row is seeded by the independent reference writer.
+    appendReference(database.sqlite, {
+      ts: '2026-01-01T00:00:00.000Z',
       actorKind: 'preview',
       actorId: 'preview',
       action: 'branding.apply',
       targetType: 'branding',
       targetId: '1',
+      outcome: 'success',
     });
     append(database, {
       actorKind: 'anonymous',
@@ -787,12 +819,12 @@ describe('the actor kinds of the writer (FR-B-601, DM-05)', () => {
     expect(verifyChain(database.sqlite)).toMatchObject({ ok: true, checked: 3 });
   });
 
-  // The writer still takes `preview` while the Phase A preview resolver exists (src/config/legacy-preview.ts):
-  // the branding service writes it for the preview actor. `T-B-240` deletes the resolver and with it
-  // the transitional allowance in `writer.ts`; that task turns this todo into the assertion.
-  it.todo(
-    'rejects preview on write (T-B-240 removes the transitional allowance TRANSITIONAL_WRITE_KINDS)',
-  );
+  it('rejects preview on write (the transitional allowance is gone)', async () => {
+    const database = await auditDatabase();
+    expect(() => {
+      append(database, { actorKind: 'preview' as never });
+    }).toThrow(AuditEntryError);
+  });
 });
 
 describe('the 19 actions of spec 6.9.6 (SB-21, SB-30)', () => {

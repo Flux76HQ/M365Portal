@@ -14,13 +14,13 @@ import { readJson } from '../helpers/http-client.js';
 import { type BrandingApp } from './branding-fixture.js';
 import { createOutputsApp } from './outputs-fixture.js';
 
-const app = (preview = false) =>
+const app = (signedIn = false) =>
   createOutputsApp({
-    preview,
+    signedIn,
     routes: (storage) => pwaRoutes({ service: storage.service }),
   });
 
-const STAFF = { actor: { kind: 'preview', id: 'preview' } } as const;
+const STAFF = { actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa' } } as const;
 
 async function rename(
   storage: BrandingApp,

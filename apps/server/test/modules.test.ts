@@ -30,6 +30,7 @@ import { startServer, StartError } from '../src/start.js';
 import { freePort } from './helpers/built-server.js';
 import { createLogCapture } from './helpers/log-capture.js';
 import { createTempDataDir } from './helpers/temp-data-dir.js';
+import { moduleDepsExtras } from './helpers/module-deps-extras.js';
 
 const SERVER_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const WEB = join(SERVER_ROOT, 'test', 'fixtures', 'web-dist');
@@ -51,6 +52,7 @@ function fakeDeps(): ModuleDeps {
     shellTemplate: '',
     sweepers: createSweeperRegistry({ log }),
     isShuttingDown: () => false,
+    ...moduleDepsExtras(),
   };
 }
 

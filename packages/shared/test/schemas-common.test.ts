@@ -227,6 +227,7 @@ describe('ReadinessCheckSchema and ReadyzResponseSchema (R2, FR-A-026)', () => {
     { name: 'data_dir', ok: true },
     { name: 'database', ok: true },
     { name: 'schema', ok: true },
+    { name: 'secrets', ok: true },
   ];
   const contractExample = {
     status: 'unavailable',
@@ -234,10 +235,11 @@ describe('ReadinessCheckSchema and ReadyzResponseSchema (R2, FR-A-026)', () => {
       { name: 'data_dir', ok: false, code: 'data_dir_not_writable' },
       { name: 'database', ok: false, code: 'database_unavailable' },
       { name: 'schema', ok: true },
+      { name: 'secrets', ok: true },
     ],
   };
 
-  it('accepts a ready document with the three checks passing', () => {
+  it('accepts a ready document with the four checks passing', () => {
     expect(accepts(ReadyzResponseSchema, { status: 'ready', checks: okChecks })).toBe(true);
   });
 
@@ -256,6 +258,9 @@ describe('ReadinessCheckSchema and ReadyzResponseSchema (R2, FR-A-026)', () => {
     ['database_unavailable', 'database'],
     ['database_corrupt', 'database'],
     ['schema_newer_than_app', 'schema'],
+    ['app_key_missing', 'secrets'],
+    ['app_key_invalid', 'secrets'],
+    ['certificate_unreadable', 'secrets'],
   ])('accepts the failure code %s on the %s check', (code, name) => {
     expect(accepts(ReadinessCheckSchema, { name, ok: false, code })).toBe(true);
   });
@@ -278,10 +283,21 @@ describe('ReadinessCheckSchema and ReadyzResponseSchema (R2, FR-A-026)', () => {
     ['ready while a check fails', { status: 'ready', checks: contractExample.checks }],
     ['unavailable while every check passes', { status: 'unavailable', checks: okChecks }],
     ['an unknown status', { status: 'degraded', checks: okChecks }],
-    ['a missing check', { status: 'ready', checks: okChecks.slice(0, 2) }],
-    ['a repeated check', { status: 'ready', checks: [...okChecks.slice(0, 2), okChecks[0]] }],
+    ['a missing check', { status: 'ready', checks: okChecks.slice(1) }],
+    [
+      'a missing secrets check (Phase A document)',
+      { status: 'ready', checks: okChecks.slice(0, 3) },
+    ],
+    ['a repeated check', { status: 'ready', checks: [...okChecks.slice(0, 3), okChecks[0]] }],
     ['no checks', { status: 'ready', checks: [] }],
-    ['a fourth check', { status: 'ready', checks: [...okChecks, { name: 'disk', ok: true }] }],
+    ['a fifth check', { status: 'ready', checks: [...okChecks, { name: 'disk', ok: true }] }],
+    [
+      'a secrets failure on a status that says ready',
+      {
+        status: 'ready',
+        checks: [...okChecks.slice(0, 3), { name: 'secrets', ok: false, code: 'app_key_missing' }],
+      },
+    ],
     ['no checks member', { status: 'ready' }],
     ['an extra member', { status: 'ready', checks: okChecks, error: 'x' }],
   ])('rejects %s', (_label, value) => {

@@ -17,10 +17,11 @@ import { performance } from 'node:perf_hooks';
 import type { AppConfig } from './config/env.js';
 import type { DatabaseHandle } from './db/index.js';
 import { createCsrf } from './http/csrf.js';
-import { createDenialAudit } from './http/denial-audit.js';
+import { createDenialAudit, createPolicyErrorAudit } from './http/denial-audit.js';
 import { createDocumentSource } from './http/openapi.js';
 import { createRateLimiter } from './http/rate-limit.js';
-import { createHttpApp, type HttpApp } from './http/route.js';
+import { createHttpApp, mergeAvailability, type HttpApp } from './http/route.js';
+import { csrfBindingOfHeaders } from './policy/session-hash.js';
 import { spaFallback } from './http/spa-fallback.js';
 import { serviceWorkerRoute, staticFallback } from './http/static.js';
 import type { ReadinessController } from './lifecycle/readiness.js';
@@ -31,6 +32,8 @@ import { metaRoutes } from './routes/meta.js';
 import { robotsRoutes } from './routes/robots.js';
 import { createPlaceholderShell, type ShellRenderer } from './shell-port.js';
 import { APP_VERSION } from './version.js';
+
+export { systemRandom } from './system-random.js';
 
 /** The two clocks of the server. Tests pass fakes; the server passes `systemClock`. */
 export interface ServerClock {
@@ -111,7 +114,18 @@ export function buildApp(deps: BuildAppDeps): BuiltApp {
     log,
     csrf,
     limiter,
+    availability: mergeAvailability(deps.modules),
+    resolveActor: deps.moduleDeps.resolveActor,
+    slideSession: (actor) => {
+      // The session store throttles its own writes (FR-B-407); a setup session is kept alive too.
+      if (actor.session !== null)
+        deps.moduleDeps.policy.sessions.get()?.touch?.(actor.session.idHash);
+      if (actor.setupSession !== null) {
+        deps.moduleDeps.policy.setupSessions.get()?.touch?.(actor.setupSession.idHash);
+      }
+    },
     onDenied: createDenialAudit({ database: deps.database, now: () => clock.now() }),
+    onPolicyError: createPolicyErrorAudit({ database: deps.database, now: () => clock.now() }),
     onStorageFailure: (failure) => {
       deps.readiness.reportStorageFailure(failure);
     },
@@ -123,6 +137,8 @@ export function buildApp(deps: BuildAppDeps): BuiltApp {
         showcase: config.showcase,
         storageAvailable: () => deps.readiness.storageAvailable(),
         csrf,
+        // The same binding the wrapper checks on a write: the cookies as sent (FR-B-408).
+        binding: (c) => csrfBindingOfHeaders(c.req.raw.headers, config.publicOrigin),
         document,
       }),
       ...robotsRoutes(),

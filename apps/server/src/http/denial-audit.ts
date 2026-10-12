@@ -19,7 +19,8 @@
 import { appendAudit } from '../audit/index.js';
 import { withTransaction, type DatabaseHandle } from '../db/index.js';
 import { ProblemError } from './problem.js';
-import type { OnRouteDenied } from './route.js';
+import type { OnRouteDenied, OnRoutePolicyError, RouteSummary } from './route.js';
+import type { RouteContext } from './route.js';
 
 export interface DenialAuditOptions {
   /**
@@ -31,31 +32,54 @@ export interface DenialAuditOptions {
   readonly now: () => number;
 }
 
-/** The hook `createHttpApp` calls for a denied write. */
+/** The hook `createHttpApp` calls for a denial that must be audited. */
 export function createDenialAudit(options: DenialAuditOptions): OnRouteDenied {
   return (c, denial) => {
     const database = options.database();
     if (database === undefined) throw new ProblemError('storage_unavailable');
-
-    const actor = c.get('actor');
-    const { address } = c.get('client');
-    const { route } = denial;
-    withTransaction(database, (tx) =>
-      appendAudit(tx, {
-        ts: new Date(options.now()).toISOString(),
-        actorKind: actor.kind,
-        actorId: actor.id,
-        action: route.id,
-        outcome: 'denied',
-        reasonCode: denial.code,
-        ...(address === undefined ? {} : { clientIp: address }),
-        requestId: c.get('requestId'),
-        detail: {
-          method: route.method,
-          route: route.path,
-          ...(route.permission === undefined ? {} : { permission: route.permission }),
-        },
-      }),
-    );
+    writeEntry(options, database, c, denial.route, 'denied', denial.code);
   };
+}
+
+/**
+ * The hook for a scoped route that went wrong (T-B-243, FR-B-505, EB-35): the handler answered 2xx
+ * without asking the policy layer (`policy_not_applied`), or asked about a resource of the wrong type
+ * (`policy_usage`). Written as `outcome` `error` with the route id as the action, before the 500
+ * leaves; the same fail-closed rules as a denial: no database or a failing append is 503.
+ */
+export function createPolicyErrorAudit(options: DenialAuditOptions): OnRoutePolicyError {
+  return (c, failure) => {
+    const database = options.database();
+    if (database === undefined) throw new ProblemError('storage_unavailable');
+    writeEntry(options, database, c, failure.route, 'error', failure.code);
+  };
+}
+
+function writeEntry(
+  options: DenialAuditOptions,
+  database: DatabaseHandle,
+  c: RouteContext,
+  route: RouteSummary,
+  outcome: 'denied' | 'error',
+  reasonCode: string,
+): void {
+  const actor = c.get('actor');
+  const { address } = c.get('client');
+  withTransaction(database, (tx) =>
+    appendAudit(tx, {
+      ts: new Date(options.now()).toISOString(),
+      actorKind: actor.kind,
+      actorId: actor.id,
+      action: route.id,
+      outcome,
+      reasonCode,
+      ...(address === undefined ? {} : { clientIp: address }),
+      requestId: c.get('requestId'),
+      detail: {
+        method: route.method,
+        route: route.path,
+        ...(route.permission === undefined ? {} : { permission: route.permission }),
+      },
+    }),
+  );
 }

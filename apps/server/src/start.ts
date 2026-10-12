@@ -9,7 +9,10 @@
 //   5. open the database   not a database or corrupt: degraded (`database_corrupt`); any other
 //                          open error: degraded (`database_unavailable`)
 //   6. migrate             a checksum mismatch or a newer schema EXIT non-zero, they never degrade
-//   7. module start hooks  sweepers, the asset check, the default branding row (S2); a throw exits 1
+//   6b. singletons         (Phase B) the setup_state row with a fresh install id and the interrupted
+//                          runs of an earlier process put back; skipped without a database
+//   7. module start hooks  the secrets state (S1), sweepers, the asset check, the default branding
+//                          row (S2), the setup token file and the clients (S3, S4); a throw exits 1
 //   8. the application     the route table is checked here; a broken table exits 1
 //   9. listen, then log the posture once
 //  10. the hourly sweepers; the caller installs the signal handlers (`index.ts`)
@@ -26,7 +29,6 @@ import { serve } from '@hono/node-server';
 import { setAuditHeadLog, clearAuditHeadLog } from './audit/index.js';
 import { buildApp, systemClock, type ServerClock } from './app.js';
 import { formatConfigIssues, loadConfig, removedVariablesIn } from './config/index.js';
-import { withTransitionalPreview } from './config/legacy-preview.js';
 import { backupsDirOf } from './db/backup.js';
 import { classifyStorageError } from './db/errors.js';
 import { MigrationError, runMigrations } from './db/migrate.js';
@@ -35,8 +37,14 @@ import { installClientErrorHandler } from './http/client-error.js';
 import { nodeServerOptions } from './http/server-options.js';
 import { createReadiness } from './lifecycle/readiness.js';
 import { checkpointAndClose, createShutdown, type Shutdown } from './lifecycle/shutdown.js';
+import {
+  ensureSingletons,
+  recoverInterruptedSetup,
+  releaseRunnerLease,
+  setupStateName,
+} from './lifecycle/singletons.js';
 import { createStorageProbe, ensureDataDir } from './lifecycle/storage-probe.js';
-import { createSweeperRegistry, type Scheduler } from './lifecycle/sweepers.js';
+import { createSweeperRegistry, systemScheduler, type Scheduler } from './lifecycle/sweepers.js';
 import { createLogger, logPosture, type LogDestination, type Logger } from './logging/logger.js';
 import {
   requireDatabaseOf,
@@ -45,6 +53,10 @@ import {
   type ModuleDeps,
 } from './module.js';
 import { appModules } from './modules.js';
+import type { RandomSource } from './ports/clock.js';
+import { SecretsRuntime } from './secrets/state.js';
+import { systemRandom } from './system-random.js';
+import { createActorResolver, createPolicyPorts } from './policy/index.js';
 import { readShellTemplate, ShellTemplateError } from './shell-port.js';
 import { APP_VERSION } from './version.js';
 
@@ -79,6 +91,8 @@ export interface StartOptions {
   readonly paths?: StartPaths;
   readonly clock?: ServerClock;
   readonly scheduler?: Scheduler;
+  /** The source of randomness. Default: `systemRandom` (`node:crypto`). A test passes a seeded one. */
+  readonly random?: RandomSource;
   /** Sets the umask. Default: `process.umask`. A test passes a spy: the umask is process-wide. */
   readonly umask?: (mask: number) => void;
 }
@@ -145,6 +159,7 @@ export function announceRemovedVariables(
 export async function startServer(options: StartOptions): Promise<RunningServer> {
   const stderr = options.stderr ?? process.stderr;
   const clock = options.clock ?? systemClock;
+  const random = options.random ?? systemRandom;
 
   // 1. Configuration.
   const loaded = loadConfig(options.env);
@@ -152,8 +167,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     stderr.write(formatConfigIssues(loaded.issues));
     throw new StartError('config_invalid');
   }
-  // Transitional (T-B-240 deletes it): the Phase A preview resolver still reads two flags.
-  const config = withTransitionalPreview(loaded.config, options.env);
+  const { config } = loaded;
   const log = createLogger({
     level: config.logLevel,
     now: () => clock.now(),
@@ -234,18 +248,38 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     }
   }
 
+  const secrets = new SecretsRuntime(() => (database?.sqlite.open === true ? database : undefined));
+  // 6b. Phase B singletons (plan 6.1 steps 5 and 7). Before any module: they read these rows.
+  if (database !== undefined) {
+    try {
+      ensureSingletons(database, { now: () => clock.now(), random });
+      recoverInterruptedSetup(database, { now: () => clock.now() });
+    } catch (error) {
+      database.close();
+      clearAuditHeadLog();
+      throw fail('singletons_failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+    }
+    step('singletons');
+  }
+
   const readiness = createReadiness({
     now: () => clock.now(),
     probe,
     database: () => database,
     startFailure: () => startFailure,
     migrationsFolder,
+    secrets: () => secrets.readinessCode(),
   });
   const sweepers = createSweeperRegistry({
     log,
     ...(options.scheduler === undefined ? {} : { scheduler: options.scheduler }),
   });
   const lifecycle: { shutdown?: Shutdown } = {};
+  const databaseOfMoment = (): AppDatabase | undefined =>
+    database?.sqlite.open === true ? database : undefined;
+  const policy = createPolicyPorts();
   const moduleDeps: ModuleDeps = {
     config,
     log,
@@ -259,6 +293,18 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     shellTemplate,
     sweepers,
     isShuttingDown: () => lifecycle.shutdown?.isShuttingDown() ?? false,
+    random,
+    scheduler: options.scheduler ?? systemScheduler,
+    secrets,
+    policy,
+    resolveActor: createActorResolver({
+      publicOrigin: config.publicOrigin,
+      now: () => clock.now(),
+      database: databaseOfMoment,
+      ports: policy,
+      idleTimeoutMs: config.session.idleTimeoutMs,
+      log,
+    }),
   };
   const modules: AppModule[] = (options.modules ?? appModules).map((factory) =>
     factory(moduleDeps),
@@ -347,7 +393,12 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   }
   step('listen');
 
-  logPosture(log, config, { storageWritable: database !== undefined, schemaVersion });
+  logPosture(log, config, {
+    storageWritable: database !== undefined,
+    schemaVersion,
+    setupState: setupStateName(database),
+    sealedStorage: database === undefined ? 'unknown' : secrets.state().status,
+  });
   log.info({ event: 'listening', version: APP_VERSION, port: config.port }, 'listening');
 
   // 10. The hourly sweepers.
@@ -357,7 +408,15 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     server,
     log,
     ...(options.scheduler === undefined ? {} : { scheduler: options.scheduler }),
-    abortWork: stopModules,
+    // The modules first (a run stops at its next checkpoint), then the lease they held is released.
+    abortWork: async () => {
+      await stopModules();
+      try {
+        if (database?.sqlite.open === true) releaseRunnerLease(database);
+      } catch {
+        // The database is going away; a lease that stays is released by the next start.
+      }
+    },
     stopSweepers: () => {
       sweepers.stop();
     },

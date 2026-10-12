@@ -1,5 +1,17 @@
-// The command line of the image (FR-A-075): `node dist/cli.js verify-audit [--from N] [--to M]
-// [--expect-seq N] [--expect-hash HEX]`.
+// The command line of the image (FR-A-075, FR-B-110): `node dist/cli.js <command>`.
+//
+//   verify-audit [--from N] [--to M] [--expect-seq N] [--expect-hash HEX]      Phase A, unchanged
+//   generate-app-key    one line of padded base64, 32 random bytes
+//   hash-password       the break-glass hash of a password read from standard input
+//   rotate-app-key      re-seal the stored secrets under a new APP_KEY (FR-B-109)
+//   setup-token, setup-reopen --confirm      owned by the setup engine (S-B3); stubs until T-B-124
+//
+// `runCli` is synchronous and serves `verify-audit` only (its tests call it as such); the dispatcher
+// for every command is the asynchronous `runCommand` (SB-36). Exit codes of every command: 0 success,
+// 1 refusal, 2 bad usage or invalid configuration; results go to standard output, never to the
+// server logger, so a secret cannot reach a log line.
+//
+// verify-audit, in detail:
 //
 // The runtime image has no shell, so the check an operator wants after a restore, an upgrade or an
 // incident has to be a Node script. It opens the database READ-ONLY (it cannot change a byte), streams
@@ -26,11 +38,37 @@ import { verifyChain } from './audit/chain.js';
 import { formatConfigIssues, loadConfig } from './config/index.js';
 import { classifyStorageError } from './db/errors.js';
 import { databasePathOf, openDatabase } from './db/open.js';
+import type { Clock, RandomSource } from './ports/clock.js';
+import { runGenerateAppKey } from './cli/commands/generate-app-key.js';
+import { runHashPassword } from './cli/commands/hash-password.js';
+import { runRotateAppKey } from './cli/commands/rotate-app-key.js';
+import { runSetupReopen } from './cli/commands/setup-reopen.js';
+import { runSetupToken } from './cli/commands/setup-token.js';
 
 export interface CliIo {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly stdout: { write(text: string): unknown };
   readonly stderr: { write(text: string): unknown };
+}
+
+/** What `hash-password` reads: standard input, which is a terminal or a pipe. */
+export interface CommandStdin {
+  readonly isTTY?: boolean;
+  setRawMode?(mode: boolean): unknown;
+  resume(): unknown;
+  pause(): unknown;
+  on(event: 'data', listener: (chunk: Buffer | string) => void): unknown;
+  on(event: 'end', listener: () => void): unknown;
+  once(event: 'end', listener: () => void): unknown;
+  once(event: 'error', listener: (error: Error) => void): unknown;
+  off(event: 'data', listener: (chunk: Buffer | string) => void): unknown;
+}
+
+/** The streams and sources of a command; a test passes its own. */
+export interface CommandIo extends CliIo {
+  readonly stdin?: CommandStdin;
+  readonly random?: RandomSource;
+  readonly now?: Clock['now'];
 }
 
 const USAGE =
@@ -109,11 +147,46 @@ export function runCli(argv: readonly string[], io: CliIo): number {
   return verdict.ok ? 0 : 1;
 }
 
+const COMMAND_USAGE =
+  'usage: node dist/cli.js <command>\n' +
+  '  generate-app-key                       print a new APP_KEY (32 random bytes, base64)\n' +
+  '  hash-password                          read a password from standard input, print the break-glass hash\n' +
+  '  rotate-app-key                         re-seal the stored secrets: APP_KEY (new) and APP_KEY_PREVIOUS (old)\n' +
+  '  setup-token                            print the setup token\n' +
+  '  setup-reopen --confirm                 reopen the setup wizard\n' +
+  '  verify-audit [--from <seq>] [--to <seq>] [--expect-seq <seq>] [--expect-hash <hex>]\n';
+
+type Command = (args: readonly string[], io: CommandIo) => Promise<number>;
+
+const COMMANDS: Readonly<Record<string, Command>> = Object.freeze({
+  'generate-app-key': runGenerateAppKey,
+  'hash-password': runHashPassword,
+  'rotate-app-key': runRotateAppKey,
+  'setup-token': runSetupToken,
+  'setup-reopen': runSetupReopen,
+  'verify-audit': (args, io) => Promise.resolve(runCli(['verify-audit', ...args], io)),
+});
+
+/**
+ * The dispatcher (SB-36): runs one command and resolves with its exit code. An unknown command or no
+ * command prints the usage on standard error and is exit 2.
+ */
+export async function runCommand(argv: readonly string[], io: CommandIo): Promise<number> {
+  const [name, ...args] = argv;
+  const command = name !== undefined && Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : undefined;
+  if (command === undefined) {
+    io.stderr.write(COMMAND_USAGE);
+    return 2;
+  }
+  return command(args, io);
+}
+
 // Run when started as a script (`node dist/cli.js ...`, `tsx src/cli.ts ...`), not when imported.
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exitCode = runCli(process.argv.slice(2), {
+  process.exitCode = await runCommand(process.argv.slice(2), {
     env: process.env,
     stdout: process.stdout,
     stderr: process.stderr,
+    stdin: process.stdin,
   });
 }

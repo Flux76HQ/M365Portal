@@ -79,7 +79,8 @@ export function metaRoutes(deps: MetaRoutesDeps): RouteDefinition[] {
           {
             actor: { kind: actor.kind, id: actor.id, label: actor.label },
             permissions: held,
-            features: { showcase: deps.showcase, preview: actor.kind === 'preview' },
+            // TRANSITIONAL: `preview` leaves the wire shape with T-B-194 (S-B4); it is never true any more.
+            features: { showcase: deps.showcase, preview: false },
             version: deps.version,
             publicOrigin: deps.publicOrigin,
             storageAvailable: deps.storageAvailable(),

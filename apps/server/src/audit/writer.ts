@@ -43,13 +43,6 @@ export const AUDIT_ACTOR_KINDS_READABLE = [...AUDIT_ACTOR_KINDS, 'preview'] as c
 export type AuditActorKind = (typeof AUDIT_ACTOR_KINDS)[number];
 export type AuditActorKindReadable = (typeof AUDIT_ACTOR_KINDS_READABLE)[number];
 
-/**
- * TRANSITIONAL, deleted by T-B-240 together with the Phase A preview resolver. The branding service
- * still records the preview actor for as long as that resolver exists (`config/legacy-preview.ts`),
- * so the writer keeps accepting the kind until then. Nothing in Phase B writes it.
- */
-export const TRANSITIONAL_WRITE_KINDS = ['preview'] as const;
-
 /** The closed set that the table also enforces with a CHECK. */
 export const AUDIT_OUTCOMES = ['success', 'denied', 'rejected', 'error'] as const;
 
@@ -61,7 +54,7 @@ export const AuditEntryInputSchema = z
   .strictObject({
     /** UTC with milliseconds, from the injected clock. */
     ts: IsoTimestampSchema,
-    actorKind: z.enum([...AUDIT_ACTOR_KINDS, ...TRANSITIONAL_WRITE_KINDS]),
+    actorKind: z.enum(AUDIT_ACTOR_KINDS),
     actorId: z.string().min(1).max(256),
     /** A route id such as `branding.apply`, or `entity.verb`. */
     action: z.string().max(128).regex(ACTION),

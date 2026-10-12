@@ -13,11 +13,14 @@
 // The boot runs them (`createHttpApp`); `openapi.test.ts` runs them with a route that is missing from
 // one side and expects them to fail.
 import type { OpenAPIHono } from '@hono/zod-openapi';
+import type { AvailabilityGate } from '../module.js';
 import type { AppEnv } from './request-context.js';
 import {
   RouteTable,
   RouteTableError,
+  accessWordOf,
   routerPath,
+  type RouteAccess,
   type RegisteredRoute,
   type RouteTableEntry,
 } from './route-table.js';
@@ -108,24 +111,55 @@ function routeKey(entry: RouteTableEntry): string {
   return `${entry.methods[0] ?? ''} ${entry.paths[0] ?? ''}`;
 }
 
+/** The OpenAPI extensions the definition of a route implies (what `routeConfigOf` writes). */
+export function accessExtensions(entry: {
+  readonly access: RouteAccess;
+  readonly availability?: AvailabilityGate | undefined;
+}): Record<string, unknown> {
+  const { access } = entry;
+  const word = accessWordOf(access);
+  return {
+    'x-access': word,
+    ...(word === 'public' ? { 'x-public': true } : {}),
+    ...(access.permission === undefined ? {} : { 'x-permission': access.permission }),
+    ...(access.stepUp === true ? { 'x-step-up': true } : {}),
+    ...(access.actorKinds === undefined ? {} : { 'x-actor-kinds': [...access.actorKinds] }),
+    ...(access.scoped === undefined ? {} : { 'x-scoped': access.scoped }),
+    ...(entry.availability === undefined ? {} : { 'x-availability': entry.availability }),
+  };
+}
+
+const ACCESS_EXTENSION_KEYS = [
+  'x-access',
+  'x-public',
+  'x-permission',
+  'x-step-up',
+  'x-actor-kinds',
+  'x-scoped',
+  'x-availability',
+] as const;
+
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 function accessProblem(
   entry: RouteTableEntry,
   operation: Readonly<Record<string, unknown>>,
 ): string[] {
   const problems: string[] = [];
-  if ('permission' in entry.access && entry.access.permission !== undefined) {
-    if (operation['x-permission'] !== entry.access.permission) {
+  const expected = accessExtensions(entry);
+  for (const key of ACCESS_EXTENSION_KEYS) {
+    const declared = key in expected;
+    const documented = key in operation;
+    if (declared && !sameValue(operation[key], expected[key])) {
       problems.push(
-        `${entry.id}: x-permission is not the permission the route declares (${entry.access.permission})`,
+        key === 'x-public'
+          ? `${entry.id}: x-public is missing on a public route`
+          : `${entry.id}: ${key} is not what the route declares (${JSON.stringify(expected[key])})`,
       );
-    }
-    if ('x-public' in operation)
-      problems.push(`${entry.id}: x-public on a route that needs a permission`);
-  } else {
-    if (operation['x-public'] !== true)
-      problems.push(`${entry.id}: x-public is missing on a public route`);
-    if ('x-permission' in operation) {
-      problems.push(`${entry.id}: x-permission on a public route`);
+    } else if (!declared && documented) {
+      problems.push(`${entry.id}: ${key} is documented but the route does not declare it`);
     }
   }
   return problems;

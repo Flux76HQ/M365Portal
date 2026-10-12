@@ -12,10 +12,23 @@ import {
   resolveRequestId,
   type AppEnv,
 } from '../src/http/request-context.js';
-import { createFixtureApp, fixtureRoutes } from './helpers/http-app.js';
+import { ADMIN, createFixtureApp, fixtureRoutes, type FixtureApp } from './helpers/http-app.js';
 import { defineRoute } from '../src/http/route.js';
 import { readJson } from './helpers/http-client.js';
 import { createTestApp } from './helpers/test-app.js';
+
+import { LIMITS } from '@m365portal/shared/limits';
+import { vi, type Mock } from 'vitest';
+import { z } from 'zod';
+import {
+  ANONYMOUS_ACTOR,
+  type Actor,
+  type ActorResolver,
+  type SessionSlider,
+} from '../src/policy/actor.js';
+import type { RouteDefinition } from '../src/http/route.js';
+import { createLazyActor } from '../src/http/lazy-actor.js';
+import { testActor } from './helpers/test-actor.js';
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
 
@@ -349,7 +362,7 @@ describe('a JSON write needs a JSON content type (FR-A-020)', () => {
     'application/jsonp',
     'text/json',
   ])('%s gives 415 unsupported_media_type', async (contentType) => {
-    const app = await createFixtureApp({ env: { PREVIEW_MODE: 'true' } });
+    const app = await createFixtureApp({ signedIn: ADMIN });
     const response = await app.client.post('/api/v1/fixture/things', {
       body: '{"name":"ok"}',
       headers: { 'content-type': contentType },
@@ -362,7 +375,7 @@ describe('a JSON write needs a JSON content type (FR-A-020)', () => {
   it.each(['application/json', 'application/json; charset=utf-8', 'Application/JSON'])(
     '%s is accepted',
     async (contentType) => {
-      const app = await createFixtureApp({ env: { PREVIEW_MODE: 'true' } });
+      const app = await createFixtureApp({ signedIn: ADMIN });
       const response = await app.client.post('/api/v1/fixture/things', {
         body: '{"name":"ok"}',
         headers: { 'content-type': contentType },
@@ -372,7 +385,7 @@ describe('a JSON write needs a JSON content type (FR-A-020)', () => {
   );
 
   it('requires multipart for the upload route', async () => {
-    const app = await createFixtureApp({ env: { PREVIEW_MODE: 'true' } });
+    const app = await createFixtureApp({ signedIn: ADMIN });
     const json = await app.client.post('/api/v1/fixture/upload', { json: { file: 'x' } });
     expect(json.status).toBe(415);
     const form = new FormData();
@@ -382,7 +395,7 @@ describe('a JSON write needs a JSON content type (FR-A-020)', () => {
   });
 
   it('refuses a body on a DELETE route unless it is JSON, and accepts none', async () => {
-    const app = await createFixtureApp({ env: { PREVIEW_MODE: 'true' } });
+    const app = await createFixtureApp({ signedIn: ADMIN });
     const none = await app.client.delete('/api/v1/fixture/things/abc');
     expect(none.status).toBe(200);
     const text = await app.client.delete('/api/v1/fixture/things/abc', {
@@ -396,19 +409,19 @@ describe('a JSON write needs a JSON content type (FR-A-020)', () => {
 describe('every response has X-Request-Id and a problem carries the same id (FR-A-024)', () => {
   const CASES: readonly {
     readonly name: string;
-    readonly mode: 'anonymous' | 'preview';
+    readonly mode: 'anonymous' | 'admin';
     readonly send: (app: Awaited<ReturnType<typeof createFixtureApp>>) => Promise<Response>;
     readonly status: number;
   }[] = [
     {
       name: 'a 200',
-      mode: 'preview',
+      mode: 'admin',
       send: (a) => a.client.get('/api/v1/fixture/read'),
       status: 200,
     },
     {
       name: 'a 201',
-      mode: 'preview',
+      mode: 'admin',
       send: (a) => a.client.post('/api/v1/fixture/things', { json: { name: 'x' } }),
       status: 201,
     },
@@ -437,14 +450,14 @@ describe('every response has X-Request-Id and a problem carries the same id (FR-
       status: 403,
     },
     {
-      name: 'a 403 for the permission',
+      name: 'a 401 for the anonymous actor on a permission route (was 403 in Phase A, FR-B-414)',
       mode: 'anonymous',
       send: (a) => a.client.post('/api/v1/fixture/things', { json: { name: 'x' } }),
-      status: 403,
+      status: 401,
     },
     {
       name: 'a 422',
-      mode: 'preview',
+      mode: 'admin',
       send: (a) => a.client.post('/api/v1/fixture/things', { json: {} }),
       status: 422,
     },
@@ -469,7 +482,7 @@ describe('every response has X-Request-Id and a problem carries the same id (FR-
   ];
 
   it.each(CASES)('$name', async ({ mode, send, status }) => {
-    const app = await createFixtureApp(mode === 'preview' ? { env: { PREVIEW_MODE: 'true' } } : {});
+    const app = await createFixtureApp(mode === 'admin' ? { signedIn: ADMIN } : {});
     const response = await send(app);
     expect(response.status).toBe(status);
     const id = response.headers.get('x-request-id');
@@ -505,7 +518,7 @@ describe('every response has X-Request-Id and a problem carries the same id (FR-
 
 describe('a problem leaves nothing of the request behind (FR-A-022, FR-A-023)', () => {
   it('does not echo the path, the query or a body into a 404, 405, 415 or 422', async () => {
-    const app = await createFixtureApp({ env: { PREVIEW_MODE: 'true' } });
+    const app = await createFixtureApp({ signedIn: ADMIN });
     const canary = 'canary-8f2c91';
     const responses = [
       await app.client.get(`/api/v1/${canary}?q=${canary}`),
@@ -578,5 +591,782 @@ describe('the request line and the storage hook of the pipeline (FR-A-051, plan 
     expect((await readJson<{ code: string }>(response)).code).toBe('storage_unavailable');
     expect(seen).toEqual(['corrupt']);
     expect(app.logs.text()).not.toContain('malformed');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Phase B: the resolution order of the wrapper (T-B-237, contracts section 1, FR-B-505, FR-B-415)
+// ---------------------------------------------------------------------------------------------
+
+const OK_RESPONSE = {
+  200: {
+    description: 'Done',
+    content: { 'application/json': { schema: z.strictObject({ ok: z.literal(true) }) } },
+  },
+} as const;
+
+type RouteSpecOf = Parameters<typeof defineRoute>[0];
+
+function probeRoute(
+  spec: Partial<RouteSpecOf> & Pick<RouteSpecOf, 'id' | 'method' | 'path'>,
+  enter: (id: string) => void,
+): RouteDefinition {
+  return defineRoute({
+    access: { public: true },
+    rateLimit: spec.method === 'GET' ? 'read' : 'write',
+    responses: OK_RESPONSE,
+    handler: (c) => {
+      enter(spec.id);
+      return c.json({ ok: true }, 200);
+    },
+    ...spec,
+  });
+}
+
+interface Pipeline {
+  readonly app: FixtureApp;
+  actor: Actor;
+  gate: { setupOpen: boolean; breakGlass: boolean };
+  readonly resolve: Mock<ActorResolver>;
+  readonly slide: Mock<SessionSlider>;
+}
+
+async function pipelineOf(
+  routes: (enter: (id: string) => void) => RouteDefinition[],
+  extra: {
+    readonly rules?: Parameters<typeof createFixtureApp>[0] extends infer O
+      ? O extends { rules?: infer R }
+        ? R
+        : never
+      : never;
+  } = {},
+): Promise<Pipeline> {
+  const state: Pipeline = {
+    actor: ANONYMOUS_ACTOR,
+    gate: { setupOpen: true, breakGlass: true },
+    resolve: vi.fn<ActorResolver>(),
+    slide: vi.fn<SessionSlider>(),
+    app: undefined as unknown as FixtureApp,
+  };
+  state.resolve.mockImplementation(() => state.actor);
+  const app = await createFixtureApp({
+    ...(extra.rules === undefined ? {} : { rules: extra.rules }),
+    resolveActor: (request) => state.resolve(request),
+    slideSession: (actor) => {
+      state.slide(actor);
+    },
+    availability: {
+      setupOpen: () => state.gate.setupOpen,
+      breakGlass: () => state.gate.breakGlass,
+    },
+    routes: ({ calls, csrf }) => [
+      ...fixtureRoutes(calls, csrf, { withCsrf: true }).filter(
+        (route) => route.id === 'fixture.csrf',
+      ),
+      ...routes((id) => {
+        calls.byRoute.set(id, (calls.byRoute.get(id) ?? 0) + 1);
+      }),
+    ],
+  });
+  return Object.assign(state, { app });
+}
+
+/** The paths the actor was resolved for, apart from the CSRF route a client fetches its token from. */
+function resolvedPaths(pipeline: Pipeline): string[] {
+  return pipeline.resolve.mock.calls
+    .map(([request]) => new URL(request.url).pathname)
+    .filter((path) => path !== '/api/v1/csrf');
+}
+
+/** Everything of a response except the request id, to compare a gate with an unknown path. */
+async function shapeOf(response: Response): Promise<unknown> {
+  const headers = [...response.headers.entries()]
+    .filter(([name]) => name !== 'x-request-id')
+    .sort(([a], [b]) => a.localeCompare(b));
+  const body = (await response.json()) as Record<string, unknown>;
+  return { status: response.status, headers, body: { ...body, requestId: '-' } };
+}
+
+/** The guard of FR-B-207: a closed route and an unknown path cannot be told apart. */
+async function assertIndistinguishable(input: {
+  readonly pipeline: Pipeline;
+  readonly closedPath: string;
+  readonly unknownPath: string;
+}): Promise<void> {
+  const closed = await shapeOf(await input.pipeline.app.client.get(input.closedPath));
+  const unknown = await shapeOf(await input.pipeline.app.client.get(input.unknownPath));
+  if (JSON.stringify(closed) !== JSON.stringify(unknown)) {
+    throw new Error('the closed route and the unknown path can be told apart');
+  }
+}
+
+describe('the availability gate (T-B-237, FR-B-207 mechanism, SB-29)', () => {
+  const gatedRoutes = (enter: (id: string) => void): RouteDefinition[] => [
+    probeRoute(
+      { id: 'gated.read', method: 'GET', path: '/api/v1/gated/read', availability: 'setupOpen' },
+      enter,
+    ),
+    probeRoute(
+      { id: 'gated.make', method: 'POST', path: '/api/v1/gated/make', availability: 'setupOpen' },
+      enter,
+    ),
+    probeRoute(
+      {
+        id: 'gated.second',
+        method: 'GET',
+        path: '/api/v1/gated/second',
+        availability: 'breakGlass',
+      },
+      enter,
+    ),
+  ];
+
+  it('lets the handler answer while the gate is open', async () => {
+    const pipeline = await pipelineOf(gatedRoutes);
+    const response = await pipeline.app.client.get('/api/v1/gated/read');
+    expect(response.status).toBe(200);
+    expect(pipeline.app.calls.of('gated.read')).toBe(1);
+  });
+
+  it('answers a closed gate byte for byte like an unknown path, apart from the request id', async () => {
+    const pipeline = await pipelineOf(gatedRoutes);
+    pipeline.gate.setupOpen = false;
+    await assertIndistinguishable({
+      pipeline,
+      closedPath: '/api/v1/gated/read',
+      unknownPath: '/api/v1/gated/nothing',
+    });
+    expect((await pipeline.app.client.get('/api/v1/gated/read')).status).toBe(404);
+    expect(pipeline.app.calls.of('gated.read')).toBe(0);
+  });
+
+  it('does not let a closed gate show up as a 405 for another method', async () => {
+    const pipeline = await pipelineOf(gatedRoutes);
+    pipeline.gate.setupOpen = false;
+    const closed = await shapeOf(await pipeline.app.client.delete('/api/v1/gated/read'));
+    const unknown = await shapeOf(await pipeline.app.client.delete('/api/v1/gated/nothing'));
+    expect(closed).toEqual(unknown);
+    expect((closed as { status: number }).status).toBe(404);
+  });
+
+  it('is decided per gate: the other gate stays open', async () => {
+    const pipeline = await pipelineOf(gatedRoutes);
+    pipeline.gate.setupOpen = false;
+    expect((await pipeline.app.client.get('/api/v1/gated/second')).status).toBe(200);
+    pipeline.gate.breakGlass = false;
+    expect((await pipeline.app.client.get('/api/v1/gated/second')).status).toBe(404);
+  });
+
+  it('answers before Origin, CSRF and the actor: a closed POST gate is a plain 404', async () => {
+    const pipeline = await pipelineOf(gatedRoutes);
+    pipeline.gate.setupOpen = false;
+    const response = await pipeline.app.client.post('/api/v1/gated/make', {
+      json: {},
+      origin: 'https://evil.example',
+      csrf: 'none',
+    });
+    expect(response.status).toBe(404);
+    expect(resolvedPaths(pipeline)).toEqual([]);
+  });
+
+  describe('it consumes one token of the bucket the unknown-path fallback consumes', () => {
+    const rules = {
+      read: { capacity: 3, refillIntervalMs: 3_600_000 },
+      write: { capacity: 2, refillIntervalMs: 3_600_000 },
+    } as const;
+
+    it('read for GET: gate hits and unknown hits share the bucket', async () => {
+      const pipeline = await pipelineOf(gatedRoutes, { rules });
+      pipeline.gate.setupOpen = false;
+      const statuses: number[] = [];
+      for (const path of ['/api/v1/gated/read', '/api/v1/gated/nothing', '/api/v1/gated/read']) {
+        statuses.push((await pipeline.app.client.get(path)).status);
+      }
+      statuses.push((await pipeline.app.client.get('/api/v1/gated/read')).status);
+      expect(statuses).toEqual([404, 404, 404, 429]);
+    });
+
+    it('write for every other method: a closed POST gate spends a write token', async () => {
+      const pipeline = await pipelineOf(gatedRoutes, { rules });
+      pipeline.gate.setupOpen = false;
+      const post = (path: string): Promise<Response> =>
+        pipeline.app.client.post(path, { json: {}, csrf: 'none' });
+      expect((await post('/api/v1/gated/make')).status).toBe(404);
+      expect((await post('/api/v1/gated/nothing')).status).toBe(404);
+      expect((await post('/api/v1/gated/make')).status).toBe(429);
+      // The read bucket is untouched.
+      expect((await pipeline.app.client.get('/api/v1/gated/read')).status).toBe(404);
+    });
+
+    it('negative fixture: a route that is reachable is told apart from an unknown path', async () => {
+      // The same comparison on a gate that is open: the route answers, the unknown path does not.
+      const pipeline = await pipelineOf(gatedRoutes, { rules });
+      await expectGuardFails(
+        assertIndistinguishable,
+        { pipeline, closedPath: '/api/v1/gated/read', unknownPath: '/api/v1/gated/nothing' },
+        { reason: 'told apart' },
+      );
+    });
+  });
+});
+
+describe('the order of the guards of a route (T-B-237, contracts section 1)', () => {
+  const orderRoutes = (enter: (id: string) => void): RouteDefinition[] => [
+    probeRoute(
+      {
+        id: 'order.make',
+        method: 'POST',
+        path: '/api/v1/order/make',
+        access: { authenticated: true },
+        request: {
+          body: {
+            required: true,
+            content: { 'application/json': { schema: z.strictObject({ name: z.string() }) } },
+          },
+        },
+      },
+      enter,
+    ),
+  ];
+
+  it('asks for the actor only after the rate limit, the body rules, Origin and CSRF', async () => {
+    const pipeline = await pipelineOf(orderRoutes, {
+      rules: { write: { capacity: 1, refillIntervalMs: 3_600_000 } },
+    });
+    pipeline.actor = testActor('user');
+    const client = pipeline.app.client;
+    await client.csrfToken();
+
+    // Origin and CSRF refuse first.
+    expect(
+      (
+        await client.post('/api/v1/order/make', {
+          json: { name: 'a' },
+          origin: 'https://evil.example',
+        })
+      ).status,
+    ).toBe(403);
+    expect(resolvedPaths(pipeline)).toEqual([]);
+  });
+
+  it('does not ask for the actor of a request the limiter refused', async () => {
+    const pipeline = await pipelineOf(orderRoutes, {
+      rules: { write: { capacity: 1, refillIntervalMs: 3_600_000 } },
+    });
+    pipeline.actor = testActor('user');
+    expect(
+      (await pipeline.app.client.post('/api/v1/order/make', { json: { name: 'a' } })).status,
+    ).toBe(200);
+    expect(resolvedPaths(pipeline)).toEqual(['/api/v1/order/make']);
+    const refused = await pipeline.app.client.post('/api/v1/order/make', { json: { name: 'a' } });
+    expect(refused.status).toBe(429);
+    expect(resolvedPaths(pipeline)).toEqual(['/api/v1/order/make']);
+  });
+
+  it('does not ask for the actor when the CSRF token is wrong', async () => {
+    const pipeline = await pipelineOf(orderRoutes);
+    const response = await pipeline.app.client.post('/api/v1/order/make', {
+      json: { name: 'a' },
+      csrf: 'none',
+    });
+    expect(response.status).toBe(403);
+    expect(await readJson(response)).toMatchObject({ code: 'csrf_invalid' });
+    expect(resolvedPaths(pipeline)).toEqual([]);
+  });
+
+  it('answers 401 before validation, so an anonymous caller learns nothing about the body', async () => {
+    const pipeline = await pipelineOf(orderRoutes);
+    const response = await pipeline.app.client.post('/api/v1/order/make', { json: {} });
+    expect(response.status).toBe(401);
+    expect(await readJson(response)).toMatchObject({ code: 'unauthenticated' });
+    expect(pipeline.app.calls.of('order.make')).toBe(0);
+  });
+
+  it('answers validation 422 only for a caller who passed every access rule', async () => {
+    const pipeline = await pipelineOf(orderRoutes);
+    pipeline.actor = testActor('user');
+    const response = await pipeline.app.client.post('/api/v1/order/make', { json: {} });
+    expect(response.status).toBe(422);
+    expect(pipeline.app.calls.of('order.make')).toBe(0);
+  });
+
+  it('extends the session only for a request that passed its guards, and not on the polled reads', async () => {
+    const pipeline = await pipelineOf((enter) => [
+      probeRoute(
+        {
+          id: 'connection.log',
+          method: 'GET',
+          path: '/api/v1/connection/log',
+          access: { connection: true },
+          slidesSession: false,
+        },
+        enter,
+      ),
+      probeRoute(
+        {
+          id: 'connection.get',
+          method: 'GET',
+          path: '/api/v1/connection',
+          access: { connection: true },
+        },
+        enter,
+      ),
+    ]);
+    pipeline.actor = testActor('setup');
+    await pipeline.app.client.get('/api/v1/connection/log');
+    expect(pipeline.slide).not.toHaveBeenCalled();
+    await pipeline.app.client.get('/api/v1/connection');
+    expect(pipeline.slide).toHaveBeenCalledTimes(1);
+    expect(pipeline.slide.mock.calls[0]?.[0].kind).toBe('setup');
+    // A refused request does not extend anything.
+    pipeline.actor = ANONYMOUS_ACTOR;
+    expect((await pipeline.app.client.get('/api/v1/connection')).status).toBe(401);
+    expect(pipeline.slide).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for the actor of a refused write only if the denial audit reads it', async () => {
+    const denials: string[] = [];
+    const actors: Actor[] = [];
+    const state = {
+      resolve: vi.fn<ActorResolver>(() => testActor('user', { id: 'someone' })),
+    };
+    const app = await createFixtureApp({
+      resolveActor: (request) => state.resolve(request),
+      onDenied: (c, denial) => {
+        denials.push(denial.code);
+        actors.push(c.get('actor'));
+      },
+      routes: ({ calls, csrf }) => [
+        ...fixtureRoutes(calls, csrf, { withCsrf: true }).filter(
+          (route) => route.id === 'fixture.csrf',
+        ),
+        ...orderRoutes(() => undefined),
+      ],
+    });
+    const response = await app.client.post('/api/v1/order/make', {
+      json: { name: 'a' },
+      origin: 'https://evil.example',
+    });
+    expect(response.status).toBe(403);
+    expect(denials).toEqual(['origin_not_allowed']);
+    expect(actors[0]?.kind).toBe('user');
+    expect(actors[0]?.id).toBe('someone');
+    expect(
+      state.resolve.mock.calls.filter(
+        ([request]) => new URL(request.url).pathname === '/api/v1/order/make',
+      ),
+    ).toHaveLength(1);
+  });
+});
+
+describe('who may call a route: the access words, the kinds and the step-up (T-B-237)', () => {
+  const RBAC = 'rbac:manage';
+  const accessRoutes = (enter: (id: string) => void): RouteDefinition[] => [
+    probeRoute(
+      {
+        id: 'acc.authenticated',
+        method: 'GET',
+        path: '/api/v1/acc/authenticated',
+        access: { authenticated: true },
+      },
+      enter,
+    ),
+    probeRoute(
+      {
+        id: 'acc.usersonly',
+        method: 'GET',
+        path: '/api/v1/acc/usersonly',
+        access: { authenticated: true, actorKinds: ['user'] },
+      },
+      enter,
+    ),
+    probeRoute(
+      {
+        id: 'acc.permission',
+        method: 'GET',
+        path: '/api/v1/acc/permission',
+        access: { permission: RBAC, unscopedReason: 'global-only permission' },
+      },
+      enter,
+    ),
+    probeRoute(
+      {
+        id: 'acc.kinds',
+        method: 'GET',
+        path: '/api/v1/acc/kinds',
+        access: {
+          permission: RBAC,
+          actorKinds: ['user'],
+          unscopedReason: 'global-only permission',
+        },
+      },
+      enter,
+    ),
+    probeRoute(
+      {
+        id: 'acc.stepup',
+        method: 'GET',
+        path: '/api/v1/acc/stepup',
+        access: { permission: RBAC, stepUp: true, unscopedReason: 'global-only permission' },
+      },
+      enter,
+    ),
+    probeRoute(
+      { id: 'acc.setup', method: 'GET', path: '/api/v1/setup/acc', access: { setup: true } },
+      enter,
+    ),
+    probeRoute(
+      {
+        id: 'acc.connection',
+        method: 'GET',
+        path: '/api/v1/connection/acc',
+        access: { connection: true },
+      },
+      enter,
+    ),
+    probeRoute(
+      {
+        id: 'acc.connection.stepup',
+        method: 'GET',
+        path: '/api/v1/connection/stepup',
+        access: { connection: true, stepUp: true },
+      },
+      enter,
+    ),
+  ];
+
+  interface Row {
+    readonly route: string;
+    readonly path: string;
+    readonly actor: Actor;
+    readonly status: number;
+    readonly code?: string;
+  }
+
+  const user = (permissions: Parameters<typeof testActor>[1] = {}): Actor =>
+    testActor('user', permissions);
+  const rows: readonly Row[] = [
+    { route: 'authenticated: user', path: '/api/v1/acc/authenticated', actor: user(), status: 200 },
+    {
+      route: 'authenticated: break-glass',
+      path: '/api/v1/acc/authenticated',
+      actor: testActor('break_glass'),
+      status: 200,
+    },
+    {
+      route: 'authenticated: anonymous',
+      path: '/api/v1/acc/authenticated',
+      actor: ANONYMOUS_ACTOR,
+      status: 401,
+      code: 'unauthenticated',
+    },
+    {
+      route: 'authenticated: the setup actor is not authenticated in this sense',
+      path: '/api/v1/acc/authenticated',
+      actor: testActor('setup'),
+      status: 401,
+      code: 'unauthenticated',
+    },
+    {
+      route: 'actorKinds: a user passes',
+      path: '/api/v1/acc/usersonly',
+      actor: user(),
+      status: 200,
+    },
+    {
+      route: 'actorKinds: break-glass is refused',
+      path: '/api/v1/acc/usersonly',
+      actor: testActor('break_glass'),
+      status: 403,
+      code: 'permission_denied',
+    },
+    {
+      route: 'actorKinds: anonymous is 401, not 403',
+      path: '/api/v1/acc/usersonly',
+      actor: ANONYMOUS_ACTOR,
+      status: 401,
+      code: 'unauthenticated',
+    },
+    {
+      route: 'permission: held',
+      path: '/api/v1/acc/permission',
+      actor: user({ permissions: [RBAC] }),
+      status: 200,
+    },
+    {
+      route: 'permission: missing',
+      path: '/api/v1/acc/permission',
+      actor: user(),
+      status: 403,
+      code: 'permission_denied',
+    },
+    {
+      route: 'permission: the setup actor lacks it',
+      path: '/api/v1/acc/permission',
+      actor: testActor('setup', { permissions: ['settings:branding', 'settings:connection'] }),
+      status: 403,
+      code: 'permission_denied',
+    },
+    {
+      route: 'kinds before permission: a break-glass actor that holds it',
+      path: '/api/v1/acc/kinds',
+      actor: testActor('break_glass', { permissions: [RBAC] }),
+      status: 403,
+      code: 'permission_denied',
+    },
+    {
+      route: 'kinds: a user that holds it',
+      path: '/api/v1/acc/kinds',
+      actor: user({ permissions: [RBAC] }),
+      status: 200,
+    },
+    {
+      route: 'stepUp: fresh',
+      path: '/api/v1/acc/stepup',
+      actor: user({ permissions: [RBAC], stepUpFresh: true }),
+      status: 200,
+    },
+    {
+      route: 'stepUp: stale',
+      path: '/api/v1/acc/stepup',
+      actor: user({ permissions: [RBAC], stepUpFresh: false }),
+      status: 403,
+      code: 'step_up_required',
+    },
+    {
+      route: 'stepUp: permission is checked before it',
+      path: '/api/v1/acc/stepup',
+      actor: user({ stepUpFresh: false }),
+      status: 403,
+      code: 'permission_denied',
+    },
+    {
+      route: 'stepUp: break-glass is exempt',
+      path: '/api/v1/acc/stepup',
+      actor: testActor('break_glass', { permissions: [RBAC] }),
+      status: 200,
+    },
+    {
+      route: 'setup: the setup actor',
+      path: '/api/v1/setup/acc',
+      actor: testActor('setup'),
+      status: 200,
+    },
+    {
+      route: 'setup: a signed-in user is not the setup actor',
+      path: '/api/v1/setup/acc',
+      actor: user({ permissions: ['settings:connection'] }),
+      status: 401,
+      code: 'unauthenticated',
+    },
+    {
+      route: 'setup: anonymous',
+      path: '/api/v1/setup/acc',
+      actor: ANONYMOUS_ACTOR,
+      status: 401,
+      code: 'unauthenticated',
+    },
+    {
+      route: 'connection: the setup actor',
+      path: '/api/v1/connection/acc',
+      actor: testActor('setup'),
+      status: 200,
+    },
+    {
+      route: 'connection: a user with settings:connection',
+      path: '/api/v1/connection/acc',
+      actor: user({ permissions: ['settings:connection'] }),
+      status: 200,
+    },
+    {
+      route: 'connection: a user without it',
+      path: '/api/v1/connection/acc',
+      actor: user(),
+      status: 403,
+      code: 'permission_denied',
+    },
+    {
+      route: 'connection: break-glass',
+      path: '/api/v1/connection/acc',
+      actor: testActor('break_glass', { permissions: [RBAC] }),
+      status: 403,
+      code: 'permission_denied',
+    },
+    {
+      route: 'connection: anonymous',
+      path: '/api/v1/connection/acc',
+      actor: ANONYMOUS_ACTOR,
+      status: 401,
+      code: 'unauthenticated',
+    },
+    {
+      route: 'connection + stepUp: the setup actor is exempt',
+      path: '/api/v1/connection/stepup',
+      actor: testActor('setup'),
+      status: 200,
+    },
+    {
+      route: 'connection + stepUp: a stale user',
+      path: '/api/v1/connection/stepup',
+      actor: user({ permissions: ['settings:connection'], stepUpFresh: false }),
+      status: 403,
+      code: 'step_up_required',
+    },
+    {
+      route: 'connection + stepUp: a fresh user',
+      path: '/api/v1/connection/stepup',
+      actor: user({ permissions: ['settings:connection'], stepUpFresh: true }),
+      status: 200,
+    },
+  ];
+
+  it.each(rows)('$route', async ({ path, actor, status, code }) => {
+    const pipeline = await pipelineOf(accessRoutes);
+    pipeline.actor = actor;
+    const response = await pipeline.app.client.get(path);
+    expect(response.status).toBe(status);
+    if (code !== undefined) expect(await readJson(response)).toMatchObject({ code });
+    expect(Object.fromEntries(pipeline.app.calls.byRoute)).toEqual(
+      status === 200 ? { [rowId(path)]: 1 } : {},
+    );
+  });
+
+  function rowId(path: string): string {
+    const found = [
+      ...[
+        ['/api/v1/acc/authenticated', 'acc.authenticated'],
+        ['/api/v1/acc/usersonly', 'acc.usersonly'],
+        ['/api/v1/acc/permission', 'acc.permission'],
+        ['/api/v1/acc/kinds', 'acc.kinds'],
+        ['/api/v1/acc/stepup', 'acc.stepup'],
+        ['/api/v1/setup/acc', 'acc.setup'],
+        ['/api/v1/connection/acc', 'acc.connection'],
+        ['/api/v1/connection/stepup', 'acc.connection.stepup'],
+      ],
+    ].find(([candidate]) => candidate === path);
+    return found?.[1] ?? '';
+  }
+
+  it('answers a refused step-up before validation', async () => {
+    const pipeline = await pipelineOf((enter) => [
+      probeRoute(
+        {
+          id: 'acc.make',
+          method: 'POST',
+          path: '/api/v1/acc/make',
+          access: { permission: RBAC, stepUp: true, unscopedReason: 'global-only permission' },
+          request: {
+            body: {
+              required: true,
+              content: { 'application/json': { schema: z.strictObject({ name: z.string() }) } },
+            },
+          },
+        },
+        enter,
+      ),
+    ]);
+    pipeline.actor = user({ permissions: [RBAC], stepUpFresh: false });
+    const stale = await pipeline.app.client.post('/api/v1/acc/make', { json: {} });
+    expect(stale.status).toBe(403);
+    expect(await readJson(stale)).toMatchObject({ code: 'step_up_required' });
+    pipeline.actor = user({ permissions: [RBAC], stepUpFresh: true });
+    expect((await pipeline.app.client.post('/api/v1/acc/make', { json: {} })).status).toBe(422);
+    expect(
+      (await pipeline.app.client.post('/api/v1/acc/make', { json: { name: 'x' } })).status,
+    ).toBe(200);
+  });
+
+  it('is the actor kind that decides, not a name in the request', async () => {
+    const pipeline = await pipelineOf(accessRoutes);
+    pipeline.actor = user({ permissions: [RBAC] });
+    const response = await pipeline.app.client.get('/api/v1/acc/permission', {
+      headers: { 'x-actor': 'break_glass', cookie: 'actor=setup' },
+    });
+    expect(response.status).toBe(200);
+    expect(pipeline.resolve.mock.calls[0]?.[0]).toBeInstanceOf(Request);
+  });
+});
+
+describe('the Sec-Fetch-Site exemption (T-B-237, SB-25)', () => {
+  const callback = (enter: (id: string) => void): RouteDefinition[] => [
+    probeRoute(
+      {
+        id: 'auth.callback',
+        method: 'GET',
+        path: '/auth/callback',
+        audit: 'auth.signin',
+        rateLimit: 'auth',
+        secFetch: 'cross-site-allowed',
+      },
+      enter,
+    ),
+    probeRoute(
+      {
+        id: 'auth.audited',
+        method: 'GET',
+        path: '/auth/audited',
+        audit: 'auth.signin',
+        rateLimit: 'auth',
+      },
+      enter,
+    ),
+  ];
+
+  it('lets a cross-site navigation reach auth.callback and nothing else', async () => {
+    const pipeline = await pipelineOf(callback);
+    const crossSite = { headers: { 'sec-fetch-site': 'cross-site' } };
+    expect((await pipeline.app.client.get('/auth/callback', crossSite)).status).toBe(200);
+    expect((await pipeline.app.client.get('/auth/audited', crossSite)).status).toBe(403);
+  });
+
+  it('spends the auth class on both', async () => {
+    const pipeline = await pipelineOf(callback, {
+      rules: { auth: { capacity: 2, refillIntervalMs: 3_600_000 } },
+    });
+    const statuses = [];
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      statuses.push((await pipeline.app.client.get('/auth/callback')).status);
+    }
+    expect(statuses).toEqual([200, 200, 429]);
+    expect(LIMITS.rateLimit.auth.capacity).toBe(10);
+  });
+});
+
+describe('the lazy actor (T-B-237, SB-32)', () => {
+  it('resolves nothing until it is read, and once', () => {
+    const resolve = vi.fn(() => testActor('user', { id: 'u1', permissions: ['audit:read'] }));
+    const lazy = createLazyActor(resolve);
+    expect(resolve).not.toHaveBeenCalled();
+    expect(lazy.kind).toBe('user');
+    expect(lazy.id).toBe('u1');
+    expect(lazy.permissions.has('audit:read')).toBe(true);
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('behaves as the actor for spread, in and keys', () => {
+    const lazy = createLazyActor(() => testActor('setup', { id: 'setup' }));
+    expect('kind' in lazy).toBe(true);
+    expect({ ...lazy }).toMatchObject({ kind: 'setup', id: 'setup' });
+    expect(Object.keys(lazy)).toContain('permissions');
+  });
+
+  it('cannot be changed through the handle', () => {
+    const lazy = createLazyActor(() => testActor('user'));
+    expect(() => {
+      (lazy as { kind: string }).kind = 'break_glass';
+    }).toThrow(TypeError);
+    expect(lazy.kind).toBe('user');
+  });
+
+  it('asks again after a failure, and keeps the first answer after a success', () => {
+    let attempt = 0;
+    const lazy = createLazyActor(() => {
+      attempt += 1;
+      if (attempt === 1) throw new Error('storage');
+      return testActor('user', { id: `attempt-${String(attempt)}` });
+    });
+    expect(() => lazy.kind).toThrow('storage');
+    expect(lazy.id).toBe('attempt-2');
+    expect(lazy.id).toBe('attempt-2');
   });
 });

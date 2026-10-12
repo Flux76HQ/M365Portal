@@ -17,11 +17,12 @@ import type { z } from 'zod';
 
 const TEMPLATE = readFileSync(new URL('../fixtures/shell-template.html', import.meta.url), 'utf8');
 const REQUEST = new Request('http://localhost:9300/users');
-const STAFF = { actor: { kind: 'preview', id: 'preview' } } as const;
+const STAFF = { actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa' } } as const;
 
 type Me = z.infer<typeof MeResponseSchema>;
 
 const me = (storageAvailable = true): Me => ({
+  // MeResponse still has the Phase A shape until T-B-194 (S-B4); the shell only embeds it.
   actor: { kind: 'preview', id: 'preview', label: 'Preview' },
   permissions: ['settings:branding'],
   features: { showcase: false, preview: true },

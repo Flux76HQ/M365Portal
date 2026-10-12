@@ -241,7 +241,7 @@ describe('the registry invariants (data-model 6: I-3, I-4, I-5)', () => {
     await storage.service.apply(
       { orgName: 'Acme', accent: '#0078d4', logos: { light: first, dark: null, compact: null } },
       1,
-      { actor: { kind: 'preview', id: 'preview' } },
+      { actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa' } },
     );
     await assertInvariants(storage);
     expect(referencedHashes(storage.database)).toContain(first);
@@ -250,7 +250,7 @@ describe('the registry invariants (data-model 6: I-3, I-4, I-5)', () => {
     await storage.service.apply(
       { orgName: 'Acme', accent: '#0078d4', logos: { light: second, dark: null, compact: null } },
       2,
-      { actor: { kind: 'preview', id: 'preview' } },
+      { actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa' } },
     );
     await assertInvariants(storage);
     const retired = storage.assets().find((row) => row.sha256 === first);
@@ -260,7 +260,7 @@ describe('the registry invariants (data-model 6: I-3, I-4, I-5)', () => {
     await storage.service.apply(
       { orgName: 'Acme', accent: '#0078d4', logos: { light: first, dark: null, compact: null } },
       3,
-      { actor: { kind: 'preview', id: 'preview' } },
+      { actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa' } },
     );
     await assertInvariants(storage);
     expect(storage.assets().find((row) => row.sha256 === first)?.unreferenced_at).toBeNull();
@@ -350,7 +350,9 @@ describe('the quota decision of registerStaged', () => {
         luminance: processed.luminance,
       }),
     );
-    const preview = { actor: { kind: 'preview', id: 'preview' } } as const;
+    const preview = {
+      actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa' },
+    } as const;
     const choice = (light: string | null) =>
       ({
         orgName: 'Acme',

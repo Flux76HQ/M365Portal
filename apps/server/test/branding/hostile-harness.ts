@@ -609,8 +609,10 @@ export interface HttpTargetOptions {
   readonly server: ServerHandle;
   /** `PUBLIC_BASE_URL`'s origin: sent as `Origin` and as the host of `Host`. */
   readonly publicOrigin: string;
-  /** A valid CSRF token for the actor (the preview actor in Phase A). */
+  /** A valid CSRF token for the actor (fetched with the same cookie as the requests). */
   readonly csrfToken: () => Promise<string>;
+  /** The `Cookie` header of the signed-in user the requests act as (T-B-245); none: anonymous. */
+  readonly cookie?: string;
   /** `DATA_DIR` of the server, to read what it stored. */
   readonly dataDir: string;
   /** Every audit entry written so far, oldest first. */
@@ -778,6 +780,7 @@ export function viaHttp(options: HttpTargetOptions): HostileTarget {
     host: new URL(options.publicOrigin).host,
     origin: options.publicOrigin,
     'x-csrf-token': await options.csrfToken(),
+    ...(options.cookie === undefined ? {} : { cookie: options.cookie }),
     ...(options.clientAddress === undefined ? {} : { 'x-forwarded-for': options.clientAddress() }),
     ...headers,
   });

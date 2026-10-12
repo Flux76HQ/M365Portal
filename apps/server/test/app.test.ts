@@ -6,7 +6,7 @@
 //   - the table of the real application: the core routes, the module's routes, the fallbacks in
 //     their order, and no write route of the core (Phase A has none: FR-A-033)
 //   - the table-driven tests of `policy.test.ts` and `audit-integration.test.ts` over the REAL table
-//     (s1e-6): every write route refuses the anonymous actor with 403 and leaves a denial row that
+//     (s1e-6): every write route refuses the anonymous actor with 401 and leaves a denial row that
 //     verifies, written by the denial audit that `buildApp` wired to the database of the moment
 //   - degraded mode (no database): the same denial is the 503 of storage, fail closed
 //   - the shell: the module's renderer replaces the placeholder
@@ -34,6 +34,7 @@ import { requestBodyFor, writeRoutesOf } from './helpers/http-app.js';
 import { createHttpClient, readJson } from './helpers/http-client.js';
 import { createLogCapture } from './helpers/log-capture.js';
 import { createTempDataDir } from './helpers/temp-data-dir.js';
+import { moduleDepsExtras } from './helpers/module-deps-extras.js';
 
 const SERVER_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const WEB = join(SERVER_ROOT, 'test', 'fixtures', 'web-dist');
@@ -131,6 +132,7 @@ async function build(
     shellTemplate: '',
     sweepers: createSweeperRegistry({ log }),
     isShuttingDown: () => shutdown.current,
+    ...moduleDepsExtras(),
   };
   const modules = options.modules ?? [{ id: 'fixture', routes: fixtureRoutes }];
   const deps: BuildAppDeps = {
@@ -238,7 +240,7 @@ describe('buildApp: the real table', () => {
 });
 
 describe('buildApp: the table-driven checks over the real application (s1e-6)', () => {
-  it('every write route refuses the anonymous actor with 403 and audits the denial', async () => {
+  it('every write route refuses the anonymous actor with 401 and audits the denial', async () => {
     const app = await build();
     const routes = writeRoutesOf(app.built);
     expect(routes.map((route) => route.id).sort()).toEqual([
@@ -248,14 +250,18 @@ describe('buildApp: the table-driven checks over the real application (s1e-6)', 
     const client = clientOf(app);
     for (const route of routes) {
       const response = await client.request(route.method, route.path, requestBodyFor(route));
-      expect(response.status, route.id).toBe(403);
-      expect((await readJson<{ code: string }>(response)).code, route.id).toBe('permission_denied');
+      expect(response.status, route.id).toBe(401);
+      expect((await readJson<{ code: string }>(response)).code, route.id).toBe('unauthenticated');
     }
     const rows = app.database?.sqlite
       .prepare('SELECT action, outcome, reason_code AS reason FROM audit_log ORDER BY seq')
       .all();
     expect(rows).toEqual(
-      routes.map((route) => ({ action: route.id, outcome: 'denied', reason: 'permission_denied' })),
+      routes.map((route) => ({
+        action: route.id,
+        outcome: 'denied',
+        reason: 'permission_missing',
+      })),
     );
     expect(verifyChain(app.database?.sqlite as never)).toMatchObject({ ok: true, checked: 2 });
   });

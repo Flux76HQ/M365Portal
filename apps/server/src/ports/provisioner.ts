@@ -42,6 +42,18 @@ export interface ApplicationInfo {
   readonly signInAudience: string | null;
   readonly redirectUris: readonly string[] | null;
   readonly tags: readonly string[] | null;
+  /** The application permissions the registration requests; `null` when the call did not select them. */
+  readonly requiredResourceAccess:
+    | readonly {
+        readonly resourceAppId: Guid;
+        readonly resourceAccess: readonly { readonly id: Guid; readonly type: string | null }[];
+      }[]
+    | null;
+  /** The optional ID-token claims (`amr`, `auth_time`); `null` when the call did not select them. */
+  readonly optionalClaims: {
+    readonly idToken:
+      readonly { readonly name: string; readonly essential: boolean | null }[] | null;
+  } | null;
 }
 
 export interface ApplicationCreateBody {
@@ -84,20 +96,49 @@ export interface ApplicationPatch {
 }
 
 export interface AppRoleAssignmentInfo {
-  readonly id: Guid;
+  /** Graph's own id for the assignment: an opaque string, not a GUID. */
+  readonly id: string;
   readonly principalId: Guid;
   readonly resourceId: Guid;
   readonly appRoleId: Guid;
 }
 
 export interface DirectoryRoleAssignmentInfo {
-  readonly id: Guid;
+  /** Graph's own id for the assignment: an opaque string, not a GUID. */
+  readonly id: string;
   readonly principalId: Guid;
   readonly roleDefinitionId: Guid;
   readonly directoryScopeId: string | null;
 }
 
+/**
+ * What an application or a service principal holds that could be used to act as it (FR-B-318,
+ * FR-B-319): secrets, certificates and owners. A part Graph would not show (U50) or did not return is
+ * `null`, never zero: the caller fails closed on `null` and shows "not checked".
+ */
+export interface CredentialInventory {
+  /** The number of password credentials. The secret text is never read. */
+  readonly passwordCredentials: number | null;
+  /** The key credentials, each with its SHA-1 thumbprint (upper-case hex) when Graph gave one. */
+  readonly keyCredentials:
+    readonly { readonly keyId: Guid | null; readonly thumbprintSha1: string | null }[] | null;
+  /** Object ids of the owners. */
+  readonly ownerIds: readonly Guid[] | null;
+}
+
 export interface TenantProvisioner {
+  /**
+   * `GET /applications/{id}?$select=id,appId,displayName,tags,passwordCredentials,keyCredentials` and
+   * `GET /applications/{id}/owners?$select=id` (FR-B-318). A missing application is
+   * `GraphNotFoundError`.
+   */
+  inspectApplication(objectId: Guid): Promise<CredentialInventory>;
+  /**
+   * `GET /servicePrincipals(appId='...')?$select=id,passwordCredentials,keyCredentials` and
+   * `GET /servicePrincipals/{id}/owners?$select=id`; `null` when the application has no service
+   * principal.
+   */
+  inspectServicePrincipal(appId: Guid): Promise<CredentialInventory | null>;
   /** `GET /servicePrincipals?$filter=appId eq '<appId>'`, with `appRoles`. */
   findServicePrincipalByAppId(appId: Guid): Promise<ServicePrincipalInfo | null>;
   getApplication(objectId: Guid): Promise<ApplicationInfo | null>;

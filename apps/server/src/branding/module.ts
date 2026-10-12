@@ -18,7 +18,6 @@ import { PERMISSIONS, type Permission } from '@m365portal/shared/permissions';
 import type { MeResponseSchema } from '@m365portal/shared/schemas/meta';
 import type { z } from 'zod';
 import type { AppModule, ModuleDeps } from '../module.js';
-import { resolveActor } from '../policy/index.js';
 import { APP_VERSION } from '../version.js';
 import { createAssetStore } from './asset-store.js';
 import { exportImportRoutes } from './routes/export-import.js';
@@ -52,12 +51,14 @@ export interface BrandingModuleOptions {
  * preview actor. `module.test.ts` pins that the two never differ.
  */
 function meOf(deps: ModuleDeps, request: Request): MeResponse {
-  const actor = resolveActor(deps.config, request);
+  const actor = deps.resolveActor(request);
   const held: Permission[] = PERMISSIONS.filter((candidate) => actor.permissions.has(candidate));
   return {
-    actor: { kind: actor.kind, id: actor.id, label: actor.label },
+    // TRANSITIONAL: the wire enum is Phase A's until T-B-194 replaces the shape of `me` (S-B4).
+    actor: { kind: actor.kind as MeResponse['actor']['kind'], id: actor.id, label: actor.label },
     permissions: held,
-    features: { showcase: deps.config.showcase, preview: actor.kind === 'preview' },
+    // TRANSITIONAL: `preview` leaves the wire shape with T-B-194 (S-B4); it is never true any more.
+    features: { showcase: deps.config.showcase, preview: false },
     version: APP_VERSION,
     publicOrigin: deps.config.publicOrigin,
     storageAvailable: deps.storageAvailable(),
