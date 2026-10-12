@@ -25,6 +25,8 @@ export interface RunPollState {
   readonly truncated: boolean;
   /** The last request failed (cleared by the next answer). */
   readonly error: unknown;
+  /** The server's clock minus this browser's at the last answer (0 before the first). */
+  readonly offsetMs: number;
 }
 
 export interface RunPoller {
@@ -53,7 +55,7 @@ export function isActive(snapshot: RunSnapshot | null): boolean {
   return snapshot.deviceCode?.state === 'waiting_for_user' || snapshot.adoption !== null;
 }
 
-const INITIAL: RunPollState = Object.freeze({ snapshot: null, lines: [], truncated: false, error: null });
+const INITIAL: RunPollState = Object.freeze({ snapshot: null, lines: [], truncated: false, error: null, offsetMs: 0 });
 
 export function createRunPoller(options: RunPollerOptions): RunPoller {
   const api = connectionApi(options.api);
@@ -90,7 +92,8 @@ export function createRunPoller(options: RunPollerOptions): RunPoller {
     try {
       const snapshot = await api.snapshot(cursor, controller.signal);
       if (!running) return;
-      const fresh = snapshot.log.lines;
+      // A line is shown once: whatever the server repeats (or a slow answer that arrives twice) is dropped.
+      const fresh = snapshot.log.lines.filter((line) => line.seq > cursor);
       cursor = Math.max(cursor, snapshot.log.lastSeq);
       const lines = fresh.length === 0 ? state.lines : [...state.lines, ...fresh].slice(-LOG_LINES_KEPT);
       publish({
@@ -98,6 +101,7 @@ export function createRunPoller(options: RunPollerOptions): RunPoller {
         lines,
         truncated: state.truncated || snapshot.log.truncated,
         error: null,
+        offsetMs: Date.parse(snapshot.serverTime) - Date.now(),
       });
       const active = isActive(snapshot);
       if (wasActive && !active) options.onSettled?.(snapshot);

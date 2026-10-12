@@ -68,7 +68,9 @@ export const certificateSubAction: SubActionDefinition = {
       );
     };
 
+    let changed = false;
     if (!(await present())) {
+      changed = true;
       const existing = await provisioner.readKeyCredentials(objectId);
       ctx.checkpoint();
       const list = existing.map((entry) => {
@@ -112,19 +114,23 @@ export const certificateSubAction: SubActionDefinition = {
     // 5. The certificate becomes active only after the read-back.
     if (certificate.state === 'pending') {
       certificate = secrets.certificates.activate(ctx.db, certificate.id);
+      changed = true;
     }
     current = secrets.certificates.current(ctx.db);
     const activeId = current.active?.id ?? certificate.id;
-    recordChange(ctx, {
-      kind: 'application',
-      tenantObjectId: objectId,
-      name: 'certificate',
-      origin: 'created',
-      op: 'update',
-      tenantFields: { certificateId: activeId },
-      hintKey: 'setup.hint.certificate',
-      hintDetail: { thumbprint8, objectId },
-    });
+    // Only a change is recorded and audited (FR-B-208): a run over a finished tenant writes nothing.
+    if (changed || services.connections.read(ctx.db)?.certificateId !== activeId) {
+      recordChange(ctx, {
+        kind: 'application',
+        tenantObjectId: objectId,
+        name: 'certificate',
+        origin: 'created',
+        op: 'update',
+        tenantFields: { certificateId: activeId },
+        hintKey: 'setup.hint.certificate',
+        hintDetail: { thumbprint8, objectId },
+      });
+    }
     return {
       status: 'succeeded',
       detail: { thumbprint8, objectId },

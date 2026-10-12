@@ -17,6 +17,7 @@ import { Route as DistributionListsRouteImport } from './routes/distribution-lis
 import { Route as GroupsRouteImport } from './routes/groups'
 import { Route as NoAccessRouteImport } from './routes/no-access'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SigninRouteImport } from './routes/signin'
 import { Route as UsersRouteImport } from './routes/users'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
@@ -62,6 +63,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SetupRoute = SetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SigninRoute = SigninRouteImport.update({
   id: '/signin',
   path: '/signin',
@@ -92,6 +98,7 @@ export interface FileRoutesByFullPath {
   '/groups': typeof GroupsRoute
   '/no-access': typeof NoAccessRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/setup': typeof SetupRoute
   '/signin': typeof SigninRoute
   '/users': typeof UsersRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -105,6 +112,7 @@ export interface FileRoutesByTo {
   '/distribution-lists': typeof DistributionListsRoute
   '/groups': typeof GroupsRoute
   '/no-access': typeof NoAccessRoute
+  '/setup': typeof SetupRoute
   '/signin': typeof SigninRoute
   '/users': typeof UsersRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -120,6 +128,7 @@ export interface FileRoutesById {
   '/groups': typeof GroupsRoute
   '/no-access': typeof NoAccessRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/setup': typeof SetupRoute
   '/signin': typeof SigninRoute
   '/users': typeof UsersRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -136,6 +145,7 @@ export interface FileRouteTypes {
     | '/groups'
     | '/no-access'
     | '/settings'
+    | '/setup'
     | '/signin'
     | '/users'
     | '/settings/appearance'
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
     | '/distribution-lists'
     | '/groups'
     | '/no-access'
+    | '/setup'
     | '/signin'
     | '/users'
     | '/settings/appearance'
@@ -163,6 +174,7 @@ export interface FileRouteTypes {
     | '/groups'
     | '/no-access'
     | '/settings'
+    | '/setup'
     | '/signin'
     | '/users'
     | '/settings/appearance'
@@ -178,6 +190,7 @@ export interface RootRouteChildren {
   GroupsRoute: typeof GroupsRoute
   NoAccessRoute: typeof NoAccessRoute
   SettingsRoute: typeof SettingsRouteWithChildren
+  SetupRoute: typeof SetupRoute
   SigninRoute: typeof SigninRoute
   UsersRoute: typeof UsersRoute
 }
@@ -240,6 +253,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/setup': {
+      id: '/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof SetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/signin': {
       id: '/signin'
       path: '/signin'
@@ -294,6 +314,7 @@ const rootRouteChildren: RootRouteChildren = {
   GroupsRoute: GroupsRoute,
   NoAccessRoute: NoAccessRoute,
   SettingsRoute: SettingsRouteWithChildren,
+  SetupRoute: SetupRoute,
   SigninRoute: SigninRoute,
   UsersRoute: UsersRoute,
 }
