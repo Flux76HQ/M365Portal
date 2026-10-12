@@ -248,6 +248,8 @@ describe('verification without a bootstrap', () => {
       firstOwner: { kind: 'upn', value: scene.world.admin.userPrincipalName },
     });
     expect(scene.rows('SELECT state FROM certificate')).toEqual([{ state: 'pending' }]);
+    // The checklist asked for the Exchange permissions, so V5 runs (FR-B-218, OV-21; found by e2e/setup-manual).
+    expect(scene.services.connections.read(scene.db)?.exchangeEnabled).toBe(true);
     const deviceRequests = scene.world.entra.control
       .tokenRequests()
       .filter((r) => (r.grantType ?? '').includes('device')).length;
