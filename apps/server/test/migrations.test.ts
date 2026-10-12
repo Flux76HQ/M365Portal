@@ -72,6 +72,9 @@ import { DATABASE_FILE_NAME, openDatabase, type SqliteConnection } from '../src/
 import { createTempDataDir } from './helpers/temp-data-dir.js';
 import { unwritableDataDir } from './helpers/unwritable-data-dir.js';
 
+/** The text as a pattern that matches exactly it. */
+const escapeForRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+
 const PATHS = defaultPaths();
 const MANIGEST_NAME = 'migrations.json';
 
@@ -296,7 +299,7 @@ describe('the manifest and the snapshots (FR-A-062, PD-05)', () => {
       rmSync(join(paths.snapshotsFolder, firstSnapshotName()));
       expectGuardFails(assertSchemaCurrent, paths, {
         name: 'schema check',
-        reason: new RegExp(`${firstSnapshotName().replace('.', '\\.')}.*missing`, 's'),
+        reason: new RegExp(`${escapeForRegExp(firstSnapshotName())}.*missing`, 's'),
       });
     });
 

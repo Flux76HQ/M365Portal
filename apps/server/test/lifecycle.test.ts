@@ -74,6 +74,9 @@ import { createLogCapture } from './helpers/log-capture.js';
 import { createTempDataDir } from './helpers/temp-data-dir.js';
 import { unwritableDataDir } from './helpers/unwritable-data-dir.js';
 
+/** The text as a pattern that matches exactly it. */
+const escapeForRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+
 const SERVER_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const MIGRATIONS = join(SERVER_ROOT, 'drizzle');
 
@@ -794,9 +797,7 @@ describe('the built server (FR-A-012 to FR-A-016, FR-A-163, FR-A-187)', () => {
     it('keeps the dependencies external and inlines the workspace package', () => {
       const index = readFileSync(join(layout.dist, 'index.js'), 'utf8');
       for (const name of ['hono', 'pino', 'better-sqlite3', 'drizzle-orm', 'zod']) {
-        expect(index, name).toMatch(
-          new RegExp(`from ["']${name.replace('/', '\\/')}(/[^"']*)?["']`),
-        );
+        expect(index, name).toMatch(new RegExp(`from ["']${escapeForRegExp(name)}(/[^"']*)?["']`));
       }
       expect(index).not.toContain('@m365portal/shared');
     });
