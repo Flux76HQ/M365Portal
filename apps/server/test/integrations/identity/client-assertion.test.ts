@@ -26,12 +26,11 @@ import { identityWorld } from './support.js';
 
 const SRC = fileURLToPath(new URL('../../../src/', import.meta.url));
 
-function context(world: ReturnType<typeof identityWorld>, extra: { includeX5t?: boolean } = {}) {
+function context(world: ReturnType<typeof identityWorld>) {
   return {
     signer: world.holder,
     clock: { now: () => testClock.nowMs() },
     random: sequenceRandom(),
-    ...extra,
   };
 }
 
@@ -108,15 +107,6 @@ describe('the assertion Learn describes', () => {
     );
     expect(plain?.header['x5t#S256']).toBe(sha256);
     expect('x5t' in (plain?.header ?? {})).toBe(false);
-
-    const both = parseCompact(
-      await signClientAssertion(context(world, { includeX5t: true }), {
-        clientId: world.app.appId,
-        audience: tokenEndpointOf(world.tenantId),
-      }),
-    );
-    expect(both?.header.x5t).toBe(createHash('sha1').update(der).digest('base64url'));
-    expect(both?.header['x5t#S256']).toBe(sha256);
   });
 
   it('is verified by the public key of the certificate (PSS, SHA-256)', async () => {
@@ -135,15 +125,6 @@ describe('the assertion Learn describes', () => {
   it('is accepted by the fake Entra, which applies the rules strictly', async () => {
     const world = identityWorld();
     const assertion = await signClientAssertion(context(world), {
-      clientId: world.app.appId,
-      audience: tokenEndpointOf(world.tenantId),
-    });
-    expect(check(world, assertion)).toBeUndefined();
-  });
-
-  it('is accepted with the optional x5t header as well', async () => {
-    const world = identityWorld();
-    const assertion = await signClientAssertion(context(world, { includeX5t: true }), {
       clientId: world.app.appId,
       audience: tokenEndpointOf(world.tenantId),
     });

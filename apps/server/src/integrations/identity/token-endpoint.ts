@@ -40,8 +40,6 @@ export interface TokenEndpointDeps {
   readonly clock: Clock;
   readonly random: RandomSource;
   readonly scheduler: Scheduler;
-  /** The documented fallback header `x5t` (SHA-1), off by default (U21). */
-  readonly includeX5t?: boolean;
 }
 
 export interface TokenEndpoint {
@@ -69,7 +67,6 @@ export function createTokenEndpoint(deps: TokenEndpointDeps): TokenEndpoint {
         signer: deps.signer,
         clock: deps.clock,
         random: deps.random,
-        ...(deps.includeX5t === undefined ? {} : { includeX5t: deps.includeX5t }),
       },
       { clientId: deps.clientId, audience: url },
     );

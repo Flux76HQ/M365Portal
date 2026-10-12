@@ -135,8 +135,6 @@ export interface ClientsRegistryDeps {
   readonly log?: IdentityLog & {
     debug(fields: Readonly<Record<string, unknown>>, message: string): void;
   };
-  /** The documented fallback header `x5t` (SHA-1), off by default (U21). */
-  readonly includeX5t?: boolean;
   /** For a test that supplies its own transport; the default is the global `fetch`. */
   readonly fetch?: typeof fetch;
 }
@@ -224,7 +222,6 @@ export function createClientsRegistry(deps: ClientsRegistryDeps): ClientsRegistr
       jsonFetch,
       scheduler: deps.scheduler,
       ...(deps.log === undefined ? {} : { log: deps.log }),
-      ...(deps.includeX5t === undefined ? {} : { includeX5t: deps.includeX5t }),
     });
     return {
       appTokens,
@@ -272,7 +269,6 @@ export function createClientsRegistry(deps: ClientsRegistryDeps): ClientsRegistr
       clock: deps.clock,
       random: deps.random,
       scheduler: deps.scheduler,
-      ...(deps.includeX5t === undefined ? {} : { includeX5t: deps.includeX5t }),
     });
     built = {
       tenantId: pin.tenantId,

@@ -36,8 +36,6 @@ export interface ClientAssertionContext {
   readonly signer: CertificateHolderPort;
   readonly clock: Clock;
   readonly random: RandomSource;
-  /** Also send the SHA-1 `x5t` header. Default off (U21). */
-  readonly includeX5t?: boolean;
 }
 
 export interface ClientAssertionInput {

@@ -78,8 +78,6 @@ export interface MsalAppTokenDeps {
   readonly scheduler: Scheduler;
   /** The redacting logger. */
   readonly log?: Pick<IdentityLog, 'warn'>;
-  /** The documented fallback header `x5t` (SHA-1), off by default (U21). */
-  readonly includeX5t?: boolean;
 }
 
 export interface MsalAppTokenProvider extends AppTokenProvider {
@@ -117,7 +115,6 @@ export function createMsalAppTokenProvider(deps: MsalAppTokenDeps): MsalAppToken
             signer: deps.signer,
             clock: deps.clock,
             random: deps.random,
-            ...(deps.includeX5t === undefined ? {} : { includeX5t: deps.includeX5t }),
           },
           { clientId, audience: config.tokenEndpoint ?? tokenEndpointOf(tenantId) },
         ),
