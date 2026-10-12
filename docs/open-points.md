@@ -444,6 +444,239 @@ and review. Severity as the review rated it. Fix hints are in that file.
 | S9-pending | Gate notes of S9 later than `chunk-s9c.md` (T-A-334 to T-A-337: budget recalibration, accessibility and responsive passes, the Phase A report) were not available when this file was consolidated | open: add their points when they land (T-A-999) |
 | T-A-279 | `README.md`, English and Dutch, written 2026-10-11 and checked by `pnpm docs:check` (`G8.md`) | closed |
 
+## Phase B (2026-10-12)
+
+Consolidated for Phase B by the documentation task `T-B-425` from the Phase B spec (sections 8, 9, 11 and
+12), the plan (sections 17 to 20) and `research-microsoft-b.md`. The ids continue the Phase A series: U34 and
+up, the owner-verified ledger OV, the assumptions B, the plan decisions PB, the owner decisions ODB and the
+risks RB and PBR. Status words are as above. Rows of the spec are copied with their ids; a status column is
+added where the spec has none.
+
+### Unverified Microsoft claims U34 to U50
+
+Date of the register: 2026-10-10 (Microsoft Learn only), closed items marked on 2026-10-12.
+
+| # | Claim | Where used | Tried | Needed to close |
+|---|---|---|---|---|
+| U34 | The `docker exec` command `/nodejs/bin/node /app/dist/cli.js <command>` works in the distroless image | FR-B-110, US-B1, README | Phase A image layout from its plan | Closed on 2026-10-12: the image smoke test ran `dist/cli.js generate-app-key` and `docker exec ... setup-token` in the real image (33 of 33 checks green), see `specs/002-phase-b/phase-a-reread/deploy-docs.md` |
+| U35 | Clock-skew values: Learn gives no tolerance for ID-token timestamps and none for the host clock against Entra; the 60 s tolerance and the 60 and 300 s thresholds are our choices | FR-B-213, FR-B-404 | id-tokens and signing-key-rollover pages | OV-07 and OV-23 show real skew; the numbers are constants |
+| U36 | Which properties (`id`, `displayName`, `groupTypes`, `mailEnabled`, `securityEnabled`) `GET /groups/{id}` returns to an application that holds `GroupMember.Read.All` and not `Group.Read.All`; the permission is listed for Get group and described as "basic group properties"; and whether `GET /groups` returns distribution groups to such an application (Learn calls them read-only in Graph) | FR-B-311, FR-B-219, Phase C and D (recognising and listing distribution lists) | group-get, group-list, permissions reference (excerpts) | OV-19 |
+| U37 | `GET /groups?$filter=startswith(displayName,'...')` works for an app-only caller without `ConsistencyLevel: eventual` | FR-B-311, FR-B-219 | group-list excerpt | OV-19; fallback: send `ConsistencyLevel: eventual` and `$count=true` |
+| U38 | `checkMemberGroups` with a well-formed id of a group that does not exist or was deleted: the whole call fails, or the id is omitted | FR-B-507 | the page states that one malformed id fails the request and is silent on unknown ids | OV-16; the bisect fallback of FR-B-507 handles both |
+| U39 | Browser handling of `SameSite=Strict` cookies set by and sent after a redirect chain started by a cross-site navigation, and of cookies on `http://localhost` (shared across ports, `Secure` omitted) | FR-B-401, FR-B-412 | reasoning from the cookie specification, not Learn | OV-14 |
+| U40 | Option names of `jose` 6.2.12 for remote key sets (cache duration, cooldown) | FR-B-404 | stack probe pins the version | Closed (probe V-B08): the option names are `cacheMaxAge` and `cooldownDuration`; `server/auth/jwks-cache.test.ts` pins the behaviour |
+| U41 | Whether Node 22 honours `NODE_USE_ENV_PROXY` for `fetch`, and from which minor | EB-31 | none | image smoke test behind a proxy, or the owner's own proxy |
+| U42 | A `WWW-Authenticate` challenge with the scheme `Cookie` (RFC 9110 expects a challenge with 401; the scheme is not a registered one) | FR-B-414 | RFC text only | none; low risk, documented |
+| U43 | Host names of the `verification_uri` Entra returns for the device-code flow; the allow-list (`microsoft.com`, `www.microsoft.com`, `login.microsoft.com`, `login.microsoftonline.com`) is ours | FR-B-214 | research §5.1 (response shape only) | OV-01 shows the real host; the allow-list is a constant |
+| U44 | Whether the Admin API `OrganizationConfig` endpoint accepts `$select`, and which properties it returns | FR-B-309 V5, FR-B-314 | endpoint reference lists `Get-OrganizationConfig` without parameters | OV-06 |
+| U45 | The response envelope of the Admin API (top-level array, `value` array or single object) and its error body | FR-B-314 | `get-started`, `OrganizationConfig` and `DistributionGroupMember` pages read; they show requests, not responses | OV-06 records a real answer |
+| U46 | `Group.ReadBasic.All` is named in Learn's List groups table but has no section in the permissions reference; whether it exists for applications | fallback ladder of plan 8.8 | permissions reference searched | Learn clarification or a tenant listing of the Graph service principal's `appRoles` |
+| U47 | Entra accepts an uploaded self-signed certificate with exactly `basicConstraints` (cA=false, critical) and `keyUsage` digitalSignature (critical) and nothing else; re-sending existing key credentials as read (with `key`) preserves them in a full-list `PATCH` | FR-B-106, FR-B-306 | plan probe V-B02; Learn pages carried | OV-03, OV-04 |
+| U48 | `assignedLicenses` is returned for `GET /users?$select=assignedLicenses` with `User.Read.All` alone | Phase C | user-list page: its property exceptions do not list it | the Phase C spec |
+| U49 | Application `tags`: maximum count and length, so that `m365portal-install-<32 hex>` is accepted | FR-B-303 | none on Learn | OV-03 |
+| U50 | `$select` of `passwordCredentials` and `keyCredentials` on `GET /applications/{id}` and `GET /servicePrincipals(appId='...')`, and `GET .../owners?$select=id`, return the collections (without secret text) to a delegated caller holding `Application.ReadWrite.All`; the properties are named on the application, service principal and passwordCredential resource pages and both owner lists name `Application.Read.All`, but no page shows a `$select` of the credential collections | FR-B-318, FR-B-319 | resource pages and both owner-list pages read on 2026-10-10 | OV-03; fallback: an unreadable count stops adoption (fail closed) and V4 shows `not_checked` for it |
+
+Updates made by the plan to earlier items: U22 (the default `interval` is 5 s and `expires_in` 900, observed;
+`slow_down` stays undocumented), U31 (`$filter` on `principalId` is documented; the behaviour of a duplicate
+POST is not), U33 (the discovery document lists only `RS256`; the clock tolerance stays ours), U40 (closed:
+option names checked), U41 (accepted with an experimental warning, effect unproven), U43 (the observed host
+is `login.microsoft.com`) and U44 (`$select` is documented; the envelope is U45). Carried from the research
+and relied on by Phase B with unchanged status: U4 to U6, U13, U14, U18 to U21, U23 to U27, U29, U30 and U32.
+Closed: U16.
+
+### Owner-verified ledger OV-01 to OV-23
+
+The owner's test plan. None of these is covered by an automated control; the Phase B report expands each into
+a checklist line with a result field and the date. Status of every item: `owner`.
+
+| ID | What the owner checks | Procedure and expected result | Fail means | Status |
+|---|---|---|---|---|
+| OV-01 | Device-code consent screen with the three scopes | Run step 2 with a Global Administrator, then with Privileged Role Administrator plus Application Administrator. Consent screen lists the three scopes; "Consent on behalf of your organization" appears only for the first; leaving it off works. Note the host of the verification link (U43). | Adjust the wizard text; extend the host allow-list; U23 stays open | owner |
+| OV-02 | Device code allowed, or the Conditional Access message and manual mode | In a tenant with the managed "Block device code flow" policy (or after adding such a policy): step 2 names Conditional Access (`AADSTS53003`) and offers manual mode; the manual checklist then completes the setup. | Reword EB-04; fix the manual checklist (FR-B-218) | owner |
+| OV-03 | Graph accepts what the wizard sends | Application with the `http://localhost` and https redirect URIs, `amr` and `auth_time` optional claims, a 360-day credential, tags; with an app management policy if the tenant has one (U14, U19, U20, U49); also read the credential and owner counts of FR-B-318 for the new application and its service principal (U50). | Change the body (FR-B-303), lifetime, key size or certificate profile (FR-B-106, U47), or where the counts come from (FR-B-318) | owner |
+| OV-04 | First client-credentials token with the uploaded self-signed certificate | Verification V1 succeeds with `x5t#S256` only; if it fails with `AADSTS700027`, set the documented fallback of FR-B-112 and rerun (U21). | Switch the `x5t` fallback on by default | owner |
+| OV-05 | The four application permissions are effective | V2 and V3 pass; record the delay between the grant and the first success. | Adjust the window of FR-B-212 | owner |
+| OV-06 | Exchange role propagation and the Admin API probe | Record the delay between the role assignment and the first 200 of V5; note whether the preview API is available; note which `OrganizationConfig` fields return (U44). Optional Exchange Recipient Administrator experiment of ODB-03. | Window and wording of EB-09; ODB-03 | owner |
+| OV-07 | A real ID token | Inspect the owner's own token claims (decode locally): `amr` values per method, `tid`, `oid`, no `groups`, `ver` 2.0, header `alg`, `auth_time`; observe `prompt=login`; observe whether `max_age` is ignored (U13, U27, U33, U35). | `AUTH_MFA_AMR_VALUES` default, step-up rule, tolerance | owner |
+| OV-08 | A user in more than 200 groups and nested groups | Sign in as that user with a role bound to a nested group: the role applies through `checkMemberGroups`. | FR-B-507 | owner |
+| OV-09 | Sign-out round trip | Sign out: land on `/auth/logged-out` then `/signin?signedout=1`; no front-channel URL registered; behaviour with an existing primary refresh token (U29). | FR-B-410 | owner |
+| OV-10 | Real throttling | Cannot be forced; if a `429` occurs, read `docs/operations.md` log events and compare with FR-B-312. | Retry values | owner |
+| OV-11 | Security Defaults tenant | The wizard works for an administrator; a non-administrator *Lezer* signs in with and without `mfa` in `amr` (EB-27). | EB-27 text; ODB-04 | owner |
+| OV-12 | Non-administrator with a panel role on a tenant with user consent disabled | Sign-in either works or ends in `consent_required`; the consent link of FR-B-419 fixes it (U30). | FR-B-419 (SHOULD) | owner |
+| OV-13 | Exchange write-path experiment (informs ODB-01, ODB-03) | On the owner's machine, with a throwaway application, certificate and Exchange Administrator assignment made by hand following Learn's app-only article (the panel's sealed key is never exported): `Connect-ExchangeOnline` with that application, `Get-DistributionGroup -ResultSize 1`, `Add-DistributionGroupMember` and `Remove-DistributionGroupMember` on a test list, then the same with Exchange Recipient Administrator instead of Exchange Administrator (U4 to U6). The report records which role suffices. Not a Phase B feature. | Appendix A recommendation | owner |
+| OV-14 | Browsers and `SameSite` | Sign in with Chrome, Firefox and Safari on `https://` and on `http://localhost:<port>`: the first paint after the interstitial shows the signed-in persona; sign-out and re-sign-in work; no `securitypolicyviolation` (U39). | FR-B-401, FR-B-412 (B-07) | owner |
+| OV-15 | Global Administrator without a panel role | Sign in with such an account: "geen toegang" page with a reference id, no session, an `auth.signin` denied entry `no_role`. | FR-B-506 | owner |
+| OV-16 | Revocation timing of group-derived rights | Remove the user from the bound Entra group: rights vanish at the next request after `GROUP_CACHE_TTL_SECONDS`; record how long Graph needs to reflect the change; also delete a bound group and confirm others still resolve (U38). | Default TTL (ODB-10); FR-B-507 | owner |
+| OV-17 | Break-glass | Generate the hash with `hash-password`, configure it, sign in: red banner, 30-minute limit, only "Eigenaar herstellen" works; the audit shows `breakglass.signin`. | FR-B-521 to FR-B-523 | owner |
+| OV-18 | Restart and lock | After the first Owner signed in, restart the container: `/setup` answers 404, sign-in still works, the certificate opens with the same `APP_KEY`; remove `APP_KEY` and see the degraded state and the readable explanation. | FR-B-207, FR-B-108 | owner |
+| OV-19 | Group picker and group properties | In wizard step 5 search groups by prefix; group properties include `groupTypes`, `mailEnabled`, `securityEnabled` with only `GroupMember.Read.All` (U36, U37). | Add `Group.Read.All` (new decision), or send `ConsistencyLevel` | owner |
+| OV-20 | Tenant without Exchange Online | If the owner has such a tenant: Exchange sub-actions are skipped, step is warning, the panel works. Otherwise report "not tested". | EB-08 | owner |
+| OV-21 | Manual provisioning mode | Follow the checklist for a tenant (or after deleting the application): V1 to V3 and V5 pass; V4 and V6 show `not_checked`. | FR-B-218 | owner |
+| OV-22 | Repair against drift | Remove one permission and change the redirect URI by hand, then run "Herstel verbinding": only the drifted sub-actions change; no duplicate application or service principal appears. | FR-B-220 | owner |
+| OV-23 | Environment checks on the owner's host | Step 1 is green in the real container (network hosts, time skew within 60 s, key); behind a proxy, record what happens (U41). | EB-14, EB-31 | owner |
+
+### Phase B assumptions B-01 to B-26
+
+Each assumption has one ADR: ADR-0100 plus its number.
+
+| ID | Assumption | Evidence and verdict | Rows | Status |
+|---|---|---|---|---|
+| B-01 | Graph permission set: start from `User.Read.All`, `GroupMember.Read.All`, `GroupMember.ReadWrite.All`, `Organization.Read.All`; add `Group.Read.All` or `Directory.Read.All` only if provably needed; never `RoleManagement.ReadWrite.Directory` for the runtime application | Kept. Learn lists `GroupMember.Read.All` for `checkMemberGroups` on users, Get group and List groups, and `User.Read.All` for `transitiveMemberOf`; no call was found that needs `Group.Read.All` or `Directory.Read.All` (8.1, 8.2). Open: U36, U37. Delta against the brief's five in 8.2 | FR-B-301, FR-B-311 | recorded |
+| B-02 | `ExchangeClient` interface plus an adapter for the documented read path only (Admin API, Preview); the write path stays an owner decision with a memo | Kept. The Admin API has six POST-only endpoints and no distribution list or contact writes; `InvokeCommand` has no Learn page; the PowerShell module is the only documented write path (8.4, Appendix A) | FR-B-314, ODB-01 | recorded |
+| B-03 | Exchange Administrator for the service principal by default; a narrower custom role group is a follow-up; the role is a setting | Kept. Learn states Exchange Administrator suffices "for any task"; whether narrower roles suffice for list and contact writes is UNVERIFIED (U5); experiment OV-13 | FR-B-308, ODB-03 | recorded |
+| B-04 | Wizard user is Global Administrator, or Privileged Role Administrator plus an app-registration role; the wizard asks exactly the scopes its calls need | Kept. Three scopes cover every call; the brief's fourth (`Directory.Read.All`) is needed by none (8.3) | FR-B-214, BCB-04 | recorded |
+| B-05 | Sign-in is the authorization code flow with PKCE, `state`, `nonce`, issuer, audience and `tid` validation and a certificate assertion; implemented with our own code client and `jose`, with MSAL used only for device code and client-credentials tokens | Kept. MSAL adds `offline_access`, `openid`, `profile`, `email` and caches per account (research §5.3); the panel needs no token retention and one assertion signer | FR-B-112, FR-B-402 to FR-B-404, FR-B-418 | recorded |
+| B-06 | MFA is a configurable `amr` check; step-up uses `prompt=login` plus a claims or `max_age` check | Changed. `max_age` and an ID-token `claims` request are undocumented for Entra (U13, U27) and `prompt=login` does not force MFA; step-up is `prompt=login`, a fresh `auth_time`, the same `oid` and the MFA policy again; no `max_age`, no `claims` | FR-B-405, FR-B-411 | recorded |
+| B-07 | Sessions are server-side, hashed, in SQLite, with rotation, idle and absolute timeouts, sign-out everywhere and session-bound CSRF; the cookie is `__Host-` only on https, plain `HttpOnly`/`SameSite=Strict` on `http://localhost`; the OIDC transaction cookie is `Lax` | Kept, with two consequences: `response_mode=query` (a `form_post` callback is a cross-site POST that a Lax cookie does not accompany) and a 200 interstitial instead of a 303 after the callback so the Strict cookie reaches the first paint (U39). Phase A BC-03 already accepts the plain names on `localhost` | FR-B-401, FR-B-407, FR-B-408, FR-B-412 | recorded |
+| B-08 | Libsodium XChaCha20-Poly1305 seals the certificate key; the key comes from `APP_KEY` or `APP_KEY_FILE`; a rotation procedure exists; the bootstrap token lives in memory only | Kept, with a derived per-purpose subkey, a key id and additional data that binds blob to row, purpose and key | FR-B-104 to FR-B-110, FR-B-215 | recorded |
+| B-09 | A one-time setup token (`SETUP_TOKEN` or a 0600 file, never logged) protects the unconfigured panel; the wizard locks when `setup_completed` and answers 404 afterwards | Changed. The lock engages at the first successful sign-in of the designated first Owner, not at "finish": a failed first sign-in (wrong redirect URI, blocked MFA) would otherwise lock the owner out of the tenant they just configured (BCB-02). If that person never signs in, the state stays open and the token still guards it (documented). `setup-reopen` is the recovery | FR-B-201, FR-B-203, FR-B-207, FR-B-219, FR-B-222, ODB-05 | recorded |
+| B-10 | The wizard is persisted, idempotent and resumable with per-step status, rollback hint, live log, retry and backoff | Kept. The live log is polled (1 s, 2 s in a hidden tab), not streamed, because intermediaries buffer event streams. Graph replication takes "several minutes" (research §10.2) | FR-B-208 to FR-B-212 | recorded |
+| B-11 | RBAC: the 15-permission catalogue is unchanged; five immutable built-in roles; *Bestuur* as template data; effective permissions are the union of assignments; scopes; default deny | Clarified. The brief does not say what a scope restricts when a role mixes resource types. Scopes restrict per resource type; permissions without a resource type (settings, audit, RBAC) come only from unscoped assignments; `users:read` has the qualifier `basic` so *Bestuur* can read names and e-mail (BCB-09, BCB-10) | 6.5, FR-B-501 to FR-B-513 | recorded |
+| B-12 | `GraphClient` (MSAL certificate auth, `Retry-After`, jitter, short-TTL cache, typed errors) is built on a thin own HTTP layer behind interfaces; the Microsoft Graph SDK is not added | Kept. The runtime client calls six Graph endpoints (8.2); the brief asks for no unnecessary dependencies; the retry rules are small and testable | FR-B-311 to FR-B-313, FR-B-711 | recorded |
+| B-13 | Not in Phase B: users and groups screens (C), distribution lists, contacts, CSV (D), RBAC admin UI (D), audit UI (D), OpenTelemetry (D), Bicep (D) | Kept | 1.1 | recorded |
+| B-14 | Retry values: transient 1 s to 30 s, at most 6 tries; replication 2 s to 60 s with a 300 s window; role-to-token propagation 900 s by default, 3,600 s at most | Changed from an earlier draft (600 s): Learn names no delay for Entra role to Exchange (U4), so the default is the research window | FR-B-212 | recorded |
+| B-15 | Group membership comes from `checkMemberGroups` in chunks of 20 at every sign-in and at the cache TTL (300 s); the token's `groups` claim is ignored; Graph failure keeps direct grants and drops group grants | Kept. Learn: at most 20 ids per request; the `groups` claim is dropped over 200 entries (8.4) | FR-B-409, FR-B-507 | recorded |
+| B-16 | The principal is `(tid, oid)`; the first Owner is the bootstrap administrator's `oid` plus `tid`, never `sub`; in manual mode the operator names the Owner | Kept. `oid` is the same across applications, `sub` is pairwise (research §5.5) | FR-B-216, FR-B-219, FR-B-406 | recorded |
+| B-17 | Break-glass is decided for Phase B (the brief allows B or D): an optional env-configured account that can only restore an Owner | Kept at B. Without it a deleted Owner group or a lost MFA device locks the panel; the env-only design needs no UI and costs one route and one session kind | FR-B-521 to FR-B-523, ODB-06 | recorded |
+| B-18 | `PREVIEW_MODE` is removed; actor kinds are `anonymous`, `user`, `setup`, `break_glass`; anonymous writes now answer 401 instead of Phase A's 403 | Kept. Phase A FR-A-032 promised removal; RFC 9110 expects a challenge with 401 (U42) | FR-B-102, FR-B-413, FR-B-414 | recorded |
+| B-19 | A small X.509 library, chosen by a plan-time probe (candidate `@peculiar/x509`), creates the certificate | Added. `node:crypto` parses certificates and cannot create them (checked on Node 22.22); the distroless image has no `openssl` | FR-B-106, FR-B-711 | recorded |
+| B-20 | Simulation: MSW with `onUnhandledFrame: 'error'` for HTTP; an in-process fake identity provider signing with `jose`; e2e starts the production bundle with request interception installed before it loads; no production file knows the fake | Kept (brief section 7) | FR-B-707, FR-B-708 | recorded |
+| B-21 | Denials are audited for writes by any actor and for permissioned reads of authenticated actors; anonymous reads (401) and 429 are not audited | Changed (extends Phase A PA-15): the brief says every refused action (403) is audited; anonymous probing is attacker-reachable volume | FR-B-602, ODB-12 | recorded |
+| B-22 | The certificate is RSA 2048 with 360 days validity; renewal in Phase B is the repair flow (full-list `PATCH`); self-rotation by `addKey` is Phase D; banners at 60 and 14 days | Changed against the brief's silence on lifetime: Learn caps a credential at one year from its start date; `addKey` needs proof of possession of a valid key (research §2.4); RSA size U20 | FR-B-106, FR-B-111, FR-B-220, ODB-08 | recorded |
+| B-23 | A manual provisioning mode exists as a SHOULD | Added. The managed "Block device code flow" policy applies to every client and is enabled by default after a 30-day report-only period (research §5.6) | FR-B-218, ODB-07 | recorded |
+| B-24 | Callback failures before the ID token is validated are not audited; failures from validation on are | Added. Earlier failures are unauthenticated and attacker-reachable; the `auth` rate class bounds the volume | FR-B-403 | recorded |
+| B-25 | Session numbers: idle 30 minutes, absolute 8 hours, at most 10 sessions per principal, step-up window 10 minutes, break-glass 30 minutes, setup session 60 minutes and 8 hours | Added. The brief gives none and no source fixes them; `docs/security.md` documents the choice | FR-B-407, FR-B-411, FR-B-522, ODB-09 | recorded |
+| B-26 | One replica on local disk (Phase A A-57): login transactions, setup sessions, rate and unlock counters live in memory and are lost at restart | Added. After a restart users sign in again and the wizard needs the token again; no security property depends on persistence; a shared store is out of scope | FR-B-204, FR-B-205, FR-B-402 | recorded |
+
+### Phase B plan decisions PB-01 to PB-28
+
+Each decision has one ADR: ADR-0150 plus its number.
+
+| ID | Decision | Evidence | Consequence / revisit trigger | Status |
+|---|---|---|---|---|
+| PB-01 | Outbound HTTP is global `fetch` only; no `node:http`, `node:https`, `node:net`, `node:tls`, `undici` anywhere in `apps/server/src`; every test process installs a no-egress guard | V-B05 (`https.get` bypassed MSW and reached real Entra), V-B06, V-B04 (MSAL 7 uses `fetch`) | Tightens FR-B-315; revisit if a dependency starts using `node:https` (the guard then fails loudly) | recorded |
+| PB-02 | X.509: `@peculiar/x509` 2.1.0 + `reflect-metadata` 0.2.2, lazy; fallback a 120-line DER encoder | V-B02, V-B03 | One-file swap behind `CertificateFactory`; revisit on an advisory | recorded |
+| PB-03 | Sign-in uses our own code-flow client and `jose`; MSAL only for the bootstrap and app tokens | V-B04, B-05 | none | recorded |
+| PB-04 | ID-token validation order of 8.6.5 with our own checks around `jose` | V-B07 | Fixture table F-02 to F-27 is the control | recorded |
+| PB-05 | Remote key set: `cacheMaxAge` 24 h, `cooldownDuration` 5 min, custom fetch, hourly `reload()` | V-B08 (closes U40) | none | recorded |
+| PB-06 | The setup actor holds exactly `settings:branding` and `settings:connection` | wizard step 5 needs the Phase A branding routes | Amends the spec (SB-01) | recorded |
+| PB-07 | One availability gate for setup, connection pages and break-glass: same not-found function, same rate bucket as the unknown path | FR-B-207 | Byte equality test excludes only `requestId` | recorded |
+| PB-08 | CSRF binding is computed from the cookies as sent (hashes joined by `.`), without a database read | an Owner who reopens setup holds two cookies | SB-09 | recorded |
+| PB-09 | Sessions: hashed id, in-memory last-seen memo, database write at most every 60 s | FR-B-407 | After a restart idle can be up to 60 s longer | recorded |
+| PB-10 | Revalidation inline and single-flight, retry no earlier than 30 s after a failure | FR-B-409 | Graph outage never blocks requests for more than one attempt per 30 s | recorded |
+| PB-11 | `SCOPE_MATRIX` per target (11.3) | FR-B-513 leaves it to the plan | SB-07 | recorded |
+| PB-12 | Break-glass: scrypt memory <= 128 MiB, one verification at a time, RBAC write routes restricted to `user` actors | V-B10 | SB-03, SB-04 | recorded |
+| PB-13 | Certificate `pending` state; generate and seal before upload; renewal in repair with possession proof before swap | crash safety of the PATCH | SB-02 | recorded |
+| PB-14 | In-process runner with lease; modes `continue` and `reconcile`; wizard budget disables `GraphHttp` retries so the runner owns and logs every wait; one combined poll per second | FR-B-209, FR-B-211, FR-B-212 | SB-19 | recorded |
+| PB-15 | Boot re-check of `/api/v1/me` when the boot actor is anonymous | `SameSite=Strict` drops the cookie on cross-site navigation | keeps Strict (brief 6) | recorded |
+| PB-16 | Header `X-Session-Idle-Expires` on authenticated responses | the client cannot know the sliding deadline otherwise | SB-18 | recorded |
+| PB-17 | Four namespaces load lazily per locale; the rest join the entry | PD-16 threshold crossed | AM-21 | recorded |
+| PB-18 | Service worker passes `/auth/*` and `/api/*` through untouched | keep redirects and cookies out of the worker | AM-12 | recorded |
+| PB-19 | One WHATWG fake tenant, three transports, crash-after-n fault model | one simulation, no divergence | FR-B-707 | recorded |
+| PB-20 | Clock, scheduler and random source injected in all new code | deterministic tests | lint canary | recorded |
+| PB-21 | e2e: three processes, seeding through the real API, per-principal storage states | FR-B-708 | direct-DB `expired-assignment` fixture | recorded |
+| PB-22 | Exchange probe `Get-OrganizationConfig?$select=Name,Guid`; tolerant envelope parser | V-B15 | U45 | recorded |
+| PB-23 | `setup_object` kinds include grants and role assignments; audit `objectId` only for GUID ids | non-GUID ids | SB-11 | recorded |
+| PB-24 | Grants merge per `(permission, qualifier)` | spec rule over-grants with scoped full grants | SB-13 | recorded |
+| PB-25 | Phase C/D services take capability-branded arguments from the policy layer | the safety net cannot undo a write | 11.9 | recorded |
+| PB-26 | Migration `0001` only adds objects; CHECK expressions come from `db/check-macros.ts` so schema and SQL cannot differ | data-model.md | none | recorded |
+| PB-27 | 303 to `/setup` applies only without a valid user session | non-designated users during `awaiting_first_signin` | SB-14 | recorded |
+| PB-28 | ADR numbering blocks | Phase A keeps 0001 to 0055 | AM-22 | recorded |
+
+### Phase B owner decisions ODB-01 to ODB-18
+
+Each has a default that the code implements, so work is not blocked; the owner can overturn a default at the
+gate or after the owner test. ODB-01 (the Exchange write path) is recorded by ADR-0102 and is updated with the
+owner's choice after the gate.
+
+| ID | Decision | Options | Default in this spec | Evidence and effect | Needed by | Status |
+|---|---|---|---|---|---|---|
+| ODB-01 | Exchange write path (distribution list members, mail contacts) | A pwsh worker in the one container on an Ubuntu LTS base; B pwsh in a separate container; C Admin API only; D the undocumented `InvokeCommand` REST endpoint | Undecided; Phase B ships interface, read adapter and contract suite only. Recommendation A in Appendix A | Appendix A: criteria 3, 4, 12, 13; Phase B is unaffected | Before the Phase D plan; best at the Phase B gate | owner |
+| ODB-02 | Graph permission set | The reduced four (default) or the brief's five; and `GroupMember.ReadWrite.All` granted now (default) or only when Phase C starts | Reduced four, write permission granted now | 8.2. Granting early means one consent covers Phase C, at the price of an unused write permission for a phase; deferral means a repair run with an administrator before Phase C | The owner test | owner |
+| ODB-03 | Exchange role and second app role | Exchange Administrator (default) or Exchange Recipient Administrator or a custom role group; grant `Exchange.ManageAsAppV2` when exposed (default) or only `Exchange.ManageAsApp` | Exchange Administrator; both app roles | Learn supports Exchange Administrator; narrower sufficiency is U5, U6; the V2 role feeds only the Admin API probe | After OV-13 | owner |
+| ODB-04 | MFA switch | `AUTH_REQUIRE_MFA` as an operator switch (default); or always enforced for principals holding `owner` or `rbac:manage` | Operator switch, default on, visible in the posture line and Settings | A tenant without any MFA policy cannot produce `mfa` (EB-26, EB-27); enforcing for Owners only would lock them out there | The owner test (OV-11) | owner |
+| ODB-05 | When the wizard locks | At the first Owner sign-in (default) or at "Voltooien" as the brief says | First Owner sign-in | BCB-02 | The Phase B gate | owner |
+| ODB-06 | Break-glass in Phase B | Build now (default) or in Phase D | Now | B-17 | The Phase B gate | owner |
+| ODB-07 | Manual provisioning mode | Build now as a SHOULD (default) or defer to Phase D | Build now | B-23; tenants with the device-code block cannot use the wizard otherwise | The Phase B gate | owner |
+| ODB-08 | Certificate renewal | Repair flow in B and `addKey` self-rotation in D (default); or only repair | Repair in B, `addKey` in D | B-22; a lapsed certificate always needs an administrator | Before the Phase D plan | owner |
+| ODB-09 | Session numbers | Idle 30 minutes, absolute 8 hours (default), or others | Defaults | B-25 | The owner test | owner |
+| ODB-10 | Group-derived revocation delay | `GROUP_CACHE_TTL_SECONDS` 300 (default) or shorter | 300 | Shorter means more Graph calls (4 resource units per 20 groups per refresh); OV-16 measures Graph's own delay | The owner test | owner |
+| ODB-11 | Out-of-scope single objects | 403 `permission_denied` (default) or 404 | 403 | Brief: invisible or read-only. 404 hides existence; Phase C decides for lists (they filter by `visibleScopes`) | The Phase C spec | owner |
+| ODB-12 | Denial audit volume | Audit permissioned reads of authenticated actors (default) or writes only | Both | B-21; the brief asks for every refused action | The owner test | owner |
+| ODB-13 | Admin API probe in verification | Keep V5 as a warning (default) or drop it until ODB-01 is decided | Keep | Preview terms U25; a warning never blocks | The owner test | owner |
+| ODB-14 | First Owner other than the bootstrap administrator | Allowed only in manual mode (default), always, or never | Manual mode only | B-16; the brief says the signed-in Global Administrator becomes Owner | The Phase B gate | owner |
+| ODB-15 | Plain cookie names on `http://localhost` | Accept (default) or require https even for local use | Accept | BCB-06; Phase A BC-03 | The Phase B gate | owner |
+| ODB-16 | Entra groups and privileged roles | Roles holding `rbac:manage` or `settings:connection` cannot be bound to a group (default); or bound with step-up and a warning; or free | Forbidden (FR-B-515) | Whoever controls an Entra group (group owners, a Groups Administrator, a dynamic rule) would otherwise become a panel Owner without a panel audit entry. The brief allows assignment to groups but does not need it for the Owner role | The Phase B gate | owner |
+| ODB-17 | Break-glass strength | A password floor and reverse-proxy restriction (default); or a second factor or an in-app address allow-list now; or restore only for `Member` users (needs `userType` in `getUser`) | Floor of 14 characters in `hash-password` (FR-B-110) and the documented proxy restriction; second factor and allow-list stay in Phase D | Break-glass bypasses Conditional Access and MFA by design; its password plus any enabled account in the tenant, a B2B guest included, restores an Owner. Restore refuses a disabled account (FR-B-523) | The Phase B gate | owner |
+| ODB-18 | Adopting an existing application | Refuse secrets and ask for an acknowledgement of foreign certificates and owners (default); always refuse; always ask | Default (FR-B-318) | An application pre-created by someone else would receive the permissions the wizard grants, and its owner can add credentials at any time | The owner test (OV-03) | owner |
+
+### Phase B risks RB-01 to RB-18 and PBR-01 to PBR-14
+
+Likelihood and impact are low (L), medium (M) or high (H).
+
+| ID | Risk | L / I | Mitigation | Control | Status |
+|---|---|---|---|---|---|
+| RB-01 | The Exchange write path stays undecided and Phase D cannot meet criteria 3, 4, 12, 13 | M / H | Memo with a recommendation and a deadline; Phase B built so any option plugs into the interface | `server/exchange/exchange-client-contract.test.ts`; ODB-01 | open |
+| RB-02 | The Admin API stays Preview, narrows or disappears | M / M | Used only for the verification probe and the read adapter; failures are warnings | `server/setup/verify.test.ts`; U25 | open |
+| RB-03 | Role propagation takes longer than the window | M / M | 900 s default, 3,600 s maximum, "Retry now", a final hint, the owner measures | `server/setup/propagation-probe.test.ts`; OV-06 | open |
+| RB-04 | Device code is blocked by Conditional Access | H / M | Distinct message and manual mode | `server/setup/aadsts-map.test.ts`, `server/setup/manual-mode.test.ts`; OV-02 | open |
+| RB-05 | A stranger takes over an unconfigured panel | M / H | Setup token, brute-force limits, loopback guard over http, token never logged, lock at first Owner sign-in | SC-B-001 | open |
+| RB-06 | The owner locks themselves out (wrong redirect URI, lost `APP_KEY`, expired certificate, no Owner) | M / H | State stays open until the Owner signs in; `setup-reopen`; break-glass; documented `APP_KEY` backup | `server/cli.test.ts`, `server/auth/break-glass.test.ts`; OV-17, OV-18 | open |
+| RB-07 | `APP_KEY` is lost, so the sealed certificate key is unrecoverable | L / H | Documented separate backup; recovery is a new certificate through the repair flow with an administrator | `server/secrets/degraded.test.ts`; `docs/operations.md` | open |
+| RB-08 | One powerful application identity (Exchange Administrator, group write) is abused through a panel flaw | L / H | Panel RBAC on the server, fail-closed policy layer, audit of every write and denial, least-privilege documentation, ODB-03 | SC-B-006, `server/policy-scoped-routes.test.ts` | open |
+| RB-09 | A self-signed certificate is discouraged by Learn | L / L | No CA exists for a self-hosted panel; the trade-off is written in `docs/security.md` | `server/docs-contract.test.ts` | open |
+| RB-10 | The simulation encodes our reading of Learn and diverges from Microsoft | M / M | The fake validates strictly, contract suites run against it, the owner-verified ledger covers the residue | `server/fakes/fake-tenant.selftest.test.ts`; section 8.6 | open |
+| RB-11 | Browsers treat the `SameSite` redirect chain differently from the design | M / M | `response_mode=query`, Lax transaction cookie, 200 interstitial; first paint carries the session | `server/auth/interstitial.test.ts`; OV-14 (U39) | open |
+| RB-12 | The tenant never emits `amr` or MFA, so nobody can sign in | M / M | Separate errors `amr_missing` and `mfa_required`; operator switch; repair re-applies the claim; break-glass | `server/auth/mfa.test.ts`; OV-11 | open |
+| RB-13 | Revocation of group-derived rights is late (cache TTL plus Graph eventual consistency) | M / M | TTL setting, revalidation, direct assignments revoke at once, expiry at the instant | `server/rbac/epoch.test.ts`, `server/auth/revalidate.test.ts`; OV-16 | open |
+| RB-14 | In-memory state (transactions, setup sessions, counters) is lost at restart or differs across replicas | M / L | Documented single replica; sign-in simply starts again | `server/lifecycle.test.ts`; B-26 | open |
+| RB-15 | Graph throttles the application | L / M | Retry rules, caches, priority header, fail-fast on long waits | `server/integrations/graph/http-retry.test.ts`; OV-10 | open |
+| RB-16 | New dependencies (`@azure/msal-node`, `jose`, `libsodium-wrappers`, an X.509 library) enlarge the image and the supply-chain surface | M / M | Pinned versions, audit in CI, image size re-measured, each with a reuse mark | `quality`, `image`, `server/docs-contract.test.ts` | open |
+| RB-17 | An attacker keeps the break-glass route or the setup unlock locked (the failure bounds are global: 20 and 30 per hour) or fills the verification queue, so the emergency path is unavailable when needed | M / M | The bounds are the price of online guessing resistance; a container restart resets the in-memory counters (documented); the setup token and the break-glass hash are long secrets; the reverse proxy can restrict both routes by address | `server/auth/break-glass.test.ts`, `server/setup/unlock-rate.test.ts`; `docs/operations.md` | open |
+| RB-18 | Someone who controls an Entra group, an application owner or a credential of the runtime application gains panel or tenant power outside the panel's RBAC and audit | M / H | FR-B-515 (no privileged role for a group), FR-B-318 and FR-B-319 (adoption trust, foreign credentials visible), the blast radius documented in `docs/security.md`, a least-privilege permission set | `server/rbac/group-privileged.test.ts`, `server/setup/discovery.test.ts`, `server/setup/verify.test.ts` | open |
+
+| ID | Risk | L / I | Mitigation and control | Status |
+|---|---|---|---|---|
+| PBR-01 | The simulation lets a real network call through (a library that bypasses `fetch`, as `node:https` bypassed MSW) | M / H | Fetch-only rule, no-egress guard in every test process, layering test, negative controls (PB-01, 14.3) | open |
+| PBR-02 | Entra rejects the certificate or the assertion (`x5t#S256` only, extensions, lifetime, key size) | M / M | The three fallbacks are one-line switches (`x5t` header, shorter lifetime, key size); OV-03, OV-04; U19 to U21, U47 | open |
+| PBR-03 | The Phase A interfaces differ from the planned ones at the Phase A gate | M / M | `T-B-001` re-reads the code against C1 to C14, amends the spec in the same commit (SB list grows), stops if a contract moved (V-B19) | open |
+| PBR-04 | `@peculiar/x509` or `reflect-metadata` gets an advisory or misbehaves in the distroless image | L / M | Lazy import, 5 MB subtree, DER-encoder fallback, image smoke test creates a certificate in the real image (PB-02) | open |
+| PBR-05 | Break-glass verification exhausts memory next to image jobs in the 512 MiB limit | L / M | 128 MiB cap, one at a time, the smoke test reports peak RSS (PB-12) | open |
+| PBR-06 | Cross-site entry drops the `Strict` cookie and users bounce to sign-in | M / L | The boot re-check (PB-15); OV-14 observes it in three browsers | open |
+| PBR-07 | Lazy i18n needs a Phase A i18n API change late in Phase A | L / L | `loadNamespace` is additive (AM-21); fall back to bundling all namespaces if the budget allows (it exceeds PD-16's threshold, so Lighthouse would be re-measured) | open |
+| PBR-08 | `msw` 3 is a new major with `onUnhandledFrame`; its interception of `fetch` could change | L / M | Pinned; the no-egress guard is independent of it; the contract suites fail loudly | open |
+| PBR-09 | The fake tenant encodes a wrong reading of Learn (assertion validation, replication delay, error codes) | M / M | Strictness self-test, contract suites on both implementations, the owner-verified ledger OV-01 to OV-23 | open |
+| PBR-10 | SQLite writer contention: wizard run, sign-ins and the CLI use one file | L / L | Short `BEGIN IMMEDIATE` transactions, no network inside a transaction, `busy_timeout` 5 s, CLI uses the same PRAGMAs | open |
+| PBR-11 | The Exchange Admin API envelope differs from the tolerant parser | M / L | Tolerant parser, warning-only use in the wizard (U45) | open |
+| PBR-12 | A long-lived bootstrap object stays in memory after an error path | L / H | Four discard triggers (FR-B-215), `finally` blocks, lifecycle test with canary tokens, shutdown hook | open |
+| PBR-13 | Reopen blocks sign-in for everyone until the wizard finishes | M / L | Documented in operations.md and in the CLI output; `setup-reopen` requires `--confirm`; the wizard keeps step state so the repair is quick (RB-13) | open |
+| PBR-14 | `msal-node` carries `jsonwebtoken` and other transitive packages the product does not use | L / L | Listed in architecture.md, audited in CI, `clientCertificate` never configured | open |
+
+### Decisions taken while building Phase B
+
+These were taken by the implementing streams where the spec was silent; each is recorded here so that the
+owner can overturn it.
+
+- A step-up without MFA gives `mfa_required` or `amr_missing` (FR-B-411), not `stepup_failed`: the user needs
+  to know which of the two tenant settings is missing, and `stepup_failed` stays for a mismatch of identity.
+- The F-45 fixture uses 250 short entries in `groups` (with `_claim_names` and `hasgroups`): enough to pass the
+  200-entry limit of a JWT while keeping the token under the header size of the fake identity provider.
+- Audit rows of requests that have no user principal use the actor ids `anonymous` and `break-glass` (the
+  break-glass session is an actor with no row in the user table), and the same ids appear in the logs.
+- The stored default language (set by the wizard at finish) reaches the browser through `GET /api/v1/me`
+  as `defaultLanguage` only once the setup is `completed`; before that there is no delivery path, so the setup
+  and sign-in pages of an unconfigured panel follow the browser language.
+- The group properties of OV-19 (`groupTypes`, `mailEnabled`, `securityEnabled`) are not visible in the panel
+  in Phase B: the wizard's group picker shows the display name only, so a failure of U36 is detected by the
+  owner test and not by a user-facing screen.
+- The `x5t` fallback of the client assertion (the SHA-1 header of U21) is a constant in the code, not a
+  variable: it is switched on by a one-line change after OV-04 shows `AADSTS700027`, so no operator can
+  enable it by accident.
+- There is no screen for the audit log in Phase B (the missing audit view is Phase D, FR-D-006); the audit
+  is read through the database and `verify-audit`.
+- Phase A items closed by Phase B: R-08 (preview mode) and OD-03 (preview mode removed), and the permission
+  set of OD-06 is implemented with its default (four application roles).
+
 ## Nederlands
 
 Dit bestand bundelt de onverifieerde Microsoft-aannames (U1 tot en met U18), de overige onverifieerde
@@ -469,3 +702,8 @@ zoals `s1c-9`), plus de bekende beperkingen van de repository-bewakers (GR-1 tot
 - De punten van de e2e-, Lighthouse- en mediastream (S9) staan in de sectie 'Stream S9'; de README (T-A-279) is af.
   Nieuw: OD-17 (een expliciete, gedocumenteerde uitzondering in de SQL-lintregel voor `migrate.ts` in plaats van een
   indirecte aanroep) en de drie probleemcodes van de parser (nu 34 codes in het register).
+- **Fase B (2026-10-12):** de onverifieerde claims U34 tot en met U50 (U34 en U40 gesloten), het door de eigenaar te
+  verifiëren overzicht OV-01 tot en met OV-23, de aannames B-01 tot en met B-26, de plan-beslissingen PB-01 tot en met
+  PB-28, de eigenaarsbeslissingen ODB-01 tot en met ODB-18 en de risico's RB-01 tot en met RB-18 en PBR-01 tot en met
+  PBR-14. Belangrijkste beslissingen voor de eigenaar: ODB-01 (het Exchange-schrijfpad, vastgelegd in ADR-0102),
+  ODB-02 (de vier Graph-rechten) en ODB-17 (break-glass zonder tweede factor). Het ontbrekende auditscherm is Fase D.

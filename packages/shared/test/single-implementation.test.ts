@@ -661,9 +661,28 @@ function isFunctionOrLiteral(expression: ts.Expression): boolean {
 }
 
 /** An arrow or function expression, alone or handed to a wrapper: `useCallback((x) => x, [])`. */
+const DATA_METHODS: ReadonlySet<string> = new Set([
+  'map',
+  'flatMap',
+  'filter',
+  'reduce',
+  'find',
+  'some',
+  'every',
+  'sort',
+]);
+
 function isFunctionLike(expression: ts.Expression): boolean {
   const value = unwrap(expression);
   if (ts.isArrowFunction(value) || ts.isFunctionExpression(value)) return true;
+  // `rows.flatMap((row) => row.uris)` hands over data computed by a callback, not a function.
+  if (
+    ts.isCallExpression(value) &&
+    ts.isPropertyAccessExpression(value.expression) &&
+    DATA_METHODS.has(value.expression.name.text)
+  ) {
+    return false;
+  }
   return (
     ts.isCallExpression(value) &&
     value.arguments.some((argument) => {

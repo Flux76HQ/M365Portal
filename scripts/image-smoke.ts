@@ -849,7 +849,7 @@ async function main(): Promise<void> {
   // The setup gate, in the image (FR-B-106, FR-B-110, FR-B-203, FR-B-706) -----------------------------------------
   const jar = new CookieJar();
   let setupToken = '';
-  let certificateDer = Buffer.alloc(0);
+  let certificateDer: Buffer = Buffer.alloc(0);
   const printToken = (container: string): string => {
     const done = docker(['exec', container, '/nodejs/bin/node', 'dist/cli.js', 'setup-token']);
     expect(

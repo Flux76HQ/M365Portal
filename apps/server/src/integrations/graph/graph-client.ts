@@ -27,6 +27,7 @@
 //     `checkMemberGroups` is never cached here (the RBAC cache of FR-B-507 owns it).
 import type { z } from 'zod';
 import { LIMITS } from '@m365portal/shared/limits';
+import { chunkIds, mapLimited } from '../../ports/batching.js';
 import type { AccessToken, AppTokenProvider } from '../../ports/identity.js';
 import type { Clock, RandomSource, Scheduler } from '../../ports/clock.js';
 import { GraphBadRequestError, GraphNotFoundError } from '../../ports/errors.js';
@@ -52,7 +53,6 @@ import {
   UserRow,
 } from './schemas.js';
 
-const CHUNK = LIMITS.microsoft.graphCheckMemberGroupsMaxIds;
 const CHUNKS_IN_FLIGHT = LIMITS.microsoft.graphInFlightMax;
 const MAX_TOP = 999;
 
@@ -64,34 +64,6 @@ function parse<S extends z.ZodType>(schema: S, body: unknown): z.output<S> {
 
 function invalid(): GraphBadRequestError {
   return new GraphBadRequestError({ graphCode: 'invalid_value' });
-}
-
-/** Runs `work` over `items` with at most `limit` running; stops starting new ones after a failure. */
-async function mapLimited<T, R>(
-  items: readonly T[],
-  limit: number,
-  work: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  let failure: { readonly error: unknown } | undefined;
-  const worker = async (): Promise<void> => {
-    while (failure === undefined) {
-      const index = next;
-      next += 1;
-      const item = items[index];
-      if (index >= items.length || item === undefined) return;
-      try {
-        results[index] = await work(item);
-      } catch (error) {
-        failure ??= { error };
-        return;
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  if (failure !== undefined) throw failure.error;
-  return results;
 }
 
 export class HttpGraphClient implements GraphClient {
@@ -164,8 +136,7 @@ export class HttpGraphClient implements GraphClient {
     const user = refusedAsBadRequest(() => guidSegment(userId));
     const wanted = refusedAsBadRequest(() => [...new Set(groupIds.map((id) => guidSegment(id)))]);
     if (wanted.length === 0) return new Set();
-    const chunks: string[][] = [];
-    for (let at = 0; at < wanted.length; at += CHUNK) chunks.push(wanted.slice(at, at + CHUNK));
+    const chunks = chunkIds(wanted);
 
     const answers = await mapLimited(chunks, CHUNKS_IN_FLIGHT, async (chunk) => {
       const { body } = await this.#http.request({

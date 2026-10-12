@@ -1,7 +1,8 @@
 # Security
 
-> **Status:** Phase A. This document describes what exists in Phase A (no sign-in, no Microsoft
-> connection yet). Sources: plan sections 8.1 to 8.10, the data model, the contract and the gate notes
+> **Status:** Phase B. This document describes what exists in Phase B (the setup wizard, the Microsoft
+> connection, sign-in with Entra, sessions and roles); the Phase A material below stays valid and the Phase B
+> material follows it. Phase A, which had no sign-in and no Microsoft connection, is the base. Sources: plan sections 8.1 to 8.10, the data model, the contract and the gate notes
 > under [`specs/001-m365portal/gate-notes/`](../specs/001-m365portal/gate-notes/). Every statement about
 > Microsoft comes from [`research-microsoft.md`](../specs/001-m365portal/research-microsoft.md) or is
 > marked UNVERIFIED in [open-points.md](open-points.md). Nederlandse versie: zie
@@ -12,20 +13,19 @@ do; it is never the control. Every API route goes through the central policy lay
 
 ## Threat model (STRIDE)
 
-Surfaces of Phase A and the control for each letter. Controls are named by the module that holds them;
+Surfaces of Phase A and the control for each letter (the Phase B surfaces have their own tables below). Controls are named by the module that holds them;
 each has a test and, for the security properties, a fixture that fails on purpose.
 
 | Surface | Spoofing | Tampering | Repudiation | Information disclosure | Denial of service | Elevation of privilege |
 |---|---|---|---|---|---|---|
 | API writes | Forged `Origin` or CSRF: origin and token checks. Spoofed `X-Forwarded-For`: `TRUST_PROXY` | Tampered body: Zod, size limits | Denials and changes are audited | Problems carry codes, no stacks, no paths | `write` bucket, body limits, timeouts | Deny by default; the route table check refuses a route without access |
-| Preview mode | An exposed instance acts as administrator: remote guard, loopback `Host` and no forwarding headers (FR-A-036), a banner | n/a | The audit names the actor `preview` | n/a | n/a | By design all permissions, loopback only unless overridden; the documented command publishes the port on `127.0.0.1` |
 | Logo upload | Type confusion: magic bytes, not names | SVG scripts and entities: allowlist rebuild, always rasterised | Upload outcomes are audited | Metadata dropped; no outbound connection from any stage | Pixel cap, element and expansion caps, 10 s kill, 2 plus 4 job slots, staging quota | Stored XSS: PNG only, `nosniff`, CSP `sandbox` on non-HTML |
 | Audit store | n/a | Edits and deletes: three triggers plus the hash chain | Append-only; the head is logged | The client address is personal data (documented) | Bounded per client by the buckets (not globally: see the audit chain) | n/a |
 | Migrations | n/a | An edited migration file: checksum guard | n/a | n/a | n/a | A newer schema than the application is refused |
 | Shell and static files | Nonce reuse: a per-request nonce, a filled shell is never cached | Traversal: path guard, allow-list of file names | n/a | Organisation name reflected: escaped, one replacement pass | A name that is a bomb: 64 grapheme clusters and 256 bytes | XSS: CSP and Trusted Types |
 
 Residual risks are in [open-points.md](open-points.md): PR-05 (sanitised SVG is still rasterised by
-native code in a child process with the container's privileges), R-08 (preview mode), R-09 (audit
+native code in a child process with the container's privileges), R-08 (preview mode, closed in Phase B), R-09 (audit
 growth), R-14 (in-memory state does not work across replicas).
 
 ## Origin and CSRF
@@ -40,9 +40,9 @@ For every request under `/api/v1` with a method other than GET, HEAD or OPTIONS:
    `mac = HMAC-SHA-256(key, "v1." + iat + "." + exp + "." + nonce + "." + binding)`; the 32-byte key is
    random per process and lives in memory; lifetime 8 hours; accepted while `iat` is at most 5 minutes
    in the future and `exp` plus 60 seconds has not passed; the signature is compared in constant time
-   and checked before the times. The Phase B binding of the token is the session id: in Phase A the
-   `binding` is the empty string, in Phase B it is the id of the session, so a token cannot be carried
-   from one session to another.
+   and checked before the times. The Phase B binding of the token is computed from the cookies the browser presented: in Phase A the
+   `binding` is the empty string, in Phase B it is the SHA-256 of the session cookie and of the setup cookie
+   (joined by `.` when both are present), so a token cannot be carried from one session to another.
 4. Failure answers 403 `origin_not_allowed` or `csrf_invalid`, is audited with the reason, and says no
    more than the code. `origin_not_allowed` names the expected origin and the variable `PUBLIC_BASE_URL`,
    so a host port changed without it is diagnosable from the error alone.
@@ -227,26 +227,206 @@ denial rows is an open decision (R-09, OD-10, retention in Phase D); see
 **Personal data.** The client address exists only in the audit table (and its backups) and is personal
 data; logs never carry it. Backups have the same protection as the live database.
 
-## Preview mode
+## Preview mode (removed in Phase B)
 
-Preview mode (`PREVIEW_MODE=true`) gives the preview actor all 15 permissions without sign-in, so that
-the Phase A panel can be evaluated. The preview-mode risk: anyone who can reach the port administers the
-branding. Controls, in layers:
+Phase A had a preview mode that gave an unauthenticated visitor all 15 permissions so that the panel could be
+evaluated. The preview-mode risk (R-08, OD-03) is closed: `PREVIEW_MODE` and `PREVIEW_MODE_ALLOW_REMOTE`
+were removed in Phase B, the actor kinds are `anonymous`, `user`, `setup` and `break_glass`, and a
+repository guard fails on any reintroduction of the name. Anonymous writes now answer 401 instead of 403. An
+existing `.env` that still sets the old variables gets one warning at start and is otherwise ignored.
 
-- Start refuses `PREVIEW_MODE=true` with a non-loopback `PUBLIC_BASE_URL` host unless
-  `PREVIEW_MODE_ALLOW_REMOTE=true`.
-- Per request, the preview actor is resolved only when `Host` is loopback and the request carries none
-  of `Forwarded`, `X-Forwarded`, `X-Forwarded-*`, `X-Real-IP`, `Via`, `CF-Connecting-IP`,
-  `True-Client-IP`, `X-Client-IP`, `X-Envoy-External-Address`, `Fastly-Client-IP` or
-  `X-Original-Forwarded-For` (presence counts, case ignored). Otherwise the actor is anonymous. A
-  request can be downgraded by this rule but never chooses or upgrades its actor.
-- A permanent banner, a start warning on stderr and in the log, and the posture line field
-  `previewBoundary: host-detection-not-a-security-boundary`.
+## Phase B threat model (STRIDE)
 
-**Limit.** The `Host` and header rule prevents accidental exposure behind a proxy; it is not a security
-boundary. A client that can reach the port directly can send `Host: localhost` and no forwarding header
-and be the preview actor. The boundary is publishing the port on loopback only
-(`127.0.0.1:<port>:<port>`). Preview mode is planned to be removed in Phase B (OD-03).
+Phase B adds eight surfaces. A cell names the threat and the control that answers it; the controls are
+tested, and the security properties have fixtures that fail on purpose (the negative controls of the plan,
+section 14.6).
+
+| Surface | S | T | R | I | D | E |
+|---|---|---|---|---|---|---|
+| Setup gate (unconfigured panel) | a stranger opens `/setup`: one-time token, constant-time compare, per-client and global lock | token in URL: accepted only in a POST body | unlock locks audited once | token never in logs, shell, OpenAPI; `Cache-Control: no-store` | lock flooding by many clients: global lock is the accepted cost; counters bounded | wizard grants tenant admin: token + Entra administrator both needed |
+| Wizard and bootstrap token | a phisher shows a fake device code: only the allow-listed `https` host is rendered as a link | partial writes: idempotent sub-actions, full-list credential PATCH | every object change audited in the same transaction | bootstrap token memory only, discarded before probes | runaway retries: bounded windows and tries | bootstrap holds `RoleManagement.ReadWrite.Directory` only for the run |
+| Sign-in | login CSRF and token substitution: `state`, `nonce`, PKCE, transaction cookie | forged ID token: signature, issuer, tenant, audience, algorithm, nonce, header checks | sign-in and every denial audited from token validation on | no token retained; `no-store`; code never logged | transaction floods: caps and rate class `auth` | user without a role gets no session |
+| Sessions | stolen cookie: `HttpOnly`, `Strict`, hashed at rest, idle and absolute timeouts | rotation prevents fixation | sign-out and revocation audited | only the hash stored, no IP or agent | per-principal cap of 10 | step-up for role changes |
+| RBAC and policy | spoofed actor: actor from the cookie only | role tampering: immutable built-ins by trigger | role and assignment changes and every 403 audited | `me` exposes only the actor's own data | assignment and group limits | no privilege escalation, last Owner protected, scope enforced server-side, fail closed |
+| Secrets | key theft from backup: key not in `/data` | blob swap: AD binds row, purpose, key id | rotation audited | sealed blob only; redacted holder | missing key: degraded, not crash | key never leaves `secrets/` |
+| Break-glass | brute force: scrypt, 5 per 15 minutes, 20 per hour, one-slot queue | no input but the credential pair, size-limited and validated | every use audited and logged loudly | username never logged | memory-bound verification (128 MiB) | restore-Owner only, no other write |
+| Microsoft clients | host confusion: fixed origins, `redirect: 'error'`, GUID-validated paths | injection into OData: escaped literals | calls counted | tokens opaque wrappers, never logged | throttling: bounded retry, `Retry-After` honoured | runtime app never holds `FORBIDDEN_APP_ROLES` |
+
+## First-run takeover
+
+An unconfigured panel is the one moment when the product is open to whoever reaches the port. The controls
+are layered. The setup token is 32 random bytes (or a validated `SETUP_TOKEN`), compared in constant time,
+accepted only in a POST body, never logged and never in a URL, the shell or the OpenAPI document. Failures
+are bounded per client and globally; the cost is that an attacker can lock the unlock for an hour (RB-17).
+Over plain http the setup routes answer 404 to a non-loopback `Host` and to any request that carries a
+forwarding header, so a panel exposed by mistake looks like a panel that is not there, and so DNS rebinding
+against a `localhost` panel finds nothing: the loopback `Host` rule gives the rebinding page a 404, the
+cookies are host-bound, and writes need an Origin and a token anyway. After the lock `/setup` answers 404
+for ever (a restart does not reopen it). `setup-reopen` is the only way back, needs `--confirm`, refuses
+while `SETUP_TOKEN` is set in the environment (a variable that may be known from compose files, tickets or
+shell history would otherwise govern again), and blocks sign-in until the wizard has finished. The wizard
+itself needs an Entra administrator as well as the token, and it asks the operator to confirm who becomes
+Owner (`confirmOwnerOid`). A host administrator can read the token file; host compromise is out of scope.
+
+## Cookies and the CSRF binding
+
+There are three cookies, all `HttpOnly`, `Path=/`, without `Domain`, with 256-bit random values: the session
+cookie (`Strict`), the OIDC transaction cookie (`Lax`, 10 minutes, because the callback is a cross-site
+navigation) and the setup cookie (`Strict`). On https they carry the `__Host-` prefix and `Secure`. On
+`http://localhost` the plain names are used and `Secure` is omitted: that is the trade-off of a local trial
+(ODB-15, BC-03). Cookies are not isolated by port, so another application on `localhost` can read and
+overwrite them; use https for anything but your own computer. The authorize request uses
+`response_mode=query` and the callback answers a 200 interstitial instead of a 303 so that the `Strict` cookie
+reaches the first paint. A cross-site entry drops the `Strict` cookie; the web app re-checks `/api/v1/me`
+once at boot (PB-15).
+
+The combined CSRF binding (SB-09, FR-B-408) is the SHA-256 of the session cookie value and of the setup cookie
+value, joined by `.` when both are present, computed from the cookies as sent without a database read. An
+Owner who reopened setup holds both cookies, so one binding serves both route families. A token for another
+binding fails with `csrf_invalid`; after a rotation the client fetches a new one once. Origin and CSRF are
+judged before authorisation, so a cross-site request learns nothing about permissions.
+
+## Sessions and step-up
+
+A session id is 256 random bits; only its SHA-256 is stored, with no IP address and no user agent, and no
+Microsoft token is retained. Sign-in and step-up issue a new id (no fixation). The defaults are 30 minutes
+idle and 8 hours absolute, at most 10 sessions per person, and "sign out everywhere". The polled wizard and
+connection routes do not slide the session, so a forgotten tab cannot keep a session alive. A write that
+needs the step-up window (10 minutes) requires a recent sign-in with credentials (`prompt=login`), a fresh
+`auth_time`, the same `oid` and the MFA policy again; Entra documents neither `max_age` nor an ID-token
+`claims` request, and `prompt=login` does not force MFA, so a step-up without MFA ends in `mfa_required` or
+`amr_missing` and not in a loop. Revocation of group-derived rights follows the group cache
+(`GROUP_CACHE_TTL_SECONDS`, 300) and Graph's own consistency; direct assignments revoke at once. An Entra
+group cannot be bound to a role that holds `rbac:manage` or `settings:connection` (FR-B-515, ODB-16).
+
+## Control from the Entra side and the blast radius
+
+The panel's power is the power of one application identity at Microsoft. The service principal holds the
+Entra role Exchange Administrator (the default, B-03), which is broad: the Exchange Administrator blast
+radius is every Exchange Online task, and the panel's RBAC is the only thing that narrows it. Outside the
+panel, control sits with other people. Group owners, a Groups Administrator or a dynamic rule control who
+is in an Entra group that is bound to a panel role; the guard against binding privileged roles to groups
+exists for this reason. Application owners and credential holders of the runtime application can add
+credentials to it at any time and then act as the application, outside the panel's RBAC and audit
+(RB-18); the wizard shows foreign owners and credentials, refuses to adopt an application with a client
+secret without an acknowledgement (FR-B-318, FR-B-319, ODB-18), and the runtime application never holds
+`FORBIDDEN_APP_ROLES`. Review the owners and the credentials of the application in Entra regularly.
+
+## The certificate: a self-signed trade-off
+
+The application authenticates to Entra with a certificate instead of a client secret. The certificate is
+self-signed: Learn advises a CA certificate for production, and a self-hosted panel has no CA, so the
+trade-off is accepted. The private key never leaves the process: it is sealed in the database with
+`APP_KEY`, has no export method and is opened only to sign an assertion. Microsoft limits a credential to
+one year; the panel creates 360 days and shows banners at 60 and 14 days.
+
+## Key compromise
+
+`APP_KEY` seals the private key of the certificate. A leak of the key alone is harmless without the
+database, and a leak of the database alone is sealed. If both leak, rotate the key, delete older copies of
+`/data` and every `pre-rotate-*` backup, and renew the certificate: rotating `APP_KEY` does not renew the
+certificate, because it re-seals the same private key. The procedure is in
+[operations.md](operations.md#key-compromise-a-leaked-or-compromised-key). An `-e APP_KEY=...` value is
+visible in `docker inspect` to anyone who can read the container configuration: prefer a Docker secret,
+`APP_KEY_FILE` or a platform secret. Break-glass is a second place where a secret matters: its scrypt hash
+sits in the environment, the password is at least 14 characters, and the route should be restricted by
+address at the reverse proxy.
+
+## Break-glass without a second factor
+
+Break-glass bypasses Conditional Access and MFA by design: its password plus any enabled account in the
+tenant, a B2B guest included, restores an Owner. The controls are a memory-capped scrypt verification (one at
+a time), 5 attempts per 15 minutes and 20 per hour, equal work for an unknown user, a 30-minute session that
+does not slide, restore-Owner as the only action, refusal of a disabled account, and an audit entry and a loud
+log line for every use. A second factor and an in-app address allow-list are Phase D (ODB-17). Until then the
+proxy restriction in operations.md is the control.
+
+## Why the response headers did not change
+
+Phase B adds pages and cookies but no new kind of content: the Content-Security-Policy, Trusted Types, the
+frame, referrer and permissions headers are unchanged, and the headers on the new routes are the same
+function of the same table. The Microsoft sign-in page is reached by a top-level redirect, so no
+`form-action` or `frame-src` entry for Microsoft is needed. `Cache-Control: no-store` is added on the
+sign-in, setup and session routes.
+
+## Device code flow and manual mode
+
+The wizard's sign-in uses the device code flow. Anyone can phish a device code of the same Microsoft client
+outside the panel. Outside the wizard window, block the device code flow with a Conditional Access policy
+and use manual mode, the checklist alternative, when you next need the wizard (research §5.6). Inside the
+panel the code exists only for the setup actor, one run at a time, for 15 minutes, with an allow-listed
+https link host.
+
+## What the simulation cannot prove
+
+The test suite runs the whole product against a simulated tenant that the tests built from Microsoft Learn.
+The simulation cannot prove that Entra behaves as Learn says (an unverified claim has a register row), that
+browsers treat the `SameSite` redirect chain as designed, or that the real tenant accepts what the wizard
+sends. The owner-verified ledger OV-01 to OV-23 in [open-points.md](open-points.md) lists what only the owner
+can check; no automated control covers those items.
+
+## Application verification (ASVS level 2), Phase B rows
+
+| ASVS chapter | Phase B status |
+|---|---|
+| V2 Authentication | Authorization code flow with PKCE, `state`, `nonce` and a certificate assertion; ID-token checks of algorithm, issuer, `tid`, audience and nonce (fixtures F-02 to F-45); MFA through `amr`; break-glass with scrypt |
+| V3 Session management | Server-side sessions, hashed ids, rotation, idle and absolute timeouts, sign-out everywhere, step-up, `__Host-` cookies on https |
+| V4 Access control | Deny by default, immutable built-in roles, scopes enforced per resource type, last-Owner protection, no privileged role for groups, fail-closed policy layer |
+| V6 Stored cryptography | XChaCha20-Poly1305 with a per-purpose subkey and associated data, random nonces, a known-answer vector, rotation, constant-time comparisons |
+| V7 Error handling and logging | Problem codes without Microsoft text, redacted logs with canary tests, audit of every write and authenticated denial in the same transaction |
+| V8 Data protection | Tokens are never retained, the certificate key is sealed, backups are sealed, `Cache-Control: no-store` on session routes |
+| V13 API and web service | Route table with access and audit declarations, OpenAPI generated from it, strict content types, Origin and CSRF, body limits |
+
+The mapping to individual controls (the ASVS version is U18) is completed in Phase D (FR-D-006).
+
+## Attack review of the design
+
+The analysis pass of 2026-10-10 attacked one surface per row, named the control that already stood, the gap
+it found and what was done. Residual risks are accepted and listed below.
+
+| # | Attack | Existing control | Gap found | Fix or decision | Residual |
+|---|---|---|---|---|---|
+| 1 | First-run takeover of `/setup` | Setup token (32 random bytes, or a validated `SETUP_TOKEN`), constant-time compare, per-client and global lock, 404 after the lock, loopback guard over plain http, token only in a POST body, never logged (FR-B-203 to FR-B-207) | After `setup-reopen` a `SETUP_TOKEN` still set in the environment governs again, although it may be known (compose files, tickets, shell history) | FR-B-223: the CLI refuses while the variable is set; a warning at start; EB-37 | The global lock can be used to deny unlocking (RB-17); a host administrator can read the token file (host compromise is out of scope) |
+| 2 | Device-code phishing and consent abuse | A device code exists only for the setup actor, one run at a time (lease), 15-minute life, link host allow-list, Entra `message` never rendered, consent on behalf of the organisation left off, three scopes, token in memory and discarded before the probes (FR-B-214, FR-B-215) | Nothing made the operator confirm who becomes Owner; the panel cannot stop phishing of the same Microsoft client outside itself | `confirmOwnerOid` on finish (FR-B-219 h); `docs/security.md` advises blocking device code flow by Conditional Access outside the wizard window and using manual mode then (research §5.6) | Entra-side phishing is outside the panel; the holder of the setup token is trusted |
+| 3 | Bootstrap token handling | FR-B-215: one object, no cache plugin, four discard triggers, canary lifecycle test | none | Covered | Memory residue after `memzero` in a garbage-collected runtime, core dumps and swap: documented |
+| 4 | CSRF, login CSRF, session fixation | Origin plus a token bound to the presented cookies; single-use state, nonce and Lax transaction cookie; a new session id at sign-in and step-up; `__Host-` names; fixtures F-28 to F-33 | none | Covered | Plain cookie names and shared cookies across ports on `http://localhost` (ODB-15) |
+| 5 | Open redirect through `returnTo` | `safeReturnTo` (single leading `/`, no `//`, `\`, control character or scheme, 256 characters, not `/api/` or `/setup`); logout URL built by the server and checked by the client | The hostile table was server-side only; the web sign-in page also reads `returnTo` from its own URL | FR-B-402: the page applies the same function; `web/signin.test.tsx` hostile table | none |
+| 6 | ID-token gaps: algorithm confusion, `tid`, `aud`, `iss`, nonce replay, clock skew | `RS256` only, `jku`, `x5u`, `jwk`, `crit` refused, `aud` a string, `iat` bounded, exact issuer, pinned `tid`, single-use nonce, 60 s tolerance, F-02 to F-27 with mutant validators (plan 8.6.5, V-B07) | none | Covered | The tolerance is ours (U33, U35) |
+| 7 | PKCE downgrade | S256 only, exact authorize parameter list, verifier of 32 random bytes, `authorize-request.test.ts` | none | Covered | none |
+| 8 | Cookie scoping | No `Domain`, `Path=/`, `__Host-` on https, Strict, duplicate cookies fail closed | none | Covered | Another application on `localhost` can read the plain cookies |
+| 9 | Session store theft | Only SHA-256 of a 256-bit id stored, no IP or agent, no token retained (FR-B-407, FR-B-418) | A tab polling the wizard or connection page kept a user session alive indefinitely, defeating the idle timeout | FR-B-420 (`slidesSession: false` on the polled routes) | none |
+| 10 | RBAC escalation by granting | `canGrant` on create and delete, early and again inside `BEGIN IMMEDIATE`; `actorKinds: ['user']` on both routes; only break-glass restores an Owner | none for the API | Covered | The gap between `authorize` and a later Graph write (Phase C and D) is closed by the capability-branded arguments of 11.9, not by a lock |
+| 11 | Group-based roles | `checkMemberGroups`, token groups ignored, hidden and deleted groups fail closed (FR-B-507) | An Entra group bound to `owner` (or any role holding `rbac:manage` or `settings:connection`) makes whoever controls the group (group owners, Groups Administrator, a dynamic rule) a panel Owner with no panel audit entry | FR-B-515 and `GROUP_FORBIDDEN_PERMISSIONS`; EB-38; ODB-16 | The *Beheerder* group of the wizard stays allowed: that role holds neither permission |
+| 12 | Expiry races and last-Owner races | Memo with the earliest expiry, epoch triggers, `BEGIN IMMEDIATE` plus triggers, 100 repetitions of the concurrent test | none | Covered | An Owner deleted in Entra still counts as an Owner (break-glass recovers) |
+| 13 | Scope bypass through bulk, search and export paths | `visibleScopes` for lists, search, bulk and exports, capability-branded arguments, `policy_not_applied` (11.8, 11.9) | A route could return user attributes in another shape and so widen a `basic` grant | 11.9 and spec 13.3: every response with user attributes passes `projectUser`; the Phase C route-table guard is named | Phase C and D routes do not exist yet |
+| 14 | Break-glass abuse | Memory-capped scrypt, one at a time, 5 per 15 minutes and 20 per hour, equal work for an unknown user, 30-minute non-sliding session, `rbac:manage` only, restore-Owner only, every use audited and logged | The spec's N range exceeded the memory cap (SB-04, now applied); no password floor; restore accepted a disabled account; password plus any enabled account (a B2B guest included) restores an Owner | FR-B-521, FR-B-110 (14 characters), FR-B-523 (disabled refused); ODB-17 (second factor, address allow-list, `Member`-only) and the proxy restriction in `docs/operations.md` | No second factor until Phase D; the route and `features.breakGlass` reveal that break-glass exists |
+| 15 | Audit gaps | Every write and every authenticated denial in the same transaction, 503 when the denial entry cannot be written | Three control actions (P12, P23, P24) wrote nothing and the rule said every write is audited | FR-B-601 states the exemption list and the coverage test pins it | Pre-validation callback failures are unaudited by design (B-24) |
+| 16 | Log leakage of tokens, certificates, `APP_KEY` | Canaries in `no-leak.test.ts`, redacting holder, typed errors without Microsoft text, key never in `/readyz` | `-e APP_KEY` is visible in `docker inspect` | `docs/security.md` and README prefer a Docker secret or `APP_KEY_FILE` | Anyone who can read the container environment can read `-e` values |
+| 17 | Nonce reuse and associated data | 24 random bytes per seal, associated data binds purpose, row id and key id, known-answer vector | No test that nonces differ | FR-B-105 control: 10,000 seals of one plaintext give 10,000 distinct nonces | none |
+| 18 | Private key in backups | Sealed blobs only, `APP_KEY` not under `/data`, `pre-rotate-*` useless without the old key | Rotating a possibly exposed `APP_KEY` re-seals the same private key | FR-B-109 and `docs/operations.md`: renew the certificate and delete older copies | A leaked key together with an older copy of `/data` |
+| 19 | SSRF through the wizard | Fixed origins, `redirect: 'error'`, GUID or escaped path segments, `verification_uri` allow-list, discovery host check, Graph `nextLink` same-origin rule | The Exchange `nextLink` had no origin rule and the tenant hint no pattern | FR-B-317 and `server/integrations/url-discipline.test.ts` | none |
+| 20 | Wizard step replay | Preconditions per step, one runner lease, idempotent sub-actions, setup CSRF | A replayed `finish` was not refused; nothing named the Owner | State `in_progress` precondition and `confirmOwnerOid` (FR-B-219 h) | none |
+| 21 | Adopting a pre-created application | Install tag, ambiguity stop, explicit confirmation | An application someone pre-created with a client secret or foreign owners would receive the permissions the wizard grants, and its owner could add credentials later | FR-B-318 (inspection, refusal, acknowledgement), FR-B-319 (foreign credentials stay visible), ODB-18 | An Application Administrator can always add credentials: the blast radius is documented |
+| 22 | A request assigns an arbitrary directory role to the runtime application | The role was "a setting" and a free GUID in the contract; the bootstrap token holds `RoleManagement.ReadWrite.Directory` | Any template id, a privileged one included, could be named | `EXCHANGE_ROLES` (two keys) in FR-B-308 and the contract, CD-14 | none |
+| 23 | DNS rebinding against a localhost panel | Setup routes answer 404 to a non-loopback `Host`; cookies are host-bound, so a rebinding page sees only anonymous data; writes need Origin and a token | none | Covered; written up in `docs/security.md` | none |
+| 24 | Denial of service on the emergency paths and on sign-in | Bounded counters, a rate class `auth`, a queue for break-glass, 20 login transactions per client | Global bounds can be exhausted by an attacker, and a flood from many addresses can evict in-flight login transactions (1,000 in total) | RB-17; a container restart resets the counters; the proxy can restrict both routes | Accepted |
+| 25 | Information disclosure through public routes | `GET /api/v1/me` and the authorize redirect show only what a visitor already sees (state, tenant and application ids, whether break-glass is on) | none worth a change | Accepted | An attacker learns that break-glass exists |
+
+## Accepted risks
+
+- RB-17: an attacker can keep the break-glass route or the setup unlock locked, because the failure bounds
+  are global (20 and 30 per hour); a restart resets the counters, and the reverse proxy can restrict both
+  routes by address.
+- RB-18: whoever controls an Entra group, owns the application or holds one of its credentials gains power
+  outside the panel's RBAC and audit; the blast radius is documented above.
+- Memory residue: a key or token can stay in the memory of a garbage-collected runtime after it is wiped, and
+  in core dumps or swap.
+- The gap between `authorize` and a later write (Phases C and D) is closed by capability-branded arguments
+  and not by a lock.
+- The existence of break-glass is visible: the route and `features.breakGlass` show that it exists.
+- Plain cookie names and cookies shared across ports on `http://localhost` (ODB-15).
+- The clock tolerance of the ID token is ours (U33, U35); the self-signed certificate (above); a global lock
+  can deny unlocking (RB-17); R-08 (preview mode) is closed.
 
 ## Errors, logging and leaks
 
@@ -299,11 +479,11 @@ chapter is what Phase A does, not a claim of conformance.
 | Chapter (topic) | Phase A status |
 |---|---|
 | Architecture and threat modelling | STRIDE model above; ADRs in `docs/adr/` |
-| Authentication | Not applicable yet: no sign-in in Phase A (Phase B) |
-| Session management | Not applicable yet: no session or cookie in Phase A (Phase B) |
-| Access control | Deny by default `authorize`, route table check, audited denials; actors limited to anonymous and preview |
+| Authentication | Not applicable in Phase A; Phase B: see the ASVS level 2 table of Phase B below |
+| Session management | Not applicable in Phase A; Phase B: see the ASVS level 2 table of Phase B below |
+| Access control | Deny by default `authorize`, route table check, audited denials; Phase B adds roles, scopes and the policy layer |
 | Validation, sanitisation and encoding | Zod on every route, escaped one-pass shell fill, SVG rebuild, strict import parser |
-| Stored cryptography | No secret stored in Phase A; CSRF key in memory; hashes are SHA-256 |
+| Stored cryptography | No secret stored in Phase A (Phase B seals the certificate key); CSRF key in memory; hashes are SHA-256 |
 | Error handling and logging | Problem codes, redacted logs, no personal data in logs, hash-chained audit |
 | Data protection | Client address classified as personal data; 0700/0600 permissions; backups follow the same rule |
 | Communications | HSTS rules, `upgrade-insecure-requests`, plain HTTP only behind an operator-supplied TLS terminator |
@@ -364,7 +544,18 @@ databasebestand kan schrijven kan de triggers laten vallen en de hele keten herb
 sporen-bewijs, geen manipulatiebescherming. Anonieme geweigerde schrijfacties worden ook gelogd en kunnen
 de tabel dus laten groeien. Het clientadres in het auditlog is persoonsgegeven.
 
-### Preview-modus
+### Fase B: STRIDE, aanvalsbeoordeling en aanvaarde risico's
+
+Fase B voegt acht oppervlakken toe: de installatiepoort, de wizard met het bootstrap-token, aanmelden,
+sessies, RBAC en beleid, geheimen, break-glass en de Microsoft-clients. De STRIDE-tabellen en de aanvalsbeoordeling
+van 25 punten staan in het Engelse deel hierboven. Belangrijkste punten: het setup-token en de 404 op `/setup`
+na de eerste aanmelding van de Eigenaar; cookies met `__Host-` via https en gedeeld over poorten op
+`http://localhost`; een CSRF-binding op beide cookies; sessies met gehashte id's, time-outs en een extra
+verificatie; `APP_KEY` versleutelt de certificaatsleutel en roteren vernieuwt het certificaat niet; break-glass
+zonder tweede factor (ODB-17) met de beperking op de reverse proxy. De ASVS-rijen V2, V3, V4, V6, V7, V8 en V13
+staan in de tabel van Fase B. Het preview-risico R-08 is gesloten doordat de previewmodus is verwijderd.
+
+### Preview-modus (verwijderd in Fase B)
 
 Risico: wie de poort kan bereiken beheert het uiterlijk. De regel op `Host` en doorstuurheaders voorkomt
 onbedoelde blootstelling achter een proxy, maar is geen beveiligingsgrens: de grens is de poort alleen op

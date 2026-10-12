@@ -10,9 +10,14 @@
 // A test that provokes one of them on purpose reads it with `guard.take(kind)`, which also removes
 // it from the list that is checked at the end.
 //
-// The other fixture, `app`, opens pages of the two instances, waits until the app is ready and
-// asserts what P19 and P21 of the stack probe demand: dark mode is really dark (computed
-// background) and the self-hosted font is really loaded (this host has Inter installed).
+// The other fixture, `app`, opens pages of the two instances (A: configured, B: empty), waits until
+// the app is ready and asserts what P19 and P21 of the stack probe demand: dark mode is really dark
+// (computed background) and the self-hosted font is really loaded (this host has Inter installed).
+//
+// Phase B (T-B-370): every context starts with the storage state of a principal (`principal`, default
+// `owner` on instance A; `anonymous` means none), and the three Microsoft host names resolve to the
+// fake tenant (`microsoft-hosts.ts`). A Microsoft NAVIGATION is how a sign-in works and is
+// allowed; a request to a Microsoft host from page scripts is a problem (FR-B-317, FR-B-606).
 import {
   expect,
   test as base,
@@ -21,10 +26,25 @@ import {
   type Response,
 } from '@playwright/test';
 import { relativeLuminanceOfChannels } from '@m365portal/shared/branding/contrast';
-import { originOf, restartServer, startServer, stopServer, type InstanceName } from './servers.js';
+import {
+  originOf,
+  resetEmptyInstance,
+  restartServer,
+  startServer,
+  statesDir,
+  stopServer,
+  type InstanceName,
+} from './servers.js';
+import { freshClientAddress } from './support/client-address.js';
+import { FakeControl } from './support/fake-control.js';
+import { isMicrosoftUrl } from './support/microsoft-hosts.js';
+import type { PrincipalName } from './support/principals.js';
+import { signInAs, type SignInAsOptions } from './support/sign-in.js';
+import { join } from 'node:path';
 
 export { expect };
 export type { InstanceName };
+export type { PrincipalName };
 
 export type AppTheme = 'light' | 'dark' | 'system';
 
@@ -34,6 +54,16 @@ export interface AppOptions {
   appTheme: AppTheme;
   /** An init script makes `localStorage` and `sessionStorage` throw (E-06). */
   blockStorage: boolean;
+  /**
+   * Who the context is signed in as when the test starts: the storage state global-setup wrote for
+   * that principal. `anonymous` starts without cookies (`norole` has none either: no session).
+   */
+  principal: PrincipalName | 'anonymous';
+  /**
+   * Send an `X-Forwarded-For` of its own so that this context is its own client (instance A trusts
+   * one proxy hop; see support/client-address.ts). Specs of instance B turn it off: B trusts none.
+   */
+  ownClientAddress: boolean;
 }
 
 export type ProblemKind = 'violation' | 'pageerror' | 'console' | 'status' | 'origin';
@@ -57,13 +87,15 @@ export interface Guard {
   take(kind: ProblemKind): Problem[];
   /** Same-origin responses matching this are not a problem (and neither is their console line). */
   allowResponse(allowed: AllowedResponse): void;
+  /** Another origin the test legitimately talks to (the foreign site of a cross-site link). */
+  allowOrigin(origin: string): void;
   /** Throws when something was seen. Called by the fixture teardown. */
   assertClean(): void;
 }
 
 /** The origins the browser may talk to: the two instances and nothing else. */
 export function allowedOrigins(): readonly string[] {
-  return [originOf('preview'), originOf('anonymous')];
+  return [originOf('a'), originOf('b')];
 }
 
 export const STORAGE_KEY_THEME = 'm365portal.theme';
@@ -129,6 +161,18 @@ function createGuard(context: BrowserContext): Guard {
   context.on('request', (request) => {
     const url = request.url();
     if (!/^https?:/.test(url)) return;
+    if (isMicrosoftUrl(url)) {
+      // A sign-in or a sign-out is a navigation to Microsoft and is how the product works; anything
+      // else (fetch, XHR, a script, an image) is a request from page code (FR-B-317).
+      if (!request.isNavigationRequest()) {
+        problems.push({
+          kind: 'origin',
+          text: `page request to a Microsoft host: ${request.method()} ${new URL(url).origin}${new URL(url).pathname}`,
+          url,
+        });
+      }
+      return;
+    }
     if (!origins.has(new URL(url).origin)) {
       problems.push({ kind: 'origin', text: `${request.method()} ${url}`, url });
     }
@@ -159,6 +203,9 @@ function createGuard(context: BrowserContext): Guard {
     allowResponse(response) {
       allowed.push(response);
     },
+    allowOrigin(origin) {
+      origins.add(origin);
+    },
     assertClean() {
       const open = problems.filter((problem) => !isAllowed(problem));
       if (open.length > 0) {
@@ -175,6 +222,7 @@ export interface GotoOptions {
 }
 
 export interface App {
+  /** The origin of an instance; default A. */
   origin(instance?: InstanceName): string;
   url(path: string, instance?: InstanceName): string;
   /** Navigates and waits until the app is ready. Returns the navigation response. */
@@ -186,9 +234,13 @@ export interface App {
   /** The instance helpers: stop, start, restart on the same DATA_DIR (V-16). */
   readonly servers: {
     stop(instance: InstanceName): Promise<void>;
-    start(instance: InstanceName): Promise<void>;
-    restart(instance: InstanceName): Promise<void>;
+    start(instance: InstanceName, env?: Record<string, string>): Promise<void>;
+    restart(instance: InstanceName, env?: Record<string, string>): Promise<void>;
+    /** Instance B back to empty: no data, a fresh tenant in the fake (every wizard spec starts here). */
+    resetEmpty(): Promise<void>;
   };
+  /** The real sign-in of a principal in this page's context (CB17). */
+  signInAs(principal: PrincipalName, options?: SignInAsOptions): Promise<void>;
 }
 
 /** Relative luminance of a `rgb()` / `rgba()` / `color(srgb ...)` string, 0 (black) to 1 (white). */
@@ -205,9 +257,19 @@ async function bodyBackground(page: Page): Promise<string> {
   return page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 }
 
-export const test = base.extend<AppOptions & { guard: Guard; app: App }>({
+export const test = base.extend<AppOptions & { guard: Guard; app: App; fake: (instance?: InstanceName) => FakeControl }>({
   appTheme: ['light', { option: true }],
   blockStorage: [false, { option: true }],
+  principal: ['owner', { option: true }],
+  ownClientAddress: [true, { option: true }],
+
+  storageState: async ({ principal }, use) => {
+    await use(principal === 'anonymous' ? undefined : join(statesDir(), `${principal}.json`));
+  },
+
+  fake: async ({}, use) => {
+    await use((instance = 'a') => new FakeControl(instance));
+  },
 
   guard: [
     async ({ context }, use) => {
@@ -218,7 +280,10 @@ export const test = base.extend<AppOptions & { guard: Guard; app: App }>({
     { auto: true },
   ],
 
-  context: async ({ context, appTheme, blockStorage }, use) => {
+  context: async ({ context, appTheme, blockStorage, ownClientAddress }, use) => {
+    if (ownClientAddress) {
+      await context.setExtraHTTPHeaders({ 'x-forwarded-for': freshClientAddress() });
+    }
     if (blockStorage) {
       await context.addInitScript(() => {
         for (const name of ['localStorage', 'sessionStorage'] as const) {
@@ -249,8 +314,9 @@ export const test = base.extend<AppOptions & { guard: Guard; app: App }>({
 
   app: async ({ page, appTheme }, use) => {
     const app: App = {
-      origin: (instance = 'preview') => originOf(instance),
-      url: (path, instance = 'preview') => `${originOf(instance)}${path}`,
+      origin: (instance = 'a') => originOf(instance),
+      url: (path, instance = 'a') => `${originOf(instance)}${path}`,
+      signInAs: (principal, options) => signInAs(page, principal, options),
       async expectTheme(theme) {
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
         const luminance = cssColourBrightness(await bodyBackground(page));
@@ -283,6 +349,7 @@ export const test = base.extend<AppOptions & { guard: Guard; app: App }>({
         stop: stopServer,
         start: startServer,
         restart: restartServer,
+        resetEmpty: resetEmptyInstance,
       },
     };
     await use(app);

@@ -466,7 +466,7 @@ function documentLeaks(text: string, canaries: readonly string[]): string[] {
   for (const canary of canaries)
     if (canary !== '' && text.includes(canary)) found.push('a canary value');
   if (/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./.test(text)) found.push('a JWT-shaped token');
-  if (/-----BEGIN /.test(text)) found.push('a PEM block');
+  if (text.includes('-----BEGIN ')) found.push('a PEM block');
   if (/\bm365portal_(?:session|setup|tx)=[A-Za-z0-9_-]{20,}/.test(text))
     found.push('a cookie value');
   return found;
@@ -524,7 +524,7 @@ describe('the contract routes P01 to P32 on the real application (T-B-392)', () 
             get: { 'x-route-id': 'x.route', 'x-rate-limit': 'read', 'x-public': true, ...extra },
           },
         },
-      }) as unknown as OpenApiDocument;
+      });
 
     it('a contract route that is not documented', () => {
       expectGuardFails(

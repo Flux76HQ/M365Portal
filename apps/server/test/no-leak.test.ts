@@ -431,9 +431,9 @@ describe('a full run leaves no secret anywhere (FR-B-715, FR-B-107, SC-B-013)', 
   it('has 0 hits in logs, audit rows, responses, the shell, the OpenAPI document, the rotation output and the data directory with its backups', () => {
     const current = have();
     const surfaces = surfacesOf(current);
-    expect(surfaces.files.some((file) => /pre-rotate-/.test(file.path))).toBe(true);
+    expect(surfaces.files.some((file) => file.path.includes('pre-rotate-'))).toBe(true);
     expect(
-      surfaces.files.some((file) => /\.sqlite-wal$/.test(file.path) || /\.sqlite$/.test(file.path)),
+      surfaces.files.some((file) => file.path.endsWith(".sqlite-wal") || file.path.endsWith(".sqlite")),
     ).toBe(true);
     expect(surfaces.exchanges.some((exchange) => exchange.path === '/api/v1/openapi.json')).toBe(
       true,
@@ -504,7 +504,7 @@ describe('a full run leaves no secret anywhere (FR-B-715, FR-B-107, SC-B-013)', 
         /the header x-debug/,
       ],
     ] as const)('fails for %s', (_label, change, reason) => {
-      expectGuardFails(guard, { ...clean(), ...change } as Surfaces, { reason });
+      expectGuardFails(guard, { ...clean(), ...change }, { reason });
     });
 
     it('lets a session id through in Set-Cookie only where the canary allows it', () => {

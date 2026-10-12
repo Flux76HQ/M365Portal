@@ -1,3 +1,5 @@
 mount: apps/web/src/lib/graph-body.ts
 // A data member called redirectUris is no second function (it is the name of a Graph body member).
 export const body = { redirectUris: ['https://localhost:9300/auth/callback'] };
+// A value computed by an array method with a callback is data too (the inventory of a test support file).
+export const inventory = (apps: { uris: string[] }[]) => ({ redirectUris: apps.flatMap((a) => a.uris) });

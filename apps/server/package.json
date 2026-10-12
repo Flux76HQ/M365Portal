@@ -39,6 +39,7 @@
     "esbuild": "catalog:",
     "msw": "catalog:",
     "tsx": "catalog:",
+    "typescript": "catalog:",
     "vitest": "catalog:"
   }
 }

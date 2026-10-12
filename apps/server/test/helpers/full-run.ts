@@ -84,6 +84,7 @@ export interface FullRun {
     readonly noRoleTurnedAway: boolean;
     readonly rows: number;
     readonly previewLines: number;
+    readonly rotated: boolean;
   };
   readonly oid: string;
   readonly upn: string;
@@ -171,14 +172,15 @@ function harvestMicrosoft(target: Set<string>): () => void {
  */
 async function pumped<T>(server: WizardServer, work: Promise<T>, maxSeconds = 60): Promise<T> {
   let finished = false;
+  const isDone = (): boolean => finished;
   const tracked = work.finally(() => {
     finished = true;
   });
-  for (let seconds = 0; !finished && seconds < maxSeconds;) {
-    for (let round = 0; round < 6 && !finished; round += 1) {
+  for (let seconds = 0; !isDone() && seconds < maxSeconds;) {
+    for (let round = 0; round < 6 && !isDone(); round += 1) {
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
-    if (!finished) {
+    if (!isDone()) {
       await server.advance(1000);
       seconds += 1;
     }
@@ -298,7 +300,7 @@ export async function runFullLifecycle(): Promise<FullRun> {
       designatedOwner: { oid: string; upnLabel: string | null; nameLabel: string | null };
     };
     const oid = state.designatedOwner.oid;
-    const finished = await setupClient.post('/api/v1/setup/finish', {
+    await setupClient.post('/api/v1/setup/finish', {
       json: { confirmOwnerOid: oid, language: 'nl' },
     });
     const admin = server.world.admin;
@@ -445,7 +447,7 @@ export async function runFullLifecycle(): Promise<FullRun> {
     logs.push(server.logs.text());
     const stdout = createLogCapture();
     const stderr = createLogCapture();
-    const status = await runRotateAppKey([], {
+    const rotationStatus = await runRotateAppKey([], {
       env: {
         DATA_DIR: dataDir,
         PUBLIC_BASE_URL: server.origin,
@@ -526,8 +528,6 @@ export async function runFullLifecycle(): Promise<FullRun> {
         body,
       })),
     );
-    void finished;
-    void status;
 
     return {
       server,
@@ -539,7 +539,15 @@ export async function runFullLifecycle(): Promise<FullRun> {
       auditRows,
       files: dataFiles(dataDir),
       commandOutput,
-      facts: { completed, ownerSignedIn, breakGlassSignedIn, noRoleTurnedAway, rows, previewLines },
+      facts: {
+        completed,
+        ownerSignedIn,
+        breakGlassSignedIn,
+        noRoleTurnedAway,
+        rows,
+        previewLines,
+        rotated: rotationStatus === 0,
+      },
       oid,
       upn: admin.userPrincipalName,
       displayName: state.designatedOwner.nameLabel ?? '',

@@ -11,7 +11,7 @@ import {
 } from '../branding-helpers.js';
 
 test.beforeEach(async ({ app }) => {
-  await app.servers.restart('preview');
+  await app.servers.restart('a');
 });
 
 test.afterEach(async ({ request, app }) => {
@@ -57,7 +57,7 @@ test('name, accent, logos and icons survive a restart of the server', async ({
   expect(before.orgName).toBe('Durable Co');
   expect(lightBefore).not.toBe(darkBefore);
 
-  await app.servers.restart('preview');
+  await app.servers.restart('a');
 
   const after = await readBranding(request, app);
   expect(after).toEqual(before);
@@ -101,7 +101,7 @@ test('the revision survives too: a tab opened before the restart can still save 
   await save(page);
   const saved = await readBranding(request, app);
 
-  await app.servers.restart('preview');
+  await app.servers.restart('a');
   expect((await readBranding(request, app)).revision).toBe(saved.revision);
 
   // The page was loaded at the old revision, and still works against the new process.
@@ -123,7 +123,7 @@ test('a reset also survives a restart: the defaults come back, not the last appe
   await fields.reset.click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Reset appearance' }).click();
   await expect(page).toHaveTitle('Appearance - M365Portal');
-  await app.servers.restart('preview');
+  await app.servers.restart('a');
   const after = await readBranding(request, app);
   expect(after.orgName).toBe('M365Portal');
   expect(after.isDefaultName).toBe(true);

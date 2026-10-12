@@ -31,6 +31,7 @@ import {
   GraphThrottledError,
   IntegrationError,
 } from '../ports/errors.js';
+import { chunkIds, mapLimited } from '../ports/batching.js';
 import type { GraphClient } from '../ports/graph.js';
 import {
   dropMemberCache,
@@ -39,7 +40,6 @@ import {
   replaceMemberCache,
 } from './repository.js';
 
-const CHUNK = LIMITS.microsoft.graphCheckMemberGroupsMaxIds;
 const IN_FLIGHT = LIMITS.microsoft.graphInFlightMax;
 
 /** Locating calls to find one bad id in a rejected chunk of 20: `ceil(log2(20))`. */
@@ -92,32 +92,6 @@ class FailedRefresh extends Error {
     this.name = 'FailedRefresh';
     this.reason = reason;
   }
-}
-
-/** Runs `work` over `items` with at most `limit` in flight; the first failure rejects after all settle. */
-async function mapLimited<T, R>(
-  items: readonly T[],
-  limit: number,
-  work: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  let failure: { readonly error: unknown } | undefined;
-  async function worker(): Promise<void> {
-    while (failure === undefined) {
-      const index = next;
-      next += 1;
-      if (index >= items.length) return;
-      try {
-        results[index] = await work(items[index] as T);
-      } catch (error) {
-        failure ??= { error };
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
-  if (failure !== undefined) throw failure.error;
-  return results;
 }
 
 /**
@@ -199,8 +173,7 @@ export function createMembershipService(deps: MembershipDeps): MembershipService
     if (bound.length === 0) return answer;
     try {
       const graph = deps.graph();
-      const chunks: string[][] = [];
-      for (let at = 0; at < bound.length; at += CHUNK) chunks.push(bound.slice(at, at + CHUNK));
+      const chunks = chunkIds(bound);
       const budget = { badIds: 0 };
       await mapLimited(chunks, IN_FLIGHT, (chunk) =>
         resolveChunk(graph, oid, chunk, answer, budget),

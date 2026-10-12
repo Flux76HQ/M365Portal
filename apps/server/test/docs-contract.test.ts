@@ -45,6 +45,21 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { SVG_ALLOWLIST } from '../src/branding/pipeline/svg/allowlist.js';
 import { ENV_VARIABLES, ENV_VARIABLE_NAMES } from '../src/config/index.js';
 import {
+  assertAdr0102,
+  assertArchitecturePhaseB,
+  assertNegativeControlTable,
+  assertOpenPointsPhaseB,
+  assertOperationsPhaseB,
+  assertPermissionsPhaseB,
+  assertReadmePhaseB,
+  assertRoutesMatchContract,
+  assertSecurityPhaseB,
+  contractRouteIds,
+  halves,
+} from './fixtures/docs/phase-b.js';
+import { startWizardServer } from './setup/support/server-scene.js';
+import { readJson } from './helpers/http-client.js';
+import {
   anchorsOf,
   codeTokens,
   findTable,
@@ -964,7 +979,14 @@ describe('docs/architecture.md (FR-A-006, FR-A-185)', () => {
 // docs/adr (FR-A-185)
 // =============================================================================================
 
-const ADR_COUNT = 56;
+const ADR_PHASE_A_COUNT = 56;
+/** ADR-0001 to 0056 (Phase A), 0101 to 0126 (assumptions B-01 to B-26) and 0151 to 0178 (PB-01 to PB-28). */
+const ADR_NUMBERS: readonly number[] = [
+  ...Array.from({ length: ADR_PHASE_A_COUNT }, (_unused, index) => index + 1),
+  ...Array.from({ length: 26 }, (_unused, index) => 101 + index),
+  ...Array.from({ length: 28 }, (_unused, index) => 151 + index),
+];
+const ADR_COUNT = ADR_NUMBERS.length;
 const ADR_FIELDS = ['Status', 'Context', 'Decision', 'Consequences', 'Evidence'];
 const ADR_STATUSES = ['Accepted', 'Adjusted', 'Plan'];
 const pad = (n: number, width: number): string => String(n).padStart(width, '0');
@@ -1024,9 +1046,13 @@ function assertAdrDirectory(directory: string): void {
     }
     if (number === 55 && !/\bTA-\d\d\b/.test(markdown))
       throw new Error(`${name}: does not name the task-level decisions (TA-nn)`);
+    if (number >= 101 && number <= 126 && !markdown.includes(`B-${pad(number - 100, 2)}`))
+      throw new Error(`${name}: does not name its assumption B-${pad(number - 100, 2)}`);
+    if (number >= 151 && number <= 178 && !markdown.includes(`PB-${pad(number - 150, 2)}`))
+      throw new Error(`${name}: does not name its decision PB-${pad(number - 150, 2)}`);
   };
   check('0000-template.md', 0);
-  for (let number = 1; number <= ADR_COUNT; number += 1) {
+  for (const number of ADR_NUMBERS) {
     const matches = numbered.filter((name) => name.startsWith(`${pad(number, 4)}-`));
     if (matches.length !== 1)
       throw new Error(
@@ -1036,9 +1062,15 @@ function assertAdrDirectory(directory: string): void {
   }
 }
 
+function adrLink(number: number): string {
+  if (number >= 151) return `PB-${pad(number - 150, 2)}`;
+  if (number >= 101) return `B-${pad(number - 100, 2)}`;
+  if (number >= 27) return number <= 54 ? `PD-${pad(number - 26, 2)}` : 'TA-01';
+  return `D${String(number)}`;
+}
+
 function adrSample(number: number): string {
-  const link =
-    number >= 27 ? (number <= 54 ? `PD-${pad(number - 26, 2)}` : 'TA-01') : `D${String(number)}`;
+  const link = adrLink(number);
   return [
     `# ADR-${pad(number, 4)}: Title`,
     '',
@@ -1073,8 +1105,7 @@ function adrDirectory(change: (files: Map<string, string>) => void = () => undef
   const files = new Map<string, string>([
     ['0000-template.md', adrSample(0).replace(/^Samenvatting.*\n/m, '')],
   ]);
-  for (let number = 1; number <= ADR_COUNT; number += 1)
-    files.set(`${pad(number, 4)}-decision.md`, adrSample(number));
+  for (const number of ADR_NUMBERS) files.set(`${pad(number, 4)}-decision.md`, adrSample(number));
   change(files);
   for (const [name, text] of files) writeFileSync(join(directory, name), text);
   return directory;
@@ -1090,7 +1121,7 @@ describe('docs/adr (FR-A-185)', () => {
       adrDirectory((files) => {
         files.delete('0030-decision.md');
       }),
-      { reason: /has 55 ADRs, expected 56/ },
+      { reason: /has 109 ADRs, expected 110/ },
     );
     expectGuardFails(
       assertAdrDirectory,
@@ -1151,7 +1182,31 @@ describe('docs/adr (FR-A-185)', () => {
     );
   });
 
-  it('has the template and ADR-0001 to ADR-0056 with their fields, D1 to D26 first and PD-01 onwards after', () => {
+  it('refuses a Phase B ADR that does not name its assumption or decision (B-nn, PB-nn)', () => {
+    expectGuardFails(
+      assertAdrDirectory,
+      adrDirectory((files) => {
+        files.set('0107-decision.md', adrSample(107).replace('B-07', 'B-08'));
+      }),
+      { reason: /0107-decision\.md: does not name its assumption B-07/ },
+    );
+    expectGuardFails(
+      assertAdrDirectory,
+      adrDirectory((files) => {
+        files.set('0155-decision.md', adrSample(155).replace('PB-05', 'PB-06'));
+      }),
+      { reason: /0155-decision\.md: does not name its decision PB-05/ },
+    );
+    expectGuardFails(
+      assertAdrDirectory,
+      adrDirectory((files) => {
+        files.delete('0126-decision.md');
+      }),
+      { reason: /has 109 ADRs|ADR-0126: 0 files/ },
+    );
+  });
+
+  it('has the template and ADR-0001 to ADR-0056, 0101 to 0126 (B-01 to B-26) and 0151 to 0178 (PB-01 to PB-28) with their fields', () => {
     assertAdrDirectory(join(repositoryRoot, 'docs/adr'));
   });
 });
@@ -1289,5 +1344,328 @@ describe('spec, plan and tasks (FR-A-186)', () => {
     const ids = sourceRouteIds();
     expect(ids.size).toBeGreaterThanOrEqual(20);
     assertRouteIdsExist(readFileSync(join(specDirectory, 'contracts/phase-a-api.md'), 'utf8'), ids);
+  });
+});
+
+// =============================================================================================
+// Phase B (T-B-420, FR-B-709, FR-B-703 doc half, FR-B-711, FR-B-713 doc, EB-30, EB-32, SC-B-017, XB35)
+// =============================================================================================
+//
+// The guards live in fixtures/docs/phase-b.ts. Each runs on the real document and on that document
+// with one required item taken out (the negatives), so the green run is evidence that the guard looks.
+// The role matrix is compared with the matrix of spec 6.9.4 parsed from the spec file, not from the
+// code. The documents are written by T-B-421 to T-B-428; until then the real-document tests are red
+// and the failure names what is missing.
+
+const specPhaseB = join(repositoryRoot, 'specs/002-phase-b');
+const readPhaseB = (name: string): string => readFileSync(join(specPhaseB, name), 'utf8');
+
+function everywhere(text: string, token: string | RegExp, replacement = ''): string {
+  return typeof token === 'string'
+    ? text.split(token).join(replacement)
+    : text.replace(new RegExp(token.source, `${token.flags.replace('g', '')}g`), replacement);
+}
+
+/** The document without the lines that match (a table row, a sentence on its own line). */
+function withoutLines(text: string, pattern: RegExp): string {
+  return text
+    .split('\n')
+    .filter((line) => !pattern.test(line))
+    .join('\n');
+}
+
+type Mutation = readonly [label: string, change: (text: string) => string, reason: RegExp];
+
+function runNegatives(
+  guard: (text: string) => void,
+  real: string,
+  mutations: readonly Mutation[],
+): void {
+  for (const [label, change, reason] of mutations) {
+    const changed = change(real);
+    expect(changed, `the mutation "${label}" changed nothing`).not.toBe(real);
+    expectGuardFails(guard, changed, { name: label, reason });
+  }
+}
+
+describe('README: the Phase B first run, in both languages (FR-B-709, US-B13)', () => {
+  const real = (): string => readDocument('README.md', 'T-B-426');
+  it('holds the first-run steps in order, in Dutch and in English, and no preview mode', () => {
+    assertReadmePhaseB(real());
+  });
+  it('negatives: a missing section, command or role, a Dutch half without the steps, the old preview advice', () => {
+    runNegatives(assertReadmePhaseB, real(), [
+      [
+        'no English first-run section',
+        (t) => everywhere(t, /^#{1,4} .*first (run|start).*$/im, '### Other'),
+        /first-run section/,
+      ],
+      ['no key command', (t) => everywhere(t, 'generate-app-key', 'gen-key'), /generate-app-key/],
+      ['no docker exec', (t) => everywhere(t, 'docker exec', 'docker attach'), /docker exec/],
+      [
+        'no Compose secret',
+        (t) => everywhere(t, 'secrets/app_key', 'secrets/key'),
+        /secrets\/app_key/,
+      ],
+      [
+        'no Privileged Role Administrator',
+        (t) => everywhere(t, 'Privileged Role Administrator', 'Role Admin'),
+        /Privileged Role Administrator/,
+      ],
+      [
+        'preview mode advice back',
+        (t) => `${t}\nStart with PREVIEW_MODE=true.\n`,
+        /PREVIEW_MODE=true/,
+      ],
+      [
+        'the Dutch half without the first run',
+        (t) => {
+          const { english, dutch } = halves(t);
+          return `${english}\n${everywhere(dutch, /^#{1,4} .*(eerste (keer|start)|eerste gebruik).*$/im, '### Anders')}`;
+        },
+        /first-run section \(Eerste start\)/,
+      ],
+    ]);
+  });
+});
+
+describe('docs/operations.md: Phase B content and the limits sentences (FR-B-703, FR-B-704, EB-11, EB-30, EB-32, B-26)', () => {
+  const real = (): string => readDocument('docs/operations.md', 'T-B-422');
+  it('holds the key, certificate, token, break-glass, proxy, compromise and outbound sections in both languages', () => {
+    assertOperationsPhaseB(real());
+  });
+  it('negatives: each required sentence or section taken out fails', () => {
+    runNegatives(assertOperationsPhaseB, real(), [
+      [
+        'the no-larger-request sentence',
+        (t) => everywhere(t, /Phase B adds no larger/i, 'Phase B adds a larger'),
+        /no larger/,
+      ],
+      [
+        'the break-glass proxy restriction',
+        (t) => everywhere(t, '/api/v1/auth/break-glass', '/api/v1/auth/x'),
+        /break-glass by address/,
+      ],
+      [
+        'sovereign clouds',
+        (t) => everywhere(everywhere(t, /sovereign/gi, 'special'), /national cloud/gi, 'special'),
+        /sovereign clouds/,
+      ],
+      ['the pre-rotate copies', (t) => everywhere(t, 'pre-rotate-', 'rotate-old-'), /pre-rotate/],
+      [
+        'the NODE_USE_ENV_PROXY hint',
+        (t) => everywhere(t, 'NODE_USE_ENV_PROXY', 'NODE_PROXY'),
+        /NODE_USE_ENV_PROXY/,
+      ],
+      [
+        'the outbound host outlook.office365.com',
+        (t) => everywhere(t, 'outlook.office365.com', 'example.com'),
+        /outlook\.office365\.com/,
+      ],
+      [
+        'the 14-character floor',
+        (t) => everywhere(t, /14 characters/gi, '8 characters'),
+        /14-character floor/,
+      ],
+      ['the Dutch half', (t) => everywhere(t, /certificaat/gi, 'cert'), /het certificaat/],
+    ]);
+  });
+});
+
+describe('docs/security.md: the Phase B tables, the attack review and the accepted risks (FR-B-709, AM-16, RB-05 to RB-09)', () => {
+  const real = (): string => readDocument('docs/security.md', 'T-B-423');
+  it('holds the STRIDE rows of the eight surfaces, ASVS V2 V3 V4 V6 V7 V8 V13, 25 attack-review rows and the accepted risks', () => {
+    assertSecurityPhaseB(real());
+  });
+  it('negatives: a missing STRIDE row, ASVS row, attack-review row or topic fails', () => {
+    runNegatives(assertSecurityPhaseB, real(), [
+      [
+        'no Break-glass STRIDE row',
+        (t) => withoutLines(t, /^\|\s*Break-glass\s*\|/),
+        /no row "Break-glass"/,
+      ],
+      ['no ASVS V13 row', (t) => withoutLines(t, /^\|\s*V13\b/), /ASVS level 2 table/],
+      [
+        'no row 25 of the attack review',
+        (t) => withoutLines(t, /^\|\s*25\s*\|/),
+        /has 24 rows, plan 16\.1 has 25/,
+      ],
+      ['no DNS rebinding', (t) => everywhere(t, /DNS rebinding/gi, 'rebind'), /DNS rebinding/],
+      ['no accepted risk RB-17', (t) => everywhere(t, 'RB-17', 'RB-xx'), /RB-17/],
+      [
+        'no docker inspect',
+        (t) => everywhere(t, 'docker inspect', 'docker info'),
+        /docker inspect/,
+      ],
+      ['no ODB-17', (t) => everywhere(t, 'ODB-17', 'ODB-xx'), /ODB-17/],
+      ['no Dutch Phase B', (t) => everywhere(t, /fase b/gi, 'fase x'), /Fase B/],
+    ]);
+  });
+});
+
+describe('docs/permissions.md: the role matrix equals spec 6.9.4 (FR-B-301, FR-B-502, B-01)', () => {
+  const real = (): string => readDocument('docs/permissions.md', 'T-B-421');
+  const spec = (): string => readPhaseB('spec.md');
+  const guard = (text: string): void => {
+    assertPermissionsPhaseB(text, spec());
+  };
+
+  it('holds the 15-permission matrix, the four Graph roles with their ids, both Exchange templates and the delegated scopes', () => {
+    guard(real());
+  });
+  it('negatives: a flipped cell, a changed Bestuur mark, a missing id or template, a missing scope fails', () => {
+    const flip = (permission: string, from: string, to: string) => (text: string) =>
+      text
+        .split('\n')
+        .map((line) =>
+          line.includes(`\`${permission}\``) && /\|\s*x\s*\|/.test(line) && line.includes(from)
+            ? line.replace(/\|\s*x\s*\|/, `| ${to} |`)
+            : line,
+        )
+        .join('\n');
+    runNegatives(guard, real(), [
+      ['rbac:manage not held by Eigenaar', flip('rbac:manage', '', ''), /rbac:manage for Eigenaar/],
+      [
+        'a template id missing',
+        (t) => everywhere(t, '31392ffb-586c-42d1-9346-e59415a2cc4e', ''),
+        /exchange_recipient_administrator/,
+      ],
+      [
+        'a role id missing',
+        (t) => everywhere(t, 'dbaae8cf-10b5-4b86-a4a1-f871c94c6695', ''),
+        /GroupMember\.ReadWrite\.All/,
+      ],
+      [
+        'a delegated scope missing',
+        (t) => everywhere(t, 'AppRoleAssignment.ReadWrite.All', 'X'),
+        /AppRoleAssignment\.ReadWrite\.All/,
+      ],
+      [
+        'EXCHANGE_ROLES missing',
+        (t) => everywhere(t, 'EXCHANGE_ROLES', 'EXCHANGE_ROLE_TABLE'),
+        /EXCHANGE_ROLES/,
+      ],
+      [
+        'a permission row missing',
+        (t) => withoutLines(t, /^\|\s*`contacts:delete`/),
+        /contacts:delete|has 14 rows/,
+      ],
+    ]);
+  });
+  it('the matrix totals of the spec are 15, 13, 9, 6, 4 and 5', () => {
+    expect(() => {
+      guard(real());
+    }).not.toThrow();
+  });
+});
+
+describe('docs/architecture.md: layering, modules, dependencies and the rule for Phases C and D (FR-B-709, FR-B-711, PB-01)', () => {
+  const real = (): string => readDocument('docs/architecture.md', 'T-B-424');
+  it('lists the six Phase B dependencies with a reason and a mark, the layering and the capability rule', () => {
+    assertArchitecturePhaseB(real());
+  });
+  it('negatives: a missing dependency row, the fetch-only rule or the capability argument fails', () => {
+    runNegatives(assertArchitecturePhaseB, real(), [
+      ['no jose row', (t) => withoutLines(t, /^\|\s*`jose`/), /no row for jose/],
+      ['no msw row', (t) => withoutLines(t, /^\|\s*`msw`/), /no row for msw/],
+      [
+        'no AuthorizedResource',
+        (t) => everywhere(t, 'AuthorizedResource', 'Resource'),
+        /AuthorizedResource/,
+      ],
+      ['no jsonwebtoken note', (t) => everywhere(t, 'jsonwebtoken', 'jwt-library'), /jsonwebtoken/],
+      [
+        'no integrations boundary',
+        (t) => everywhere(t, 'integrations', 'clients'),
+        /integrations boundary/,
+      ],
+    ]);
+  });
+});
+
+describe('docs/adr: ADR-0102 and the blocks 0101 to 0126 and 0151 to 0178 (FR-B-709, AM-22)', () => {
+  it("ADR-0102 records the interface-only decision for the Exchange write path and says it is updated with the owner's choice", () => {
+    assertAdr0102(join(repositoryRoot, 'docs/adr'));
+  });
+  it('negative: an ADR-0102 without the owner decision fails', () => {
+    const directory = adrDirectory((files) => {
+      files.set('0102-decision.md', adrSample(102));
+    });
+    expectGuardFails(assertAdr0102, directory, { reason: /ADR-0102 must record/ });
+  });
+});
+
+describe('docs/open-points.md: every open point, assumption, risk and UNVERIFIED item of Phase B (T-B-425, SC-B-017)', () => {
+  const real = (): string => readDocument('docs/open-points.md', 'T-B-425');
+  it('holds U34 to U50, the updates, OV-01 to OV-23, B-01 to B-26, PB-01 to PB-28, RB-01 to RB-18, PBR-01 to PBR-14, ODB-01 to ODB-18 and the decisions taken', () => {
+    assertOpenPointsPhaseB(real());
+  });
+  it('negatives: a missing register row, ledger item or decision fails', () => {
+    runNegatives(assertOpenPointsPhaseB, real(), [
+      ['no U40', (t) => withoutLines(t, /^\|\s*U40\s*\|/), /the register row U40|U40/],
+      ['no OV-19', (t) => withoutLines(t, /^\|\s*OV-19\s*\|/), /OV-19/],
+      ['no ODB-17', (t) => withoutLines(t, /^\|\s*ODB-17\s*\|/), /ODB-17/],
+      ['no RB-17', (t) => withoutLines(t, /^\|\s*RB-17\s*\|/), /RB-17/],
+      ['no step-up decision', (t) => everywhere(t, 'amr_missing', 'x'), /step-up without MFA/],
+    ]);
+  });
+  it('every UNVERIFIED row of permissions.md has a register row here', () => {
+    assertGraphTable(readDocument('docs/permissions.md', 'T-B-421'), real());
+  });
+});
+
+describe('the contract file, the route table and the negative controls (FR-B-709, plan 14.6)', () => {
+  const contract = (): string => readPhaseB('contracts/phase-b-api.md');
+
+  it('every route id of contracts/phase-b-api.md is declared in the route table sources', () => {
+    const ids = sourceRouteIds();
+    assertRouteIdsExist(contract(), ids);
+  });
+
+  it('the contract and the route table of the running application agree in both directions', async () => {
+    const server = await startWizardServer({
+      env: {
+        BREAK_GLASS_USERNAME: 'operator',
+        BREAK_GLASS_PASSWORD_HASH: `scrypt:16384:8:1:${Buffer.alloc(16, 3).toString('base64url')}:${Buffer.alloc(32, 5).toString('base64url')}`,
+      },
+    });
+    const document = await readJson<{
+      paths: Record<string, Record<string, { 'x-route-id'?: string }>>;
+    }>(await server.client().get('/api/v1/openapi.json'));
+    const documented = Object.values(document.paths).flatMap((methods) =>
+      Object.values(methods).map((operation) => operation['x-route-id'] ?? ''),
+    );
+    const input = {
+      documented,
+      phaseA: contractRouteIds(
+        readFileSync(join(specDirectory, 'contracts/phase-a-api.md'), 'utf8'),
+      ),
+      phaseB: contractRouteIds(contract()),
+    };
+    expect(input.phaseB).toHaveLength(32);
+    expect(() => {
+      assertRoutesMatchContract(input);
+    }).not.toThrow();
+    expectGuardFails(
+      assertRoutesMatchContract,
+      { ...input, documented: [...documented, 'made.up.route'] },
+      { reason: /made\.up\.route, which no contract lists/ },
+    );
+    expectGuardFails(
+      assertRoutesMatchContract,
+      { ...input, phaseB: [...input.phaseB, 'nowhere.listed'] },
+      { reason: /nowhere\.listed, which is not in the route table/ },
+    );
+  });
+
+  it('the negative-control table of plan 14.6 names paths that exist', () => {
+    assertNegativeControlTable(readPhaseB('plan.md'), repositoryRoot);
+    expectGuardFails(
+      (plan: string) => {
+        assertNegativeControlTable(plan, repositoryRoot);
+      },
+      readPhaseB('plan.md').replace('server/route-table.test.ts', 'server/no-such-test.test.ts'),
+      { reason: /server\/no-such-test\.test\.ts does not exist/ },
+    );
   });
 });

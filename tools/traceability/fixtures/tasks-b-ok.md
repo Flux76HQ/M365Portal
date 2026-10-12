@@ -1,0 +1,3 @@
+- [ ] **T-B-001** The first task (FR-B-001, FR-B-002)
+  - Done when: FR-B-003 is mentioned here, in prose, which does not count.
+- [x] **T-B-002** The second task (FR-B-003)

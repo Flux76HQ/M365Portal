@@ -253,7 +253,7 @@ function assertRows(rows: readonly AuditRow[], required: readonly string[]): voi
       if (!allowedKeys.includes(key))
         problems.push(`${label}: the detail key ${key} is not allowed`);
     }
-    if (/@|eyJ[A-Za-z0-9_-]{10,}/.test(row.detail) || /@/.test(row.actor_id)) {
+    if (/@|eyJ[A-Za-z0-9_-]{10,}/.test(row.detail) || row.actor_id.includes('@')) {
       problems.push(`${label}: the entry holds a user name or a token`);
     }
   }

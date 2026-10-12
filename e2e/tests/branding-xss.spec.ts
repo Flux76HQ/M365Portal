@@ -17,7 +17,7 @@ const NAMES = [
 ] as const;
 
 test.beforeEach(async ({ app }) => {
-  await app.servers.restart('preview');
+  await app.servers.restart('a');
 });
 
 test.afterEach(async ({ request, app }) => {

@@ -1190,10 +1190,10 @@ function assertComposeFile({ compose, envExample, schema }: ComposeInput): void 
   if (!isYamlMap(declaredSecrets) || typeof secretFile !== 'string' || secretFile === '') {
     throw new Error(`the secret "${DOCKER_SECRET}" must be declared at the top level from a file`);
   }
-  if (!/docker exec/.test(compose) || !/cli\.js setup-token/.test(compose)) {
+  if (!compose.includes('docker exec') || !compose.includes('cli.js setup-token')) {
     throw new Error('a comment must document the docker exec commands (setup-token) (FR-B-705)');
   }
-  if (!/generate-app-key/.test(compose)) {
+  if (!compose.includes('generate-app-key')) {
     throw new Error('a comment must show how to create the key file (generate-app-key)');
   }
   for (const name of passedOn) {
