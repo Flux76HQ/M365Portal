@@ -82,24 +82,24 @@ export async function buildLayout(): Promise<BuiltLayout> {
   };
 }
 
-/** A port in 18000-18999 nobody listens on right now. */
+/**
+ * A port the operating system hands out for loopback right now. The kernel gives parallel callers
+ * different ephemeral ports (it does not reuse one at once), so test files running side by side do
+ * not pick the same number the way a random choice from a small range does.
+ */
 export async function freePort(): Promise<number> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const port = 18_000 + Math.floor(Math.random() * 1000);
-    const free = await new Promise<boolean>((resolve) => {
-      const probe = createServer();
-      probe.once('error', () => {
-        resolve(false);
-      });
-      probe.listen(port, '127.0.0.1', () => {
-        probe.close(() => {
-          resolve(true);
-        });
+  return new Promise<number>((resolve, reject) => {
+    const probe = createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address();
+      const port = typeof address === 'object' && address !== null ? address.port : 0;
+      probe.close(() => {
+        if (port === 0) reject(new Error('the operating system gave no port'));
+        else resolve(port);
       });
     });
-    if (free) return port;
-  }
-  throw new Error('no free port in 18000-18999');
+  });
 }
 
 export interface HttpResult {

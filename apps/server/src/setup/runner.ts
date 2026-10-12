@@ -150,7 +150,7 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
       states.find((state) => state.step === step)?.status ?? 'pending';
     const includes = (step: RunStep): boolean => request.steps.includes(step);
 
-    if (request.kind === 'repair') {
+    if (request.flow === 'repair') {
       const row = services.connections.read(db);
       if (row?.tenantId === null || row?.tenantId === undefined) throw notReady();
     }

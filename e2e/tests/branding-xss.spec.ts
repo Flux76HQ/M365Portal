@@ -127,7 +127,12 @@ test.describe('the name in the other places of the app', () => {
 
     for (const route of ['/', '/users', '/settings', '/design', '/no-access', '/nope']) {
       await app.goto(route);
-      await expect(fields.sidebarName).toHaveText(name);
+      // /no-access is a public page with no sidebar (Phase B): the organisation mark sits in its card.
+      const mark =
+        route === '/no-access'
+          ? page.locator('main [data-slot="org-mark"] [data-slot="org-name"]').first()
+          : fields.sidebarName;
+      await expect(mark).toHaveText(name);
       await expect(page.locator('img[src="x"]')).toHaveCount(0);
     }
     await page.keyboard.press('Control+k');

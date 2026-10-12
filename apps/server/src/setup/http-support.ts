@@ -18,7 +18,10 @@ export function problemAnswer(description: string): {
 /** The actor of a setup or connection request as the engine records it: the wizard or a signed-in user. */
 export function runActorOf(c: RouteContext): RunActor {
   const actor = c.get('actor');
-  return actor.kind === 'user' ? { kind: 'user', id: actor.id } : { kind: 'setup', id: 'setup' };
+  // The kind is carried over from the resolved actor, never written here: only the resolvers decide it.
+  // Only the two kinds that hold setup or connection permissions reach these routes.
+  if (actor.kind === 'user' || actor.kind === 'setup') return { kind: actor.kind, id: actor.id };
+  throw new Error(`no run can be started by an actor of kind ${actor.kind}`);
 }
 
 /** The request id and client address, for an audit entry. */

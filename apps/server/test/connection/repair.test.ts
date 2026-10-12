@@ -36,7 +36,7 @@ async function completedInstall(): Promise<TenantScene> {
 
 async function repair(scene: TenantScene): Promise<void> {
   scene.engine.start(
-    { steps: ['connect', 'configure', 'verify'], kind: 'repair', mode: 'reconcile' },
+    { steps: ['connect', 'configure', 'verify'], flow: 'repair', mode: 'reconcile' },
     USER,
   );
   await scene.drive({ maxSeconds: 1_500 });
@@ -180,7 +180,7 @@ describe('manual mode', () => {
     let failure: unknown;
     try {
       scene.engine.start(
-        { steps: ['connect', 'configure', 'verify'], kind: 'repair', mode: 'reconcile' },
+        { steps: ['connect', 'configure', 'verify'], flow: 'repair', mode: 'reconcile' },
         USER,
       );
     } catch (error) {

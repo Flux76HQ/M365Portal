@@ -19,7 +19,7 @@ export interface RunActor {
 
 export interface RunRequest {
   readonly steps: readonly RunStep[];
-  readonly kind: RunKind;
+  readonly flow: RunKind;
   readonly mode: RunMode;
   readonly tenantHint?: string | undefined;
   readonly applicationName?: string | undefined;
@@ -82,7 +82,7 @@ export class RunContext {
     readonly exchangeRole: ExchangeRoleKey;
   }) {
     this.id = options.id;
-    this.kind = options.request.kind;
+    this.kind = options.request.flow;
     this.mode = options.request.mode;
     this.steps = options.request.steps;
     this.actor = options.actor;

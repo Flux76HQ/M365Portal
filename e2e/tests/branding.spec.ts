@@ -591,6 +591,21 @@ test.describe('the wrong address (E-14)', () => {
   }) => {
     const wrong = new URL(app.origin());
     wrong.hostname = '127.0.0.1';
+    // Cookies belong to a host: the owner's session is copied to the wrong address, so that the page is
+    // the signed-in app there too (the server checks the origin of a write, not who is asking).
+    const session = (await page.context().cookies(app.origin())).find(
+      (cookie) => cookie.name === 'm365portal_session',
+    );
+    expect(session, 'the owner is signed in').toBeDefined();
+    await page.context().addCookies([
+      {
+        name: 'm365portal_session',
+        value: session?.value ?? '',
+        url: wrong.origin,
+        httpOnly: true,
+        sameSite: 'Strict',
+      },
+    ]);
     await page.goto(`${wrong.origin}/settings/appearance`);
     const fields = appearanceFields(page);
     await fields.name.waitFor();

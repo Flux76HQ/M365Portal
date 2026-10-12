@@ -139,14 +139,12 @@ test('a Conditional Access block names the cause and offers the manual mode', as
   page,
   app,
 }) => {
-  await fakeOf('b').blockDevice();
   await app.goto('/setup', { instance: 'b' });
   await unlock(page);
   await passEnvironment(page);
   await startDeviceSignIn(page);
-  await fakeOf('b')
-    .approveWhenPending('owner')
-    .catch(() => undefined);
+  // The policy blocks the code while the panel is polling for it.
+  await fakeOf('b').blockDevice();
   const summary = page.locator('[data-slot="error-summary"]');
   await expect(summary).toBeVisible({ timeout: 30_000 });
   await expect(summary).toContainText('Your organisation blocks signing in with a device code.');
@@ -191,6 +189,7 @@ test('an application with the name of the wizard and no install tag asks for the
 test('a restart of the instance in the middle resumes after unlocking again and repeating the device sign-in', async ({
   page,
   app,
+  guard,
 }) => {
   test.slow();
   await app.goto('/setup', { instance: 'b' });
@@ -200,6 +199,10 @@ test('a restart of the instance in the middle resumes after unlocking again and 
   await restartServer('b');
   // The setup session lived in memory: the form asks for the token again.
   await expect(page.getByLabel('Setup token')).toBeVisible({ timeout: 30_000 });
+  // While the server was down the poll was refused, and after it came back it was answered with 401:
+  // that is what the person's page shows as the token form, and the only thing the guard may see.
+  guard.take('status');
+  guard.take('console');
   await fakeOf('b').expireDevice();
   await page.getByLabel('Setup token').fill(setupTokenOfB());
   await page.getByRole('button', { name: 'Unlock' }).click();
@@ -249,8 +252,9 @@ test('two browser contexts racing to start the sign-in give one 409 setup_step_b
       page.getByRole('button', { name: 'Sign in with Microsoft' }).click(),
       second.getByRole('button', { name: 'Sign in with Microsoft' }).click(),
     ]);
-    await expect.poll(() => statuses.length).toBe(2);
-    expect([...statuses].sort()).toEqual([202, 409]);
+    // A 403 is the stale CSRF token after an unlock, replayed by the client; the runs are 202 and 409.
+    await expect.poll(() => statuses.filter((status) => status !== 403).length).toBe(2);
+    expect(statuses.filter((status) => status !== 403).sort()).toEqual([202, 409]);
   } finally {
     await other.close();
   }

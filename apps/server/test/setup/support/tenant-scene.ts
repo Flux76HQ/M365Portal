@@ -92,12 +92,17 @@ export interface TenantScene {
   };
   /** Time passes for the clock, the engine's scheduler and MSAL's timers. */
   elapse(milliseconds: number): Promise<void>;
+  /**
+   * Let the requests in flight and the work that takes real time (RSA key generation) finish, so the next
+   * fake second never overtakes them. For a test that drives an engine of its own.
+   */
+  quiesce(): Promise<void>;
   /** Start a run as the setup actor. */
   startRun(
     steps: readonly ('connect' | 'configure' | 'verify')[],
     options?: {
       mode?: 'continue' | 'reconcile';
-      kind?: 'setup' | 'repair';
+      flow?: 'setup' | 'repair';
       exchangeRole?: 'exchange_administrator' | 'exchange_recipient_administrator';
       tenantHint?: string;
       applicationName?: string;
@@ -220,7 +225,7 @@ export async function tenantScene(
       return engine.start(
         {
           steps,
-          kind: runOptions.kind ?? 'setup',
+          flow: runOptions.flow ?? 'setup',
           mode: runOptions.mode ?? 'continue',
           ...(runOptions.exchangeRole === undefined
             ? {}
@@ -232,6 +237,10 @@ export async function tenantScene(
         },
         SETUP_ACTOR,
       );
+    },
+    async quiesce() {
+      await settle(40);
+      while (realWork.inflight() > 0) await realPause(5);
     },
     async drive(driveOptions = {}) {
       const stepMs = driveOptions.stepMs ?? 1_000;
@@ -247,8 +256,7 @@ export async function tenantScene(
         }
         // Let the requests in flight finish before the next fake second: the run's pace must not
         // depend on how many macrotasks a fake round trip takes.
-        await settle(40);
-        while (realWork.inflight() > 0) await realPause(5);
+        await scene.quiesce();
         if (driveOptions.until?.() === true) break;
         await elapse(driveOptions.stepMs ?? 1_000);
       }

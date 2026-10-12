@@ -4,7 +4,7 @@
 // fails any test that sees one; the tests below also state it, and prove with deliberate sinks that
 // the policy really is enforced (a guard that cannot fire proves nothing).
 import { ROUTES } from '../routes.js';
-import { expect, test } from '../fixtures.js';
+import { allowLockedSetup, expect, test } from '../fixtures.js';
 
 test.describe('zero violations', () => {
   for (const route of ROUTES) {
@@ -13,6 +13,7 @@ test.describe('zero violations', () => {
       app,
       guard,
     }) => {
+      allowLockedSetup(guard);
       await app.goto(route);
       await page.mouse.wheel(0, 600);
       await page.getByRole('radio', { name: 'Dark' }).click();

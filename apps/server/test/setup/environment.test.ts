@@ -221,7 +221,7 @@ describe('a failed check blocks step 2', () => {
   it('connect is refused with setup_step_not_ready until the environment passes', async () => {
     const { h } = await run({ storageProbe: () => false });
     expect(() =>
-      h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR),
+      h.engine.start({ steps: ['connect'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR),
     ).toThrow(ProblemError);
     // Fixing the problem and running the checks again unblocks it.
     await runEnvironmentChecks(h.services, SETUP_ACTOR, {
@@ -231,7 +231,7 @@ describe('a failed check blocks step 2', () => {
       appKey: { status: 'ok', selfTest: () => true },
     });
     expect(() =>
-      h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR),
+      h.engine.start({ steps: ['connect'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR),
     ).not.toThrow();
     await h.engine.idle();
   });

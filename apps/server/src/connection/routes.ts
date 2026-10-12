@@ -111,7 +111,7 @@ export function connectionRoutes(runtime: SetupRuntime): RouteDefinition[] {
         const status = engine.start(
           request.steps === 'repair'
             ? {
-                kind: 'repair',
+                flow: 'repair',
                 mode: 'reconcile',
                 steps: ['connect', 'configure', 'verify'],
                 tenantHint: request.tenantHint,
@@ -119,7 +119,7 @@ export function connectionRoutes(runtime: SetupRuntime): RouteDefinition[] {
                 exchangeRole: request.exchangeRole,
               }
             : {
-                kind: 'setup',
+                flow: 'setup',
                 mode: request.mode,
                 steps: request.steps,
                 tenantHint: request.tenantHint,

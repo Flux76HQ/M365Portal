@@ -25,6 +25,7 @@ import {
   PRINCIPAL_NAMES,
   PRINCIPALS,
   ROLE_GROUP,
+  SCOPED_ASSIGNMENT,
   STORED_PRINCIPAL_NAMES,
   type PrincipalName,
 } from './principals.js';
@@ -72,7 +73,13 @@ async function sessionCookieOf(context: BrowserContext): Promise<string> {
 /** Creates one assignment through the real API; the caller holds a stepped-up session. */
 async function assign(
   api: ApiClient,
-  body: { principalType: 'user' | 'group'; principalId: string; role: string; expiresAt?: string },
+  body: {
+    principalType: 'user' | 'group';
+    principalId: string;
+    role: string;
+    expiresAt?: string;
+    scope?: readonly unknown[];
+  },
 ): Promise<void> {
   const response = await api.post('/api/v1/rbac/assignments', body);
   if (response.status !== 201) {
@@ -126,6 +133,14 @@ async function seedInstanceA(
     principalType: 'group',
     principalId: ROLE_GROUP.oid,
     role: ROLE_GROUP.role,
+  });
+  // A scoped, expiring assignment for the access page to put in words ("Mijn toegang", FR-B-514).
+  await assign(owner, {
+    principalType: 'user',
+    principalId: PRINCIPALS.operator.oid,
+    role: SCOPED_ASSIGNMENT.role,
+    scope: SCOPED_ASSIGNMENT.scope,
+    expiresAt: new Date(Date.now() + SCOPED_ASSIGNMENT.days * 86_400_000).toISOString(),
   });
   await admin.close();
 

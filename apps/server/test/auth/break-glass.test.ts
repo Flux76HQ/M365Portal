@@ -95,7 +95,8 @@ describe('the verification', () => {
       128 * 8 * (131_072 + 1 + 2),
     ]);
     expect(Math.max(...seen)).toBeLessThanOrEqual(LIMITS.breakGlass.scrypt.maxMemoryBytes + 4096);
-  });
+    // Six scrypt runs, three of them at 16 to 128 MiB: seconds of CPU, more when the suite runs in parallel.
+  }, 90_000);
 
   it('refuses a hash below the floors or above the memory limit at creation', () => {
     expect(() =>

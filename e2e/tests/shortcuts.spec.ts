@@ -51,7 +51,8 @@ test.describe('the four shortcuts', () => {
   });
 
   test('the shortcut works from every route', async ({ page, app }) => {
-    for (const route of ['/groups', '/settings', '/design', '/no-access']) {
+    // /no-access is a public page with no shell and no palette in Phase B; "My access" is the page of the shell.
+    for (const route of ['/groups', '/settings', '/design', '/settings/access']) {
       await app.goto(route);
       await page.keyboard.press('Control+k');
       await expect(palette(page), route).toBeVisible();

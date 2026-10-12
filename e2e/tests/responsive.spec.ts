@@ -4,7 +4,7 @@
 // (WCAG 2.5.8).
 import type { Page } from '@playwright/test';
 import { ROUTES } from '../routes.js';
-import { expect, test } from '../fixtures.js';
+import { allowLockedSetup, expect, test } from '../fixtures.js';
 
 async function horizontalOverflow(
   page: Page,
@@ -62,7 +62,8 @@ test.beforeEach(({ browserName }, testInfo) => {
 
 test.describe('320 CSS px', () => {
   for (const route of ROUTES) {
-    test(`${route}: no horizontal scroll at 320 px`, async ({ page, app }) => {
+    test(`${route}: no horizontal scroll at 320 px`, async ({ page, app, guard }) => {
+      allowLockedSetup(guard);
       await page.setViewportSize({ width: 320, height: 640 });
       await app.goto(route);
       await page.waitForLoadState('networkidle');
@@ -283,7 +284,9 @@ test.describe('target size (WCAG 2.5.8)', () => {
       test(`${route} at ${label}: every interactive target is at least 24 by 24 px`, async ({
         page,
         app,
+        guard,
       }) => {
+        allowLockedSetup(guard);
         await page.setViewportSize(size);
         await app.goto(route);
         await page.waitForLoadState('networkidle');

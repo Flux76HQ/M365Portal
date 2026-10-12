@@ -27,6 +27,8 @@ export function ConnectStep({ context, focus }: StepProps) {
   const run = snapshot?.run ?? null;
   const active = run !== null && (run.status === 'running' || run.status === 'waiting') && run.steps.includes('connect');
   const deviceCode = snapshot?.deviceCode ?? null;
+  // A code that has ended (blocked, declined, expired) gives the form back: the error summary above says
+  // why, and the way out by hand (or a new code) must stay one click away (FR-B-218, EB-04).
   const blocked = step.subActions.some((sub) => sub.errorCode === 'device_code_blocked');
 
   const start = (): void => {
@@ -56,7 +58,7 @@ export function ConnectStep({ context, focus }: StepProps) {
                 },
               })}
         />
-      ) : active || deviceCode !== null ? (
+      ) : active || deviceCode?.state === 'waiting_for_user' ? (
         <div className="flex flex-col gap-3">
           {deviceCode === null ? (
             <p role="status" className="text-body text-fg-secondary">{t('setup.connect.starting')}</p>

@@ -144,6 +144,21 @@ export const ROLE_GROUP = {
   role: 'helpdesk',
 } as const;
 
+/**
+ * The second assignment of `operator`: a role limited to the distribution lists whose name starts with
+ * "Marketing", ending in 30 days, so that the access page has a scope and an expiry to say in words.
+ */
+export const SCOPED_ASSIGNMENT = {
+  role: 'reader',
+  days: 30,
+  scope: [
+    {
+      target: 'distributionList',
+      match: { by: 'prefix', attr: 'displayName', value: 'Marketing' },
+    },
+  ],
+} as const;
+
 /** The Entra role template id of Global Administrator (Microsoft Learn: built-in roles). */
 export const GLOBAL_ADMINISTRATOR_TEMPLATE_ID = '62e90394-69f5-4237-9190-012177145e10';
 

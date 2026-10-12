@@ -5,7 +5,8 @@
 // cookie in the context is the one the server issued.
 import type { BrowserContext, Page } from '@playwright/test';
 import { fakeControl, type SignInOptions } from './fake-control.js';
-import { originOf, type InstanceName } from './ports.js';
+import { freshClientAddress } from './client-address.js';
+import { fakeOrigin, originOf, portOf, type InstanceName } from './ports.js';
 import type { PrincipalName } from './principals.js';
 
 export interface SignInAsOptions extends SignInOptions {
@@ -74,4 +75,30 @@ export async function hasSession(
 ): Promise<boolean> {
   const cookies = await context.cookies(originOf(instance));
   return cookies.some((cookie) => cookie.name === 'm365portal_session');
+}
+
+/**
+ * Walks the sign-in up to the callback WITHOUT the browser and returns the callback address (with the
+ * authorization code and the state). Nothing is stored in a browser, so opening the address in one
+ * is a callback whose login transaction cookie never arrived: the person's browser blocked it.
+ */
+export async function callbackWithoutCookie(
+  principal: PrincipalName,
+  options: SignInAsOptions = {},
+): Promise<string> {
+  const instance = options.instance ?? 'a';
+  await fakeControl(instance).nextSignIn(principal, options);
+  const login = await fetch(`http://127.0.0.1:${String(portOf(instance))}${loginPath(options)}`, {
+    redirect: 'manual',
+    headers: instance === 'a' ? { 'x-forwarded-for': freshClientAddress() } : {},
+  });
+  const authorize = new URL(login.headers.get('location') ?? '');
+  // The fake answers under the Microsoft host name at its own address (what the browser's proxy does).
+  const answer = await fetch(
+    `${fakeOrigin()}/t/${instance}/${authorize.hostname}${authorize.pathname}${authorize.search}`,
+    { redirect: 'manual' },
+  );
+  const location = answer.headers.get('location');
+  if (location === null) throw new Error('the fake Entra did not redirect to the callback');
+  return location;
 }

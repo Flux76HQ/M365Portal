@@ -334,7 +334,7 @@ describe('application_settings patches only what drifted', () => {
         "INSERT INTO tenant_connection (id, tenant_id, updated_at) VALUES (1, ?, '2026-10-10T12:00:00.000Z') ON CONFLICT(id) DO UPDATE SET tenant_id = excluded.tenant_id",
       )
       .run(scene.world.tenantId);
-    scene.startRun(['connect', 'configure'], { kind: 'repair', mode: 'reconcile' });
+    scene.startRun(['connect', 'configure'], { flow: 'repair', mode: 'reconcile' });
     await scene.drive({ maxSeconds: 60 });
     await scene.engine.idle();
     const repairs = scene.rows<{ detail: string }>(

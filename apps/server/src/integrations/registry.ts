@@ -34,6 +34,7 @@ import type { GraphClient } from '../ports/graph.js';
 import type { AppTokenProvider, BootstrapAuthenticator, OidcClient } from '../ports/identity.js';
 import type { TenantProvisioner } from '../ports/provisioner.js';
 import type { CertificateHolderPort, SecretsState } from '../ports/secrets.js';
+import { MICROSOFT_ORIGINS } from './http/url-guard.js';
 import { AdminApiExchangeClient } from './exchange/admin-api-client.js';
 import { createHttpGraphClient } from './graph/graph-client.js';
 import { provisionerFactory } from './graph/provisioner.js';
@@ -97,10 +98,9 @@ export interface PingResult {
 
 /** Public, unauthenticated URLs: the answer only has to exist (and, for Entra, carry a `Date`). */
 const PING_URLS: Readonly<Record<PingHost, string>> = Object.freeze({
-  'login.microsoftonline.com':
-    'https://login.microsoftonline.com/common/discovery/instance?api-version=1.1&authorization_endpoint=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fv2.0%2Fauthorize',
-  'graph.microsoft.com': 'https://graph.microsoft.com/v1.0/organization',
-  'outlook.office365.com': 'https://outlook.office365.com/adminapi/beta/',
+  'login.microsoftonline.com': `${MICROSOFT_ORIGINS.login}/common/discovery/instance?api-version=1.1&authorization_endpoint=${encodeURIComponent(`${MICROSOFT_ORIGINS.login}/common/oauth2/v2.0/authorize`)}`,
+  'graph.microsoft.com': `${MICROSOFT_ORIGINS.graph}/v1.0/organization`,
+  'outlook.office365.com': `${MICROSOFT_ORIGINS.exchange}/adminapi/beta/`,
 });
 
 const PING_TIMEOUT_MS = 5_000;

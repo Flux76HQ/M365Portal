@@ -166,9 +166,12 @@ describe('a run that is killed after the n-th mutating call', () => {
       // What the start of the next process does before any module runs: interrupted rows and the lease.
       recoverInterruptedSetup(scene.db, { now: scene.deps.now });
       const { engine, approve } = resumeWithNewEngine(scene);
-      engine.start({ steps: ALL, kind: 'setup', mode: 'continue' }, SETUP_ACTOR);
+      engine.start({ steps: ALL, flow: 'setup', mode: 'continue' }, SETUP_ACTOR);
       for (let second = 0; second < 1_500 && engine.busy(); second += 1) {
         approve();
+        // Not before the requests and the key generation in flight are done: a loaded machine must
+        // not let the fake clock run past the retry windows of a run that has not yet had its answers.
+        await scene.quiesce();
         await scene.elapse(1_000);
       }
       await engine.idle();

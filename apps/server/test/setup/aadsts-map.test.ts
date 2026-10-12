@@ -112,7 +112,7 @@ describe('a delegated 403 outside the propagation window (EB-05)', () => {
       {} as never,
     );
     h.db.sqlite.prepare("UPDATE setup_step SET status = 'succeeded' WHERE step = 'connect'").run();
-    h.engine.start({ steps: ['configure'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR);
+    h.engine.start({ steps: ['configure'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR);
     await h.engine.idle();
     const row = h.db.sqlite
       .prepare(

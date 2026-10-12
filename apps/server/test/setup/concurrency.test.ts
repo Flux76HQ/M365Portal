@@ -57,13 +57,13 @@ describe('one run at a time', () => {
       }),
     });
     const started = h.engine.start(
-      { steps: ['connect'], kind: 'setup', mode: 'continue' },
+      { steps: ['connect'], flow: 'setup', mode: 'continue' },
       SETUP_ACTOR,
     );
     expect(started.status).toBe('running');
     expect(
       problemCode(() =>
-        h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR),
+        h.engine.start({ steps: ['connect'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR),
       ),
     ).toBe('setup_step_busy');
     expect(h.engine.busy()).toBe(true);
@@ -73,7 +73,7 @@ describe('one run at a time', () => {
     expect(h.engine.current()?.status).toBe('succeeded');
     expect(lease(h)).toBeUndefined();
     expect(() =>
-      h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'reconcile' }, SETUP_ACTOR),
+      h.engine.start({ steps: ['connect'], flow: 'setup', mode: 'reconcile' }, SETUP_ACTOR),
     ).not.toThrow();
     await h.engine.idle();
   });
@@ -89,7 +89,7 @@ describe('one run at a time', () => {
       }),
     });
     const status = h.engine.start(
-      { steps: ['connect'], kind: 'setup', mode: 'continue' },
+      { steps: ['connect'], flow: 'setup', mode: 'continue' },
       SETUP_ACTOR,
     );
     expect(lease(h)?.holder).toBe(status.id);
@@ -116,11 +116,11 @@ describe('one run at a time', () => {
         },
       }),
     });
-    h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR);
+    h.engine.start({ steps: ['connect'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR);
     const other = h.another(scripted());
     expect(
       problemCode(() =>
-        other.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR),
+        other.engine.start({ steps: ['connect'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR),
       ),
     ).toBe('setup_step_busy');
     gate.resolve();
@@ -141,18 +141,18 @@ describe('one run at a time', () => {
       );
     expect(
       problemCode(() =>
-        h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR),
+        h.engine.start({ steps: ['connect'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR),
       ),
     ).toBe('setup_step_busy');
     h.clock.advance(119_999);
     expect(
       problemCode(() =>
-        h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR),
+        h.engine.start({ steps: ['connect'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR),
       ),
     ).toBe('setup_step_busy');
     h.clock.advance(1);
     const status = h.engine.start(
-      { steps: ['connect'], kind: 'setup', mode: 'continue' },
+      { steps: ['connect'], flow: 'setup', mode: 'continue' },
       SETUP_ACTOR,
     );
     // The row now names the new run (the run may already have finished and released it).
@@ -169,21 +169,21 @@ describe('one run at a time', () => {
       }),
     });
     const first = h.engine.start(
-      { steps: ['connect'], kind: 'setup', mode: 'continue' },
+      { steps: ['connect'], flow: 'setup', mode: 'continue' },
       SETUP_ACTOR,
     );
     const other = h.another(scripted());
     h.clock.advance(60_000);
     expect(
       problemCode(() =>
-        other.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR),
+        other.engine.start({ steps: ['connect'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR),
       ),
     ).toBe('setup_step_busy');
     expect(lease(h)?.holder).toBe(first.id);
     // The first process never heartbeats again (its scheduler is not advanced): 120 s after the last one it is stale.
     h.clock.advance(60_000);
     expect(() =>
-      other.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR),
+      other.engine.start({ steps: ['connect'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR),
     ).not.toThrow();
     await other.engine.idle();
   });
@@ -203,7 +203,7 @@ describe('cancel', () => {
       }),
     });
     h.engine.start(
-      { steps: ['connect', 'configure'], kind: 'setup', mode: 'continue' },
+      { steps: ['connect', 'configure'], flow: 'setup', mode: 'continue' },
       SETUP_ACTOR,
     );
     await settle();
@@ -244,7 +244,7 @@ describe('cancel', () => {
       ),
     });
     h.engine.start(
-      { steps: ['connect', 'configure'], kind: 'setup', mode: 'continue' },
+      { steps: ['connect', 'configure'], flow: 'setup', mode: 'continue' },
       SETUP_ACTOR,
     );
     await settle();
@@ -270,7 +270,7 @@ describe('retry now and the waits', () => {
         },
       }),
     });
-    h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR);
+    h.engine.start({ steps: ['connect'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR);
     await settle();
     expect(statusOf(h, 'connect', 'device_code')).toBe('waiting');
     const snapshot = h.engine.snapshot(0);
@@ -305,7 +305,7 @@ describe('retry now and the waits', () => {
         },
       }),
     });
-    h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR);
+    h.engine.start({ steps: ['connect'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR);
     await settle();
     expect(tries).toBe(1);
     h.scheduler.advance(3_999);
@@ -339,7 +339,7 @@ describe('failures', () => {
       { tid: 't', oid: 'o', upnLabel: null, nameLabel: null },
       {} as never,
     );
-    h.engine.start({ steps: ['configure'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR);
+    h.engine.start({ steps: ['configure'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR);
     await h.engine.idle();
     expect(calls).toEqual(['configure/application']);
     expect(rows(h).find((row) => row.sub_action === 'application')).toMatchObject({
@@ -370,7 +370,7 @@ describe('failures', () => {
         },
       }),
     });
-    h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR);
+    h.engine.start({ steps: ['connect'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR);
     await h.engine.idle();
     expect(h.engine.current()?.status).toBe('failed');
     expect(lease(h)).toBeUndefined();
@@ -399,7 +399,7 @@ describe('modes', () => {
       { tid: 't', oid: 'o', upnLabel: null, nameLabel: null },
       {} as never,
     );
-    h.engine.start({ steps: ['configure'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR);
+    h.engine.start({ steps: ['configure'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR);
     await h.engine.idle();
     expect(calls).toEqual(
       STEPS.configure.subActions
@@ -407,7 +407,7 @@ describe('modes', () => {
         .map((key) => `configure/${key}`),
     );
     calls.length = 0;
-    h.engine.start({ steps: ['configure'], kind: 'setup', mode: 'reconcile' }, SETUP_ACTOR);
+    h.engine.start({ steps: ['configure'], flow: 'setup', mode: 'reconcile' }, SETUP_ACTOR);
     await h.engine.idle();
     expect(calls).toEqual(STEPS.configure.subActions.map((key) => `configure/${key}`));
   });
@@ -418,7 +418,7 @@ describe('modes', () => {
       h.services.steps.write(tx, 'verify', 'users', { status: 'running' });
       h.services.steps.write(tx, 'verify', 'organization', { status: 'waiting' });
     });
-    h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR);
+    h.engine.start({ steps: ['connect'], flow: 'setup', mode: 'continue' }, SETUP_ACTOR);
     await h.engine.idle();
     expect(statusOf(h, 'verify', 'users')).toBe('pending');
     expect(statusOf(h, 'verify', 'organization')).toBe('pending');
@@ -428,7 +428,7 @@ describe('modes', () => {
 describe('preconditions (plan 9.4)', () => {
   const request = (steps: readonly RunStepName[]) => ({
     steps,
-    kind: 'setup' as const,
+    flow: 'setup' as const,
     mode: 'continue' as const,
   });
 
@@ -482,7 +482,7 @@ describe('preconditions (plan 9.4)', () => {
     const h = await engineHarness();
     const repair = {
       steps: ['connect', 'configure', 'verify'] as const,
-      kind: 'repair' as const,
+      flow: 'repair' as const,
       mode: 'reconcile' as const,
     };
     expect(

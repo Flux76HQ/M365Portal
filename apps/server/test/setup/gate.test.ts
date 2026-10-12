@@ -58,6 +58,33 @@ describe('once the state is completed', () => {
     },
   );
 
+  it('stays locked after a restart over the same database: the state survives and setup still answers 404', async () => {
+    const first = await startWizardServer();
+    await first.unlock();
+    first.exec("UPDATE setup_state SET state = 'awaiting_first_signin'");
+    first.exec(
+      "UPDATE setup_state SET state = 'completed', completed_at = '2026-10-12T00:00:00.000Z'",
+    );
+    await first.running.stop();
+    const second = await startWizardServer({ dataDir: first.dataDir });
+    expect(second.query<{ state: string }>('SELECT state FROM setup_state')[0]?.state).toBe(
+      'completed',
+    );
+    const withoutRequestId = async (response: Response): Promise<unknown> => {
+      const body = (await response.json()) as Record<string, unknown>;
+      return { ...body, requestId: undefined };
+    };
+    const reference = await withoutRequestId(
+      await second.client().get('/api/v1/setup/nothing-here'),
+    );
+    for (const [method, path] of SETUP_ROUTES) {
+      const response = await call(second.client(), method, path);
+      expect(response.status, `${method} ${path}`).toBe(404);
+      expect(await withoutRequestId(response), `${method} ${path}`).toEqual(reference);
+    }
+    expect((await second.client().get('/setup')).status).toBe(404);
+  });
+
   it('the live setup session is gone with the state: its cookie opens nothing', async () => {
     const server = await startWizardServer();
     const { headers } = await server.unlock();

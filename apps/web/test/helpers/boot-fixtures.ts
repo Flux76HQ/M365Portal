@@ -49,10 +49,10 @@ export interface SampleMeOptions {
   readonly storageAvailable?: boolean;
 }
 
-/** A session that ends well after the tests (2026-10-12 is the date of the repository). */
+/** A session that ends well after the tests (a fixed date in the past of the clock made them red on the day it passed). */
 export const SAMPLE_SESSION: SampleSession = Object.freeze({
-  expiresAt: '2026-10-12T20:00:00.000Z',
-  idleExpiresAt: '2026-10-12T13:00:00.000Z',
+  expiresAt: '2030-10-12T20:00:00.000Z',
+  idleExpiresAt: '2030-10-12T13:00:00.000Z',
   mfa: true,
   stepUpValidUntil: null,
   groupsStale: false,

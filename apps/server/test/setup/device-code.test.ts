@@ -219,7 +219,7 @@ describe('tenant pinning at connect (FR-B-216)', () => {
         "INSERT INTO tenant_connection (id, tenant_id, updated_at) VALUES (1, ?, '2026-10-10T12:00:00.000Z')",
       )
       .run(OTHER);
-    scene.startRun(['connect'], { kind: 'repair', mode: 'reconcile' });
+    scene.startRun(['connect'], { flow: 'repair', mode: 'reconcile' });
     await scene.drive({ maxSeconds: 60 });
     await scene.engine.idle();
     expect(scene.engine.current()?.status).toBe('failed');
@@ -247,7 +247,7 @@ describe('tenant pinning at connect (FR-B-216)', () => {
         "INSERT INTO tenant_connection (id, tenant_id, updated_at) VALUES (1, ?, '2026-10-10T12:00:00.000Z')",
       )
       .run(scene.world.tenantId);
-    scene.startRun(['connect'], { kind: 'repair', mode: 'reconcile' });
+    scene.startRun(['connect'], { flow: 'repair', mode: 'reconcile' });
     await scene.drive({ maxSeconds: 60 });
     await scene.engine.idle();
     expect(scene.engine.current()?.status).toBe('succeeded');
