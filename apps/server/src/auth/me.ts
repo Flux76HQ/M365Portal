@@ -10,6 +10,7 @@
 //                request is in the `X-Session-Idle-Expires` header, `http/idle-header.ts`), mfa, the
 //                end of the step-up window or null, groupsStale; null for anonymous and setup
 //   setup        `setup_state.state`, or `unconfigured` when storage is unusable or the row is absent
+//   defaultLanguage  `setup_state.default_language` once the setup is `completed`, else null
 //   features     `showcase` and `breakGlass` (both break-glass variables are set)
 //   adminConsentUrl  the tenant-wide consent link, non-null only when a tenant is pinned (TB-14,
 //                    FR-B-419; `consent-link.ts`); `meSourcesOf` supplies it to the route and the boot data alike
@@ -73,11 +74,23 @@ export function meSourcesOf(deps: ModuleDeps): MeSources {
   };
 }
 
-function setupStateOf(db: DatabaseHandle | undefined): SetupState {
-  if (db === undefined) return 'unconfigured';
-  const row = db.sqlite.prepare('SELECT state FROM setup_state WHERE id = 1').get() as
-    { state: string } | undefined;
-  return SETUP_STATES.find((state) => state === row?.state) ?? 'unconfigured';
+interface SetupRow {
+  readonly state: SetupState;
+  /** The language the finish step stored; null until the setup is completed (FR-B-219 d). */
+  readonly defaultLanguage: 'nl' | 'en' | null;
+}
+
+function setupRowOf(db: DatabaseHandle | undefined): SetupRow {
+  if (db === undefined) return { state: 'unconfigured', defaultLanguage: null };
+  const row = db.sqlite
+    .prepare('SELECT state, default_language FROM setup_state WHERE id = 1')
+    .get() as { state: string; default_language: string | null } | undefined;
+  const state = SETUP_STATES.find((candidate) => candidate === row?.state) ?? 'unconfigured';
+  const stored = row?.default_language;
+  return {
+    state,
+    defaultLanguage: state === 'completed' && (stored === 'nl' || stored === 'en') ? stored : null,
+  };
 }
 
 /** The distinct keys of the roles that count for a user right now, sorted. */
@@ -99,6 +112,7 @@ export function createMeBuilder(sources: MeSources): MeBuilder {
   return (actor) => {
     const now = sources.now();
     const db = sources.database();
+    const setup = setupRowOf(db);
     const permissions = PERMISSIONS.filter((candidate) => actor.permissions.has(candidate)).sort();
     const roles =
       actor.kind === 'user' && db !== undefined
@@ -131,9 +145,10 @@ export function createMeBuilder(sources: MeSources): MeBuilder {
       permissions,
       roles,
       session,
-      setup: { state: setupStateOf(db) },
+      setup: { state: setup.state },
       features: { showcase: sources.showcase, breakGlass: sources.breakGlass },
       adminConsentUrl: sources.adminConsentUrl?.() ?? null,
+      defaultLanguage: setup.defaultLanguage,
       version: sources.version,
       publicOrigin: sources.publicOrigin,
       storageAvailable: sources.storageAvailable(),

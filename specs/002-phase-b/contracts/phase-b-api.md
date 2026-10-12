@@ -157,6 +157,7 @@ MeResponse = {
   setup:   { state: 'unconfigured' | 'in_progress' | 'awaiting_first_signin' | 'completed' },
   features:{ showcase: boolean, breakGlass: boolean },
   adminConsentUrl: string | null,         // tenant-wide consent link of FR-B-419; null until a tenant is pinned (TB-14)
+  defaultLanguage: 'nl' | 'en' | null,    // setup_state.default_language once the setup is completed, else null; the UI uses it only for a first visit with no stored choice and no nl or en browser preference
   version: string, publicOrigin: string, storageAvailable: boolean
 }
 ```
@@ -230,6 +231,7 @@ Access `setup`. Everything the wizard shows when it loads; afterwards the UI pol
 ```ts
 SetupStateResponse = {
   state: SetupState, mode: 'automatic' | 'manual', defaultLanguage: 'nl' | 'en' | null,
+  installTag: string,                       // 'm365portal-install-' + the 32-hex install id: manual mode lists it (and the description) so V3 passes
   steps: StepState[],                       // always the five steps in registry order (section 6.1)
   tenant:      { proposedTenantId: Guid | null, tenantId: Guid | null, name: string | null, initialDomain: string | null },
   application: { appId: Guid, objectId: Guid | null, displayName: string } | null,

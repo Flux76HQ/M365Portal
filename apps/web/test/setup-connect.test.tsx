@@ -350,6 +350,23 @@ describe('manual mode', () => {
     return view;
   }
 
+  it('lists the install tag and the description the verification asks for, in both languages', async () => {
+    await toManual(api(ready()));
+    const en = tr('en');
+    const section = screen.getByRole('region', { name: en.t('setup.manual.title') });
+    const checklist = within(section).getByRole('list', { name: en.t('setup.manual.checklist') });
+    const installTag = `m365portal-install-${'1234abcd'.repeat(4)}`;
+    const tags = within(checklist).getByText(en.t('setup.manual.item.tags')).closest('li');
+    expect(tags?.textContent).toContain('m365portal');
+    expect(tags?.textContent).toContain(installTag);
+    const description = within(checklist).getByText(en.t('setup.manual.item.description')).closest('li');
+    expect(description?.textContent).toContain('Created by the M365Portal setup wizard (install 1234abcd)');
+    // The placeholder install id of the old checklist is gone.
+    expect(checklist.textContent).not.toContain('0'.repeat(32));
+    expect(tr('nl').t('setup.manual.item.tags')).not.toBe(en.t('setup.manual.item.tags'));
+    expect(tr('nl').t('setup.manual.item.description')).not.toBe(en.t('setup.manual.item.description'));
+  });
+
   it('shows the checklist built from the desired state, the certificate download and three inputs', async () => {
     await toManual(api(ready()));
     const en = tr('en');

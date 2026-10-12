@@ -1046,6 +1046,7 @@ describe('GET /api/v1/me (R4, FR-A-027)', () => {
     expect(Object.keys(await readJson<Me>(response)).sort()).toEqual([
       'actor',
       'adminConsentUrl',
+      'defaultLanguage',
       'features',
       'permissions',
       'publicOrigin',

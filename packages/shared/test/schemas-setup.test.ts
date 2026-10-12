@@ -321,6 +321,7 @@ describe('SetupStateResponseSchema (P13)', () => {
     state: 'in_progress',
     mode: 'automatic',
     defaultLanguage: null,
+    installTag: `m365portal-install-${'a'.repeat(32)}`,
     steps: fiveSteps(),
     tenant: { proposedTenantId: null, tenantId: null, name: null, initialDomain: null },
     application: null,
@@ -381,6 +382,12 @@ describe('SetupStateResponseSchema (P13)', () => {
       ok(SetupStateResponseSchema, response({ publicBaseUrl: 'https://panel.example.test/path' })),
     ).toBe(false);
     expect(ok(SetupStateResponseSchema, response({ defaultLanguage: 'de' }))).toBe(false);
+    for (const installTag of ['', 'm365portal', `m365portal-install-${'a'.repeat(31)}`, `other-install-${'a'.repeat(32)}`, `m365portal-install-${'A'.repeat(32)}`]) {
+      expect(ok(SetupStateResponseSchema, response({ installTag })), installTag).toBe(false);
+    }
+    const withoutTag = response();
+    delete withoutTag.installTag;
+    expect(ok(SetupStateResponseSchema, withoutTag)).toBe(false);
     expect(
       ok(
         SetupStateResponseSchema,

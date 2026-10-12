@@ -139,6 +139,12 @@ export const SetupStateResponseSchema = z
     state: SetupStateSchema,
     mode: SetupModeSchema,
     defaultLanguage: z.enum(LANGUAGES).nullable(),
+    /**
+     * The install tag (`m365portal-install-` and the 32-character install id) that verification looks for
+     * on the application. Manual mode shows it, with the description that carries its first 8 characters,
+     * so a hand-made application passes V3. It is an identifier of this install, no secret.
+     */
+    installTag: z.string().regex(/^m365portal-install-[0-9a-f]{32}$/),
     steps: FiveStepsSchema,
     tenant: z.strictObject({
       proposedTenantId: GuidSchema.nullable(),

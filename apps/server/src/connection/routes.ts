@@ -90,6 +90,9 @@ export function connectionRoutes(runtime: SetupRuntime): RouteDefinition[] {
       path: RUNS_PATH,
       access: { connection: true, stepUp: true },
       rateLimit: 'write',
+      // The engine writes the entries (`setup.step.run`, `connection.repair` after completion) in the
+      // transaction of each sub-action; the declaration is the route's statement of it (FR-B-601).
+      audit: 'setup.step.run',
       summary: 'Start a run',
       description:
         'Starts a background run in this process and answers at once. `steps` is an ordered subset of connect, configure and verify, or the word repair.',
@@ -196,6 +199,8 @@ export function connectionRoutes(runtime: SetupRuntime): RouteDefinition[] {
       path: '/api/v1/connection/adopt',
       access: { connection: true, stepUp: true },
       rateLimit: 'write',
+      // The adopted object is written, with its entry, by the run that waits for the confirmation.
+      audit: 'setup.object.change',
       summary: 'Adopt an existing application',
       description:
         "Explicit confirmation to adopt an application that has the wizard's name but not our install tag. Valid only while the current run waits for it.",

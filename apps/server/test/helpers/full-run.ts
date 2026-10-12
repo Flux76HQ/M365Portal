@@ -42,6 +42,17 @@ export interface Exchange {
 }
 
 /** A value that must not appear, in every spelling the run could have produced. */
+export interface AuditRow {
+  readonly seq: number;
+  readonly actor_kind: string;
+  readonly actor_id: string;
+  readonly action: string;
+  readonly target_type: string | null;
+  readonly outcome: string;
+  readonly reason_code: string | null;
+  readonly detail: string;
+}
+
 export interface Canary {
   readonly name: string;
   readonly values: readonly string[];
@@ -60,6 +71,10 @@ export interface FullRun {
   /** Every audit row, as JSON text. */
   readonly auditText: string;
   readonly dataDir: string;
+  /** Every audit row at the end of the run, including the rotation written by the CLI. */
+  readonly auditRows: readonly AuditRow[];
+  /** Every file of the data directory at the end of the run (it is removed with the test). */
+  readonly files: readonly { readonly path: string; readonly text: string }[];
   /** What the rotation printed on standard output and error. */
   readonly commandOutput: string;
   readonly facts: {
@@ -238,12 +253,22 @@ export async function runFullLifecycle(): Promise<FullRun> {
       env: {
         APP_KEY: appKey.toString('base64'),
         BREAK_GLASS_USERNAME,
+        // Sign-in routes have small buckets per client; each person below is their own client.
+        TRUST_PROXY: '1',
         BREAK_GLASS_PASSWORD_HASH: scryptLine(breakGlassPassword),
       },
     });
     const dataDir = server.dataDir;
     const client = recorder(server, exchanges);
     const anonymous = client();
+    const from = (address: string, headers: Record<string, string> = {}): HttpClient =>
+      client({ 'x-forwarded-for': address, ...headers });
+    const browserAt = (address: string): FakeBrowser =>
+      new FakeBrowser({
+        origin: server.origin,
+        socket: server.socket,
+        headers: { 'x-forwarded-for': address },
+      });
 
     trace('lock');
     // 2. The lock: five wrong tokens, the sixth attempt is refused, the clock passes the lock.
@@ -268,6 +293,7 @@ export async function runFullLifecycle(): Promise<FullRun> {
     await server.drive();
     await setupClient.get('/api/v1/connection');
     await setupClient.get('/api/v1/connection/log?after=0&limit=200');
+    await setupClient.post('/api/v1/connection/verify', { json: {} });
     const state = (await (await setupClient.get('/api/v1/setup/state')).json()) as {
       designatedOwner: { oid: string; upnLabel: string | null; nameLabel: string | null };
     };
@@ -280,21 +306,21 @@ export async function runFullLifecycle(): Promise<FullRun> {
     trace('signins');
     // 4. Sign-ins.
     const sessionCookie = cookieNames(server.origin).session;
-    const browser = new FakeBrowser({ origin: server.origin, socket: server.socket });
+    const browser = browserAt('10.0.0.3');
     server.world.entra.control.nextSignIn({ user: admin.id });
+    // The navigation follows the panel's 303 to Microsoft and Microsoft's 302 back, and stops before
+    // the panel: its last `Location` is the callback URL with the authorization code and `state`.
     const login = await browser.navigate('/auth/login', { stopBeforePanel: true });
     exchanges.push({
       method: 'GET',
       path: '/auth/login',
-      status: login.status,
+      status: 303,
       requestBody: '',
-      headers: [...login.headers.entries()],
-      body: login.text,
+      headers: [['location', login.chain[0]?.location ?? '']],
+      body: '',
     });
-    const authorize = new URL(login.headers.get('location') ?? '');
-    const callback = await browser.request(authorize, { from: 'microsoft' });
-    const callbackUrl =
-      callback.chain.find((hop) => (hop.location ?? '').includes('/auth/callback'))?.location ?? '';
+    const callbackUrl = new URL(login.headers.get('location') ?? '');
+    const callback = await browser.request(callbackUrl, { from: 'microsoft' });
     exchanges.push({
       method: 'GET',
       path: '/auth/callback',
@@ -303,15 +329,37 @@ export async function runFullLifecycle(): Promise<FullRun> {
       headers: [...callback.headers.entries()],
       body: callback.text,
     });
-    const code = new URL(callbackUrl, server.origin).searchParams.get('code') ?? '';
-    const state2 = authorize.searchParams.get('state') ?? '';
+    const code = callbackUrl.searchParams.get('code') ?? '';
+    const state2 = callbackUrl.searchParams.get('state') ?? '';
     const sessionId = browser.cookie(sessionCookie) ?? '';
     const ownerSignedIn = callback.status === 200 && sessionId !== '';
-    const sessionClient = client({ cookie: `${sessionCookie}=${sessionId}` });
+    const sessionClient = from('10.0.0.3', { cookie: `${sessionCookie}=${sessionId}` });
     await sessionClient.get('/api/v1/me');
     await sessionClient.get('/api/v1/me/access');
     await sessionClient.get('/api/v1/rbac/roles');
     await sessionClient.get('/api/v1/connection');
+    // The proof again, as a person (the entry `connection.verify` is written for users only).
+    // It needs a step-up: the first call is refused (a denied entry), the person re-authenticates with
+    // `prompt=login` (an `auth.stepup` entry) and the second call succeeds.
+    await pumped(server, sessionClient.post('/api/v1/connection/verify', { json: {} }));
+    server.world.entra.control.nextSignIn({ user: admin.id });
+    const stepUp = await browser.navigate('/auth/login?purpose=stepup&prompt=login&returnTo=%2F', {
+      stopBeforePanel: true,
+    });
+    const stepUpCallback = await browser.request(new URL(stepUp.headers.get('location') ?? ''), {
+      from: 'microsoft',
+    });
+    exchanges.push({
+      method: 'GET',
+      path: '/auth/callback',
+      status: stepUpCallback.status,
+      requestBody: '',
+      headers: [...stepUpCallback.headers.entries()],
+      body: stepUpCallback.text,
+    });
+    const steppedUpId = browser.cookie(sessionCookie) ?? sessionId;
+    const steppedUpClient = from('10.0.0.3', { cookie: `${sessionCookie}=${steppedUpId}` });
+    await pumped(server, steppedUpClient.post('/api/v1/connection/verify', { json: {} }));
 
     trace('stranger');
     // A second person with no role is turned away at /no-access.
@@ -319,7 +367,7 @@ export async function runFullLifecycle(): Promise<FullRun> {
       userPrincipalName: 'stranger@contoso-fake.example',
     });
     server.world.entra.control.nextSignIn({ user: stranger.id });
-    const browser2 = new FakeBrowser({ origin: server.origin, socket: server.socket });
+    const browser2 = browserAt('10.0.0.4');
     const login2 = await browser2.navigate('/auth/login', { stopBeforePanel: true });
     const denied = await browser2.request(new URL(login2.headers.get('location') ?? ''), {
       from: 'microsoft',
@@ -328,16 +376,17 @@ export async function runFullLifecycle(): Promise<FullRun> {
 
     trace('breakglass');
     // The break-glass account: wrong password once, then the right one.
-    await anonymous.post('/api/v1/auth/break-glass', {
+    const breakGlassClient = from('10.0.0.6');
+    await breakGlassClient.post('/api/v1/auth/break-glass', {
       json: { username: BREAK_GLASS_USERNAME, password: wrongBreakGlassPassword },
     });
-    const bg = await anonymous.post('/api/v1/auth/break-glass', {
+    const bg = await breakGlassClient.post('/api/v1/auth/break-glass', {
       json: { username: BREAK_GLASS_USERNAME, password: breakGlassPassword },
     });
     const bgSession = sessionIdIn(bg.headers.getSetCookie(), sessionCookie) ?? '';
     const breakGlassSignedIn = bg.status === 200 && bgSession !== '';
     if (bgSession !== '') {
-      await client({ cookie: `${sessionCookie}=${bgSession}` }).get('/api/v1/me');
+      await from('10.0.0.6', { cookie: `${sessionCookie}=${bgSession}` }).get('/api/v1/me');
     }
 
     trace('pages');
@@ -359,11 +408,11 @@ export async function runFullLifecycle(): Promise<FullRun> {
     });
     assign(server.database(), { role: 'reader', principalId: reader.id });
     server.world.entra.control.nextSignIn({ user: reader.id });
-    const browser3 = new FakeBrowser({ origin: server.origin, socket: server.socket });
+    const browser3 = browserAt('10.0.0.5');
     const login3 = await browser3.navigate('/auth/login', { stopBeforePanel: true });
     await browser3.request(new URL(login3.headers.get('location') ?? ''), { from: 'microsoft' });
     const readerSession = browser3.cookie(sessionCookie) ?? '';
-    const readerClient = client({ cookie: `${sessionCookie}=${readerSession}` });
+    const readerClient = from('10.0.0.5', { cookie: `${sessionCookie}=${readerSession}` });
     await readerClient.get('/api/v1/me');
     const readerUser = server.world.graph.directory.users.get(reader.id);
     if (readerUser !== undefined) readerUser.accountEnabled = false;
@@ -372,7 +421,18 @@ export async function runFullLifecycle(): Promise<FullRun> {
 
     server.world.graph.control.failWith({ times: 99, status: 503, match: /\/users\// });
     await server.advance(ttlMs);
-    await pumped(server, sessionClient.get('/api/v1/me'));
+    await pumped(server, steppedUpClient.get('/api/v1/me'));
+
+    // The Owner signs out; so does the break-glass session.
+    await steppedUpClient.post('/api/v1/auth/logout', { json: {} });
+    if (bgSession !== '') {
+      await from('10.0.0.6', { cookie: `${sessionCookie}=${bgSession}` }).post(
+        '/api/v1/auth/logout',
+        {
+          json: {},
+        },
+      );
+    }
 
     const completed =
       server.query<{ state: string }>('SELECT state FROM setup_state')[0]?.state === 'completed';
@@ -396,6 +456,9 @@ export async function runFullLifecycle(): Promise<FullRun> {
       stderr,
     });
     const commandOutput = `${stdout.text()}${stderr.text()}`;
+    const auditRows = server.query<AuditRow>(
+      'SELECT seq, actor_kind, actor_id, action, target_type, outcome, reason_code, detail FROM audit_log ORDER BY seq',
+    );
 
     trace('restart');
     // 7. The same data again: the token variable after completion, then the retired preview variable.
@@ -436,6 +499,11 @@ export async function runFullLifecycle(): Promise<FullRun> {
         allowedInSetCookie: true,
       },
       {
+        name: 'session id (owner, after the step-up)',
+        values: steppedUpId === '' || steppedUpId === sessionId ? [] : [steppedUpId],
+        allowedInSetCookie: true,
+      },
+      {
         name: 'session id (break-glass)',
         values: bgSession === '' ? [] : [bgSession],
         allowedInSetCookie: true,
@@ -468,6 +536,8 @@ export async function runFullLifecycle(): Promise<FullRun> {
       logText: logs.join('\n'),
       auditText,
       dataDir,
+      auditRows,
+      files: dataFiles(dataDir),
       commandOutput,
       facts: { completed, ownerSignedIn, breakGlassSignedIn, noRoleTurnedAway, rows, previewLines },
       oid,

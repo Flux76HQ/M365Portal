@@ -25,6 +25,7 @@
 //   8 no file so large that it would be scanned as empty                              T-A-003
 //   9 a test file sits where its runner collects it                                   T-A-009
 //  10 nobody switches a local lint rule off (eslint-disable, inline eslint config)    FR-A-009 ...
+//  11 the preview mode is gone: no PREVIEW_MODE, no `preview` actor kind, no `features.preview`  FR-B-102
 //
 // What these checks are, and are not:
 //   - they are a coarse net over plain text, not a parser of TypeScript. The AST-based lint rules
@@ -1486,6 +1487,104 @@ const checkLintSuppressions: Check = (tree) => {
 // The tests
 // ---------------------------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------------------------
+// Check 11: the preview mode is gone (FR-B-102, TB-08, T-B-393)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Phase B removed the unauthenticated preview mode: no variable, no actor kind, no `features.preview`
+ * flag, no banner. The scan reads the source of the server, the web application and the shared package
+ * (comments blanked, tests and `.txt` fixtures excluded) and refuses every trace. The allow-list is
+ * exact paths with the reason each file keeps a trace; an entry the file no longer needs fails.
+ */
+const PREVIEW_SCANNED =
+  /^(?:apps\/[^/]+\/src|packages\/shared\/src)\/.*\.(?:[cm]?[jt]sx?|json|html|css)$/;
+const PREVIEW_TRACES: readonly (readonly [string, RegExp])[] = [
+  ['the variable PREVIEW_MODE or PREVIEW_MODE_ALLOW_REMOTE', /PREVIEW_MODE/],
+  ['a previewMode setting', /\bpreviewMode\w*/],
+  [
+    'the preview actor or its announcement',
+    /\b(?:PREVIEW_ACTOR|PREVIEW_WARNING|announcePreviewMode|resolvePreview)\b/,
+  ],
+  [
+    'the flag features.preview',
+    /\bfeatures\??\.preview\b|(?<![\w.])preview\s*:\s*(?:z\.|actor\.|boolean\b)/,
+  ],
+  ['the string "preview" (an actor kind)', /(['"`])preview\1/],
+  ['the preview banner', /\bPreviewBanner\b|banner\.preview|shell\.actor\.preview/],
+];
+
+interface PreviewAllowance {
+  readonly path: string;
+  readonly reason: string;
+}
+
+/** Files that may still name a trace, and why. Exact paths; an entry that is not needed fails. */
+const PREVIEW_ALLOWED: readonly PreviewAllowance[] = [
+  {
+    path: 'apps/server/src/config/env.ts',
+    reason:
+      'the list of retired variable names, so that a deployment that still sets them gets one warning (FR-B-102)',
+  },
+  {
+    path: 'apps/server/src/audit/writer.ts',
+    reason:
+      'the audit read schema: Phase A rows with the actor kind preview stay readable, and none is written',
+  },
+  {
+    path: 'packages/shared/src/i18n/types.ts',
+    reason:
+      'the catalogue namespace "preview" of the Appearance live preview (S5), not the preview mode',
+  },
+  {
+    path: 'apps/web/src/lib/locale.ts',
+    reason:
+      'the lazily loaded namespace list names the Appearance live preview namespace, not the preview mode',
+  },
+];
+
+function previewProblems(
+  tree: Tree,
+  allowed: readonly PreviewAllowance[] = PREVIEW_ALLOWED,
+): string[] {
+  const problems: string[] = [];
+  const used = new Set<string>();
+  const allowedPaths = new Map(allowed.map((entry) => [entry.path, entry]));
+  for (const entry of allowed) {
+    if (entry.reason.trim().length < 40) {
+      problems.push(`allow-list entry ${entry.path}: give a reason of at least 40 characters`);
+    }
+  }
+  for (const [path, text] of [...tree].sort(([a], [b]) => a.localeCompare(b))) {
+    if (!PREVIEW_SCANNED.test(path) || isTestPath(path) || /\.d\.ts$/.test(path)) continue;
+    if (/routeTree\.gen\.ts$/.test(path)) continue;
+    const code = viewsOf(path, text).code;
+    for (const [what, pattern] of PREVIEW_TRACES) {
+      const match = pattern.exec(code);
+      if (match === null) continue;
+      if (allowedPaths.has(path)) {
+        used.add(path);
+        continue;
+      }
+      problems.push(
+        `${path}:${String(lineOf(code, match.index))}: ${what} (the preview mode was removed in Phase B; FR-B-102)`,
+      );
+    }
+  }
+  for (const entry of allowed) {
+    if (!tree.has(entry.path))
+      problems.push(`allow-list entry ${entry.path}: the file does not exist`);
+    else if (!used.has(entry.path)) {
+      problems.push(
+        `allow-list entry ${entry.path}: stale, the file no longer shows a trace; remove it`,
+      );
+    }
+  }
+  return problems;
+}
+
+const checkPreviewRemoval: Check = (tree) => previewProblems(tree);
+
 const CHECKS: readonly (readonly [string, Check])[] = [
   ['1 layout and names (FR-A-001)', checkLayout],
   ['2 TypeScript strictness through the base config (FR-A-003)', checkTypeScript],
@@ -1497,6 +1596,7 @@ const CHECKS: readonly (readonly [string, Check])[] = [
   ['8 every file is small enough to be scanned (T-A-003)', checkScannable],
   ['9 every test file sits where its runner collects it (T-A-009)', checkTestPlacement],
   ['10 no switching off of a local lint rule (FR-A-009, FR-A-115)', checkLintSuppressions],
+  ['11 the preview mode is gone (FR-B-102)', checkPreviewRemoval],
 ];
 
 function asGuard(check: Check): (tree: Tree) => void {
@@ -2663,5 +2763,100 @@ describe('repository conventions: the file walker, test paths and file size (G0 
     ['.env.sample', 'PORT=9300\n'],
   ])('check 5 reads %s', (path, text) => {
     expect(problemsAt(checkStrayPorts, withFile(realTree, path, text), path), path).toHaveLength(1);
+  });
+});
+
+describe('repository conventions: the preview mode is gone (FR-B-102, T-B-393)', () => {
+  const sample = (name: string, text: string): readonly [string, string] => [name, text];
+
+  it('the real tree has no trace except the four allow-listed files, each needed', () => {
+    expect(previewProblems(realTree)).toEqual([]);
+    expect(PREVIEW_ALLOWED).toHaveLength(4);
+    for (const entry of PREVIEW_ALLOWED) {
+      expect(realTree.has(entry.path), entry.path).toBe(true);
+      expect(entry.reason.length, entry.path).toBeGreaterThanOrEqual(40);
+    }
+  });
+
+  it.each([
+    sample('preview-mode-env.ts.txt', 'apps/server/src/config/preview.ts'),
+    sample('preview-actor-kind.ts.txt', 'apps/server/src/policy/preview-actor.ts'),
+    sample('preview-feature-flag.tsx.txt', 'apps/web/src/components/shell/Flag.tsx'),
+  ])('%s fails on purpose and names the file', (fixture, path) => {
+    const mounted = mountFixture(realTree, fixture);
+    expect(mounted.path).toBe(path);
+    expectGuardFails(asGuard(checkPreviewRemoval), mounted.tree, {
+      name: fixture,
+      reason: new RegExp(
+        `${path.replace(/\./g, '\\.')}:\\d+: .*the preview mode was removed in Phase B`,
+      ),
+    });
+  });
+
+  it.each([
+    ['PREVIEW_MODE in a string', 'export const v = process.env.PREVIEW_MODE;\n', /PREVIEW_MODE/],
+    ['a previewMode setting', 'export const c = { previewMode: false };\n', /previewMode setting/],
+    ["kind: 'preview'", "export const a = { kind: 'preview', id: 'preview' };\n", /actor kind/],
+    [
+      'features.preview',
+      'export const f = (me: { features: { preview: boolean } }) => me.features.preview;\n',
+      /features\.preview/,
+    ],
+    ['PreviewBanner', 'export const PreviewBanner = () => null;\n', /preview banner/],
+  ] as const)(
+    '%s fails in the server, the web application and the shared package',
+    (_label, code, reason) => {
+      for (const path of [
+        'apps/server/src/x.ts',
+        'apps/web/src/x.tsx',
+        'packages/shared/src/x.ts',
+      ]) {
+        expectGuardFails(asGuard(checkPreviewRemoval), withFile(realTree, path, code), {
+          name: path,
+          reason,
+        });
+      }
+    },
+  );
+
+  it('does not read tests, fixtures or comments', () => {
+    const code = "// PREVIEW_MODE was removed; kind: 'preview' too\nexport const x = 1;\n";
+    expect(previewProblems(withFile(realTree, 'apps/server/src/x.ts', code))).toEqual([]);
+    for (const path of [
+      'apps/server/src/x.test.ts',
+      'apps/server/test/x.ts',
+      'apps/web/src/x.ts.txt',
+    ]) {
+      expect(
+        previewProblems(withFile(realTree, path, "export const a = 'PREVIEW_MODE';\n")),
+      ).toEqual([]);
+    }
+  });
+
+  it('keeps the allow-list honest: a stale entry, a missing file and a thin reason fail', () => {
+    expectGuardFails(
+      (allowed: readonly PreviewAllowance[]) => {
+        const problems = previewProblems(realTree, allowed);
+        if (problems.length > 0) throw new Error(problems.join('\n'));
+      },
+      [...PREVIEW_ALLOWED, { path: 'apps/server/src/start.ts', reason: 'x'.repeat(50) }],
+      { reason: /apps\/server\/src\/start\.ts: stale/ },
+    );
+    expectGuardFails(
+      (allowed: readonly PreviewAllowance[]) => {
+        const problems = previewProblems(realTree, allowed);
+        if (problems.length > 0) throw new Error(problems.join('\n'));
+      },
+      [...PREVIEW_ALLOWED, { path: 'apps/server/src/nowhere.ts', reason: 'x'.repeat(50) }],
+      { reason: /does not exist/ },
+    );
+    expectGuardFails(
+      (allowed: readonly PreviewAllowance[]) => {
+        const problems = previewProblems(realTree, allowed);
+        if (problems.length > 0) throw new Error(problems.join('\n'));
+      },
+      PREVIEW_ALLOWED.map((entry, index) => (index === 0 ? { ...entry, reason: 'thin' } : entry)),
+      { reason: /at least 40 characters/ },
+    );
   });
 });

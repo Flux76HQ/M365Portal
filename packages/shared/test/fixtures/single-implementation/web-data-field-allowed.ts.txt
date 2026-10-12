@@ -1,0 +1,3 @@
+mount: apps/web/src/lib/graph-body.ts
+// A data member called redirectUris is no second function (it is the name of a Graph body member).
+export const body = { redirectUris: ['https://localhost:9300/auth/callback'] };

@@ -26,6 +26,17 @@ function freshDocument(): Document {
   return document.implementation.createHTMLDocument('boot');
 }
 
+describe('readBootData: the stored default language', () => {
+  it('carries defaultLanguage of me, null when none is stored', () => {
+    for (const defaultLanguage of ['nl', 'en', null] as const) {
+      const doc = freshDocument();
+      const data = { me: sampleMe({ defaultLanguage }), branding: sampleBranding() };
+      installBootBlock(doc, escapeForScript(JSON.stringify(data)));
+      expect(readBootData(doc)?.me.defaultLanguage).toBe(defaultLanguage);
+    }
+  });
+});
+
 describe('readBootData', () => {
   it('parses the block the server renders into me and branding', () => {
     const doc = freshDocument();

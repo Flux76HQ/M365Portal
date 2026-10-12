@@ -6,6 +6,7 @@ import type { SetupStateResponseSchema } from '@m365portal/shared/schemas/setup'
 import type { z } from 'zod';
 import type { DatabaseHandle } from '../db/index.js';
 import { certificateExpiry } from '../connection/cert-expiry.js';
+import { INSTALL_TAG_PREFIX } from '@m365portal/shared/setup/desired-state';
 import type { SetupServices } from './context.js';
 import { ownerLabelsOf } from './owner-labels.js';
 import { readProof } from './proof.js';
@@ -63,6 +64,7 @@ export async function setupStateView(
       state.defaultLanguage === 'nl' || state.defaultLanguage === 'en'
         ? state.defaultLanguage
         : null,
+    installTag: `${INSTALL_TAG_PREFIX}${state.installId}`,
     steps: services.steps.stepStates(db, state.mode),
     tenant: {
       proposedTenantId: state.proposedTenantId,

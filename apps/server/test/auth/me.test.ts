@@ -2,12 +2,14 @@
 // boot data of the HTML shell on the real server: four actor shapes, roles, the session summary, the
 // setup state, the two feature flags, no `preview`, the idle header on every response of a valid
 // session, and an actor chosen by the cookies alone.
+import { join } from 'node:path';
 import { PERMISSIONS } from '@m365portal/shared/permissions';
 import { BUILTIN_ROLES } from '@m365portal/shared/rbac/roles';
 import { MeResponseSchema } from '@m365portal/shared/schemas/meta';
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
 import { readJson } from '../helpers/http-client.js';
+import { DATABASE_FILE_NAME, openDatabase } from '../../src/db/index.js';
 import { guid } from '../helpers/rbac-db.js';
 import { unwritableDataDir } from '../helpers/unwritable-data-dir.js';
 import { startRealServer } from './support/real-server.js';
@@ -108,6 +110,42 @@ describe('server/auth/me: the four actor shapes', () => {
   it('SHOWCASE shows in features.showcase', async () => {
     const server = await startRealServer({ env: { SHOWCASE: 'true' } });
     expect((await meOf(server.client)).features.showcase).toBe(true);
+  });
+});
+
+describe('server/auth/me: the stored default language', () => {
+  function setSetup(dataDir: string, sql: string): void {
+    const database = openDatabase({ path: join(dataDir, DATABASE_FILE_NAME) });
+    try {
+      database.sqlite.exec(sql);
+    } finally {
+      database.close();
+    }
+  }
+
+  it('is null while nothing is stored, and null while the setup is not completed', async () => {
+    const server = await startRealServer();
+    expect((await meOf(server.client)).defaultLanguage).toBeNull();
+    setSetup(
+      server.dataDir,
+      "UPDATE setup_state SET state = 'in_progress', default_language = 'nl' WHERE id = 1",
+    );
+    expect((await meOf(server.client)).defaultLanguage).toBeNull();
+  });
+
+  it('is the language the finish step stored once the setup is completed', async () => {
+    const server = await startRealServer();
+    setSetup(server.dataDir, "UPDATE setup_state SET state = 'in_progress' WHERE id = 1");
+    setSetup(server.dataDir, "UPDATE setup_state SET state = 'awaiting_first_signin' WHERE id = 1");
+    setSetup(
+      server.dataDir,
+      "UPDATE setup_state SET state = 'completed', completed_at = '2026-10-12T09:00:00.000Z', default_language = 'nl' WHERE id = 1",
+    );
+    expect((await meOf(server.client)).defaultLanguage).toBe('nl');
+    setSetup(server.dataDir, "UPDATE setup_state SET default_language = 'en' WHERE id = 1");
+    expect((await meOf(server.client)).defaultLanguage).toBe('en');
+    setSetup(server.dataDir, 'UPDATE setup_state SET default_language = NULL WHERE id = 1');
+    expect((await meOf(server.client)).defaultLanguage).toBeNull();
   });
 });
 

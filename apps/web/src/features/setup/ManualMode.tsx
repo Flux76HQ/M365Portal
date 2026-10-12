@@ -1,4 +1,4 @@
-import { buildDesiredState, desiredStateChecklist } from '@m365portal/shared/setup/desired-state';
+import { buildDesiredState, desiredStateChecklist, INSTALL_TAG_PREFIX } from '@m365portal/shared/setup/desired-state';
 import { EXCHANGE_APP_ROLES, GRAPH_APP_ROLES } from '@m365portal/shared/setup/graph-roles';
 import { GuidSchema } from '@m365portal/shared/schemas/common';
 import { ManualRequestSchema } from '@m365portal/shared/schemas/setup';
@@ -49,20 +49,26 @@ interface Item {
   readonly values: readonly string[];
 }
 
-const PLACEHOLDER_INSTALL = '0'.repeat(32);
 const DEFAULT_APPLICATION_NAME = 'M365Portal';
 
 /**
  * The checklist for the portal, made from the same function that builds the document the automatic mode
  * sends (`buildDesiredState`), so the two cannot drift. Role ids are placeholders (the checklist shows
- * names). The install tag is not on the wire, so the items that carry it (tags, description) are not listed.
+ * names). The install tag comes from the server (`installTag` of the setup state); its id builds the tag and
+ * the description item, which verification (V3) checks on the application.
  */
-function checklistFor(publicBaseUrl: string, exchange: boolean, thumbprint: string | null, t: (key: never) => string): Item[] {
+function checklistFor(
+  publicBaseUrl: string,
+  installTag: string,
+  exchange: boolean,
+  thumbprint: string | null,
+  t: (key: never) => string,
+): Item[] {
   const names = [...GRAPH_APP_ROLES, ...(exchange ? [EXCHANGE_APP_ROLES.required] : [])];
   const roleIds = Object.fromEntries(names.map((name, index) => [name, `00000000-0000-4000-8000-${(index + 1).toString(16).padStart(12, '0')}`]));
   const desired = buildDesiredState({
     baseUrl: publicBaseUrl,
-    installId: PLACEHOLDER_INSTALL,
+    installId: installTag.slice(INSTALL_TAG_PREFIX.length),
     applicationName: DEFAULT_APPLICATION_NAME,
     roleIds,
     exchange,
@@ -75,6 +81,8 @@ function checklistFor(publicBaseUrl: string, exchange: boolean, thumbprint: stri
   const off = t('setup.manual.item.implicitFlows' as never);
   const items: Item[] = [
     { label: t('setup.manual.item.name' as never), values: list('application_name') },
+    { label: t('setup.manual.item.description' as never), values: list('description') },
+    { label: t('setup.manual.item.tags' as never), values: list('tags') },
     { label: t('setup.manual.item.redirectUris' as never), values: list('redirect_uris') },
     { label: off, values: [] },
     { label: t('setup.manual.item.graphPermissions' as never), values: list('graph_roles') },
@@ -102,8 +110,8 @@ export function ManualMode({ context, onBack }: ManualModeProps) {
   const [values, setValues] = useState({ applicationClientId: '', tenantId: '', firstOwner: '' });
   const [errors, setErrors] = useState<Partial<Record<keyof typeof values, string>>>({});
   const items = useMemo(
-    () => checklistFor(state.publicBaseUrl, state.exchangeEnabled, state.certificate?.thumbprintSha1.toLowerCase() ?? null, t as never),
-    [state.publicBaseUrl, state.exchangeEnabled, state.certificate, t],
+    () => checklistFor(state.publicBaseUrl, state.installTag, state.exchangeEnabled, state.certificate?.thumbprintSha1.toLowerCase() ?? null, t as never),
+    [state.publicBaseUrl, state.installTag, state.exchangeEnabled, state.certificate, t],
   );
   const send = useMutation({
     mutationFn: async (request: ManualRequest) => {

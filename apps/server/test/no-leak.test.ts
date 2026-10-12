@@ -2,11 +2,19 @@
 // nor the log. The log is allowed to say what kind of error it was: its name, its system code and
 // a stack without the message line, which is the part of a stack that can hold the secret.
 //
+// Phase B (T-B-390, FR-B-715, FR-B-107, FR-B-203, FR-B-215, FR-B-418, EB-01, SC-B-013): after one full
+// life of the panel (wizard, sign-ins, rotation, break-glass; test/helpers/full-run.ts) the canaries of
+// the application key, the setup token, the private key, the bootstrap tokens, the authorization code,
+// `state`, the ID token, the session ids and the break-glass password have no hit in the captured logs,
+// the audit rows, any response body or header, the HTML shell, the OpenAPI document, the output of the
+// rotation or any file of the data directory, backups included. The places where a value is born by
+// design (the `Set-Cookie` of a session id, the `Location` of the login redirect) are named per canary.
+//
 // Negative fixture: `assertNoCanary` is the guard; a log line that carries the message or the
 // cause must fail it, or this file would stay green when the handler starts logging `error.message`.
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { Hono } from 'hono';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfigOrThrow } from '../src/config/index.js';
 import {
   createErrorHandler,
@@ -18,6 +26,8 @@ import {
 } from '../src/http/error-handler.js';
 import { requestContext, type AppEnv } from '../src/http/request-context.js';
 import { createCaptureLogger } from './helpers/capture-logger.js';
+import { runFullLifecycle, type Canary, type Exchange, type FullRun } from './helpers/full-run.js';
+import { useWizardTimers } from './setup/support/tenant-scene.js';
 import { createTestApp, type TestAppContext } from './helpers/test-app.js';
 
 const CANARY = 'CANARY-no-leak-3b9d41e7-hunter2';
@@ -302,5 +312,215 @@ describe('the canary guard (negative fixtures)', () => {
       { where: 'the log', text: harness.logs.text() },
       { reason: 'the canary is in the log' },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The full run (T-B-390)
+// ---------------------------------------------------------------------------------------------
+
+interface Surfaces {
+  readonly logText: string;
+  readonly auditText: string;
+  readonly exchanges: readonly Exchange[];
+  readonly files: readonly { readonly path: string; readonly text: string }[];
+  readonly commandOutput: string;
+}
+
+/** Every place a value was found, as "canary in place" lines. Empty when nothing leaked. */
+function findLeaks(canaries: readonly Canary[], surfaces: Surfaces): string[] {
+  const found: string[] = [];
+  const searched = (place: string, text: string, canary: Canary): void => {
+    for (const value of canary.values) {
+      if (value !== '' && text.includes(value)) {
+        found.push(`${canary.name} in ${place}`);
+        return;
+      }
+    }
+  };
+  for (const canary of canaries) {
+    searched('the logs', surfaces.logText, canary);
+    searched('the audit rows', surfaces.auditText, canary);
+    searched('the output of the rotation', surfaces.commandOutput, canary);
+    for (const file of surfaces.files) searched(`the file ${file.path}`, file.text, canary);
+    for (const exchange of surfaces.exchanges) {
+      const place = `${exchange.method} ${exchange.path} (${String(exchange.status)})`;
+      searched(`the body of ${place}`, exchange.body, canary);
+      for (const [name, value] of exchange.headers) {
+        if (canary.allowedInSetCookie === true && name === 'set-cookie') continue;
+        if (
+          canary.allowedInLoginLocation === true &&
+          name === 'location' &&
+          exchange.path.startsWith('/auth/login')
+        ) {
+          continue;
+        }
+        searched(`the header ${name} of ${place}`, value, canary);
+      }
+    }
+  }
+  return found;
+}
+
+function assertNoLeaks(input: { canaries: readonly Canary[]; surfaces: Surfaces }): void {
+  const found = findLeaks(input.canaries, input.surfaces);
+  if (found.length > 0) throw new Error(`leaked: ${found.join('; ')}`);
+}
+
+describe('a full run leaves no secret anywhere (FR-B-715, FR-B-107, SC-B-013)', () => {
+  beforeEach(() => {
+    useWizardTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  let run: FullRun | undefined;
+  const have = (): FullRun => {
+    if (run === undefined) throw new Error('the full run has not happened');
+    return run;
+  };
+  const surfacesOf = (current: FullRun): Surfaces => ({
+    logText: current.logText,
+    auditText: current.auditText,
+    exchanges: current.exchanges,
+    files: current.files,
+    commandOutput: current.commandOutput,
+  });
+
+  it('the run happens and covers the wizard, both sign-ins, the rotation and the break-glass account', async () => {
+    run = await runFullLifecycle();
+    expect(run.facts).toMatchObject({
+      completed: true,
+      ownerSignedIn: true,
+      breakGlassSignedIn: true,
+      noRoleTurnedAway: true,
+    });
+    expect(run.facts.rows).toBeGreaterThan(20);
+    expect(run.commandOutput).toBe('rows: 1\n');
+  }, 300_000);
+
+  it('knows every canary it looks for, in every spelling', () => {
+    const names = have().canaries.map((canary) => canary.name);
+    for (const wanted of [
+      'APP_KEY (first)',
+      'APP_KEY (rotated to)',
+      'setup token',
+      'certificate private key',
+      'Microsoft tokens and device codes',
+      'authorization code',
+      'state',
+      'session id (owner)',
+      'session id (break-glass)',
+      'break-glass password',
+    ]) {
+      expect(names, wanted).toContain(wanted);
+    }
+    for (const canary of have().canaries)
+      expect(canary.values.length, canary.name).toBeGreaterThan(0);
+    // The key of the certificate: the DER in base64 and hex and slices of it, and the PEM label.
+    const key = have().canaries.find((canary) => canary.name === 'certificate private key');
+    expect(key?.values.length ?? 0).toBeGreaterThan(5);
+    // The Microsoft secrets harvested from the fake: the bootstrap tokens, the ID token, the device code.
+    const microsoft = have().canaries.find(
+      (canary) => canary.name === 'Microsoft tokens and device codes',
+    );
+    expect(microsoft?.values.length ?? 0).toBeGreaterThanOrEqual(3);
+  });
+
+  it('has 0 hits in logs, audit rows, responses, the shell, the OpenAPI document, the rotation output and the data directory with its backups', () => {
+    const current = have();
+    const surfaces = surfacesOf(current);
+    expect(surfaces.files.some((file) => /pre-rotate-/.test(file.path))).toBe(true);
+    expect(
+      surfaces.files.some((file) => /\.sqlite-wal$/.test(file.path) || /\.sqlite$/.test(file.path)),
+    ).toBe(true);
+    expect(surfaces.exchanges.some((exchange) => exchange.path === '/api/v1/openapi.json')).toBe(
+      true,
+    );
+    expect(surfaces.exchanges.filter((exchange) => exchange.path === '(shell html)').length).toBe(
+      4,
+    );
+    expect(findLeaks(current.canaries, surfaces)).toEqual([]);
+  });
+
+  describe('negative fixtures: a canary written anywhere fails the guard', () => {
+    const canary: Canary = { name: 'planted', values: ['PLANTED-CANARY-3b9d41e7-2c0f'] };
+    const clean = (): Surfaces => ({
+      logText: '{"msg":"x"}',
+      auditText: '[]',
+      exchanges: [
+        {
+          method: 'GET',
+          path: '/api/v1/me',
+          status: 200,
+          requestBody: '',
+          headers: [['content-type', 'application/json']],
+          body: '{}',
+        },
+      ],
+      files: [{ path: '/data/m365portal.sqlite', text: 'SQLite format' }],
+      commandOutput: 'rows: 1\n',
+    });
+    const guard = (surfaces: Surfaces): void => {
+      assertNoLeaks({ canaries: [canary], surfaces });
+    };
+
+    it('passes for clean surfaces', () => {
+      expect(() => {
+        guard(clean());
+      }).not.toThrow();
+    });
+
+    it.each([
+      ['a log line', { logText: `{"msg":"${canary.values[0] ?? ''}"}` }, /in the logs/],
+      [
+        'an audit row',
+        { auditText: `[{"detail":"${canary.values[0] ?? ''}"}]` },
+        /in the audit rows/,
+      ],
+      [
+        'the output of the rotation',
+        { commandOutput: `key ${canary.values[0] ?? ''}` },
+        /rotation/,
+      ],
+      [
+        'a file of the data directory',
+        { files: [{ path: '/data/backups/pre-rotate-1.sqlite', text: canary.values[0] ?? '' }] },
+        /in the file \/data\/backups/,
+      ],
+      [
+        'a response body',
+        { exchanges: [{ ...clean().exchanges[0]!, body: canary.values[0] ?? '' }] },
+        /the body of GET/,
+      ],
+      [
+        'a response header',
+        {
+          exchanges: [
+            { ...clean().exchanges[0]!, headers: [['x-debug', canary.values[0] ?? '']] as const },
+          ],
+        },
+        /the header x-debug/,
+      ],
+    ] as const)('fails for %s', (_label, change, reason) => {
+      expectGuardFails(guard, { ...clean(), ...change } as Surfaces, { reason });
+    });
+
+    it('lets a session id through in Set-Cookie only where the canary allows it', () => {
+      const setCookie: Surfaces = {
+        ...clean(),
+        exchanges: [
+          {
+            ...clean().exchanges[0]!,
+            headers: [['set-cookie', `m365portal_session=${canary.values[0] ?? ''}`]],
+          },
+        ],
+      };
+      expectGuardFails(guard, setCookie, { reason: /the header set-cookie/ });
+      expect(() => {
+        assertNoLeaks({ canaries: [{ ...canary, allowedInSetCookie: true }], surfaces: setCookie });
+      }).not.toThrow();
+    });
   });
 });

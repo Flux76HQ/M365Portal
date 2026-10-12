@@ -121,14 +121,25 @@ export function createLanguageController(options: LanguageControllerOptions): La
 }
 
 let shared: LanguageController | undefined;
+let storedDefault: unknown;
+
+/**
+ * Hands the controller the default language the setup stored (`me.defaultLanguage` of the boot data,
+ * FR-B-219 d). The entry calls it once, before the router loads, so the first render already has the
+ * language; a controller that exists already keeps its language.
+ */
+export function setStoredDefaultLanguage(language: unknown): void {
+  storedDefault = language;
+}
 
 /** The controller of this page, created on first use from the real document, storage and browser. */
 export function getLanguageController(): LanguageController {
   shared ??= createLanguageController({
     storage: getAppStorage(),
     // The browser's list goes through detectLocale at once (the guard wants every read of
-    // navigator.languages handed to it); detecting an already detected tag gives the same tag.
-    languages: [detectLocale(typeof navigator === 'undefined' ? [] : navigator.languages)],
+    // navigator.languages handed to it), together with the default language the setup stored, which
+    // counts only when the list names neither nl nor en; detecting an already detected tag gives the same tag.
+    languages: [detectLocale(typeof navigator === 'undefined' ? [] : navigator.languages, storedDefault)],
     root: document.documentElement,
   });
   return shared;

@@ -32,6 +32,8 @@ async function start(): Promise<void> {
   const api = data.getApiClient();
   const bootData = data.readBootData();
   if (bootData) data.seedQueryClient(queryClient, bootData, api);
+  // The language the setup stored serves a first visit with no choice of its own (before any route loads).
+  data.setStoredDefaultLanguage(bootData?.me.defaultLanguage ?? null);
   // A cross-site entry drops the Strict cookie: ask once before any gating redirect (T-B-296, PB-15).
   await data.recheckBootSession({ boot: bootData, queryClient, api });
   const { createAppRouter } = await import('./boot/stage-router');

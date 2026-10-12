@@ -134,7 +134,10 @@ type TellTale =
   | 'language-reader'
   | 'accept-language'
   | 'problem-key'
-  | 'permission-list';
+  | 'permission-list'
+  | 'host-prefix'
+  | 'amr-mfa-check'
+  | 'redirect-uri-literal';
 
 const TELL_TALES: Readonly<Record<TellTale, string>> = {
   'grapheme-segmentation':
@@ -155,6 +158,12 @@ const TELL_TALES: Readonly<Record<TellTale, string>> = {
     'problem catalogue key built by hand: problem codes map to messages once, through problemMessageKey',
   'permission-list':
     'list of permission names outside packages/shared: the catalogue is PERMISSIONS (a single name or a short any-of list is fine)',
+  'host-prefix':
+    'cookie name with a hand-written __Host- or __Secure- prefix outside packages/shared: cookie names come from cookieNames(publicBaseUrl)',
+  'amr-mfa-check':
+    'amr list tested for a method by hand outside packages/shared: whether a sign-in counts as multi-factor is decided once, by evaluateAmr',
+  'redirect-uri-literal':
+    'redirect URI built by hand from the callback or logged-out path outside packages/shared: redirect URIs are derived once, by redirectUris and authorizeRedirectUri',
 };
 const TELL_TALE_IDS = Object.keys(TELL_TALES) as TellTale[];
 
@@ -174,6 +183,13 @@ interface Concept {
    * ever. A group asks for at least one of its names.
    */
   readonly required: readonly Required[];
+  /**
+   * Names of `names` that are functions. A data field, a property or a variable of the same name
+   * whose value is not a function (the `redirectUris` of a Graph body, a config field) is no second
+   * implementation of these; only a function, a class or a method is. Data names (a constant list or
+   * table) are not listed here: any definition of one counts.
+   */
+  readonly callable?: readonly string[];
   /** The only module that may define them. */
   readonly home: string;
   /** Re-implementations to look for outside packages/shared/src. */
@@ -200,7 +216,7 @@ function followedBy(words: readonly string[], first: RegExp, second: RegExp): bo
   return words.some((word, index) => first.test(word) && second.test(words[index + 1] ?? '\u0000'));
 }
 
-const CONCEPTS: readonly Concept[] = [
+const PHASE_A_CONCEPTS: readonly Concept[] = [
   {
     id: 'org-name',
     fr008: ['organisation-name normalisation', 'short-name cut'],
@@ -316,13 +332,194 @@ const CONCEPTS: readonly Concept[] = [
   {
     id: 'permissions',
     fr008: ['permission catalogue'],
-    names: ['PERMISSIONS', 'hasAnyPermission'],
+    names: ['PERMISSIONS', 'hasAnyPermission', 'PERMISSION_RESOURCE'],
     required: ['PERMISSIONS', 'hasAnyPermission'],
     home: `${SHARED_SRC}permissions.ts`,
     tellTales: ['permission-list'],
     lookalike: (words) => words.some((word) => /^permissions?$/.test(word)),
   },
 ];
+
+// ---- Phase B (XB23, FR-B-713, T-B-393): the concepts of the sign-in, setup and RBAC surface -------
+
+const NEVER = (): boolean => false;
+
+const PHASE_B_CONCEPTS: readonly Concept[] = [
+  {
+    id: 'rbac-effective',
+    fr008: [],
+    names: ['computeGrants'],
+    callable: ['computeGrants'],
+    required: ['computeGrants'],
+    home: `${SHARED_SRC}rbac/effective.ts`,
+    tellTales: [],
+    lookalike: NEVER,
+  },
+  {
+    id: 'rbac-covers',
+    fr008: [],
+    names: ['covers', 'canGrantCore'],
+    callable: ['covers', 'canGrantCore'],
+    required: ['covers', 'canGrantCore'],
+    home: `${SHARED_SRC}rbac/covers.ts`,
+    tellTales: [],
+    lookalike: NEVER,
+  },
+  {
+    id: 'rbac-scope',
+    fr008: [],
+    names: ['matchScope', 'normalizeScopeItem', 'canonicalScopeKey'],
+    callable: ['matchScope', 'normalizeScopeItem', 'canonicalScopeKey'],
+    required: ['matchScope', 'normalizeScopeItem', 'canonicalScopeKey'],
+    home: `${SHARED_SRC}rbac/scope.ts`,
+    tellTales: [],
+    lookalike: NEVER,
+  },
+  {
+    id: 'rbac-qualifier',
+    fr008: [],
+    names: ['projectUser'],
+    callable: ['projectUser'],
+    required: ['projectUser'],
+    home: `${SHARED_SRC}rbac/qualifier.ts`,
+    tellTales: [],
+    lookalike: NEVER,
+  },
+  {
+    id: 'rbac-roles',
+    fr008: [],
+    names: ['BUILTIN_ROLES'],
+    required: ['BUILTIN_ROLES'],
+    home: `${SHARED_SRC}rbac/roles.ts`,
+    tellTales: [],
+    lookalike: NEVER,
+  },
+  {
+    // FR-B-716: one normaliser per displayed value. A hand-built `role.` or `permission.` key is
+    // caught by the server and web tests of the label functions (shared/rbac-labels.test.ts).
+    id: 'rbac-labels',
+    fr008: [],
+    names: [
+      'roleLabelKey',
+      'permissionLabelKey',
+      'scopeItemText',
+      'qualifierLabelKey',
+      'originText',
+      'principalLabel',
+    ],
+    callable: [
+      'roleLabelKey',
+      'permissionLabelKey',
+      'scopeItemText',
+      'qualifierLabelKey',
+      'originText',
+      'principalLabel',
+    ],
+    required: [
+      'roleLabelKey',
+      'permissionLabelKey',
+      'scopeItemText',
+      'qualifierLabelKey',
+      'originText',
+      'principalLabel',
+    ],
+    home: `${SHARED_SRC}rbac/labels.ts`,
+    tellTales: [],
+    lookalike: NEVER,
+  },
+  {
+    id: 'amr',
+    fr008: [],
+    names: ['evaluateAmr'],
+    callable: ['evaluateAmr'],
+    required: ['evaluateAmr'],
+    home: `${SHARED_SRC}auth/amr.ts`,
+    tellTales: ['amr-mfa-check'],
+    lookalike: NEVER,
+  },
+  {
+    id: 'return-to',
+    fr008: [],
+    names: ['safeReturnTo'],
+    callable: ['safeReturnTo'],
+    required: ['safeReturnTo'],
+    home: `${SHARED_SRC}auth/return-to.ts`,
+    tellTales: [],
+    lookalike: NEVER,
+  },
+  {
+    id: 'cookies',
+    fr008: [],
+    names: ['cookieNames'],
+    callable: ['cookieNames'],
+    required: ['cookieNames'],
+    home: `${SHARED_SRC}auth/cookies.ts`,
+    tellTales: ['host-prefix'],
+    lookalike: NEVER,
+  },
+  {
+    id: 'redirect-uri',
+    fr008: [],
+    names: ['redirectUris', 'authorizeRedirectUri'],
+    callable: ['redirectUris', 'authorizeRedirectUri'],
+    required: ['redirectUris', 'authorizeRedirectUri'],
+    home: `${SHARED_SRC}auth/redirect-uri.ts`,
+    tellTales: ['redirect-uri-literal'],
+    lookalike: NEVER,
+  },
+  {
+    id: 'scrypt-hash',
+    fr008: [],
+    names: ['parseScryptHash'],
+    callable: ['parseScryptHash'],
+    required: ['parseScryptHash'],
+    home: `${SHARED_SRC}auth/scrypt-hash.ts`,
+    tellTales: [],
+    lookalike: NEVER,
+  },
+  {
+    // The AADSTS table (TB-05): the wizard result codes and the sign-in error codes are projections.
+    id: 'aadsts',
+    fr008: [],
+    names: ['AADSTS_NUMBER_REASONS', 'OAUTH_ERROR_REASONS'],
+    required: ['AADSTS_NUMBER_REASONS', 'OAUTH_ERROR_REASONS'],
+    home: `${SHARED_SRC}auth/aadsts-map.ts`,
+    tellTales: [],
+    lookalike: NEVER,
+  },
+  {
+    id: 'graph-roles',
+    fr008: [],
+    names: ['GRAPH_APP_ROLES'],
+    required: ['GRAPH_APP_ROLES'],
+    home: `${SHARED_SRC}setup/graph-roles.ts`,
+    tellTales: [],
+    lookalike: NEVER,
+  },
+  {
+    id: 'setup-steps',
+    fr008: [],
+    names: ['STEPS'],
+    required: ['STEPS'],
+    home: `${SHARED_SRC}setup/steps.ts`,
+    tellTales: [],
+    lookalike: NEVER,
+  },
+  {
+    id: 'setup-result-codes',
+    fr008: [],
+    names: ['RESULT_CODES', 'SETUP_RESULT_CODES'],
+    required: ['RESULT_CODES', 'SETUP_RESULT_CODES'],
+    home: `${SHARED_SRC}setup/result-codes.ts`,
+    tellTales: [],
+    lookalike: NEVER,
+  },
+];
+
+const CONCEPTS: readonly Concept[] = [...PHASE_A_CONCEPTS, ...PHASE_B_CONCEPTS];
+
+/** Names that are functions: a data field of the same name (a Graph body member) is no definition. */
+const CALLABLE_NAMES = new Set(CONCEPTS.flatMap((concept) => concept.callable ?? []));
 
 const CONCEPT_BY_NAME = new Map<string, Concept>(
   CONCEPTS.flatMap((concept) => concept.names.map((name) => [name, concept] as const)),
@@ -547,6 +744,7 @@ function definitionOf(
 ): Definition | undefined {
   let name: string | undefined;
   let kind: string;
+  let initializer: ts.Expression | undefined;
   if (ts.isFunctionDeclaration(node)) {
     if (node.body === undefined || isAmbient(node)) return undefined;
     [name, kind] = [nameText(node.name), 'function'];
@@ -560,6 +758,7 @@ function definitionOf(
     if (node.initializer === undefined || !isImplementation(node.initializer) || isAmbient(node)) {
       return undefined;
     }
+    initializer = node.initializer;
     [name, kind] = [nameText(node.name), 'variable'];
   } else if (ts.isMethodDeclaration(node)) {
     if (node.body === undefined) return undefined;
@@ -569,13 +768,16 @@ function definitionOf(
     [name, kind] = [nameText(node.name), 'getter'];
   } else if (ts.isPropertyAssignment(node) || ts.isPropertyDeclaration(node)) {
     if (node.initializer === undefined || !isImplementation(node.initializer)) return undefined;
+    initializer = node.initializer;
     [name, kind] = [nameText(node.name), 'property'];
   } else if (ts.isBindingElement(node) || ts.isParameter(node)) {
     // A default value in a destructuring pattern or a parameter list: `({ shortOrgName = (n) => n })`.
     if (node.initializer === undefined || !isImplementation(node.initializer)) return undefined;
+    initializer = node.initializer;
     [name, kind] = [nameText(node.name), 'default'];
   } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
     if (!isImplementation(node.right)) return undefined;
+    initializer = node.right;
     [name, kind] = [assignedName(node.left), 'assignment'];
   } else if (ts.isExportSpecifier(node)) {
     // `export { impl as name }` of something this file implements. A re-export from a module, and an
@@ -587,6 +789,11 @@ function definitionOf(
     return undefined;
   }
   if (name === undefined || !CONCEPT_BY_NAME.has(name)) return undefined;
+  // A function name carried by a data field (`redirectUris: [...]`, `authorizeRedirectUri: x(...)`) is
+  // no second function.
+  if (CALLABLE_NAMES.has(name) && initializer !== undefined && !isFunctionLike(initializer)) {
+    return undefined;
+  }
   return { name, kind, line: lineOf(source, node) };
 }
 
@@ -884,6 +1091,44 @@ function noteTellTales(
     } else if (/;\s*q=/.test(node.text)) {
       note('accept-language', `'${node.text}'`);
     }
+  }
+
+  if (
+    (ts.isStringLiteralLike(node) && /^__(?:Host|Secure)-/.test(node.text)) ||
+    (ts.isTemplateExpression(node) && /^__(?:Host|Secure)-/.test(node.head.text))
+  ) {
+    note('host-prefix', 'a __Host- or __Secure- cookie name');
+  }
+  if (
+    ts.isTemplateExpression(node) &&
+    node.templateSpans.some((span) => /\/auth\/(?:callback|logged-out)/.test(span.literal.text))
+  ) {
+    note('redirect-uri-literal', 'a template literal ending in the callback or logged-out path');
+  }
+  if (
+    ts.isBinaryExpression(node) &&
+    node.operatorToken.kind === ts.SyntaxKind.PlusToken &&
+    !ts.isStringLiteralLike(node.left) &&
+    ts.isStringLiteralLike(node.right) &&
+    /\/auth\/(?:callback|logged-out)$/.test(node.right.text)
+  ) {
+    note('redirect-uri-literal', 'a concatenation ending in the callback or logged-out path');
+  }
+  if (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    ['includes', 'some', 'indexOf', 'has', 'find'].includes(node.expression.name.text) &&
+    /amr/i.test(node.expression.expression.getText(source)) &&
+    node.arguments.some(
+      (argument) =>
+        ts.isStringLiteralLike(argument) &&
+        ['mfa', 'multipleauthn', 'ngcmfa', 'pwd', 'fido', 'otp', 'wia'].includes(argument.text),
+    )
+  ) {
+    note(
+      'amr-mfa-check',
+      `${node.expression.expression.getText(source)}.${node.expression.name.text}(...)`,
+    );
   }
 
   if (ts.isTemplateExpression(node) && /(?:^|\W)problem\.$/.test(node.head.text)) {
@@ -1386,6 +1631,10 @@ describe('single implementation: the detector bites on every row of the table', 
     'problem-key': 'export const key = (code: string) => `problem.${code}`;\n',
     'permission-list':
       "export const all = ['users:read', 'groups:read', 'contacts:read', 'audit:read'];\n",
+    'host-prefix': "export const name = '__Host-m365portal_session';\n",
+    'amr-mfa-check':
+      "export const isMfa = (claims: { amr: string[] }) => claims.amr.includes('mfa');\n",
+    'redirect-uri-literal': 'export const uri = (origin: string) => `${origin}/auth/callback`;\n',
   };
 
   it.each(Object.entries(SAMPLES) as [TellTale, string][])(
@@ -1487,6 +1736,26 @@ describe('single implementation: negative fixtures fail on purpose', () => {
     [
       'shared-misplaced-definition.ts.txt',
       /packages\/shared\/src\/schemas\/branding\.ts:2: normalizeAccent is defined here, but its one home is packages\/shared\/src\/branding\/accent\.ts/,
+    ],
+    [
+      'server-second-grants.ts.txt',
+      /apps\/server\/src\/rbac\/my-grants\.ts:2: second definition of computeGrants \(variable\)[\s\S]*my-grants\.ts:5: second definition of matchScope \(function\)/,
+    ],
+    [
+      'web-hand-built-cookie.ts.txt',
+      /apps\/web\/src\/lib\/session-cookie\.ts:2: cookie name with a hand-written __Host- or __Secure- prefix[\s\S]*packages\/shared\/src\/auth\/cookies\.ts/,
+    ],
+    [
+      'server-amr-includes.ts.txt',
+      /apps\/server\/src\/auth\/mfa-shortcut\.ts:3: amr list tested for a method by hand[\s\S]*packages\/shared\/src\/auth\/amr\.ts/,
+    ],
+    [
+      'web-redirect-uri-template.ts.txt',
+      /apps\/web\/src\/lib\/consent-link\.ts:3: redirect URI built by hand[\s\S]*packages\/shared\/src\/auth\/redirect-uri\.ts/,
+    ],
+    [
+      'shared-misplaced-label.ts.txt',
+      /packages\/shared\/src\/schemas\/rbac-extra\.ts:2: roleLabelKey is defined here, but its one home is packages\/shared\/src\/rbac\/labels\.ts/,
     ],
     [
       'shared-double-definition.ts.txt',
@@ -1718,6 +1987,11 @@ describe('single implementation: what must stay allowed (the guard is not over-e
         'export const upper = (text: string) => text.toUpperCase();',
       ].join('\n'),
     );
+  });
+
+  it('allows a data member that carries the name of a function of the table (a Graph body member)', () => {
+    const tree = mountFixture(realTree, 'web-data-field-allowed.ts.txt');
+    expect(problemsAt(checkAll, tree, 'apps/web/src/lib/graph-body.ts')).toEqual([]);
   });
 
   it('allows a definition inside packages/shared/src when it sits in its home', () => {

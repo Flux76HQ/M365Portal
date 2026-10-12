@@ -42,6 +42,8 @@ export interface SampleMeOptions {
   /** `features.breakGlass` */
   readonly breakGlass?: boolean;
   readonly adminConsentUrl?: string | null;
+  /** `defaultLanguage`: the language the setup stored (null when none). */
+  readonly defaultLanguage?: 'nl' | 'en' | null;
   readonly version?: string;
   readonly publicOrigin?: string;
   readonly storageAvailable?: boolean;
@@ -89,6 +91,7 @@ export function sampleMe(options: SampleMeOptions = {}): MeResponse {
     setup: { state: options.setupState ?? 'completed' },
     features: { showcase: options.showcase ?? false, breakGlass: options.breakGlass ?? false },
     adminConsentUrl: options.adminConsentUrl ?? null,
+    defaultLanguage: options.defaultLanguage ?? null,
     version: options.version ?? SAMPLE_VERSION,
     publicOrigin: options.publicOrigin ?? SAMPLE_ORIGIN,
     storageAvailable: options.storageAvailable ?? true,

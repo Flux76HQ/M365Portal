@@ -1,0 +1,3 @@
+mount: apps/web/src/components/shell/Flag.tsx
+// A banner that shows when the server says it runs in preview mode.
+export const shows = (me: { features: { preview: boolean } }): boolean => me.features.preview;

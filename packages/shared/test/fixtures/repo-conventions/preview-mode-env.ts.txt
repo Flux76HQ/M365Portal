@@ -1,0 +1,3 @@
+mount: apps/server/src/config/preview.ts
+// A second reader of the retired variable: a deployment that still sets it would get the old behaviour.
+export const previewOn = process.env.PREVIEW_MODE === "true";

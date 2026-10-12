@@ -1,0 +1,3 @@
+mount: apps/server/src/policy/preview-actor.ts
+// The unauthenticated actor with every permission: the thing Phase B removed.
+export const PREVIEW = { kind: 'preview', id: 'preview' } as const;

@@ -83,6 +83,50 @@ describe('applyLanguage', () => {
   });
 });
 
+describe('the default language the setup stored (FR-B-219 d)', () => {
+  it('serves a first visit with no choice and no Dutch or English preference, and nothing else', () => {
+    const storage = createStorage(backend());
+    expect(chooseLanguage(storage, ['de-DE'], 'nl')).toBe('nl');
+    expect(chooseLanguage(storage, ['nl-BE'], 'en')).toBe('nl');
+    expect(chooseLanguage(storage, ['en-GB'], 'nl')).toBe('en');
+    expect(chooseLanguage(storage, ['de-DE'], null)).toBe('en');
+    expect(chooseLanguage(createStorage(backend({ [STORAGE_KEYS.locale]: 'en' })), ['de-DE'], 'nl')).toBe('en');
+  });
+
+  it('is applied by the shared controller once the boot data delivered it, before the first render', async () => {
+    vi.resetModules();
+    const languages = vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['de-DE']);
+    try {
+      const locale = await import('../src/lib/locale');
+      locale.setStoredDefaultLanguage('nl');
+      const controller = locale.getLanguageController();
+      expect(controller.language).toBe('nl');
+      expect(document.documentElement.lang).toBe('nl');
+    } finally {
+      languages.mockRestore();
+      document.documentElement.lang = '';
+    }
+  });
+
+  it('ignores a value that is not nl or en, and a browser preference still wins', async () => {
+    vi.resetModules();
+    const languages = vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['de-DE']);
+    try {
+      const locale = await import('../src/lib/locale');
+      locale.setStoredDefaultLanguage('de');
+      expect(locale.getLanguageController().language).toBe('en');
+      languages.mockReturnValue(['en-US']);
+      vi.resetModules();
+      const again = await import('../src/lib/locale');
+      again.setStoredDefaultLanguage('nl');
+      expect(again.getLanguageController().language).toBe('en');
+    } finally {
+      languages.mockRestore();
+      document.documentElement.lang = '';
+    }
+  });
+});
+
 describe('createLanguageController', () => {
   it('applies the detected language to <html lang> when it starts', () => {
     const root = freshRoot();

@@ -183,6 +183,8 @@ describe('state (P13) and the session (P12)', () => {
       designatedOwner: null,
       publicBaseUrl: server.origin,
     });
+    const [row] = server.query<{ install_id: string }>('SELECT install_id FROM setup_state');
+    expect(body.installTag).toBe(`m365portal-install-${row?.install_id ?? 'missing'}`);
     expect(text).not.toContain(server.token() ?? 'never');
   });
 

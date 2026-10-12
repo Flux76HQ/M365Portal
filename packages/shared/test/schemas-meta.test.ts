@@ -33,6 +33,7 @@ const anonymous = {
   setup: { state: 'completed' },
   features: { showcase: false, breakGlass: false },
   adminConsentUrl: null,
+  defaultLanguage: null,
   version: '0.2.1',
   publicOrigin: 'http://localhost:9300',
   storageAvailable: true,
@@ -56,6 +57,7 @@ describe('MeResponseSchema (FR-B-413)', () => {
         'setup',
         'features',
         'adminConsentUrl',
+        'defaultLanguage',
         'version',
         'publicOrigin',
         'storageAvailable',
@@ -88,6 +90,12 @@ describe('MeResponseSchema (FR-B-413)', () => {
         features: { showcase: false, breakGlass: true },
       }),
     ).toBe(true);
+  });
+
+  it('accepts the stored default language nl, en or null', () => {
+    for (const defaultLanguage of ['nl', 'en', null]) {
+      expect(accepts(MeResponseSchema, { ...anonymous, defaultLanguage }), String(defaultLanguage)).toBe(true);
+    }
   });
 
   it('accepts every catalogue permission, in sorted order', () => {
@@ -151,6 +159,8 @@ describe('MeResponseSchema (FR-B-413)', () => {
     ['a consent link over http', { adminConsentUrl: 'http://login.microsoftonline.com/x' }],
     ['a consent link that is a script', { adminConsentUrl: 'javascript:alert(1)' }],
     ['an empty consent link', { adminConsentUrl: '' }],
+    ['an unsupported default language', { defaultLanguage: 'de' }],
+    ['an upper-case default language', { defaultLanguage: 'NL' }],
     ['an origin with a path', { publicOrigin: 'http://localhost:9300/panel' }],
     ['an origin with a trailing slash', { publicOrigin: 'http://localhost:9300/' }],
     ['an origin that is not a URL', { publicOrigin: 'localhost' }],
@@ -172,6 +182,7 @@ describe('MeResponseSchema (FR-B-413)', () => {
     'setup',
     'features',
     'adminConsentUrl',
+    'defaultLanguage',
     'version',
     'publicOrigin',
     'storageAvailable',

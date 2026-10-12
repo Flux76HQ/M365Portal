@@ -84,6 +84,12 @@ export const MeResponseSchema = z
       .max(2048)
       .regex(/^https:\/\/\S+$/)
       .nullable(),
+    /**
+     * The default language the setup stored (FR-B-219 d): `nl` or `en` once the setup is completed and
+     * one was chosen, else null. A first visit with no language of its own and no Dutch or English
+     * preference of the browser uses it; it never overrides either.
+     */
+    defaultLanguage: z.enum(['nl', 'en']).nullable(),
     version: z.string().min(1).max(64),
     /**
      * The origin of `PUBLIC_BASE_URL`, serialised without a path or a trailing slash. The UI shows

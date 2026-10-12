@@ -1,0 +1,3 @@
+mount: apps/web/src/lib/session-cookie.ts
+// The prefix depends on the scheme of PUBLIC_BASE_URL; cookieNames() knows, this does not.
+export const SESSION_COOKIE = '__Host-m365portal_session';

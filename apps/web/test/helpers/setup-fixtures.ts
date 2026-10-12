@@ -76,6 +76,7 @@ export function sampleSetupState(
     state: 'in_progress',
     mode: 'automatic',
     defaultLanguage: null,
+    installTag: `m365portal-install-${'1234abcd'.repeat(4)}`,
     steps: stepsOf(),
     tenant: { proposedTenantId: null, tenantId: null, name: null, initialDomain: null },
     application: null,

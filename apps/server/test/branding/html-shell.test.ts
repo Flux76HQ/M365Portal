@@ -35,6 +35,7 @@ const me = (storageAvailable = true): Me => ({
   setup: { state: 'completed' },
   features: { showcase: false, breakGlass: false },
   adminConsentUrl: null,
+  defaultLanguage: null,
   version: '1.2.3-test',
   publicOrigin: 'http://localhost:9300',
   storageAvailable,
