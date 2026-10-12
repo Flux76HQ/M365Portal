@@ -101,6 +101,13 @@ export async function startRealServer(
       const database = openDatabase({ path: join(dataDir, DATABASE_FILE_NAME) });
       try {
         const session = seedSession(database, origin, { now: clock.nowMs(), ...seed });
+        if (seed.kind !== 'break_glass') {
+          // The groups of a person who just signed in are fresh; without this the first request
+          // would try to refresh them and find no directory to ask (T-B-189).
+          database.sqlite
+            .prepare('UPDATE app_user SET groups_resolved_at = ? WHERE oid = ? AND groups_resolved_at IS NULL')
+            .run(clock.iso(), session.oid);
+        }
         return { headers: { ...session.headers }, value: session.value, idHash: session.idHash };
       } finally {
         database.close();
