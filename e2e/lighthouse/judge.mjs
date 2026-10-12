@@ -112,6 +112,10 @@ export function integrityProblems(cell, measurement) {
   return problems;
 }
 
+function isTransientCaptureFailure(measurement) {
+  return measurement.runtimeError === 'NO_NAVSTART';
+}
+
 function lcpLimit(cell) {
   return usesDefaultInstanceGate(cell) ? DEFAULT_MOBILE_LCP_GATE_MS : TARGETS.lcpMs;
 }
@@ -150,12 +154,15 @@ export function needsRepeat(cell, { always = false } = {}) {
   const runs = cell.measurements;
   if (runs.length === 0) return true;
   if (runs.length >= MAX_RUNS) return false;
-  const first = runs[0];
+  const first = runs.find((measurement) => !isTransientCaptureFailure(measurement));
+  if (!first) return true;
   if (integrityProblems(cell, first).length > 0 || categoryProblems(cell, first).length > 0) {
     return false;
   }
   if (always) return true;
-  return runs.every((m) => !meetsTimingTarget(m));
+  return runs.every(
+    (measurement) => isTransientCaptureFailure(measurement) || !meetsTimingTarget(measurement),
+  );
 }
 
 function spreadOf(values) {
@@ -177,12 +184,24 @@ export function judgeCell(cell) {
   if (runs.length === 0) {
     return { verdict: 'fail', reasons: ['no measurement'], notes: [], best: null, spread: null };
   }
-  const first = runs[0];
+  const first = runs.find((measurement) => !isTransientCaptureFailure(measurement));
+  if (!first) {
+    return {
+      verdict: 'fail',
+      reasons: [`Lighthouse runtime error NO_NAVSTART on all ${String(runs.length)} measurements`],
+      notes: [],
+      best: null,
+      spread: null,
+    };
+  }
   const fixed = [...integrityProblems(cell, first).map((p) => `${p} (first measurement)`)];
   if (fixed.length === 0) {
     fixed.push(...categoryProblems(cell, first).map((p) => `${p} (first measurement)`));
   }
-  const valid = runs.filter((m) => integrityProblems(cell, m).length === 0);
+  const valid = runs.filter(
+    (measurement) =>
+      !isTransientCaptureFailure(measurement) && integrityProblems(cell, measurement).length === 0,
+  );
   const spread =
     valid.length === 0
       ? null
@@ -206,6 +225,12 @@ export function judgeCell(cell) {
     cls: Math.min(...valid.map((m) => m.cls)),
   };
   const notes = [];
+  if (first !== runs[0]) {
+    notes.push(
+      `Lighthouse run ${String(runs[0].run)} failed with transient runtime error NO_NAVSTART; ` +
+        `judging from run ${String(first.run)}`,
+    );
+  }
   const reasons = [];
   const lcpOk = best.lcpMs < TARGETS.lcpMs;
   const clsOk = best.cls <= TARGETS.cls;
