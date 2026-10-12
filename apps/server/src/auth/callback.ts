@@ -80,18 +80,13 @@ interface DeniedEntry {
   readonly mfa?: boolean;
 }
 
-function exchangeFailureCode(
-  ctx: AuthContext,
-  failure: unknown,
-): SigninErrorCode {
+function exchangeFailureCode(ctx: AuthContext, failure: unknown): SigninErrorCode {
   if (failure instanceof TokenEndpointError) {
-    if (failure.error === 'invalid_client') {
-      // The certificate was rejected: the operator needs to know, the person only sees a failure.
-      ctx.log.warn({ event: 'signin_denied', code: 'invalid_client' }, 'signin_denied');
-    }
     return signinCodeForMicrosoftError({
       error: failure.error,
-      ...(failure.aadsts === undefined ? {} : { errorDescription: `AADSTS${String(failure.aadsts)}:` }),
+      ...(failure.aadsts === undefined
+        ? {}
+        : { errorDescription: `AADSTS${String(failure.aadsts)}:` }),
     });
   }
   if (failure instanceof SecretsUnavailableError) return 'secrets_unavailable';
@@ -150,8 +145,14 @@ export function callbackRoute(ctx: AuthContext): RouteDefinition {
       if (clearsTransaction) clearCookie(headers, 'oidc', publicOrigin);
       return redirectResponse(location, headers);
     };
-    const fail = (code: SigninErrorCode, returnTo?: string): Response =>
-      answer(signinErrorLocation(code, returnTo));
+    // FR-B-715: a denied sign-in is one log line with the allow-listed code and nothing about the person.
+    const logDenied = (code: string): void => {
+      context.log.info({ event: 'signin_denied', code }, 'signin_denied');
+    };
+    const fail = (code: SigninErrorCode, returnTo?: string, logCode?: string): Response => {
+      logDenied(logCode ?? code);
+      return answer(signinErrorLocation(code, returnTo));
+    };
     if (transaction === undefined) return fail('cookies_missing_or_expired');
 
     const purpose: Purpose = transaction.purpose;
@@ -206,10 +207,18 @@ export function callbackRoute(ctx: AuthContext): RouteDefinition {
     // 6. The code for the ID token. Nothing else of the answer is read.
     let idToken: string;
     try {
-      idToken = (await ready.oidc.exchangeCode({ code: query.code, codeVerifier: transaction.codeVerifier }))
-        .idToken;
+      idToken = (
+        await ready.oidc.exchangeCode({ code: query.code, codeVerifier: transaction.codeVerifier })
+      ).idToken;
     } catch (failure) {
-      return fail(exchangeFailureCode(context, failure));
+      // The certificate was rejected: the operator needs to know (the code in the log), the person only
+      // sees a failure.
+      const rejected = failure instanceof TokenEndpointError && failure.error === 'invalid_client';
+      return fail(
+        exchangeFailureCode(context, failure),
+        undefined,
+        rejected ? 'invalid_client' : undefined,
+      );
     }
 
     // 7. The ID token. From here on a failure is audited.
@@ -224,7 +233,10 @@ export function callbackRoute(ctx: AuthContext): RouteDefinition {
       const check = failure instanceof IdTokenError ? failure.check : 'format';
       if (!(failure instanceof IdTokenError)) {
         context.log.warn(
-          { event: 'id_token_unexpected_error', error: failure instanceof Error ? failure.name : 'unknown' },
+          {
+            event: 'id_token_unexpected_error',
+            error: failure instanceof Error ? failure.name : 'unknown',
+          },
           'id_token_unexpected_error',
         );
       }
@@ -247,14 +259,15 @@ export function callbackRoute(ctx: AuthContext): RouteDefinition {
         transaction.stepUpSessionHash === null
           ? undefined
           : context.sessions.find(transaction.stepUpSessionHash);
-      if (
-        held === undefined ||
-        !isLiveUserSession(held, now, deps.config.session.idleTimeoutMs)
-      ) {
+      if (held === undefined || !isLiveUserSession(held, now, deps.config.session.idleTimeoutMs)) {
         return fail('session_expired');
       }
       stepUpSessionOid = held.oid;
-      const verdict = checkStepUp({ token, sessionOid: held.oid, startedAt: transaction.startedAt });
+      const verdict = checkStepUp({
+        token,
+        sessionOid: held.oid,
+        startedAt: transaction.startedAt,
+      });
       if (!verdict.ok) {
         auditDenied({ purpose, reason: 'stepup_failed', check: verdict.check, oid: held.oid });
         return fail('stepup_failed');
@@ -302,11 +315,12 @@ export function callbackRoute(ctx: AuthContext): RouteDefinition {
       upsertAppUser(tx, token, nowIso);
     });
     const refresh = await context.membership.refresh(oid);
-    const resolvedAt = (
-      db.sqlite
-        .prepare('SELECT groups_resolved_at AS at FROM app_user WHERE tid = ? AND oid = ?')
-        .get(tid, oid) as { at: string | null } | undefined
-    )?.at ?? null;
+    const resolvedAt =
+      (
+        db.sqlite
+          .prepare('SELECT groups_resolved_at AS at FROM app_user WHERE tid = ? AND oid = ?')
+          .get(tid, oid) as { at: string | null } | undefined
+      )?.at ?? null;
     const grants = deps.policy.grants.get()?.grantsFor({ oid, groupsResolvedAt: resolvedAt }) ?? [];
     if (grants.length === 0) {
       const groupGrantsPossible =
@@ -322,6 +336,7 @@ export function callbackRoute(ctx: AuthContext): RouteDefinition {
         }
       });
       auditDenied({ purpose, reason, oid, mfa: mfa.mfa });
+      logDenied(reason);
       return answer(noAccessLocation(reason, requestId));
     }
 
@@ -338,12 +353,26 @@ export function callbackRoute(ctx: AuthContext): RouteDefinition {
           amr: token.amr ?? [],
           groupsStale: !refresh.ok,
         });
-        appendAudit(tx, successEntry(tx, { nowIso, requestId, clientIp, oid, action: 'auth.signin', mfa: mfa.mfa, groupsResolved: refresh.ok }));
+        appendAudit(
+          tx,
+          successEntry(tx, {
+            nowIso,
+            requestId,
+            clientIp,
+            oid,
+            action: 'auth.signin',
+            mfa: mfa.mfa,
+            groupsResolved: refresh.ok,
+          }),
+        );
         return session;
       });
     } catch (failure) {
       context.log.error(
-        { event: 'signin_commit_failed', error: failure instanceof Error ? failure.name : 'unknown' },
+        {
+          event: 'signin_commit_failed',
+          error: failure instanceof Error ? failure.name : 'unknown',
+        },
         'signin_commit_failed',
       );
       return fail('temporarily_unavailable');
@@ -351,6 +380,7 @@ export function callbackRoute(ctx: AuthContext): RouteDefinition {
 
     // The person has just been checked against the directory: the next check is one TTL away.
     if (refresh.ok) context.revalidator.markFresh(tid, oid);
+    context.log.info({ event: 'signin_ok', mfa: mfa.mfa }, 'signin_ok');
 
     // 11. The interstitial, with the new session and the transaction cookie cleared.
     const headers = new Headers();

@@ -37,6 +37,66 @@ const LOADERS: Readonly<Record<LazyNamespace, Readonly<Record<Locale, Loader>>>>
     en: () => import('./locales/lazy/access.en.json', { with: { type: 'json' } }),
     nl: () => import('./locales/lazy/access.nl.json', { with: { type: 'json' } }),
   },
+  showcase: {
+    en: () => import('./locales/lazy/showcase.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/showcase.nl.json', { with: { type: 'json' } }),
+  },
+  signin: {
+    en: () => import('./locales/lazy/signin.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/signin.nl.json', { with: { type: 'json' } }),
+  },
+  appearance: {
+    en: () => import('./locales/lazy/appearance.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/appearance.nl.json', { with: { type: 'json' } }),
+  },
+  logo: {
+    en: () => import('./locales/lazy/logo.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/logo.nl.json', { with: { type: 'json' } }),
+  },
+  accent: {
+    en: () => import('./locales/lazy/accent.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/accent.nl.json', { with: { type: 'json' } }),
+  },
+  preview: {
+    en: () => import('./locales/lazy/preview.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/preview.nl.json', { with: { type: 'json' } }),
+  },
+  role: {
+    en: () => import('./locales/lazy/role.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/role.nl.json', { with: { type: 'json' } }),
+  },
+  permission: {
+    en: () => import('./locales/lazy/permission.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/permission.nl.json', { with: { type: 'json' } }),
+  },
+  scope: {
+    en: () => import('./locales/lazy/scope.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/scope.nl.json', { with: { type: 'json' } }),
+  },
+  qualifier: {
+    en: () => import('./locales/lazy/qualifier.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/qualifier.nl.json', { with: { type: 'json' } }),
+  },
+  resource: {
+    en: () => import('./locales/lazy/resource.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/resource.nl.json', { with: { type: 'json' } }),
+  },
+  origin: {
+    en: () => import('./locales/lazy/origin.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/origin.nl.json', { with: { type: 'json' } }),
+  },
+  session: {
+    en: () => import('./locales/lazy/session.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/session.nl.json', { with: { type: 'json' } }),
+  },
+  palette: {
+    en: () => import('./locales/lazy/palette.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/palette.nl.json', { with: { type: 'json' } }),
+  },
+  shortcuts: {
+    en: () => import('./locales/lazy/shortcuts.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/shortcuts.nl.json', { with: { type: 'json' } }),
+  },
 };
 
 /** What `loadNamespace` returns: the keys of the English file of the namespace, each a message. */

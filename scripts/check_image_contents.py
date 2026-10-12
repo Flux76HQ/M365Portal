@@ -72,8 +72,14 @@ LOCK_FILES = frozenset(
     {"pnpm-lock.yaml", "pnpm-workspace.yaml", "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "bun.lock", "bun.lockb"}
 )
 SECRET_FILE = re.compile(
-    r"^(?:\.npmrc|\.netrc|id_rsa.*|id_ed25519.*|id_ecdsa.*|.*\.(?:pem|key|pfx|p12|jks|keystore))$"
+    r"^(?:\.npmrc|\.netrc|id_rsa.*|id_ed25519.*|id_ecdsa.*|.*\.(?:pem|key|pfx|p12|jks|keystore)"
+    r"|app[-_]key(?:\..*)?)$"
 )
+# Phase B (FR-B-706, FR-B-707): the fake tenant and its test hooks, the setup token file and a database
+# never belong in the image. The token file is `setup-token` in the data directory (SETUP_TOKEN_FILE_NAME).
+TEST_HOOK_NAME = re.compile(r"fake-tenant", re.I)
+SETUP_TOKEN_FILE = re.compile(r"^setup-token(?:\.(?:txt|token|lock|tmp))?$")
+DATABASE_FILE = re.compile(r".*\.(?:sqlite|sqlite3|db)(?:-wal|-shm|-journal)?$")
 
 # The tools of development. The list is read from the package manifests of the repository; this one
 # is the fallback when no manifest can be read.
@@ -84,6 +90,23 @@ BUILT_IN_DEV_PACKAGES = frozenset(
         "@testing-library/react", "@testing-library/dom", "@tailwindcss/vite", "tailwindcss",
     }
 )
+# Packages that arrive with the direct production dependencies of Phase B (plan 4.2) and are therefore
+# expected in the image: @azure/msal-node brings @azure/msal-common and jsonwebtoken (a certificate
+# path this product never configures) with its own tree, and @peculiar/x509 brings the ASN.1 subtree,
+# tsyringe and tslib (reflect-metadata is its polyfill). A development manifest naming one of these
+# does not make it a finding.
+EXPECTED_TRANSITIVE = frozenset({
+    "@azure/msal-common", "jsonwebtoken", "jws", "jwa", "ecdsa-sig-formatter", "buffer-equal-constant-time",
+    "safe-buffer", "lodash.includes", "lodash.isboolean", "lodash.isinteger", "lodash.isnumber",
+    "lodash.isplainobject", "lodash.isstring", "lodash.once", "ms", "semver",
+    "@peculiar/asn1-cms", "@peculiar/asn1-csr", "@peculiar/asn1-ecc", "@peculiar/asn1-pkcs9",
+    "@peculiar/asn1-rsa", "@peculiar/asn1-schema", "@peculiar/asn1-x509", "@peculiar/asn1-x509-post-quantum",
+    "@peculiar/asn1-asym-key", "@peculiar/asn1-pfx", "@peculiar/asn1-pkcs8", "@peculiar/asn1-x509-attr",
+    "@peculiar/utils", "asn1js", "pvtsutils", "pvutils", "tslib", "tsyringe", "reflect-metadata",
+})
+# Test tooling that must never reach the image, whether or not a manifest names it (FR-B-706): the
+# HTTP simulation of the fake tenant and its interceptor.
+TEST_TOOLING_PACKAGES = frozenset({"msw", "@mswjs/interceptors"})
 # A name listed here is never reported. Empty: add one only with the reason, next to it.
 ALLOWED_PACKAGES: frozenset[str] = frozenset()
 WORKSPACE_SCOPE = "@m365portal/"
@@ -107,6 +130,9 @@ REFERENCES = {
     "source-map": "FR-A-164",
     "lock-file": "FR-A-164",
     "secret-file": "FR-A-164",
+    "test-hook": "FR-B-706",
+    "setup-token-file": "FR-B-706",
+    "database-file": "FR-B-707",
     "dev-dependency": "FR-A-164",
     "workspace-package": "FR-A-164",
     "app-contents": "FR-A-160",
@@ -212,7 +238,9 @@ def check_listing(entries: Iterable[Entry], dev_packages: set[str]) -> list[Find
             findings.append(Finding(rule, f"{path}: {why}"))
             reported_paths.add(path)
 
-    forbidden = {name for name in dev_packages if not name.startswith(WORKSPACE_SCOPE)} - ALLOWED_PACKAGES
+    forbidden = (
+        {name for name in dev_packages if not name.startswith(WORKSPACE_SCOPE)} | TEST_TOOLING_PACKAGES
+    ) - ALLOWED_PACKAGES - (EXPECTED_TRANSITIVE - TEST_TOOLING_PACKAGES)
     listing = {normalise(entry.path): entry for entry in entries}
     listing.pop("", None)
 
@@ -239,6 +267,12 @@ def check_listing(entries: Iterable[Entry], dev_packages: set[str]) -> list[Find
                 report("lock-file", path, "lock files must not be in the image")
         if ours and SECRET_FILE.match(basename):
             report("secret-file", path, "key material or a credentials file must not be in the image")
+        if ours and any(TEST_HOOK_NAME.search(part) for part in parts):
+            report("test-hook", path, "the fake tenant is test code and must not be in the image")
+        if ours and SETUP_TOKEN_FILE.match(basename):
+            report("setup-token-file", path, "a setup token file must not be in the image")
+        if ours and parts[0] != DATA_ROOT and DATABASE_FILE.match(basename):
+            report("database-file", path, "a database file must not be in the image; the volume holds the data")
         if in_node_modules:
             for name in sorted(package_names(parts)):
                 if name.startswith(WORKSPACE_SCOPE):

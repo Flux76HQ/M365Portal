@@ -288,9 +288,12 @@ describe('lazy loading', () => {
 
   it('loads the palette and the overview with a dynamic import, not a static one', () => {
     const shell = read('AppShell.tsx');
+    // Each also loads its own lazy catalogue first (T-B-307), in the same chunk: `async () => { await ...; return import(...) }`.
     for (const name of ['CommandPalette', 'ShortcutsOverview']) {
       expect(shell, name).toMatch(
-        new RegExp(`lazy\\(\\s*\\(\\)\\s*=>\\s*import\\('\\./${name}'\\)`),
+        new RegExp(
+          `lazy\\(\\s*async\\s*\\(\\)\\s*=>\\s*\\{\\s*await loadLazyNamespace\\('\\w+'\\);\\s*return import\\('\\./${name}'\\);`,
+        ),
       );
       expect(shell, name).not.toMatch(new RegExp(`^import[^;]*from '\\./${name}';`, 'm'));
     }

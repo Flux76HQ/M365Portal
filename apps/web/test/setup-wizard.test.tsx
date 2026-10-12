@@ -4,12 +4,11 @@
 // everything below is built from the answers of a mocked network (test/helpers/mock-api.ts).
 import { createTranslator, type Locale } from '@m365portal/shared/i18n';
 import { STEP_STATUSES } from '@m365portal/shared/setup/steps';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { StepList } from '../src/features/setup/StepList';
-import { RootProviders } from '../src/components/pages/root-providers';
 import { sampleBranding, sampleMe } from './helpers/boot-fixtures';
 import { createMockApi, problem } from './helpers/mock-api';
 import { renderApp } from './helpers/render-shell';
@@ -20,9 +19,6 @@ import {
   sampleSnapshot,
   stepsOf,
 } from './helpers/setup-fixtures';
-
-void RootProviders;
-void render;
 
 beforeAll(async () => {
   await loadAllLazyNamespaces();
@@ -175,10 +171,8 @@ describe('StepList', () => {
           STEP_STATUSES[index],
         ]),
       );
-      const api = createMockApi({ 'GET /api/v1/setup/status': () => STATUS });
-      void api;
       const t = tr(language);
-      const { container } = await renderStepList(language, statuses as never, 'configure');
+      const { container } = await renderStepList(language, statuses, 'configure');
       const list = within(container).getByRole('list');
       expect(list.tagName).toBe('OL');
       const items = within(list).getAllByRole('listitem');
@@ -250,4 +244,3 @@ describe('focus', () => {
   });
 });
 
-void fireEvent;

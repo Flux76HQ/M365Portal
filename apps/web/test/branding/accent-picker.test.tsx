@@ -2,13 +2,12 @@
 // named swatches, a native colour input, and for every theme the chosen and the effective colour with a
 // sentence that does not rely on colour. Saving is never blocked: the picker has no say in it.
 import { deriveAccentTokens } from '@m365portal/shared/branding/accent';
-import enCatalogue from '@m365portal/shared/i18n/locales/en.json';
-import nlCatalogue from '@m365portal/shared/i18n/locales/nl.json';
 import { screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { AccentPicker } from '../../src/features/branding/AccentPicker';
 import { loadBrandingTools } from '../../src/features/branding/tools';
+import { enCatalogue, nlCatalogue } from './catalogues';
 import { renderInLanguage } from './helpers';
 
 const en = enCatalogue as Record<string, string>;

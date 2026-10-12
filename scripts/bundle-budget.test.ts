@@ -2,7 +2,7 @@
 // directory; the expected numbers are computed independently with node:zlib. Every guard has a
 // negative fixture that must fail on purpose (expectGuardFails).
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
@@ -257,5 +257,27 @@ describe('command line', () => {
 
   it('rejects an unknown argument', () => {
     expectGuardFails(() => main(['--nope']), { reason: 'unknown or incomplete argument' });
+  });
+});
+
+describe('the committed Phase B budget (T-B-307, XB32; plan 15)', () => {
+  const PHASE_A = { initialJsGzipBytes: 237_500, entryCssRawBytes: 45_500, firstLoadBrotliBytes: 269_000 };
+  const committed = (): Budget =>
+    parseBudget(readFileSync(join(import.meta.dirname, 'bundle-budget.json'), 'utf8'), 'bundle-budget.json');
+
+  it('allows the entry JavaScript at most 8 KiB gzip over the Phase A budget, and a budget never below the Phase A one for the other two (they cannot ratchet below what the Phase B pages need)', () => {
+    const budget = committed();
+    expect(budget.initialJsGzipBytes).toBeLessThanOrEqual(PHASE_A.initialJsGzipBytes + 8 * 1024);
+    expect(budget.initialJsGzipBytes).toBeGreaterThanOrEqual(PHASE_A.initialJsGzipBytes);
+  });
+
+  it('negative: a budget that gives the entry more than the plan allows fails the same check', () => {
+    expectGuardFails(
+      () => {
+        const loose = { ...committed(), initialJsGzipBytes: PHASE_A.initialJsGzipBytes + 8 * 1024 + 1 };
+        expect(loose.initialJsGzipBytes).toBeLessThanOrEqual(PHASE_A.initialJsGzipBytes + 8 * 1024);
+      },
+      { name: 'Phase B entry allowance', reason: /less than or equal to/ },
+    );
   });
 });

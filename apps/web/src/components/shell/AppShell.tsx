@@ -1,6 +1,7 @@
 import { Outlet, useRouterState } from '@tanstack/react-router';
 import { lazy, Suspense, useCallback, useState } from 'react';
 import { isPublicPath } from '../../lib/gating';
+import { loadLazyNamespace } from '../../lib/locale';
 import { BreakGlassBanner } from '../../features/auth/BreakGlassBanner';
 import { GroupsStaleNotice } from '../../features/auth/GroupsStaleNotice';
 import { SessionTimers } from '../../features/auth/SessionTimers';
@@ -19,8 +20,15 @@ import { NavDrawer, Sidebar } from './Sidebar';
 import { SkipLink } from './SkipLink';
 
 // The palette (with cmdk) and the overview are lazy chunks: nothing of them is in the entry (plan 9.3).
-const CommandPalette = lazy(() => import('./CommandPalette'));
-const ShortcutsOverview = lazy(() => import('./ShortcutsOverview'));
+// Their text is a lazy catalogue each (T-B-307), loaded together with the chunk.
+const CommandPalette = lazy(async () => {
+  await loadLazyNamespace('palette');
+  return import('./CommandPalette');
+});
+const ShortcutsOverview = lazy(async () => {
+  await loadLazyNamespace('shortcuts');
+  return import('./ShortcutsOverview');
+});
 
 export { MAIN_ID };
 

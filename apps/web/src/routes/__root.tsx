@@ -3,6 +3,7 @@ import { NotFound } from '../components/pages/NotFound';
 import { RootError } from '../components/pages/RootError';
 import { RootLayout } from '../components/shell/AppShell';
 import { loadMe, requireSignIn } from '../lib/gating';
+import { loadLazyNamespace } from '../lib/locale';
 import type { RouterContext } from '../lib/router-context';
 
 // The root route loads `me` before any page (so every child can gate on `context.me` without a request),
@@ -15,6 +16,13 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     const loaded = await loadMe(context);
     requireSignIn(loaded.me, location);
     return loaded;
+  },
+  // The session text (the persona menu, the timers, the step-up dialog, the break-glass banner) is a lazy
+  // catalogue that only a signed-in visitor needs (T-B-307).
+  loader: async ({ context }) => {
+    if (context.me.actor.kind === 'user' || context.me.actor.kind === 'break_glass') {
+      await loadLazyNamespace('session');
+    }
   },
   component: RootLayout,
   notFoundComponent: NotFound,

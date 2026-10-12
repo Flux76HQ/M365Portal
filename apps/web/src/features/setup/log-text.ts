@@ -2,7 +2,7 @@
 // parameters, never a sentence. A parameter that names a step, a sub-action, an object kind, a run status
 // or a result code is translated too, so "step: configure" reads as a word the person knows. Everything
 // else (a name the panel chose, a counter, the first characters of a thumbprint) is printed as it is.
-import type { MessageKey, MessageParams, Translator } from '@m365portal/shared/i18n';
+import type { MessageKey, Translator } from '@m365portal/shared/i18n';
 import { RUN_STATUSES } from '@m365portal/shared/schemas/connection';
 import { isResultCode } from '@m365portal/shared/setup/result-codes';
 import { STEP_KEYS, SUB_ACTION_KEYS } from '@m365portal/shared/setup/steps';
@@ -41,5 +41,5 @@ export function logLineText(translator: Translator, key: string, params: Readonl
   for (const [name, value] of Object.entries(params)) {
     text[name] = typeof value === 'string' ? word(t, name, value) : typeof value === 'boolean' ? String(value) : value;
   }
-  return t(key as MessageKey, text as MessageParams);
+  return t(key as MessageKey, text);
 }

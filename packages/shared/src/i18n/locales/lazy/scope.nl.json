@@ -1,0 +1,8 @@
+{
+  "scope.department": "Alle {target} in de afdeling “{value}”",
+  "scope.id": "Alleen {target} met ID {id}",
+  "scope.invalid": "Een ongeldig bereik",
+  "scope.prefix.alias": "Alle {target} waarvan de alias begint met “{value}”",
+  "scope.prefix.displayName": "Alle {target} waarvan de naam begint met “{value}”",
+  "scope.prefix.mail": "Alle {target} waarvan het e-mailadres begint met “{value}”"
+}

@@ -65,7 +65,7 @@ describe('step 1, the environment', () => {
     await open(mock);
     const en = tr('en');
     await screen.findByRole('heading', { level: 2, name: en.t('setup.environment.title') });
-    const panel = document.querySelector('[data-step-panel="environment"]') as HTMLElement;
+    const panel = document.querySelector<HTMLElement>('[data-step-panel="environment"]')!;
     const rows = await within(panel).findAllByRole('listitem');
     expect(rows).toHaveLength(ENVIRONMENT_CHECK_KEYS.length);
     expect(mock.callsTo('POST /api/v1/setup/environment')).toHaveLength(1);
@@ -99,7 +99,7 @@ describe('step 1, the environment', () => {
     const en = tr('en');
     await screen.findByText(en.t('setup.environment.blocking'));
     expect(screen.queryByRole('button', { name: en.t('setup.continue') })).toBeNull();
-    const rows = within(document.querySelector('[data-step-panel="environment"]') as HTMLElement).getAllByRole('listitem');
+    const rows = within(document.querySelector<HTMLElement>('[data-step-panel="environment"]')!).getAllByRole('listitem');
     expect(rows[1]).toHaveTextContent(en.t('setup.check.fail'));
     expect(rows[1]).toHaveTextContent(en.t('setup.remedy.data_dir_not_writable'));
     await view.user.click(screen.getByRole('button', { name: en.t('setup.environment.recheck') }));
@@ -351,12 +351,11 @@ describe('manual mode', () => {
   }
 
   it('shows the checklist built from the desired state, the certificate download and three inputs', async () => {
-    const view = await toManual(api(ready()));
-    void view;
+    await toManual(api(ready()));
     const en = tr('en');
     const section = screen.getByRole('region', { name: en.t('setup.manual.title') });
     const checklist = within(section).getByRole('list', { name: en.t('setup.manual.checklist') });
-    const text = checklist.textContent ?? '';
+    const text = checklist.textContent;
     expect(text).toContain(en.t('setup.manual.item.name'));
     expect(text).toContain('M365Portal');
     expect(text).toContain('https://panel.example.com/auth/callback');

@@ -1,8 +1,6 @@
 // The logo slot (T-A-212; FR-A-132, FR-A-152, WCAG 2.5.7; E-02, E-05; US-2.2). The server does the
 // processing; the slot sends one file, shows what came back, and says what went wrong in words. The
 // network is a fake `fetch`.
-import enCatalogue from '@m365portal/shared/i18n/locales/en.json';
-import nlCatalogue from '@m365portal/shared/i18n/locales/nl.json';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { act, createEvent, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -12,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LogoSlot, LogoSlots } from '../../src/features/branding/LogoSlot';
 import type { AssetRef, LogoVariant } from '../../src/features/branding/types';
 import type { ApiClient } from '../../src/lib/api';
+import { enCatalogue, nlCatalogue } from './catalogues';
 import { fakeApi, jsonResponse, problemResponse, renderInLanguage } from './helpers';
 
 const en = enCatalogue as Record<string, string>;

@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ProofList } from '../src/features/connection/ProofList';
 import { hintText, resultText } from '../src/features/setup/hints';
+import type { Proof } from '../src/features/setup/setup-api';
 import { LanguageProvider, createLanguageController } from '../src/lib/locale';
 import { createStorage } from '../src/lib/storage';
 import { sampleBranding, sampleMe } from './helpers/boot-fixtures';
@@ -92,10 +93,10 @@ describe('step 3, configure', () => {
     const view = await open(mock);
     const en = tr('en');
     await screen.findByRole('heading', { level: 2, name: en.t('setup.configure.title') });
-    const panel = document.querySelector('[data-step-panel="configure"]') as HTMLElement;
+    const panel = document.querySelector<HTMLElement>('[data-step-panel="configure"]')!;
     const rows = within(panel).getAllByRole('listitem').filter((row) => row.hasAttribute('data-sub'));
     expect(rows).toHaveLength(7);
-    const sp = panel.querySelector('[data-sub="service_principal"]') as HTMLElement;
+    const sp = panel.querySelector<HTMLElement>('[data-sub="service_principal"]')!;
     expect(sp).toHaveTextContent(en.t('setup.sub.service_principal'));
     expect(sp).toHaveTextContent(en.t('setup.status.waiting'));
     expect(sp).toHaveTextContent(/Waiting for Microsoft\. Next attempt in [789] s\./);
@@ -104,7 +105,7 @@ describe('step 3, configure', () => {
     expect(panel.querySelector('[data-sub="certificate"]')).toHaveTextContent(en.t('setup.status.pending'));
 
     // The hints name what was created, with the parameters filled in.
-    const hints = panel.querySelector('[data-slot="rollback-hints"]') as HTMLElement;
+    const hints = panel.querySelector<HTMLElement>('[data-slot="rollback-hints"]')!;
     expect(hints).toHaveTextContent(en.t('setup.hintTitle'));
     expect(hints).toHaveTextContent(`Delete the application “M365Portal” (object ID ${APP_OBJECT_ID}, application ID ${APP_ID}) in Microsoft Entra.`);
     expect(hints).toHaveTextContent(`object ID ${SP_ID}`);
@@ -268,9 +269,9 @@ describe('result and hint texts', () => {
 });
 
 describe('the proof list', () => {
-  const proof = {
+  const proof: Proof = {
     generatedAt: iso(),
-    mode: 'automatic' as const,
+    mode: 'automatic',
     items: [
       { key: 'application' as const, status: 'ok' as const, at: iso(-1000), params: {} },
       { key: 'service_principal' as const, status: 'ok' as const, at: iso(-1000), params: {} },
@@ -306,7 +307,7 @@ describe('the proof list', () => {
     it(`lists each item with a status in words and its detail (${language})`, () => {
       show(language);
       const t = tr(language);
-      const item = (key: string) => document.querySelector(`[data-proof="${key}"]`) as HTMLElement;
+      const item = (key: string) => document.querySelector(`[data-proof="${key}"]`)!;
       expect(item('application')).toHaveTextContent(t.t('connection.proofDetail.application', { name: 'M365Portal', appId: APP_ID }));
       expect(item('application')).toHaveTextContent(t.t('connection.proofStatus.ok'));
       expect(item('certificate')).toHaveTextContent('a1b2c3d4');
@@ -329,7 +330,7 @@ describe('the proof list', () => {
 
   it('warns about credentials and owners the panel did not add, with the counts', () => {
     show();
-    const v4 = document.querySelector('[data-proof="check_v4"]') as HTMLElement;
+    const v4 = document.querySelector<HTMLElement>('[data-proof="check_v4"]')!;
     const en = tr('en');
     expect(v4).toHaveTextContent(en.t('connection.proofDetail.check_v4', { passwordCredentials: 1, foreignKeyCredentials: 2, owners: 3 }));
     expect(v4).toHaveTextContent(en.t('connection.proofDetail.foreignWarning'));

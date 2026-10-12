@@ -54,7 +54,6 @@ describe('LogRegion', () => {
     const log = screen.getByRole('log', { name: tr('en').t('setup.logRegion.label') });
     expect(log).toHaveAttribute('aria-live', 'polite');
     expect(log).toHaveAttribute('aria-relevant', 'additions');
-    expect(log).toHaveAttribute('tabindex', '0');
     expect(log).toHaveTextContent(tr('en').t('setup.logRegion.empty'));
   });
 
@@ -268,7 +267,9 @@ describe('in the wizard', () => {
       me: sampleMe({ kind: 'setup', setupState: 'in_progress' }),
       path: '/setup',
       fetch: api.fetch,
-      advanceTimers: (ms) => vi.advanceTimersByTime(ms),
+      advanceTimers: (ms) => {
+        vi.advanceTimersByTime(ms);
+      },
     });
     for (let round = 0; round < 12; round += 1) await advance(0);
     // The environment step is still on screen (once, after it passed): go on without userEvent (fake timers).

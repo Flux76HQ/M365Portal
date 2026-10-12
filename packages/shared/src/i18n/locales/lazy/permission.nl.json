@@ -1,0 +1,17 @@
+{
+  "permission.audit:export": "Het auditlog exporteren",
+  "permission.audit:read": "Het auditlog lezen",
+  "permission.contacts:create": "Contacten aanmaken",
+  "permission.contacts:delete": "Contacten verwijderen",
+  "permission.contacts:read": "Contacten bekijken",
+  "permission.contacts:update": "Contacten bewerken",
+  "permission.distributionlists:export": "Distributielijsten exporteren",
+  "permission.distributionlists:members:write": "Leden van distributielijsten wijzigen",
+  "permission.distributionlists:read": "Distributielijsten bekijken",
+  "permission.groups:members:write": "Leden van groepen wijzigen",
+  "permission.groups:read": "Groepen bekijken",
+  "permission.rbac:manage": "Rollen en toegang beheren",
+  "permission.settings:branding": "Het uiterlijk wijzigen",
+  "permission.settings:connection": "De verbinding met Microsoft 365 beheren",
+  "permission.users:read": "Gebruikers bekijken"
+}

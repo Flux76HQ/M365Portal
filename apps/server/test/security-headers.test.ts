@@ -30,6 +30,8 @@ import {
 import { createCaptureLogger } from './helpers/capture-logger.js';
 import { createFixtureApp } from './helpers/http-app.js';
 import { createTestApp, type TestAppContext } from './helpers/test-app.js';
+import { readJson } from './helpers/http-client.js';
+import { startWizardServer } from './setup/support/server-scene.js';
 
 const planPath = fileURLToPath(new URL('../../../specs/001-m365portal/plan.md', import.meta.url));
 
@@ -965,5 +967,178 @@ describe('GET /robots.txt (R16, FR-A-049)', () => {
     const route = app.http.table.routes.find((candidate) => candidate.id === 'meta.robots');
     expect(route?.access).toEqual({ public: true });
     expect(route?.rateLimit).toBe('read');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Phase B (T-B-392, FR-B-605, SC-B-015, XB36): the routes of the sign-in and setup surface, as the
+// real application answers them. The policy is the Phase A constant; nothing was added for Microsoft.
+// ---------------------------------------------------------------------------------------------
+
+const MICROSOFT_HOSTS = [
+  'login.microsoftonline.com',
+  'graph.microsoft.com',
+  'outlook.office365.com',
+  'microsoftonline.com',
+];
+const GUID_PLACEHOLDER = '00000000-0000-4000-8000-000000000000';
+const PAGES = [
+  '/',
+  '/signin',
+  '/signin?error=missing_mfa',
+  '/setup',
+  '/no-access',
+  '/no-access?reason=no_role',
+  '/break-glass',
+  '/settings/connection',
+  '/settings/access',
+  '/settings/restore-access',
+];
+
+/** Throws unless the response carries the profile its content type belongs to. */
+function assertProfileOfResponse(response: Response): void {
+  const html = (response.headers.get('content-type') ?? '').startsWith('text/html');
+  assertSecurityHeaders({
+    headers: response.headers,
+    expect: html
+      ? { profile: 'html', https: false, nonce: 'present', hsts: null }
+      : { profile: 'other', https: false, hsts: null },
+  });
+}
+
+/** The connect-src and form-action rules of FR-B-605, on a Content-Security-Policy header value. */
+function assertNoMicrosoftInPolicy(policy: string): void {
+  for (const host of MICROSOFT_HOSTS) {
+    if (policy.includes(host)) throw new Error(`the policy names ${host}`);
+  }
+  const directives = directivesOf(policy);
+  if (directives.get('form-action')?.join(' ') !== "'self'")
+    throw new Error("form-action is not 'self'");
+  if (directives.has('frame-src')) throw new Error('the policy has a frame-src');
+  if (directives.get('connect-src')?.join(' ') !== "'self'")
+    throw new Error("connect-src is not 'self'");
+}
+
+describe('the routes of the sign-in and setup surface carry the Phase A header profiles (FR-B-605)', () => {
+  it('every route of the OpenAPI document, as an anonymous client and as the setup actor', async () => {
+    const server = await startWizardServer();
+    const { client: setupClient } = await server.unlock();
+    const document = await readJson<{ paths: Record<string, Record<string, unknown>> }>(
+      await server.client().get('/api/v1/openapi.json'),
+    );
+    const requests: [string, string][] = [];
+    for (const [path, methods] of Object.entries(document.paths)) {
+      // The shell files (service worker, manifest, robots) have their own profiles, tested above.
+      if (!path.startsWith('/api/v1/')) continue;
+      for (const method of Object.keys(methods)) {
+        requests.push([method, path.replaceAll(/\{[^}]+\}/g, GUID_PLACEHOLDER)]);
+      }
+    }
+    expect(requests.length).toBeGreaterThanOrEqual(32);
+    for (const client of [server.client(), setupClient]) {
+      for (const [method, path] of requests) {
+        // A request without a body or a token: the answer is whatever the guards say, and the headers
+        // are the same for every answer.
+        if (path.startsWith('/auth/') || path === '/api/v1/auth/break-glass') continue;
+        const response = await client.request(method, path, { csrf: 'none' });
+        expect(
+          () => {
+            assertProfileOfResponse(response);
+          },
+          `${method} ${path} ${String(response.status)}`,
+        ).not.toThrow();
+      }
+      await server.advance(60_000);
+    }
+  }, 120_000);
+
+  it('the login, callback and logged-out navigations carry the same headers', async () => {
+    const server = await startWizardServer();
+    for (const path of ['/auth/login', '/auth/callback', '/auth/logged-out']) {
+      const response = await server.client().get(path, { headers: { 'sec-fetch-site': 'none' } });
+      expect(() => {
+        assertProfileOfResponse(response);
+      }, path).not.toThrow();
+    }
+  });
+
+  it('the pages of the wizard, the sign-in page and the Settings pages are html with a nonce', async () => {
+    const server = await startWizardServer();
+    for (const path of PAGES) {
+      const response = await server.client().get(path, {
+        headers: {
+          accept: 'text/html',
+          'sec-fetch-dest': 'document',
+          'sec-fetch-mode': 'navigate',
+        },
+      });
+      expect(() => {
+        assertProfileOfResponse(response);
+      }, path).not.toThrow();
+      expect(response.headers.get('cache-control'), path).toBe('no-store');
+    }
+  });
+
+  it('the policy is the Phase A constant: no Microsoft host, form-action self, no frame-src, trusted types', async () => {
+    const server = await startWizardServer();
+    const response = await server.client().get('/signin', { headers: { accept: 'text/html' } });
+    const policy = response.headers.get('content-security-policy') ?? '';
+    const nonce = nonceOf(policy) ?? '';
+    expect(nonce).not.toBe('');
+    expect(policy).toBe(expectedHtmlCsp(nonce, false));
+    expect(() => {
+      assertNoMicrosoftInPolicy(policy);
+    }).not.toThrow();
+    expect(directivesOf(policy).get('trusted-types')?.join(' ')).toBe(TRUSTED_TYPES_POLICY_NAME);
+  });
+
+  describe('negative fixtures: the checks fail on purpose', () => {
+    const real = expectedHtmlCsp('AAAAAAAAAAAAAAAAAAAAAA==', false);
+
+    it('adding login.microsoftonline.com to connect-src fails the rules and the exact policy', () => {
+      const widened = real.replace(
+        "connect-src 'self'",
+        "connect-src 'self' https://login.microsoftonline.com",
+      );
+      expectGuardFails(assertNoMicrosoftInPolicy, widened, {
+        reason: 'names login.microsoftonline.com',
+      });
+      expectGuardFails(
+        assertSecurityHeaders,
+        {
+          headers: new Headers({ 'content-security-policy': widened }),
+          expect: { profile: 'html', https: false, nonce: 'present' },
+        },
+        { reason: 'wrong policy' },
+      );
+    });
+
+    it('a frame-src, a loosened form-action or a missing trusted-types fails', () => {
+      expectGuardFails(assertNoMicrosoftInPolicy, `${real}; frame-src 'self'`, {
+        reason: 'frame-src',
+      });
+      expectGuardFails(
+        assertNoMicrosoftInPolicy,
+        real.replace("form-action 'self'", "form-action 'self' https://elsewhere.example"),
+        { reason: 'form-action' },
+      );
+    });
+
+    it('a JSON response with the html profile, or an html page without a nonce, fails', () => {
+      expectGuardFails(
+        assertProfileOfResponse,
+        new Response('{}', {
+          headers: { 'content-type': 'application/json', 'content-security-policy': real },
+        }),
+        { reason: 'wrong policy' },
+      );
+      expectGuardFails(
+        assertProfileOfResponse,
+        new Response('<p>x</p>', {
+          headers: { 'content-type': 'text/html', 'content-security-policy': EXPECTED_OTHER_CSP },
+        }),
+        { reason: /nonce|policy/ },
+      );
+    });
   });
 });

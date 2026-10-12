@@ -66,7 +66,6 @@ export function LogRegion({ lines, truncated = false, className }: LogRegionProp
         aria-live="polite"
         aria-relevant="additions"
         aria-label={t('setup.logRegion.label')}
-        tabIndex={0}
         onScroll={onScroll}
         className="max-h-72 min-h-24 overflow-y-auto rounded-md border border-line-subtle bg-surface-page p-3 text-body-sm focus-visible:outline-2 focus-visible:outline-focus-ring"
       >

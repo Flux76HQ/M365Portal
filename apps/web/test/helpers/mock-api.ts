@@ -56,7 +56,7 @@ export interface MockApi {
 export function createMockApi(initial: Record<string, Handler> = {}): MockApi {
   const handlers = new Map<string, Handler>(Object.entries(initial));
   const calls: Call[] = [];
-  const mock: FetchFunction = async (input, init) => {
+  const mock: FetchFunction = (input, init) => {
     const url = new URL(input, 'http://panel.test');
     const method = (init?.method ?? 'GET').toUpperCase();
     let body: unknown;
@@ -68,14 +68,14 @@ export function createMockApi(initial: Record<string, Handler> = {}): MockApi {
       }
     }
     if (method === 'GET' && url.pathname === '/api/v1/csrf') {
-      return json(200, { token: 'csrf-token-1', expiresAt: '2026-10-12T23:00:00.000Z' });
+      return Promise.resolve(json(200, { token: 'csrf-token-1', expiresAt: '2026-10-12T23:00:00.000Z' }));
     }
     const call: Call = { method, path: url.pathname, query: url.searchParams, body };
     calls.push(call);
     const handler = handlers.get(`${method} ${url.pathname}`);
-    if (handler === undefined) return problem(404, 'not_found');
+    if (handler === undefined) return Promise.resolve(problem(404, 'not_found'));
     const answer = handler(call);
-    return answer instanceof Response ? answer : json(200, answer);
+    return Promise.resolve(answer instanceof Response ? answer : json(200, answer));
   };
   return {
     fetch: mock,

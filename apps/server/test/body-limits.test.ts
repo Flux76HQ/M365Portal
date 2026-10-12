@@ -28,7 +28,9 @@ import { installClientErrorHandler } from '../src/http/client-error.js';
 import { createErrorHandler, errorBoundary, notFoundHandler } from '../src/http/error-handler.js';
 import { requestContext, type AppEnv } from '../src/http/request-context.js';
 import { CONNECTIONS_CHECKING_INTERVAL_MS, nodeServerOptions } from '../src/http/server-options.js';
+import { readJson } from './helpers/http-client.js';
 import { createTestApp, type TestApp, type TestAppContext } from './helpers/test-app.js';
+import { startWizardServer } from './setup/support/server-scene.js';
 
 const JSON_LIMIT = 262_144;
 const UPLOAD_LIMIT = 2_162_688;
@@ -1093,5 +1095,118 @@ describe('the content-type guard', () => {
     const lenient = (kind: ContentTypeKind, header: string | null, hasBody: boolean): boolean =>
       header === null ? true : contentTypeAllowed(kind, header, hasBody);
     expectGuardFails(assertContentTypeRules, lenient, { reason: 'no content type and a body' });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Phase B (T-B-392, FR-B-703, XB36): the routes of the sign-in and setup surface, on the real server
+// ---------------------------------------------------------------------------------------------
+
+const AUTH_BODY_BYTES = 4_096;
+/** The write routes whose body is at most 4,096 bytes (FR-B-703); every other Phase B write is JSON. */
+const AUTH_BODY_ROUTES = new Set([
+  'setup.unlock',
+  'auth.logout',
+  'auth.logout.all',
+  'auth.breakglass',
+]);
+const GUID = '00000000-0000-4000-8000-000000000000';
+const BREAK_GLASS_ENV = {
+  BREAK_GLASS_USERNAME: 'operator',
+  BREAK_GLASS_PASSWORD_HASH: `scrypt:16384:8:1:${Buffer.alloc(16, 3).toString('base64url')}:${Buffer.alloc(32, 5).toString('base64url')}`,
+};
+
+interface OpenApiPaths {
+  readonly paths: Record<string, Record<string, { readonly operationId?: string }>>;
+}
+
+interface LimitProbe {
+  readonly route: string;
+  readonly limit: number;
+  readonly atLimit: number;
+  readonly overLimit: number;
+}
+
+/** Throws unless every probe was refused above its limit and not refused at it. */
+function assertBodyLimits(probes: readonly LimitProbe[]): void {
+  if (probes.length === 0) throw new Error('no write route was probed');
+  for (const probe of probes) {
+    if (probe.overLimit !== 413) {
+      throw new Error(
+        `${probe.route}: ${String(probe.limit + 1)} bytes answered ${String(probe.overLimit)}, not 413`,
+      );
+    }
+    if (probe.atLimit === 413) {
+      throw new Error(`${probe.route}: ${String(probe.limit)} bytes were already refused`);
+    }
+  }
+}
+
+describe('the write routes of the sign-in and setup surface (FR-B-703)', () => {
+  it('refuse one byte above their limit with 413: 4,096 bytes for the four small auth bodies, 262,144 for the rest', async () => {
+    const first = await startWizardServer({ env: BREAK_GLASS_ENV });
+    const document = await readJson<OpenApiPaths>(await first.client().get('/api/v1/openapi.json'));
+    const targets: { route: string; method: string; target: string; limit: number }[] = [];
+    for (const [path, methods] of Object.entries(document.paths)) {
+      if (path.startsWith('/api/v1/branding')) continue;
+      for (const [method, operation] of Object.entries(methods)) {
+        if (method === 'get' || method === 'head') continue;
+        const route = operation.operationId ?? `${method} ${path}`;
+        targets.push({
+          route,
+          method,
+          target: path.replaceAll(/\{[^}]+\}/g, GUID),
+          limit: AUTH_BODY_ROUTES.has(route) ? AUTH_BODY_BYTES : JSON_LIMIT,
+        });
+      }
+    }
+    // The buckets are per client and the limiter reads the monotonic clock, so a server answers a few
+    // routes (two requests each, ten tokens per bucket) and the next batch gets a fresh server.
+    const probes: LimitProbe[] = [];
+    for (let start = 0; start < targets.length; start += 4) {
+      const server = start === 0 ? first : await startWizardServer({ env: BREAK_GLASS_ENV });
+      const client = server.client();
+      for (const { route, method, target, limit } of targets.slice(start, start + 4)) {
+        const send = async (size: number): Promise<number> =>
+          (
+            await client.request(method, target, {
+              body: bytes(size),
+              headers: { 'content-type': 'application/json' },
+              csrf: 'none',
+            })
+          ).status;
+        probes.push({ route, limit, atLimit: await send(limit), overLimit: await send(limit + 1) });
+      }
+    }
+    const routes = probes.map((probe) => probe.route);
+    for (const name of AUTH_BODY_ROUTES) expect(routes, name).toContain(name);
+    expect(routes).toEqual(
+      expect.arrayContaining(['rbac.assignments.create', 'connection.runs.start']),
+    );
+    expect(() => {
+      assertBodyLimits(probes);
+    }).not.toThrow();
+  }, 120_000);
+
+  it('add no request larger than the branding import, which stays 9,437,184 bytes', () => {
+    expect(LIMITS.body.importRequestBytes).toBe(IMPORT_LIMIT);
+    expect(Math.max(...Object.values(LIMITS.body))).toBe(IMPORT_LIMIT);
+    expect(LIMITS.body.authBytes).toBe(AUTH_BODY_BYTES);
+    expect(BODY_LIMIT_BYTES.import).toBe(IMPORT_LIMIT);
+    expect(BODY_LIMIT_BYTES.json).toBe(JSON_LIMIT);
+  });
+
+  it('negative control: a route that accepts one byte more than its limit fails the check', () => {
+    expectGuardFails(
+      assertBodyLimits,
+      [{ route: 'setup.unlock', limit: AUTH_BODY_BYTES, atLimit: 422, overLimit: 422 }],
+      { reason: 'not 413' },
+    );
+    expectGuardFails(
+      assertBodyLimits,
+      [{ route: 'setup.unlock', limit: AUTH_BODY_BYTES, atLimit: 413, overLimit: 413 }],
+      { reason: 'already refused' },
+    );
+    expectGuardFails(assertBodyLimits, [], { reason: 'no write route' });
   });
 });

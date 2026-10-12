@@ -1,6 +1,7 @@
 import { safeReturnTo } from '@m365portal/shared/auth/return-to';
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { SignInPage } from '../features/auth/SignInPage';
+import { loadLazyNamespace } from '../lib/locale';
 import { stringSearchParam } from '../lib/search';
 
 // /signin (FR-B-607): public. `?error=` and `?returnTo=` are text from outside and are validated by the
@@ -29,6 +30,10 @@ export const Route = createFileRoute('/signin')({
       // `href` is a path that `safeReturnTo` accepted: this origin, no `//`, no backslash, no scheme.
       redirect({ href: safeReturnTo(search.returnTo), replace: true, throw: true });
     }
+  },
+  // The sign-in text is a lazy catalogue: only this page shows it (T-B-307).
+  loader: async () => {
+    await loadLazyNamespace('signin');
   },
   component: SignInPage,
 });

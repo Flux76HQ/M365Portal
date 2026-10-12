@@ -53,6 +53,20 @@ updates:
       - dependency-name: drizzle-kit
         update-types:
           - version-update:semver-major
+      # @azure/msal-node 8 and later: version 7.0.1 is the one probed for the application-token and
+      # device-code paths (plan 4.2); a major changes the token cache and the error taxonomy.
+      - dependency-name: "@azure/msal-node"
+        versions:
+          - ">=8"
+      # jose 7 and later: PS256 signing and ID-token checks are written against 6.2.12 (V-B01).
+      - dependency-name: jose
+        versions:
+          - ">=7"
+      # @peculiar/x509 3 and later: the self-signed certificate builder is verified against 2.1.0
+      # (V-B01); a major is a reviewed upgrade with the openssl cross-check of the certificate test.
+      - dependency-name: "@peculiar/x509"
+        versions:
+          - ">=3"
 
   - package-ecosystem: docker
     directory: "/"

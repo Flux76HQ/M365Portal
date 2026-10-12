@@ -64,7 +64,7 @@ export function DeviceCodePanel({ panel, offsetMs, busy, onCancel }: DeviceCodeP
           <p className="text-body text-fg-secondary">{t('setup.device.instruction')}</p>
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-body-sm text-fg-secondary">{t('setup.device.codeLabel')}</span>
-            <code className="select-all rounded-md border border-line-control bg-surface-page px-3 py-1.5 font-mono text-title-3 tracking-wider text-fg">
+            <code className="select-all rounded-md border border-line-control bg-surface-page px-3 py-1.5 font-mono text-title-3 text-fg">
               {panel.userCode}
             </code>
             <Button variant="secondary" size="sm" onClick={copyCode}>

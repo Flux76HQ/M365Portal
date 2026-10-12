@@ -3,6 +3,19 @@
 #   docker compose up -d      start (the image is pulled, never built here)
 #   docker compose down       stop and remove the container; the volume with your data stays
 #
+# Before the first start (Phase B), create the sealing key as a file. It is a Docker secret: it
+# reaches the container as /run/secrets/app_key and APP_KEY_FILE names it, so the key is neither in
+# the process list nor in `docker inspect`. The image has no shell, so the commands run Node:
+#
+#   mkdir -p secrets && docker run --rm <the image named below> dist/cli.js generate-app-key > secrets/app_key
+#   docker compose up -d
+#   docker exec m365portal-m365portal-1 /nodejs/bin/node dist/cli.js setup-token     the setup token
+#   docker exec m365portal-m365portal-1 /nodejs/bin/node dist/cli.js setup-reopen --confirm   reopen setup
+#
+# Keep secrets/app_key out of git and back it up SEPARATELY from the data volume: whoever holds the
+# volume and the key holds the application certificate. The container name above is the Compose
+# default (project name, service, number); `docker compose ps` shows yours.
+#
 # The settings live in `.env` next to this file (copy `.env.example`; the file is optional).
 # HOST_PORT and PUBLIC_BASE_URL are the only ones you normally change. HOST_PORT is read by
 # Compose only: it is the port the browser connects to. PUBLIC_BASE_URL is the origin the browser
@@ -18,7 +31,8 @@ services:
     image: ghcr.io/flux76hq/m365portal:latest
     restart: unless-stopped
     # The host port on the left, the port inside the container on the right (PORT, default 9300).
-    # With PREVIEW_MODE=true publish on loopback only, which means this mapping instead:
+    # To publish on loopback only (a host that a reverse proxy on the same machine fronts), use
+    # this mapping instead:
     # 127.0.0.1:${HOST_PORT:-9300}:${PORT:-9300}
     ports:
       - '${HOST_PORT:-9300}:${PORT:-9300}'
@@ -34,8 +48,9 @@ services:
       HSTS_MAX_AGE:
       HSTS_INCLUDE_SUBDOMAINS:
       HSTS_PRELOAD:
-      APP_KEY:
-      APP_KEY_FILE:
+      # The sealing key is the Docker secret below; APP_KEY is therefore not passed on (setting both
+      # is a configuration error).
+      APP_KEY_FILE: /run/secrets/app_key
       APP_KEY_PREVIOUS:
       APP_KEY_PREVIOUS_FILE:
       SETUP_TOKEN:
@@ -48,6 +63,9 @@ services:
       AUTH_MFA_AMR_VALUES:
       BREAK_GLASS_USERNAME:
       BREAK_GLASS_PASSWORD_HASH:
+    # The sealing key as a file (FR-B-705), created as the header says.
+    secrets:
+      - app_key
     # The database and the uploaded files. The only place the container writes besides /tmp.
     volumes:
       - data:/data
@@ -74,3 +92,7 @@ services:
 
 volumes:
   data:
+
+secrets:
+  app_key:
+    file: ./secrets/app_key

@@ -118,7 +118,7 @@ export function RestoreAccessPage() {
             }
           }}
           objectName={id}
-          title={`${t('breakglass.restore.unverified.title')}`}
+          title={t('breakglass.restore.unverified.title')}
           description={t('breakglass.restore.unverified.message')}
           confirmLabel={t('breakglass.restore.unverified.confirm')}
           cancelLabel={t('breakglass.restore.unverified.retry')}

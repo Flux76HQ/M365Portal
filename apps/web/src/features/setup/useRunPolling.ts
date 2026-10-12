@@ -7,7 +7,7 @@
 // The state is a small external store read with `useSyncExternalStore`: no `setState` in an effect (the
 // lint rule `react-hooks/set-state-in-effect` is on), and a render always reads one consistent value.
 import { LIMITS } from '@m365portal/shared/limits';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { ApiClient } from '../../lib/api';
 import { connectionApi, type LogLine, type RunSnapshot } from './setup-api';
 
@@ -39,6 +39,8 @@ export interface RunPoller {
   readonly poke: () => void;
   /** Ask once now (the page changed something that shows in the snapshot) without assuming a run. */
   readonly refresh: () => void;
+  /** Replace the callback for "an active run ended" (the page's latest closure). */
+  readonly setOnSettled: (callback: ((snapshot: RunSnapshot) => void) | undefined) => void;
 }
 
 export interface RunPollerOptions {
@@ -66,11 +68,12 @@ export function createRunPoller(options: RunPollerOptions): RunPoller {
   let state: RunPollState = INITIAL;
   let cursor = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let running = false;
-  let inFlight = false;
-  let again = false;
-  let wasActive = false;
+  let onSettled = options.onSettled;
   let controller: AbortController | undefined;
+  // One object, so a flag read after an `await` is read afresh and not narrowed by the code before it.
+  const flags = { running: false, inFlight: false, again: false, wasActive: false };
+  const running = (): boolean => flags.running;
+  const wanted = (): boolean => flags.again;
 
   function publish(next: RunPollState): void {
     state = next;
@@ -78,22 +81,22 @@ export function createRunPoller(options: RunPollerOptions): RunPoller {
   }
 
   function schedule(): void {
-    if (!running) return;
+    if (!flags.running) return;
     clearTimeout(timer);
     timer = setTimeout(() => void poll(), visible() ? POLL_INTERVAL_MS : POLL_INTERVAL_HIDDEN_MS);
   }
 
   async function poll(): Promise<void> {
-    if (!running) return;
-    if (inFlight) {
-      again = true;
+    if (!flags.running) return;
+    if (flags.inFlight) {
+      flags.again = true;
       return;
     }
-    inFlight = true;
+    flags.inFlight = true;
     controller = new AbortController();
     try {
       const snapshot = await api.snapshot(cursor, controller.signal);
-      if (!running) return;
+      if (!running()) return;
       // A line is shown once: whatever the server repeats (or a slow answer that arrives twice) is dropped.
       const fresh = snapshot.log.lines.filter((line) => line.seq > cursor);
       cursor = Math.max(cursor, snapshot.log.lastSeq);
@@ -106,23 +109,24 @@ export function createRunPoller(options: RunPollerOptions): RunPoller {
         offsetMs: Date.parse(snapshot.serverTime) - Date.now(),
       });
       const active = isActive(snapshot);
-      if (wasActive && !active) options.onSettled?.(snapshot);
-      wasActive = active;
-      if (active || again) schedule();
-      else if (!active) {
-        // Nothing to watch: stop until `poke`. (A failed request below keeps trying.)
+      if (flags.wasActive && !active) onSettled?.(snapshot);
+      flags.wasActive = active;
+      if (active || wanted()) {
+        schedule();
+      } else {
+        // Nothing to watch: stop until `poke` or `refresh`. (A failed request below keeps trying.)
         clearTimeout(timer);
         timer = undefined;
       }
     } catch (error) {
-      if (!running) return;
+      if (!running()) return;
       publish({ ...state, error });
       // A failed request is tried again: the run may well be going on.
       schedule();
     } finally {
-      inFlight = false;
-      if (again && running) {
-        again = false;
+      flags.inFlight = false;
+      if (wanted() && running()) {
+        flags.again = false;
         void poll();
       }
     }
@@ -136,25 +140,28 @@ export function createRunPoller(options: RunPollerOptions): RunPoller {
       };
     },
     getState: () => state,
+    setOnSettled(callback) {
+      onSettled = callback;
+    },
     start() {
-      if (running) return;
-      running = true;
+      if (flags.running) return;
+      flags.running = true;
       void poll();
     },
     stop() {
-      running = false;
+      flags.running = false;
       clearTimeout(timer);
       timer = undefined;
       controller?.abort();
     },
     refresh() {
-      if (!running) return;
+      if (!flags.running) return;
       clearTimeout(timer);
       void poll();
     },
     poke() {
-      if (!running) return;
-      wasActive = true;
+      if (!flags.running) return;
+      flags.wasActive = true;
       clearTimeout(timer);
       void poll();
     },
@@ -169,14 +176,11 @@ export interface UseRunPolling {
 
 /** The run snapshot of the page, polled while something is going on. */
 export function useRunPolling(options: RunPollerOptions): UseRunPolling {
-  const settled = useRef(options.onSettled);
+  // One poller per mounted page; the API client is the page's and never changes.
+  const [poller] = useState(() => createRunPoller(options));
   useEffect(() => {
-    settled.current = options.onSettled;
+    poller.setOnSettled(options.onSettled);
   });
-  // One poller per mounted wizard; the API client is the page's and never changes.
-  const [poller] = useState(() =>
-    createRunPoller({ ...options, onSettled: (snapshot) => settled.current?.(snapshot) }),
-  );
   useEffect(() => {
     poller.start();
     return () => {

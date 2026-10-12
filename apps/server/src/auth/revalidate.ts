@@ -95,7 +95,9 @@ export function createRevalidator(options: RevalidatorOptions): Revalidator {
 
   function setStale(db: DatabaseHandle, tid: string, oid: string, stale: boolean): void {
     db.sqlite
-      .prepare('UPDATE session SET groups_stale = ? WHERE tid = ? AND oid = ? AND groups_stale <> ?')
+      .prepare(
+        'UPDATE session SET groups_stale = ? WHERE tid = ? AND oid = ? AND groups_stale <> ?',
+      )
       .run(stale ? 1 : 0, tid, oid, stale ? 1 : 0);
   }
 
@@ -109,7 +111,10 @@ export function createRevalidator(options: RevalidatorOptions): Revalidator {
     ]);
 
     // The account is gone or disabled: the sessions go with it.
-    if (user.status === 'fulfilled' && (user.value === null || user.value.accountEnabled === false)) {
+    if (
+      user.status === 'fulfilled' &&
+      (user.value === null || user.value.accountEnabled === false)
+    ) {
       withTransaction(db, (tx) => {
         const sessions = options.sessions.revokeAll(tx, tid, oid);
         appendAudit(tx, {
@@ -125,7 +130,7 @@ export function createRevalidator(options: RevalidatorOptions): Revalidator {
         });
       });
       memory.delete(key);
-      options.log.info({ event: 'session_revoked' }, 'session_revoked');
+      options.log.info({ event: 'session_revoked', reason: 'account_disabled' }, 'session_revoked');
       return 'revoked';
     }
 
@@ -161,7 +166,8 @@ export function createRevalidator(options: RevalidatorOptions): Revalidator {
 
     const key = keyOf(record.tid, record.oid);
     const held = memory.get(key);
-    const resolvedAt = record.groupsResolvedAt === null ? undefined : Date.parse(record.groupsResolvedAt);
+    const resolvedAt =
+      record.groupsResolvedAt === null ? undefined : Date.parse(record.groupsResolvedAt);
     const checkedAt = Math.max(held?.lastOkAt ?? -Infinity, resolvedAt ?? -Infinity);
     // Never resolved, or cleared by an assignment change or a failed refresh: due at once.
     const due = record.groupsResolvedAt === null || !(now - checkedAt <= options.ttlMs);

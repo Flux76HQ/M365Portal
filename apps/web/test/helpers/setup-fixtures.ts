@@ -17,6 +17,7 @@ import {
   type StepKey,
   type StepStatus,
 } from '@m365portal/shared/setup/steps';
+import type { LogKey } from '@m365portal/shared/setup/log-keys';
 import type { ResultCode } from '@m365portal/shared/setup/result-codes';
 import type { z } from 'zod';
 
@@ -120,11 +121,11 @@ export function sampleSnapshot(
 
 export function logLine(
   seq: number,
-  messageKey: string,
+  messageKey: LogKey,
   params: Record<string, string | number | boolean> = {},
   level: 'info' | 'warn' | 'error' = 'info',
 ) {
-  return { seq, ts: iso(seq * 1000), step: 'connect', level, messageKey, params };
+  return { seq, ts: iso(seq * 1000), step: 'connect' as const, level, messageKey, params };
 }
 
 export function sampleEnvironment(

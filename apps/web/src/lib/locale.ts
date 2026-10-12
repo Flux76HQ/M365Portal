@@ -146,6 +146,33 @@ export function loadLazyNamespace(
   return loadNamespace(controller.language, namespace);
 }
 
+/** Loads several lazy namespaces in the language of the page, all at once. */
+export function loadLazyNamespaces(
+  namespaces: readonly LazyNamespace[],
+  controller: Pick<LanguageController, 'language'> = getLanguageController(),
+): Promise<unknown> {
+  return Promise.all(namespaces.map((namespace) => loadNamespace(controller.language, namespace)));
+}
+
+/** The label namespaces of "Mijn toegang": the roles, permissions, scopes, detail levels, resources and origins. */
+export const ACCESS_NAMESPACES = [
+  'access',
+  'role',
+  'permission',
+  'scope',
+  'qualifier',
+  'resource',
+  'origin',
+] as const satisfies readonly LazyNamespace[];
+
+/** The text of the Appearance form (the Appearance page and the finish step of the wizard). */
+export const APPEARANCE_NAMESPACES = [
+  'appearance',
+  'logo',
+  'accent',
+  'preview',
+] as const satisfies readonly LazyNamespace[];
+
 const LanguageContext = createContext<LanguageController | null>(null);
 
 export interface LanguageProviderProps {

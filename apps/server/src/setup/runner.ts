@@ -378,8 +378,8 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
         if (verdict.klass === 'permanent') {
           if (!isIntegrationFailure(failure)) throw failure;
           services.log.warn(
-            { event: 'setup_step', step, sub: key, outcome: 'permanent_error' },
-            'setup_step',
+            { event: 'setup_step_error', step, subAction: key, outcome: 'permanent_error' },
+            'setup_step_error',
           );
           return {
             status: 'failed',
@@ -525,6 +525,17 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
         drift,
       });
     });
+    // FR-B-715: one line per settled sub-action, with names and numbers only.
+    services.log.info(
+      {
+        event: 'setup_step',
+        step: def.step,
+        subAction: def.key,
+        status,
+        attempt: outcome.attempts,
+      },
+      'setup_step',
+    );
   }
 
   // -------------------------------------------------------------------------------------------

@@ -220,6 +220,72 @@ class Listing(unittest.TestCase):
     def test_pem_files_of_the_base_image_and_of_packages_are_fine(self):
         self.assertEqual(self.planted(file("app/node_modules/foo/cert.pem")), [])
 
+    # --- Phase B bans (FR-B-706, FR-B-707; T-B-352) ------------------------------------------------
+
+    def test_the_fake_tenant_fails_wherever_it_sits_outside_node_modules(self):
+        for path in (
+            "app/dist/fake-tenant/index.js",
+            "app/dist/test/fakes/fake-tenant/fake-entra.js",
+            "app/fake-tenant.js",
+            "app/web/fake-tenant/index.html",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("test-hook", rules(self.planted(file(path))))
+
+    def test_msw_fails_as_a_package_even_when_no_manifest_names_it(self):
+        for path in (
+            "app/node_modules/msw/package.json",
+            "app/node_modules/@mswjs/interceptors/package.json",
+            "app/node_modules/.pnpm/msw@3.0.3_typescript@6.0.3/node_modules/msw/package.json",
+            "app/node_modules/.pnpm/@mswjs+interceptors@0.45.7/node_modules/@mswjs/interceptors/package.json",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("dev-dependency", rules(self.planted(file(path))))
+
+    def test_a_listing_with_msw_and_fake_tenant_fails_both_rules(self):
+        findings = self.planted(file("app/node_modules/msw/package.json"), file("app/dist/fake-tenant/x.js"))
+        self.assertEqual(rules(findings), {"dev-dependency", "test-hook"})
+
+    def test_a_setup_token_file_fails(self):
+        for path in ("data/setup-token", "app/setup-token", "home/nonroot/setup-token.txt"):
+            with self.subTest(path=path):
+                self.assertIn("setup-token-file", rules(self.planted(file(path))))
+
+    def test_the_setup_token_command_source_is_not_a_token_file(self):
+        self.assertEqual(self.planted(file("app/dist/cli.js")), [])
+
+    def test_a_database_file_fails(self):
+        for path in (
+            "app/m365portal.sqlite", "app/dist/m365portal.sqlite-wal", "app/dist/m365portal.sqlite-shm",
+            "app/seed.db", "app/data.sqlite3", "home/nonroot/backups/pre-rotate-1.sqlite",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("database-file", rules(self.planted(file(path))))
+
+    def test_the_sealing_key_file_fails(self):
+        for path in ("app/app_key", "app/app-key", "home/nonroot/app_key.txt", "app/secrets/app_key"):
+            with self.subTest(path=path):
+                self.assertIn("secret-file", rules(self.planted(file(path))))
+
+    def test_database_and_key_names_inside_third_party_packages_are_not_ours(self):
+        self.assertEqual(self.planted(file("app/node_modules/better-sqlite3/deps/test.db")), [])
+
+    def test_the_transitive_packages_of_msal_node_and_the_x509_subtree_are_allowed(self):
+        # They are production packages that arrive with the direct dependencies (plan 4.2). Even if a
+        # development manifest happened to name one of them, the image may hold it.
+        dev = frozenset(contents.EXPECTED_TRANSITIVE | {"vitest"})
+        for name in (
+            "jsonwebtoken", "jws", "jwa", "ecdsa-sig-formatter", "buffer-equal-constant-time", "safe-buffer",
+            "lodash.includes", "lodash.once", "ms", "semver", "@azure/msal-common",
+            "@peculiar/asn1-x509", "@peculiar/asn1-schema", "@peculiar/utils", "asn1js", "pvtsutils",
+            "pvutils", "tslib", "tsyringe", "reflect-metadata",
+        ):
+            with self.subTest(name=name):
+                self.assertIn(name, contents.EXPECTED_TRANSITIVE)
+                self.assertEqual(self.planted(file(f"app/node_modules/{name}/package.json"), dev=dev), [])
+        # A development tool is still found next to them.
+        self.assertIn("dev-dependency", rules(self.planted(file("app/node_modules/vitest/package.json"), dev=dev)))
+
     # --- development dependencies ------------------------------------------------------------------
 
     def test_a_dev_dependency_is_found_in_every_layout_pnpm_produces(self):

@@ -204,9 +204,19 @@ describe('the namespace owner table (C11)', () => {
     for (const namespace of s6) expect(NAMESPACE_OWNERS, namespace).toHaveProperty(namespace, 'S6');
   });
 
-  it('lists the lazy namespaces among the namespaces of S6 only', () => {
+  it('lists the lazy namespaces among the namespaces of S6, except the Phase A text that T-B-307 moved out of the entry', () => {
+    // showcase (S4), appearance, logo, accent, preview (S5), palette and shortcuts (S4) are Phase A fragments: only where they load changed.
+    const movedPhaseA: Readonly<Record<string, string>> = {
+      showcase: 'S4',
+      appearance: 'S5',
+      logo: 'S5',
+      accent: 'S5',
+      preview: 'S5',
+      palette: 'S4',
+      shortcuts: 'S4',
+    };
     for (const namespace of LAZY_NAMESPACES) {
-      expect(NAMESPACE_OWNERS, namespace).toHaveProperty(namespace, 'S6');
+      expect(NAMESPACE_OWNERS, namespace).toHaveProperty(namespace, movedPhaseA[namespace] ?? 'S6');
     }
   });
 
@@ -269,13 +279,13 @@ describe('mergeFragments', () => {
       with_({
         'a11y.en.json': fragment({ 'a11y.label': 'Label' }),
         'a11y.nl.json': fragment({ 'a11y.label': 'Label' }),
-        'accent.en.json': fragment({ 'accent.pick': 'Pick' }),
-        'accent.nl.json': fragment({ 'accent.pick': 'Kies' }),
+        'pwa.en.json': fragment({ 'pwa.pick': 'Pick' }),
+        'pwa.nl.json': fragment({ 'pwa.pick': 'Kies' }),
       }),
     );
     const keys = Object.keys(merged.en);
     expect(keys).toEqual([...keys].sort());
-    expect(keys.indexOf('a11y.label')).toBeLessThan(keys.indexOf('accent.pick'));
+    expect(keys.indexOf('a11y.label')).toBeLessThan(keys.indexOf('pwa.pick'));
   });
 
   it('accepts an empty fragment pair (a namespace listed before its strings exist)', () => {
@@ -563,13 +573,13 @@ describe('renderCatalogue', () => {
 // Lazy namespaces (T-B-291, XB24)
 // ---------------------------------------------------------------------------------------------
 
-/** The valid set plus a lazy namespace (`setup`), one extra entry namespace (`signin`). */
+/** The valid set plus a lazy namespace (`setup`), one extra entry namespace (`pages`). */
 function withLazy(changes: Readonly<Record<string, string | undefined>> = {}): Record<string, string> {
   return with_({
     'setup.en.json': fragment({ 'setup.step.connect': 'Connect', 'setup.step.environment': 'Environment' }),
     'setup.nl.json': fragment({ 'setup.step.connect': 'Verbinden', 'setup.step.environment': 'Omgeving' }),
-    'signin.en.json': fragment({ 'signin.title': 'Sign in' }),
-    'signin.nl.json': fragment({ 'signin.title': 'Aanmelden' }),
+    'pages.en.json': fragment({ 'pages.title': 'Sign in' }),
+    'pages.nl.json': fragment({ 'pages.title': 'Aanmelden' }),
     ...changes,
   });
 }
@@ -579,10 +589,10 @@ describe('mergeAllFragments: entry namespaces and lazy namespaces go to differen
     const all = mergeAllFragments(withLazy());
     expect(Object.keys(all.entry.en)).toEqual([
       'common.save',
+      'pages.title',
       'problem.unknown',
       'shell.subtitle',
       'shell.title',
-      'signin.title',
     ]);
     expect(Object.keys(all.lazy.setup.nl)).toEqual(['setup.step.connect', 'setup.step.environment']);
     expect(all.lazy.setup.nl['setup.step.connect']).toBe('Verbinden');
@@ -594,7 +604,7 @@ describe('mergeAllFragments: entry namespaces and lazy namespaces go to differen
   it('leaves mergeFragments with the meaning it had: the merged catalogue of the entry namespaces', () => {
     const merged = mergeFragments(withLazy());
     expect(Object.keys(merged.en)).not.toContain('setup.step.connect');
-    expect(merged.nl['signin.title']).toBe('Aanmelden');
+    expect(merged.nl['pages.title']).toBe('Aanmelden');
   });
 
   it('applies every rule of the merge to a lazy namespace too (a key outside its namespace, an unsorted file, a missing language)', () => {

@@ -7,7 +7,7 @@ import { FormField } from '../../components/ui/form-field';
 import { Input } from '../../components/ui/input';
 import { RadioGroup, RadioOption } from '../../components/ui/radio-group';
 import { Skeleton } from '../../components/ui/skeleton';
-import { useLanguage } from '../../lib/locale';
+import { APPEARANCE_NAMESPACES, loadLazyNamespaces, useLanguage } from '../../lib/locale';
 import { ProofList } from '../connection/ProofList';
 import { ActionError, StepFrame } from './StepFrame';
 import { ExchangeNotice } from './VerifyStep';
@@ -15,7 +15,11 @@ import { setupApi, type SetupStateResponse } from './setup-api';
 import type { StepProps } from './steps';
 import { stepOf } from './wizard-context';
 
-const AppearanceSection = lazy(() => import('./AppearanceSection'));
+// The form and its text are one chunk: the catalogues load before the form renders.
+const AppearanceSection = lazy(async () => {
+  await loadLazyNamespaces(APPEARANCE_NAMESPACES);
+  return import('./AppearanceSection');
+});
 
 type Owner = NonNullable<SetupStateResponse['designatedOwner']>;
 const ownerName = (owner: Owner): string => owner.nameLabel ?? owner.upnLabel ?? owner.oid;

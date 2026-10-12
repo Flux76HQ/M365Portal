@@ -1056,8 +1056,18 @@ describe('the YAML reader of this test (it only has to be exact for the Compose 
 /** The active mapping line, in either quote style (Prettier writes single quotes). */
 const MAPPING_LINE = /- (["'])\$\{HOST_PORT:-9300\}:\$\{PORT:-9300\}\1/;
 
-/** Variables the image fixes and the Compose file therefore does not pass on (see the file). */
-const IMAGE_LEVEL = ['HOST', 'DATA_DIR'] as const;
+/**
+ * Variables the Compose file does not pass on: the two the image fixes, and APP_KEY, which the
+ * Compose example replaces by a Docker secret mounted as a file (FR-B-705). Setting both APP_KEY and
+ * APP_KEY_FILE is a configuration error, so the file may pass on only one of them.
+ */
+const IMAGE_LEVEL = ['HOST', 'DATA_DIR', 'APP_KEY'] as const;
+/** The Docker secret of FR-B-705: its name, the path it is mounted at and the variable that names it. */
+const DOCKER_SECRET = 'app_key';
+const SECRET_PATH = '/run/secrets/app_key';
+const SECRET_VARIABLE = 'APP_KEY_FILE';
+/** The retired Phase A variables (FR-B-102): they appear in no deployment file. */
+const RETIRED_VARIABLES = ['PREVIEW_MODE', 'PREVIEW_MODE_ALLOW_REMOTE'] as const;
 const SERVICE = 'm365portal';
 const VOLUME = 'data';
 
@@ -1133,16 +1143,19 @@ function assertComposeFile({ compose, envExample, schema }: ComposeInput): void 
     throw new Error('a comment above image must say to pin a version tag or digest in production');
   }
 
-  // Ports (FR-A-016): the mapping, unchanged, and the preview-mode comment next to it.
+  // Ports (FR-A-016): the mapping, unchanged, and the loopback alternative next to it. The preview
+  // mode is gone (FR-B-102): neither file names its variables, except to say they are removed.
   mustBe('ports', [`\${HOST_PORT:-${port}}:\${PORT:-${port}}`]);
   const portsComment = commentAbove(compose, 'ports:');
-  if (
-    !portsComment.includes('PREVIEW_MODE=true') ||
-    !portsComment.includes(`127.0.0.1:\${HOST_PORT:-${port}}:\${PORT:-${port}}`)
-  ) {
+  if (!portsComment.includes(`127.0.0.1:\${HOST_PORT:-${port}}:\${PORT:-${port}}`)) {
     throw new Error(
-      'a comment above ports must say that PREVIEW_MODE=true publishes on 127.0.0.1 only, with the mapping',
+      'a comment above ports must show the loopback mapping 127.0.0.1:${HOST_PORT}:${PORT} for a host that is not meant to be reached from the network',
     );
+  }
+  for (const retired of RETIRED_VARIABLES) {
+    if (compose.includes(retired) || envExample.includes(retired)) {
+      throw new Error(`${retired} is retired (FR-B-102): it must not appear in a deployment file`);
+    }
   }
 
   // Environment: PORT, the derived PUBLIC_BASE_URL, and the pass-through of the rest.
@@ -1166,8 +1179,30 @@ function assertComposeFile({ compose, envExample, schema }: ComposeInput): void 
       `PUBLIC_BASE_URL must default to http://localhost:\${HOST_PORT:-${port}}: the browser reaches the panel on the host port (A-63)`,
     );
   }
+  // The sealing key reaches the container as a Docker secret (FR-B-705): APP_KEY_FILE names the
+  // mounted file, the service lists the secret and the top level defines it from a file.
+  if (environment[SECRET_VARIABLE] !== SECRET_PATH) {
+    throw new Error(`${SECRET_VARIABLE} must be ${SECRET_PATH}, the mount point of the secret`);
+  }
+  mustBe('secrets', [DOCKER_SECRET]);
+  const declaredSecrets = yamlAt(document, 'secrets');
+  const secretFile = yamlAt(document, 'secrets', DOCKER_SECRET, 'file');
+  if (!isYamlMap(declaredSecrets) || typeof secretFile !== 'string' || secretFile === '') {
+    throw new Error(`the secret "${DOCKER_SECRET}" must be declared at the top level from a file`);
+  }
+  if (!/docker exec/.test(compose) || !/cli\.js setup-token/.test(compose)) {
+    throw new Error('a comment must document the docker exec commands (setup-token) (FR-B-705)');
+  }
+  if (!/generate-app-key/.test(compose)) {
+    throw new Error('a comment must show how to create the key file (generate-app-key)');
+  }
   for (const name of passedOn) {
-    if (name !== 'PORT' && name !== 'PUBLIC_BASE_URL' && environment[name] !== null) {
+    if (
+      name !== 'PORT' &&
+      name !== 'PUBLIC_BASE_URL' &&
+      name !== SECRET_VARIABLE &&
+      environment[name] !== null
+    ) {
       throw new Error(
         `${name} must be passed through without a value, so the application default stays the only default`,
       );
@@ -1260,10 +1295,25 @@ describe('docker-compose.yml (FR-A-166, FR-A-016)', () => {
     expect(yamlAt(document, 'services', SERVICE, 'volumes')).toEqual([`${VOLUME}:/data`]);
   });
 
-  it('tells the operator, next to the mapping, how to publish in preview mode', () => {
+  it('tells the operator, next to the mapping, how to publish on loopback only', () => {
     const comment = commentAbove(composeFile, 'ports:');
-    expect(comment).toContain('PREVIEW_MODE=true');
     expect(comment).toContain('127.0.0.1:${HOST_PORT:-9300}:${PORT:-9300}');
+    expect(comment).not.toContain('PREVIEW_MODE');
+  });
+
+  it('mounts the key as a Docker secret at /run/secrets/app_key and names it by APP_KEY_FILE (FR-B-705)', () => {
+    const document = parseYaml(composeFile);
+    expect(yamlAt(document, 'services', SERVICE, 'secrets')).toEqual([DOCKER_SECRET]);
+    expect(yamlAt(document, 'services', SERVICE, 'environment', SECRET_VARIABLE)).toBe(SECRET_PATH);
+    expect(yamlAt(document, 'secrets', DOCKER_SECRET, 'file')).toEqual(expect.any(String));
+    expect(yamlAt(document, 'services', SERVICE, 'environment', 'APP_KEY')).toBeUndefined();
+  });
+
+  it('names no retired variable in either deployment file (FR-B-102)', () => {
+    for (const retired of RETIRED_VARIABLES) {
+      expect(composeFile, retired).not.toContain(retired);
+      expect(envExample, retired).not.toContain(retired);
+    }
   });
 
   it('passes on every variable of .env.example that the application reads, except the two the image fixes', () => {
@@ -1436,9 +1486,36 @@ describe('docker-compose.yml (FR-A-166, FR-A-016)', () => {
       /comment above image/,
     ],
     [
-      'no comment about preview mode next to the mapping',
-      mutated((text) => replaceOnce(text, /^\s*#[^\n]*PREVIEW_MODE=true[^\n]*\n/im, '')),
+      'no loopback mapping next to the ports',
+      mutated((text) => replaceOnce(text, /^\s*#[^\n]*127\.0\.0\.1[^\n]*\n/im, '')),
       /comment above ports/,
+    ],
+    [
+      'a retired variable passed on',
+      mutated((text) =>
+        replaceOnce(text, '      TRUST_PROXY:\n', '      TRUST_PROXY:\n      PREVIEW_MODE:\n'),
+      ),
+      /PREVIEW_MODE is retired/,
+    ],
+    [
+      'no secrets stanza at the top level',
+      mutated((text) => replaceOnce(text, /\nsecrets:\n {2}app_key:\n {4}file:[^\n]*\n/, '\n')),
+      /secret "app_key" must be declared/,
+    ],
+    [
+      'the service not using the secret',
+      mutated((text) => replaceOnce(text, /\n {4}secrets:\n {6}- app_key\n/, '\n')),
+      /secrets must be \["app_key"\]/,
+    ],
+    [
+      'APP_KEY_FILE pointing elsewhere',
+      mutated((text) => replaceOnce(text, '/run/secrets/app_key\n', '/data/app_key\n')),
+      /APP_KEY_FILE must be \/run\/secrets\/app_key/,
+    ],
+    [
+      'the docker exec commands not documented',
+      mutated((text) => text.replaceAll('cli.js setup-token', 'cli.js removed')),
+      /docker exec commands/,
     ],
     [
       'a second service',
@@ -1596,6 +1673,10 @@ describe.skipIf(!composeAvailable && !dockerRequired)('docker compose config (PA
     for (const variable of ENV_VARIABLES) {
       if ((IMAGE_LEVEL as readonly string[]).includes(variable.name)) continue;
       if (variable.name === 'PUBLIC_BASE_URL') continue;
+      if (variable.name === SECRET_VARIABLE) {
+        expect(service.environment?.[variable.name]).toBe(SECRET_PATH);
+        continue;
+      }
       // A variable without a default is commented out in .env.example and stays unset in Compose.
       if (variable.defaultText === NO_DEFAULT) {
         expect(service.environment?.[variable.name] ?? null, variable.name).toBeNull();

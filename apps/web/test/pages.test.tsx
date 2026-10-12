@@ -19,7 +19,7 @@ const en = createTranslator('en');
 const nl = createTranslator('nl');
 
 describe('the Settings overview', () => {
-  it('lists Appearance only, for an actor who may change it', async () => {
+  it('lists Appearance and My access, for an actor who may change the appearance', async () => {
     await renderApp({ me: sampleMe({ permissions: ['settings:branding'] }), path: '/settings' });
 
     const main = await screen.findByRole('main');
@@ -28,21 +28,31 @@ describe('the Settings overview', () => {
     ).toBeInTheDocument();
     const list = within(main).getByRole('list', { name: en.t('pages.settings.list') });
     const links = within(list).getAllByRole('link');
-    expect(links).toHaveLength(1);
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/settings/appearance', '/settings/access']);
     expect(links[0]).toHaveAccessibleName(new RegExp(en.t('nav.appearance')));
-    expect(links[0]).toHaveAttribute('href', '/settings/appearance');
+    expect(links[1]).toHaveAccessibleName(new RegExp(en.t('nav.access')));
     expect(within(main).getByText(en.t('pages.settings.later'))).toBeInTheDocument();
   });
 
-  it('lists nothing to an actor who may only see the connection settings (none exist yet)', async () => {
+  it('lists Connection and My access to an actor who may manage the connection (T-B-306)', async () => {
     await renderApp({ me: sampleMe({ permissions: ['settings:connection'] }), path: '/settings' });
 
     const main = await screen.findByRole('main');
     expect(
       await within(main).findByRole('heading', { level: 1, name: en.t('pages.settings.title') }),
     ).toBeInTheDocument();
-    expect(within(main).queryByRole('link')).not.toBeInTheDocument();
+    const links = within(main).getAllByRole('link');
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/settings/connection', '/settings/access']);
     expect(within(main).getByText(en.t('pages.settings.later'))).toBeInTheDocument();
+  });
+
+  it('lists only My access to a signed-in user with no settings permission, and nothing to hide it behind No-access', async () => {
+    await renderApp({ me: person(), path: '/settings' });
+    const main = await screen.findByRole('main');
+    expect(
+      await within(main).findByRole('heading', { level: 1, name: en.t('pages.settings.title') }),
+    ).toBeInTheDocument();
+    expect(within(main).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(['/settings/access']);
   });
 
   it('is in Dutch when the page is Dutch', async () => {
@@ -89,8 +99,8 @@ describe('No-access', () => {
       '/distribution-lists',
       '/contacts',
       '/audit',
-      '/settings',
       '/settings/appearance',
+      '/settings/connection',
     ]) {
       const view = await renderApp({ me: person(), path });
 

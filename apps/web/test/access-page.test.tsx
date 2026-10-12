@@ -74,7 +74,7 @@ describe('the page', () => {
       const t = tr(language);
       await screen.findByRole('heading', { level: 1, name: t.t('access.page.title') });
       const list = await screen.findByRole('list', { name: t.t('access.assignment.list') });
-      const items = Array.from(list.children) as HTMLElement[];
+      const items = Array.from(list.children) as [HTMLElement, HTMLElement, HTMLElement];
       expect(items).toHaveLength(3);
       expect(items[0]).toHaveTextContent(t.t('role.owner'));
       expect(items[0]).toHaveTextContent(t.t('origin.direct'));
@@ -146,7 +146,7 @@ describe('the page', () => {
   it('warns that group memberships may be out of date, with when they were last checked', async () => {
     await open(access({ groupsStale: true }));
     const en = tr('en');
-    const notice = (await screen.findByText(en.t('access.stale.title'))).closest('[data-slot="banner"]') as HTMLElement;
+    const notice = (await screen.findByText(en.t('access.stale.title'))).closest('[data-slot="banner"]')!;
     expect(notice).toHaveAttribute('data-tone', 'warning');
     expect(notice).toHaveTextContent(en.t('access.stale.message'));
     expect(notice).toHaveTextContent(/last checked on/);
