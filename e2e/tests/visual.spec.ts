@@ -138,6 +138,8 @@ const MOVING = (page: Page) => [
   // The certificate is generated on every run, so its thumbprint differs (connection card and proof rows),
   // and so does the moment of the last verification.
   page.locator('dd.font-mono'),
+  page.getByText(/Attempt \d+/),
+  page.locator('[role="progressbar"]'),
   page.locator('[data-slot="proof-list"] p', { hasText: /Thumbprint/ }),
   page.getByText(/Last verified/),
 ];
@@ -217,7 +219,9 @@ test.describe('Phase B: /setup (empty instance B)', () => {
       guard.take('console');
       guard.take('status');
       await app.ready();
-      await shoot(page, `setup-${state}`, testInfo);
+      // The wizard runs live against the fake tenant, so the length of the page (log lines, retries) and the
+      // attempt counter differ from run to run: the picture is the viewport, with the counters masked.
+      await shoot(page, `setup-${state}`, testInfo, { fullPage: false });
     });
   }
 });
