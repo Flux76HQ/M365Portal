@@ -8,6 +8,7 @@ import { DEFAULT_ORG_NAME } from '@m365portal/shared/branding/org-name';
 import { PERMISSIONS, type Permission } from '@m365portal/shared/permissions';
 import { BrandingSchema, type Branding } from '@m365portal/shared/schemas/branding';
 import { MeResponseSchema } from '@m365portal/shared/schemas/meta';
+import type { SetupState } from '@m365portal/shared/setup/steps';
 import type { MeResponse } from '../../src/lib/boot-data';
 import { createHash } from 'node:crypto';
 
@@ -17,26 +18,93 @@ const iconRef = (seed: string) => ({ hash: sha(seed), url: `/branding/${sha(seed
 export const SAMPLE_VERSION = '0.1.0';
 export const SAMPLE_ORIGIN = 'https://panel.example.com';
 
-export interface SampleMeOptions {
-  readonly permissions?: readonly Permission[];
-  readonly preview?: boolean;
-  readonly showcase?: boolean;
-  readonly version?: string;
-  readonly publicOrigin?: string;
+export type SampleActorKind = 'anonymous' | 'user' | 'setup' | 'break_glass';
+
+export interface SampleSession {
+  readonly expiresAt: string;
+  readonly idleExpiresAt: string;
+  readonly mfa: boolean;
+  readonly stepUpValidUntil: string | null;
+  readonly groupsStale: boolean;
 }
 
-/** The anonymous actor by default; `preview: true` is the preview actor with every permission. */
+export interface SampleMeOptions {
+  /** Who the actor is; `anonymous` by default. */
+  readonly kind?: SampleActorKind;
+  /** The display name of a signed-in actor (data, never translated). */
+  readonly label?: string;
+  readonly permissions?: readonly Permission[];
+  readonly roles?: readonly string[];
+  /** Defaults: none for anonymous and setup, a session for user and break-glass. */
+  readonly session?: Partial<SampleSession> | null;
+  readonly setupState?: SetupState;
+  readonly showcase?: boolean;
+  /** `features.breakGlass` */
+  readonly breakGlass?: boolean;
+  readonly adminConsentUrl?: string | null;
+  /** `defaultLanguage`: the language the setup stored (null when none). */
+  readonly defaultLanguage?: 'nl' | 'en' | null;
+  readonly version?: string;
+  readonly publicOrigin?: string;
+  readonly storageAvailable?: boolean;
+}
+
+/** A session that ends well after the tests (a fixed date in the past of the clock made them red on the day it passed). */
+export const SAMPLE_SESSION: SampleSession = Object.freeze({
+  expiresAt: '2030-10-12T20:00:00.000Z',
+  idleExpiresAt: '2030-10-12T13:00:00.000Z',
+  mfa: true,
+  stepUpValidUntil: null,
+  groupsStale: false,
+});
+
+/** The anonymous actor with no permission by default (setup completed); `kind` picks another actor. */
 export function sampleMe(options: SampleMeOptions = {}): MeResponse {
-  const preview = options.preview ?? false;
+  // Permissions imply a person who holds them: a signed-in user unless the test says otherwise.
+  const kind = options.kind ?? ((options.permissions?.length ?? 0) > 0 ? 'user' : 'anonymous');
+  const hasSession = kind === 'user' || kind === 'break_glass';
+  const session =
+    options.session === undefined
+      ? hasSession
+        ? SAMPLE_SESSION
+        : null
+      : options.session === null
+        ? null
+        : { ...SAMPLE_SESSION, ...options.session };
+  const labels: Record<SampleActorKind, string> = {
+    anonymous: 'Anonymous',
+    user: 'Alice Example',
+    setup: 'Setup',
+    break_glass: 'Break-glass',
+  };
+  const ids: Record<SampleActorKind, string> = {
+    anonymous: 'anonymous',
+    user: '11111111-1111-4111-8111-111111111111',
+    setup: 'setup',
+    break_glass: 'break_glass',
+  };
   return MeResponseSchema.parse({
-    actor: preview
-      ? { kind: 'preview', id: 'preview', label: 'Preview' }
-      : { kind: 'anonymous', id: 'anonymous', label: 'Anonymous' },
-    permissions: options.permissions ?? (preview ? [...PERMISSIONS] : []),
-    features: { showcase: options.showcase ?? false, preview },
+    actor: { kind, id: ids[kind], label: options.label ?? labels[kind] },
+    permissions: [...(options.permissions ?? [])].sort(),
+    roles: (options.roles ?? []).map((key) => ({ key })),
+    session,
+    setup: { state: options.setupState ?? 'completed' },
+    features: { showcase: options.showcase ?? false, breakGlass: options.breakGlass ?? false },
+    adminConsentUrl: options.adminConsentUrl ?? null,
+    defaultLanguage: options.defaultLanguage ?? null,
     version: options.version ?? SAMPLE_VERSION,
     publicOrigin: options.publicOrigin ?? SAMPLE_ORIGIN,
-    storageAvailable: true,
+    storageAvailable: options.storageAvailable ?? true,
+  });
+}
+
+/** A signed-in user with every permission (the actor most Phase A page tests want) and the role owner. */
+export function sampleSignedInMe(options: Omit<SampleMeOptions, 'kind'> = {}): MeResponse {
+  return sampleMe({
+    permissions: [...PERMISSIONS],
+    roles: ['owner'],
+    ...options,
+    kind: 'user',
   });
 }
 

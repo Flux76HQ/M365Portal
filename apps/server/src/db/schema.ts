@@ -185,3 +185,7 @@ export const auditLog = sqliteTable(
 export type BrandingRow = typeof branding.$inferSelect;
 export type BrandingAssetRow = typeof brandingAsset.$inferSelect;
 export type AuditLogRow = typeof auditLog.$inferSelect;
+
+// Phase B (FR-B-701): the 17 tables of migration `0001_phase_b` live in `schema/phase-b.ts`; this
+// re-export is what the Drizzle config and every consumer of `schema.ts` see.
+export * from './schema/phase-b.js';

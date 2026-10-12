@@ -14,7 +14,7 @@ Dit contract beschrijft de 32 routes die fase B toevoegt: aanmelden met Entra (`
 |---|---|
 | Base paths | JSON API under `/api/v1`. Browser navigations at the root: `/auth/login`, `/auth/callback`, `/auth/logged-out` (they set cookies and redirect; JSON cannot do that). UI routes in section 10 |
 | Access vocabulary | `public`; `authenticated` (any user or break-glass session; the setup actor is **not** authenticated in this sense); `setup` (valid setup session and the state is not `completed`); `connection` (the setup actor while the state is not `completed`, a user holding `settings:connection` afterwards); a permission name; `stepUp` (FR-B-411: applies to user actors only, the setup actor and break-glass are exempt); `actorKinds` (restricts the kinds that may call, whatever they hold). Declared once per route in `defineRoute` and exposed in OpenAPI as `x-public`, `x-permission`, `x-access`, `x-step-up`, `x-actor-kinds`, `x-scoped`, `x-availability` |
-| Resolution order in the wrapper | availability gate (404) -> rate limit -> body limit -> content type -> CSRF binding -> Origin -> CSRF -> actor resolution -> missing session 401 -> `actorKinds` 403 -> permission 403 -> `stepUp` 403 -> validation 422 -> handler (plan 6.3, 11.8). The gate comes before the rate limiter and consumes one token of the `read` bucket, exactly what the unknown-path fallback consumes, so a closed route is indistinguishable from an unknown path |
+| Resolution order in the wrapper | availability gate (404) -> rate limit -> body limit -> content type -> CSRF binding -> Origin -> CSRF -> actor resolution -> missing session 401 -> `actorKinds` 403 -> permission 403 -> `stepUp` 403 -> validation 422 -> handler (plan 6.3, 11.8). The gate comes before the rate limiter and consumes one token of the bucket the unknown-path fallback consumes for the same method (`read` for GET and HEAD, `write` for every other method, by `classifyRequest`; SB-29), so a closed route is indistinguishable from an unknown path |
 | 401 | No valid session: `unauthenticated`, header `WWW-Authenticate: Cookie realm="m365portal"` (the scheme token is ours, U42), body without tenant ids, step state or log lines. A session cookie that is present but unknown or expired: `session_expired`, the cookie is cleared in the same response. An unknown, malformed, duplicate or absent **setup** cookie is always `unauthenticated` (no oracle on cookie validity, nothing cleared) |
 | 403 | An authenticated actor that lacks the permission or is of the wrong kind: `permission_denied`; the audit `reason_code` tells `permission_missing` and `scope_mismatch` apart. `step_up_required`, `escalation_denied`, `origin_not_allowed`, `csrf_invalid` as named. Phase A answered an anonymous write with 403; Phase B answers 401 |
 | 404 | Unknown path, a closed availability gate (setup after `completed`, setup over plain http from a non-loopback `Host`, break-glass not configured) and an unknown resource id all answer the same `not_found` problem; for page navigations the shell renders Not-found with status 404. Byte-equal to an unknown path except `requestId` and `X-Request-Id` (FR-B-207, `server/setup/lock.test.ts`) |
@@ -28,6 +28,7 @@ Dit contract beschrijft de 32 routes die fase B toevoegt: aanmelden met Entra (`
 | Audit | "Audit" column: the `action` written on success. Every denial of a write route, and of a permissioned read by an authenticated actor, is audited with `action` = route id, `outcome` `denied`, `reason_code` and the request id and client address, before the response; if that append fails the answer is 503 `storage_unavailable` instead of the denial (FR-B-602). Anonymous reads answer 401 and are not audited. 429 is never audited. P12, P23 and P24 are control actions on in-memory process state and write no success entry (FR-B-601) |
 | Idempotency and concurrency | Assignments are created and deleted, never edited: no `ETag` or `If-Match` is used by Phase B routes. A duplicate create is 409 `assignment_exists`; deleting an unknown id is 404. Wizard runs are exclusive (409 `setup_step_busy`) |
 | Degraded mode | Storage unusable: routes that need storage answer 503 `storage_unavailable`; `/api/v1/me` and `/api/v1/csrf` answer as anonymous. Secrets unavailable (`APP_KEY` missing or invalid, certificate unreadable): `GET /auth/login` answers 303 to `/signin?error=secrets_unavailable`, Graph- and Exchange-backed routes answer 503 `secrets_unavailable`, break-glass and the Settings pages that need no Graph still work (plan 6.5) |
+| Route ids | An id is a dotted list of words; the id of a write route, and of a permissioned read, is also the `action` of its denial audit entries, so it is lower case (`auth.logout.all`, `auth.breakglass`, `connection.runs.retry.now`, `rbac.restore.owner`; SB-27). The route-table check accepts the classes `auth` and `setup` for the methods that use them (SB-28) |
 | Pagination | List routes take `limit` (1 to 200, default 100) and an opaque `cursor`; the response carries `nextCursor` or `null` (CD-10) |
 
 ## 2. Route index
@@ -40,8 +41,8 @@ Classes: `auth`, `setup`, `read`, `write` (section 1). "Gate" means the availabi
 | P02 | `auth.callback` | `GET /auth/callback` | public | auth | `auth.signin` or `auth.stepup` from the validation step on | 200 interstitial or 303; exempt from `Sec-Fetch-Site` (SB-25) |
 | P03 | `auth.loggedOut` | `GET /auth/logged-out` | public | auth | none | 303 to `/signin?signedout=1` |
 | P04 | `auth.logout` | `POST /api/v1/auth/logout` | authenticated | auth | `auth.signout` (`breakglass.signout` for break-glass) | |
-| P05 | `auth.logoutAll` | `POST /api/v1/auth/logout-all` | authenticated, `actorKinds: ['user']` | auth | `auth.signout` | |
-| P06 | `auth.breakGlass` | `POST /api/v1/auth/break-glass` | public; Gate (404 unless configured) | auth | `breakglass.signin` | |
+| P05 | `auth.logout.all` | `POST /api/v1/auth/logout-all` | authenticated, `actorKinds: ['user']` | auth | `auth.signout` | |
+| P06 | `auth.breakglass` | `POST /api/v1/auth/break-glass` | public; Gate (404 unless configured) | auth | `breakglass.signin` | |
 | P07 | `meta.me` | `GET /api/v1/me` | public | read | none | shape changes (section 4) |
 | P08 | `meta.csrf` | `GET /api/v1/csrf` | public | read | none | binding changes, shape does not |
 | P09 | `me.access` | `GET /api/v1/me/access` | authenticated | read | none | "Mijn toegang" |
@@ -58,7 +59,7 @@ Classes: `auth`, `setup`, `read`, `write` (section 1). "Gate" means the availabi
 | P20 | `connection.log` | `GET /api/v1/connection/log?after=&limit=` | connection | read | none | history paging |
 | P21 | `connection.runs.start` | `POST /api/v1/connection/runs` | connection, stepUp | write | `setup.step.run` (wizard), `connection.repair` (after completion) | |
 | P22 | `connection.runs.current` | `GET /api/v1/connection/runs/current?after=` | connection | read | none | the one polled channel (SB-19) |
-| P23 | `connection.runs.retryNow` | `POST /api/v1/connection/runs/current/retry-now` | connection, stepUp | write | none | |
+| P23 | `connection.runs.retry.now` | `POST /api/v1/connection/runs/current/retry-now` | connection, stepUp | write | none | |
 | P24 | `connection.runs.cancel` | `POST /api/v1/connection/runs/current/cancel` | connection, stepUp | write | none | |
 | P25 | `connection.adopt` | `POST /api/v1/connection/adopt` | connection, stepUp | write | `setup.object.change` | |
 | P26 | `connection.verify` | `POST /api/v1/connection/verify` | connection, stepUp | write | `connection.verify` | returns the Proof |
@@ -67,7 +68,7 @@ Classes: `auth`, `setup`, `read`, `write` (section 1). "Gate" means the availabi
 | P29 | `rbac.assignments.create` | `POST /api/v1/rbac/assignments` | `rbac:manage`, stepUp, `actorKinds: ['user']` | write | `rbac.assignment.create` | SB-03 |
 | P30 | `rbac.assignments.delete` | `DELETE /api/v1/rbac/assignments/{id}` | `rbac:manage`, stepUp, `actorKinds: ['user']` | write | `rbac.assignment.delete` | SB-03 |
 | P31 | `rbac.effective` | `GET /api/v1/rbac/effective?principal=` | `rbac:manage` | read | none | |
-| P32 | `rbac.restoreOwner` | `POST /api/v1/rbac/restore-owner` | `rbac:manage`, `actorKinds: ['break_glass']` | write | `rbac.owner.restore` | the only path that bypasses `canGrant` |
+| P32 | `rbac.restore.owner` | `POST /api/v1/rbac/restore-owner` | `rbac:manage`, `actorKinds: ['break_glass']` | write | `rbac.owner.restore` | the only path that bypasses `canGrant` |
 
 After the state is `completed`, every `/api/v1/setup/*` route (P10 to P18, `status` and `unlock` included) answers the standard 404 (FR-B-207), and `connection` access means `settings:connection` held by a signed-in user. Phase A routes R1 to R17 keep their ids; their access changes are in section 8.
 
@@ -156,6 +157,7 @@ MeResponse = {
   setup:   { state: 'unconfigured' | 'in_progress' | 'awaiting_first_signin' | 'completed' },
   features:{ showcase: boolean, breakGlass: boolean },
   adminConsentUrl: string | null,         // tenant-wide consent link of FR-B-419; null until a tenant is pinned (TB-14)
+  defaultLanguage: 'nl' | 'en' | null,    // setup_state.default_language once the setup is completed, else null; the UI uses it only for a first visit with no stored choice and no nl or en browser preference
   version: string, publicOrigin: string, storageAvailable: boolean
 }
 ```
@@ -229,6 +231,7 @@ Access `setup`. Everything the wizard shows when it loads; afterwards the UI pol
 ```ts
 SetupStateResponse = {
   state: SetupState, mode: 'automatic' | 'manual', defaultLanguage: 'nl' | 'en' | null,
+  installTag: string,                       // 'm365portal-install-' + the 32-hex install id: manual mode lists it (and the description) so V3 passes
   steps: StepState[],                       // always the five steps in registry order (section 6.1)
   tenant:      { proposedTenantId: Guid | null, tenantId: Guid | null, name: string | null, initialDomain: string | null },
   application: { appId: Guid, objectId: Guid | null, displayName: string } | null,
@@ -703,7 +706,7 @@ Naming and rules of Phase A section 8 apply: the constant ends in `Schema`; the 
 
 ### 12.2 Server only (`apps/server`)
 
-`EnvSchema` (extended with table 6.9.1, parity-tested with `.env.example`), the audit allow-list (`audit/allowlist.ts`, data-model section 10), `SessionRowSchema`, the login transaction type, `IdTokenClaimsSchema` and `ValidatedIdToken`, Graph and Exchange DTO schemas (allow-lists that drop unknown fields), `StepDetailSchema` and `LogParamsSchema` (secret-free writers), `RouteDefinition` additions (`availability`, `actorKinds`, `secFetch`, access kinds).
+`EnvSchema` (extended with table 6.9.1, parity-tested with `.env.example`), the audit allow-list (`AUDIT_DETAIL_KEYS` in `audit/canonical.ts`, data-model section 10; SB-30), `SessionRowSchema`, the login transaction type, `IdTokenClaimsSchema` and `ValidatedIdToken`, Graph and Exchange DTO schemas (allow-lists that drop unknown fields), `StepDetailSchema` and `LogParamsSchema` (secret-free writers), `RouteDefinition` additions (`availability`, `actorKinds`, `secFetch`, access kinds).
 
 ### 12.3 Web only (`apps/web`)
 

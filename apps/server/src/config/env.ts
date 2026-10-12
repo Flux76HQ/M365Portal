@@ -6,13 +6,26 @@
 //     is invalid for every variable (an empty PORT is not "the default": FR-A-016).
 //   - Every message names the variable and is a fixed text. No message carries the value: a
 //     configuration error is logged, and a value may be a secret or a mistyped credential.
-//   - Phase A has no secret variable, but the rule is the same for Phase B, which adds some.
+//   - Phase B adds secret variables (`APP_KEY`, `SETUP_TOKEN`, ...). They are carried as `SecretText`
+//     and the report never repeats them, which the rule above already says for every variable.
+//   - `PREVIEW_MODE` and `PREVIEW_MODE_ALLOW_REMOTE` are gone (FR-B-102): they are not read, and
+//     `removedVariablesIn` only names them so the start can warn once.
 //   - `HOST_PORT` is a Compose-only variable (the port published on the Docker host) and is not
 //     in this list: the application never reads it (FR-A-016, A-63).
 import { isIP, isIPv4, isIPv6 } from 'node:net';
 import { isAbsolute } from 'node:path';
+import { parsePublicBaseUrl } from '@m365portal/shared/auth/redirect-uri';
+import { parseScryptHash } from '@m365portal/shared/auth/scrypt-hash';
 import { DEFAULT_PORT, LIMITS } from '@m365portal/shared/limits';
 import { z } from 'zod';
+import { parseAppKey } from '../secrets/app-key.js';
+import {
+  deriveDurations,
+  deriveRedirects,
+  type DerivedDurations,
+  type DerivedRedirects,
+} from './derived.js';
+import { SecretText } from './secret-text.js';
 
 // ---------------------------------------------------------------------------------------------
 // Types
@@ -52,8 +65,6 @@ export interface AppConfig {
   readonly publicHost: string;
   readonly publicIsHttps: boolean;
   readonly trustProxy: TrustProxySetting;
-  readonly previewMode: boolean;
-  readonly previewModeAllowRemote: boolean;
   readonly showcase: boolean;
   readonly logLevel: LogLevel;
   readonly hsts: {
@@ -61,7 +72,36 @@ export interface AppConfig {
     readonly includeSubDomains: boolean;
     readonly preload: boolean;
   };
+  /** The redirect URIs, derived from `PUBLIC_BASE_URL` by the one shared module (FR-B-103). */
+  readonly redirectUris: DerivedRedirects['redirectUris'];
+  readonly authorizeRedirectUri: string;
+  readonly postLogoutRedirectUri: string;
+  /** `APP_KEY` or the file that holds it (FR-B-104). The file is read at start, not here. */
+  readonly appKey: KeySource;
+  /** `APP_KEY_PREVIOUS` or its file; set only while the key is rotated (FR-B-109). */
+  readonly appKeyPrevious: KeySource;
+  /** `SETUP_TOKEN`; unset means the token file is used (FR-B-203). */
+  readonly setupToken: SecretText | undefined;
+  /** The public client of the device-code bootstrap, lower case (FR-B-214). */
+  readonly bootstrapClientId: string;
+  /** The durations, in milliseconds (`derived.ts`). */
+  readonly setup: DerivedDurations['setup'];
+  readonly session: DerivedDurations['session'];
+  readonly rbac: DerivedDurations['rbac'];
+  /** The sign-in policy (FR-B-405). */
+  readonly auth: {
+    readonly requireMfa: boolean;
+    readonly mfaAmrValues: readonly string[];
+  };
+  /** The optional break-glass account (FR-B-521): both variables, or none. */
+  readonly breakGlass: { readonly username: string; readonly passwordHash: SecretText } | undefined;
 }
+
+/** Where an `APP_KEY` comes from: nothing, the variable, or a file read at start. */
+export type KeySource =
+  | { readonly source: 'none' }
+  | { readonly source: 'env'; readonly value: SecretText }
+  | { readonly source: 'file'; readonly path: string };
 
 // ---------------------------------------------------------------------------------------------
 // Hosts: the one normaliser (used by the configuration, the HSTS rule and the preview rule)
@@ -164,10 +204,15 @@ interface PublicBase {
   readonly origin: string;
   readonly host: string;
   readonly https: boolean;
+  /** The text as given, for the shared redirect-URI module. */
+  readonly text: string;
 }
 
 function parsePublicBase(raw: string): PublicBase | undefined {
   if (!BASE_URL_SHAPE.test(raw)) return undefined;
+  // Phase B: only a base URL the application registration can hold (FR-B-103): https, or http with
+  // the host exactly `localhost`. The shared module is the one place that decides.
+  if (!parsePublicBaseUrl(raw).ok) return undefined;
   let url: URL;
   try {
     url = new URL(raw);
@@ -176,7 +221,7 @@ function parsePublicBase(raw: string): PublicBase | undefined {
   }
   const host = normalizeHost(url.host);
   if (host === undefined) return undefined;
-  return { origin: url.origin, host, https: url.protocol === 'https:' };
+  return { origin: url.origin, host, https: url.protocol === 'https:', text: raw };
 }
 
 function parseNetwork(entry: string): TrustedNetwork | undefined {
@@ -228,6 +273,62 @@ function parseMaxAge(raw: string): number | undefined {
   return seconds <= MAX_HSTS_MAX_AGE ? seconds : undefined;
 }
 
+// Phase B ----------------------------------------------------------------------------------------
+
+const WHOLE_NUMBER = /^[1-9]\d{0,5}$/;
+const SETUP_TOKEN_SHAPE = /^[A-Za-z0-9._~-]{24,128}$/;
+const MIN_SETUP_TOKEN_DISTINCT = 12;
+const GUID_ANY_CASE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const AMR_VALUE = /^[a-z0-9]{2,32}$/;
+const SINGLE_FACTOR_AMR = ['pwd', 'wia', 'x509'] as const;
+const MAX_AMR_VALUES = 8;
+const BREAK_GLASS_USERNAME_SHAPE = /^[A-Za-z0-9._-]{3,64}$/;
+
+/** A whole number in `[min, max]`, written without sign, leading zero, whitespace or exponent. */
+function parseWholeNumber(min: number, max: number): (raw: string) => number | undefined {
+  return (raw) => {
+    if (!WHOLE_NUMBER.test(raw)) return undefined;
+    const value = Number(raw);
+    return value >= min && value <= max ? value : undefined;
+  };
+}
+
+function parseAppKeyVariable(raw: string): SecretText | undefined {
+  return parseAppKey(raw).ok ? new SecretText(raw) : undefined;
+}
+
+/** An absolute path of a key file. Whether it can be read is found out at start (FR-B-108). */
+function parseKeyFilePath(raw: string): string | undefined {
+  return parseDataDir(raw);
+}
+
+function parseSetupToken(raw: string): SecretText | undefined {
+  if (!SETUP_TOKEN_SHAPE.test(raw)) return undefined;
+  return new Set(raw).size >= MIN_SETUP_TOKEN_DISTINCT ? new SecretText(raw) : undefined;
+}
+
+function parseGuidLowerCased(raw: string): string | undefined {
+  return GUID_ANY_CASE.test(raw) ? raw.toLowerCase() : undefined;
+}
+
+function parseAmrValues(raw: string): readonly string[] | undefined {
+  const values = raw.split(',');
+  if (values.length > MAX_AMR_VALUES || new Set(values).size !== values.length) return undefined;
+  const allowed = values.every(
+    (value) => AMR_VALUE.test(value) && !(SINGLE_FACTOR_AMR as readonly string[]).includes(value),
+  );
+  return allowed ? values : undefined;
+}
+
+function parseBreakGlassUsername(raw: string): string | undefined {
+  return BREAK_GLASS_USERNAME_SHAPE.test(raw) ? raw : undefined;
+}
+
+function parseBreakGlassHash(raw: string): SecretText | undefined {
+  return parseScryptHash(raw).ok ? new SecretText(raw) : undefined;
+}
+
 // ---------------------------------------------------------------------------------------------
 // The variable list
 // ---------------------------------------------------------------------------------------------
@@ -238,24 +339,59 @@ export const ENV_VARIABLE_NAMES = [
   'DATA_DIR',
   'PUBLIC_BASE_URL',
   'TRUST_PROXY',
-  'PREVIEW_MODE',
-  'PREVIEW_MODE_ALLOW_REMOTE',
   'SHOWCASE',
   'LOG_LEVEL',
   'HSTS_MAX_AGE',
   'HSTS_INCLUDE_SUBDOMAINS',
   'HSTS_PRELOAD',
+  // Phase B (spec 6.9.1), in the order of the table.
+  'APP_KEY',
+  'APP_KEY_FILE',
+  'APP_KEY_PREVIOUS',
+  'APP_KEY_PREVIOUS_FILE',
+  'SETUP_TOKEN',
+  'BOOTSTRAP_CLIENT_ID',
+  'SETUP_PROPAGATION_TIMEOUT_SECONDS',
+  'SESSION_IDLE_TIMEOUT_MINUTES',
+  'SESSION_ABSOLUTE_TIMEOUT_HOURS',
+  'GROUP_CACHE_TTL_SECONDS',
+  'AUTH_REQUIRE_MFA',
+  'AUTH_MFA_AMR_VALUES',
+  'BREAK_GLASS_USERNAME',
+  'BREAK_GLASS_PASSWORD_HASH',
 ] as const;
 export type EnvName = (typeof ENV_VARIABLE_NAMES)[number];
 
-export interface EnvVariable {
-  readonly name: EnvName;
-  /** The default as the spec writes it (FR-A-010); `PUBLIC_BASE_URL` depends on `PORT`. */
-  readonly defaultText: string;
+/**
+ * The variables Phase B removed (FR-B-102). They are not read; a start that finds one in the
+ * environment says so once (`removedVariablesIn`) and carries on exactly as without it.
+ */
+export const REMOVED_VARIABLE_NAMES = ['PREVIEW_MODE', 'PREVIEW_MODE_ALLOW_REMOTE'] as const;
+
+/** The names of the removed variables that `env` still sets, in the order above. */
+export function removedVariablesIn(env: Readonly<Record<string, string | undefined>>): string[] {
+  return REMOVED_VARIABLE_NAMES.filter((name) => Object.hasOwn(env, name));
 }
 
+export interface EnvVariable {
+  readonly name: EnvName;
+  /**
+   * The default as the spec writes it (FR-A-010, 6.9.1); `PUBLIC_BASE_URL` depends on `PORT`. A
+   * variable with no default is `unset`: the application behaves as documented without it.
+   */
+  readonly defaultText: string;
+  /** True for a variable whose value is a secret (never logged, never echoed). */
+  readonly secret?: boolean;
+}
+
+/** The default of a variable that has none (spec 6.9.1: `unset`). */
+const UNSET = 'unset';
+
+/** The public client id of the device-code bootstrap (FR-B-214, spec 6.9.1). */
+const DEFAULT_BOOTSTRAP_CLIENT_ID = '14d82eec-204b-4c2f-b7e8-296a70dab67e';
+
 /**
- * Every variable with its default, in the order of FR-A-010. `server/deploy-files.test.ts` compares
+ * Every variable with its default, in the order of FR-A-010 (Phase A) and the table of 6.9.1. `server/deploy-files.test.ts` compares
  * `.env.example` and the Compose file with this list (TA-06), and `config.test.ts` compares it with
  * the FR-A-010 row of the spec.
  */
@@ -265,16 +401,44 @@ export const ENV_VARIABLES: readonly EnvVariable[] = [
   { name: 'DATA_DIR', defaultText: '/data' },
   { name: 'PUBLIC_BASE_URL', defaultText: 'http://localhost:<PORT>' },
   { name: 'TRUST_PROXY', defaultText: 'none' },
-  { name: 'PREVIEW_MODE', defaultText: 'false' },
-  { name: 'PREVIEW_MODE_ALLOW_REMOTE', defaultText: 'false' },
   { name: 'SHOWCASE', defaultText: 'false' },
   { name: 'LOG_LEVEL', defaultText: 'info' },
   { name: 'HSTS_MAX_AGE', defaultText: String(LIMITS.hstsMaxAgeSeconds) },
   { name: 'HSTS_INCLUDE_SUBDOMAINS', defaultText: 'false' },
   { name: 'HSTS_PRELOAD', defaultText: 'false' },
+  // Phase B, spec 6.9.1.
+  { name: 'APP_KEY', defaultText: UNSET, secret: true },
+  { name: 'APP_KEY_FILE', defaultText: UNSET },
+  { name: 'APP_KEY_PREVIOUS', defaultText: UNSET, secret: true },
+  { name: 'APP_KEY_PREVIOUS_FILE', defaultText: UNSET },
+  { name: 'SETUP_TOKEN', defaultText: UNSET, secret: true },
+  { name: 'BOOTSTRAP_CLIENT_ID', defaultText: DEFAULT_BOOTSTRAP_CLIENT_ID },
+  {
+    name: 'SETUP_PROPAGATION_TIMEOUT_SECONDS',
+    defaultText: String(LIMITS.setup.propagationTimeoutSeconds.default),
+  },
+  {
+    name: 'SESSION_IDLE_TIMEOUT_MINUTES',
+    defaultText: String(LIMITS.session.idleTimeoutMinutes.default),
+  },
+  {
+    name: 'SESSION_ABSOLUTE_TIMEOUT_HOURS',
+    defaultText: String(LIMITS.session.absoluteTimeoutHours.default),
+  },
+  {
+    name: 'GROUP_CACHE_TTL_SECONDS',
+    defaultText: String(LIMITS.rbac.groupCacheTtlSeconds.default),
+  },
+  { name: 'AUTH_REQUIRE_MFA', defaultText: 'true' },
+  { name: 'AUTH_MFA_AMR_VALUES', defaultText: 'mfa,multipleauthn' },
+  { name: 'BREAK_GLASS_USERNAME', defaultText: UNSET },
+  { name: 'BREAK_GLASS_PASSWORD_HASH', defaultText: UNSET, secret: true },
 ];
 
 const BOOLEAN_TEXT = (name: string): string => `${name} must be true or false`;
+
+const rangeText = (name: string, range: { readonly min: number; readonly max: number }): string =>
+  `${name} must be an integer between ${String(range.min)} and ${String(range.max)}`;
 
 /** The messages. Fixed texts: none of them can carry a value (see the header of this file). */
 export const ENV_MESSAGES: Readonly<Record<EnvName, string>> = {
@@ -282,22 +446,53 @@ export const ENV_MESSAGES: Readonly<Record<EnvName, string>> = {
   HOST: 'HOST must be a host name or an IP address',
   DATA_DIR: 'DATA_DIR must be an absolute path',
   PUBLIC_BASE_URL:
-    'PUBLIC_BASE_URL must be an http or https origin without path, query, fragment or credentials',
+    'PUBLIC_BASE_URL must be https, or http with the host localhost, as an origin without path, query, fragment or credentials',
   TRUST_PROXY: `TRUST_PROXY must be none, a number of proxies from 1 to ${String(MAX_TRUSTED_HOPS)}, or a comma-separated list of at most ${String(MAX_TRUSTED_ENTRIES)} IP addresses or CIDR ranges`,
-  PREVIEW_MODE: BOOLEAN_TEXT('PREVIEW_MODE'),
-  PREVIEW_MODE_ALLOW_REMOTE: BOOLEAN_TEXT('PREVIEW_MODE_ALLOW_REMOTE'),
   SHOWCASE: BOOLEAN_TEXT('SHOWCASE'),
   LOG_LEVEL: `LOG_LEVEL must be one of ${LOG_LEVELS.join(', ')}`,
   HSTS_MAX_AGE: `HSTS_MAX_AGE must be an integer between 0 and ${String(MAX_HSTS_MAX_AGE)}`,
   HSTS_INCLUDE_SUBDOMAINS: BOOLEAN_TEXT('HSTS_INCLUDE_SUBDOMAINS'),
   HSTS_PRELOAD: BOOLEAN_TEXT('HSTS_PRELOAD'),
+  APP_KEY:
+    'APP_KEY must be 32 bytes written as base64, base64url or 64 hexadecimal characters, with at least 16 distinct byte values',
+  APP_KEY_FILE: 'APP_KEY_FILE must be an absolute path',
+  APP_KEY_PREVIOUS:
+    'APP_KEY_PREVIOUS must be 32 bytes written as base64, base64url or 64 hexadecimal characters, with at least 16 distinct byte values',
+  APP_KEY_PREVIOUS_FILE: 'APP_KEY_PREVIOUS_FILE must be an absolute path',
+  SETUP_TOKEN:
+    'SETUP_TOKEN must be 24 to 128 characters from A-Z a-z 0-9 - _ . ~ with at least 12 distinct characters',
+  BOOTSTRAP_CLIENT_ID: 'BOOTSTRAP_CLIENT_ID must be a GUID',
+  SETUP_PROPAGATION_TIMEOUT_SECONDS: rangeText(
+    'SETUP_PROPAGATION_TIMEOUT_SECONDS',
+    LIMITS.setup.propagationTimeoutSeconds,
+  ),
+  SESSION_IDLE_TIMEOUT_MINUTES: rangeText(
+    'SESSION_IDLE_TIMEOUT_MINUTES',
+    LIMITS.session.idleTimeoutMinutes,
+  ),
+  SESSION_ABSOLUTE_TIMEOUT_HOURS: rangeText(
+    'SESSION_ABSOLUTE_TIMEOUT_HOURS',
+    LIMITS.session.absoluteTimeoutHours,
+  ),
+  GROUP_CACHE_TTL_SECONDS: rangeText('GROUP_CACHE_TTL_SECONDS', LIMITS.rbac.groupCacheTtlSeconds),
+  AUTH_REQUIRE_MFA: BOOLEAN_TEXT('AUTH_REQUIRE_MFA'),
+  AUTH_MFA_AMR_VALUES:
+    'AUTH_MFA_AMR_VALUES must be 1 to 8 distinct comma-separated values of 2 to 32 characters from a-z 0-9, and must not include pwd, wia or x509',
+  BREAK_GLASS_USERNAME: 'BREAK_GLASS_USERNAME must be 3 to 64 characters from A-Z a-z 0-9 . _ -',
+  BREAK_GLASS_PASSWORD_HASH:
+    'BREAK_GLASS_PASSWORD_HASH must be a scrypt: hash with N from 16384 to 131072, r 8 to 16, p 1 to 4 and 128 * N * r of at most 134217728',
 };
 
 /** Cross-variable messages, also fixed texts. */
 export const CROSS_MESSAGES = {
-  previewRemote:
-    'PREVIEW_MODE=true requires a loopback PUBLIC_BASE_URL (localhost, 127.0.0.0/8 or ::1) unless PREVIEW_MODE_ALLOW_REMOTE=true',
   hstsPreload: `HSTS_PRELOAD=true requires HSTS_INCLUDE_SUBDOMAINS=true and HSTS_MAX_AGE of at least ${String(LIMITS.hstsMaxAgeSeconds)}`,
+  appKeyExclusive: 'APP_KEY and APP_KEY_FILE are mutually exclusive: set only one of them',
+  appKeyPreviousExclusive:
+    'APP_KEY_PREVIOUS and APP_KEY_PREVIOUS_FILE are mutually exclusive: set only one of them',
+  breakGlassPair:
+    'BREAK_GLASS_USERNAME and BREAK_GLASS_PASSWORD_HASH must be set together or not at all',
+  sessionOrder:
+    'SESSION_ABSOLUTE_TIMEOUT_HOURS multiplied by 60 must be greater than SESSION_IDLE_TIMEOUT_MINUTES',
 } as const;
 
 // ---------------------------------------------------------------------------------------------
@@ -334,7 +529,7 @@ const fallbackOf = (name: EnvName): string => {
 };
 
 /**
- * The environment as the application reads it. The input is an object with the twelve keys of
+ * The environment as the application reads it. The input is an object with the keys of
  * `ENV_VARIABLE_NAMES` (values may be `undefined`); the output is the frozen `AppConfig`.
  */
 export const EnvSchema = z
@@ -345,12 +540,6 @@ export const EnvSchema = z
     // The default depends on PORT, so it is filled in below.
     PUBLIC_BASE_URL: variable('PUBLIC_BASE_URL', undefined, parsePublicBase),
     TRUST_PROXY: variable('TRUST_PROXY', fallbackOf('TRUST_PROXY'), parseTrustProxy),
-    PREVIEW_MODE: variable('PREVIEW_MODE', fallbackOf('PREVIEW_MODE'), parseBoolean),
-    PREVIEW_MODE_ALLOW_REMOTE: variable(
-      'PREVIEW_MODE_ALLOW_REMOTE',
-      fallbackOf('PREVIEW_MODE_ALLOW_REMOTE'),
-      parseBoolean,
-    ),
     SHOWCASE: variable('SHOWCASE', fallbackOf('SHOWCASE'), parseBoolean),
     LOG_LEVEL: variable('LOG_LEVEL', fallbackOf('LOG_LEVEL'), parseLogLevel),
     HSTS_MAX_AGE: variable('HSTS_MAX_AGE', fallbackOf('HSTS_MAX_AGE'), parseMaxAge),
@@ -360,46 +549,125 @@ export const EnvSchema = z
       parseBoolean,
     ),
     HSTS_PRELOAD: variable('HSTS_PRELOAD', fallbackOf('HSTS_PRELOAD'), parseBoolean),
+    // Phase B. A variable with no default stays `undefined` when it is not set.
+    APP_KEY: variable('APP_KEY', undefined, parseAppKeyVariable),
+    APP_KEY_FILE: variable('APP_KEY_FILE', undefined, parseKeyFilePath),
+    APP_KEY_PREVIOUS: variable('APP_KEY_PREVIOUS', undefined, parseAppKeyVariable),
+    APP_KEY_PREVIOUS_FILE: variable('APP_KEY_PREVIOUS_FILE', undefined, parseKeyFilePath),
+    SETUP_TOKEN: variable('SETUP_TOKEN', undefined, parseSetupToken),
+    BOOTSTRAP_CLIENT_ID: variable(
+      'BOOTSTRAP_CLIENT_ID',
+      fallbackOf('BOOTSTRAP_CLIENT_ID'),
+      parseGuidLowerCased,
+    ),
+    SETUP_PROPAGATION_TIMEOUT_SECONDS: variable(
+      'SETUP_PROPAGATION_TIMEOUT_SECONDS',
+      fallbackOf('SETUP_PROPAGATION_TIMEOUT_SECONDS'),
+      parseWholeNumber(
+        LIMITS.setup.propagationTimeoutSeconds.min,
+        LIMITS.setup.propagationTimeoutSeconds.max,
+      ),
+    ),
+    SESSION_IDLE_TIMEOUT_MINUTES: variable(
+      'SESSION_IDLE_TIMEOUT_MINUTES',
+      fallbackOf('SESSION_IDLE_TIMEOUT_MINUTES'),
+      parseWholeNumber(
+        LIMITS.session.idleTimeoutMinutes.min,
+        LIMITS.session.idleTimeoutMinutes.max,
+      ),
+    ),
+    SESSION_ABSOLUTE_TIMEOUT_HOURS: variable(
+      'SESSION_ABSOLUTE_TIMEOUT_HOURS',
+      fallbackOf('SESSION_ABSOLUTE_TIMEOUT_HOURS'),
+      parseWholeNumber(
+        LIMITS.session.absoluteTimeoutHours.min,
+        LIMITS.session.absoluteTimeoutHours.max,
+      ),
+    ),
+    GROUP_CACHE_TTL_SECONDS: variable(
+      'GROUP_CACHE_TTL_SECONDS',
+      fallbackOf('GROUP_CACHE_TTL_SECONDS'),
+      parseWholeNumber(LIMITS.rbac.groupCacheTtlSeconds.min, LIMITS.rbac.groupCacheTtlSeconds.max),
+    ),
+    AUTH_REQUIRE_MFA: variable('AUTH_REQUIRE_MFA', fallbackOf('AUTH_REQUIRE_MFA'), parseBoolean),
+    AUTH_MFA_AMR_VALUES: variable(
+      'AUTH_MFA_AMR_VALUES',
+      fallbackOf('AUTH_MFA_AMR_VALUES'),
+      parseAmrValues,
+    ),
+    BREAK_GLASS_USERNAME: variable('BREAK_GLASS_USERNAME', undefined, parseBreakGlassUsername),
+    BREAK_GLASS_PASSWORD_HASH: variable(
+      'BREAK_GLASS_PASSWORD_HASH',
+      undefined,
+      parseBreakGlassHash,
+    ),
   })
   .transform((values, context): AppConfig => {
-    // Every default above is a valid value, so a field is only undefined when it is the base URL.
+    // Every default above is a valid value, so a field is only undefined when it has no default.
     const port = values.PORT ?? DEFAULT_PORT;
     // The default base URL is the browser's view of the default setup (A-63): this machine.
     const base: PublicBase = values.PUBLIC_BASE_URL ?? {
       origin: `http://localhost:${String(port)}`,
       host: 'localhost',
       https: false,
+      text: `http://localhost:${String(port)}`,
     };
-    const previewMode = values.PREVIEW_MODE ?? false;
-    const previewModeAllowRemote = values.PREVIEW_MODE_ALLOW_REMOTE ?? false;
     const hsts = {
       maxAgeSeconds: values.HSTS_MAX_AGE ?? LIMITS.hstsMaxAgeSeconds,
       includeSubDomains: values.HSTS_INCLUDE_SUBDOMAINS ?? false,
       preload: values.HSTS_PRELOAD ?? false,
     };
+    const issue = (message: string, path: EnvName): void => {
+      context.issues.push({ code: 'custom', message, input: undefined, path: [path] });
+    };
 
-    // FR-A-035, E-17: preview mode is unauthenticated administration, so it may only be configured
-    // for a name that points at this machine, unless the operator says otherwise in so many words.
-    if (previewMode && !previewModeAllowRemote && !isLoopbackHost(base.host)) {
-      context.issues.push({
-        code: 'custom',
-        message: CROSS_MESSAGES.previewRemote,
-        input: undefined,
-        path: ['PREVIEW_MODE'],
-      });
-    }
     // Baseline section 13: a preload promise needs includeSubDomains and at least a year.
     if (
       hsts.preload &&
       (!hsts.includeSubDomains || hsts.maxAgeSeconds < LIMITS.hstsMaxAgeSeconds)
     ) {
-      context.issues.push({
-        code: 'custom',
-        message: CROSS_MESSAGES.hstsPreload,
-        input: undefined,
-        path: ['HSTS_PRELOAD'],
-      });
+      issue(CROSS_MESSAGES.hstsPreload, 'HSTS_PRELOAD');
     }
+    // FR-B-104, FR-B-109: one source for the key, one for the previous key.
+    if (values.APP_KEY !== undefined && values.APP_KEY_FILE !== undefined) {
+      issue(CROSS_MESSAGES.appKeyExclusive, 'APP_KEY');
+    }
+    if (values.APP_KEY_PREVIOUS !== undefined && values.APP_KEY_PREVIOUS_FILE !== undefined) {
+      issue(CROSS_MESSAGES.appKeyPreviousExclusive, 'APP_KEY_PREVIOUS');
+    }
+    // FR-B-521: the break-glass account is both variables or none.
+    if (
+      (values.BREAK_GLASS_USERNAME === undefined) !==
+      (values.BREAK_GLASS_PASSWORD_HASH === undefined)
+    ) {
+      issue(
+        CROSS_MESSAGES.breakGlassPair,
+        values.BREAK_GLASS_USERNAME === undefined
+          ? 'BREAK_GLASS_USERNAME'
+          : 'BREAK_GLASS_PASSWORD_HASH',
+      );
+    }
+    // FR-B-407: the absolute lifetime must exceed the idle one.
+    const idleMinutes =
+      values.SESSION_IDLE_TIMEOUT_MINUTES ?? LIMITS.session.idleTimeoutMinutes.default;
+    const absoluteHours =
+      values.SESSION_ABSOLUTE_TIMEOUT_HOURS ?? LIMITS.session.absoluteTimeoutHours.default;
+    if (absoluteHours * 60 <= idleMinutes) {
+      issue(CROSS_MESSAGES.sessionOrder, 'SESSION_ABSOLUTE_TIMEOUT_HOURS');
+    }
+
+    const durations = deriveDurations({
+      setupPropagationTimeoutSeconds:
+        values.SETUP_PROPAGATION_TIMEOUT_SECONDS ?? LIMITS.setup.propagationTimeoutSeconds.default,
+      sessionIdleTimeoutMinutes: idleMinutes,
+      sessionAbsoluteTimeoutHours: absoluteHours,
+      groupCacheTtlSeconds:
+        values.GROUP_CACHE_TTL_SECONDS ?? LIMITS.rbac.groupCacheTtlSeconds.default,
+    });
+    const keySource = (value: SecretText | undefined, file: string | undefined): KeySource => {
+      if (value !== undefined) return { source: 'env', value };
+      return file === undefined ? { source: 'none' } : { source: 'file', path: file };
+    };
 
     return deepFreeze({
       port,
@@ -409,11 +677,26 @@ export const EnvSchema = z
       publicHost: base.host,
       publicIsHttps: base.https,
       trustProxy: values.TRUST_PROXY ?? { mode: 'none' as const },
-      previewMode,
-      previewModeAllowRemote,
       showcase: values.SHOWCASE ?? false,
       logLevel: values.LOG_LEVEL ?? 'info',
       hsts,
+      ...deriveRedirects(base.text),
+      appKey: keySource(values.APP_KEY, values.APP_KEY_FILE),
+      appKeyPrevious: keySource(values.APP_KEY_PREVIOUS, values.APP_KEY_PREVIOUS_FILE),
+      setupToken: values.SETUP_TOKEN,
+      bootstrapClientId: values.BOOTSTRAP_CLIENT_ID ?? DEFAULT_BOOTSTRAP_CLIENT_ID,
+      ...durations,
+      auth: {
+        requireMfa: values.AUTH_REQUIRE_MFA ?? true,
+        mfaAmrValues: values.AUTH_MFA_AMR_VALUES ?? ['mfa', 'multipleauthn'],
+      },
+      breakGlass:
+        values.BREAK_GLASS_USERNAME !== undefined && values.BREAK_GLASS_PASSWORD_HASH !== undefined
+          ? {
+              username: values.BREAK_GLASS_USERNAME,
+              passwordHash: values.BREAK_GLASS_PASSWORD_HASH,
+            }
+          : undefined,
     });
   });
 

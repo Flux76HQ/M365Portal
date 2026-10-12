@@ -21,22 +21,34 @@ import {
   seedQueryClient,
 } from '../src/lib/query';
 import {
-  SAMPLE_VERSION,
   escapeForScript,
   installBootBlock,
   installNonceMeta,
+  SAMPLE_VERSION,
   sampleBranding,
   sampleMe,
+  sampleSignedInMe,
 } from './helpers/boot-fixtures';
 
 function freshDocument(): Document {
   return document.implementation.createHTMLDocument('boot');
 }
 
+describe('readBootData: the stored default language', () => {
+  it('carries defaultLanguage of me, null when none is stored', () => {
+    for (const defaultLanguage of ['nl', 'en', null] as const) {
+      const doc = freshDocument();
+      const data = { me: sampleMe({ defaultLanguage }), branding: sampleBranding() };
+      installBootBlock(doc, escapeForScript(JSON.stringify(data)));
+      expect(readBootData(doc)?.me.defaultLanguage).toBe(defaultLanguage);
+    }
+  });
+});
+
 describe('readBootData', () => {
   it('parses the block the server renders into me and branding', () => {
     const doc = freshDocument();
-    const data = { me: sampleMe({ preview: true }), branding: sampleBranding('Acme') };
+    const data = { me: sampleSignedInMe(), branding: sampleBranding('Acme') };
     installBootBlock(doc, `\n  ${escapeForScript(JSON.stringify(data))}\n`);
 
     const read = readBootData(doc);
@@ -142,14 +154,14 @@ describe('the Zod configuration (probe P17)', () => {
 
   it('is in effect for the schemas the app parses with', () => {
     // A parse still works without code generation.
-    expect(sampleMe({ preview: true }).permissions.length).toBeGreaterThan(0);
+    expect(sampleSignedInMe().permissions.length).toBeGreaterThan(0);
   });
 });
 
 describe('seeding the Query cache', () => {
   it('puts me and branding in the cache, ready for the first render', () => {
     const queryClient = createAppQueryClient();
-    const data = { me: sampleMe({ preview: true }), branding: sampleBranding('Acme') };
+    const data = { me: sampleSignedInMe(), branding: sampleBranding('Acme') };
 
     seedQueryClient(queryClient, data, createApiClient({ fetch: vi.fn(), buildVersion: null }));
 
@@ -223,7 +235,7 @@ describe('the queries', () => {
   }
 
   it('fetch me and branding from their routes and validate what comes back', async () => {
-    const me = sampleMe({ preview: true });
+    const me = sampleSignedInMe();
     const branding = sampleBranding('Acme');
     const urls: string[] = [];
     const api = createApiClient({

@@ -25,21 +25,22 @@ import {
   type BrandingApp,
   type BrandingStorage,
 } from './branding-fixture.js';
+import { ADMIN } from '../helpers/http-app.js';
 import { createOutputsApp } from './outputs-fixture.js';
 
 const EXPORT = '/api/v1/branding/export';
 const IMPORT = '/api/v1/branding/import';
-const STAFF = { actor: { kind: 'preview', id: 'preview' } } as const;
+const STAFF = { actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa' } } as const;
 
 interface Counted extends BrandingApp {
   /** How often the export document was built. */
   readonly exportsBuilt: { count: number };
 }
 
-async function app(preview = true): Promise<Counted> {
+async function app(signedIn = true): Promise<Counted> {
   const exportsBuilt = { count: 0 };
   const built = await createOutputsApp({
-    preview,
+    signedIn,
     withBrandingRoutes: true,
     routes: (storage) =>
       exportImportRoutes({
@@ -178,7 +179,8 @@ describe('R10 GET /api/v1/branding/export', () => {
   it('dates the file name with the clock of the server, in UTC', async () => {
     const storage = await app();
     storage.clock.set('2027-01-02T23:59:59.000Z');
-    const response = await storage.app.client.get(EXPORT);
+    // The session of `app()` is long idle by now; the administrator signs in again at the new time.
+    const response = await storage.app.signedInAs(ADMIN).client.get(EXPORT);
     expect(response.headers.get('content-disposition')).toContain(
       'm365portal-branding-20270102.json',
     );
@@ -196,7 +198,7 @@ describe('R10 GET /api/v1/branding/export', () => {
     expect(rows[0]).toMatchObject({
       action: 'branding.export',
       outcome: 'success',
-      actor_kind: 'preview',
+      actor_kind: 'user',
       target_type: 'branding',
       target_id: '1',
       request_id: 'export-0001-test',
@@ -238,7 +240,7 @@ describe('R10 GET /api/v1/branding/export', () => {
       action: 'branding.export',
       outcome: 'error',
       reason_code: 'internal_error',
-      actor_kind: 'preview',
+      actor_kind: 'user',
     });
     expect(rows[0]?.detail).not.toContain(gone);
 
@@ -266,12 +268,12 @@ describe('R10 GET /api/v1/branding/export', () => {
     }
   });
 
-  it('answers a denied read with 403 and does not audit it (PA-15)', async () => {
+  it('answers a denied read of the anonymous actor with 401 and does not audit it (PA-15, FR-B-602)', async () => {
     const storage = await app(false);
     const before = storage.audit().length;
     const response = await storage.app.client.get(EXPORT);
-    expect(response.status).toBe(403);
-    expect(await problemCode(response)).toBe('permission_denied');
+    expect(response.status).toBe(401);
+    expect(await problemCode(response)).toBe('unauthenticated');
     expect(storage.audit()).toHaveLength(before);
     expect(storage.exportsBuilt.count).toBe(0);
   });
@@ -760,12 +762,12 @@ describe('R11 applying an import', () => {
     expect(loser.length).toBeGreaterThan(0);
   });
 
-  it('answers 403 and audits the denial for the anonymous actor; nothing is parsed', async () => {
+  it('answers 401 and audits the denial for the anonymous actor; nothing is parsed', async () => {
     const storage = await app(false);
     const before = storage.audit().length;
     const response = await post(storage.app.client, '{not even json');
-    expect(response.status).toBe(403);
-    expect(await problemCode(response)).toBe('permission_denied');
+    expect(response.status).toBe(401);
+    expect(await problemCode(response)).toBe('unauthenticated');
     const rows = storage.audit().slice(before);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ outcome: 'denied' });

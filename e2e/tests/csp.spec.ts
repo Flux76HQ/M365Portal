@@ -4,7 +4,16 @@
 // fails any test that sees one; the tests below also state it, and prove with deliberate sinks that
 // the policy really is enforced (a guard that cannot fire proves nothing).
 import { ROUTES } from '../routes.js';
-import { expect, test } from '../fixtures.js';
+import { NO_ACCESS_REASONS, SIGNIN_ERROR_CODES } from '@m365portal/shared/auth/signin-errors';
+import { allowLockedSetup, expect, test } from '../fixtures.js';
+import { readState } from '../servers.js';
+import { originOf } from '../support/ports.js';
+import {
+  allowStaleCsrfAfterUnlock,
+  passEnvironment,
+  startDeviceSignIn,
+  unlock,
+} from '../support/wizard-page.js';
 
 test.describe('zero violations', () => {
   for (const route of ROUTES) {
@@ -13,6 +22,7 @@ test.describe('zero violations', () => {
       app,
       guard,
     }) => {
+      allowLockedSetup(guard);
       await app.goto(route);
       await page.mouse.wheel(0, 600);
       await page.getByRole('radio', { name: 'Dark' }).click();
@@ -198,5 +208,121 @@ test.describe('the policy is enforced', () => {
       document.body.style.setProperty('--csp-probe', '1');
     });
     expect(guard.problems).toEqual([]);
+  });
+});
+
+// ---- Phase B (T-B-377): the new routes and states -----------------------------------------------------
+// The guard fails every test on a `securitypolicyviolation` and on a request from page scripts to a
+// Microsoft host; each test also states that nothing was seen.
+
+test.describe('Phase B: sign-in, no-access, break-glass', () => {
+  test.use({ principal: 'anonymous' });
+
+  for (const code of SIGNIN_ERROR_CODES) {
+    test(`/signin?error=${code} renders without a violation`, async ({ page, app, guard }) => {
+      await app.goto(`/signin?error=${code}`);
+      await expect(page.locator('[data-slot="signin-error"]')).toHaveAttribute('data-code', code);
+      await page.getByRole('radio', { name: 'Dark' }).click();
+      await page.getByRole('radio', { name: 'Light' }).click();
+      expect(guard.problems).toEqual([]);
+    });
+  }
+
+  for (const reason of NO_ACCESS_REASONS) {
+    test(`/no-access?reason=${reason} renders without a violation`, async ({
+      page,
+      app,
+      guard,
+    }) => {
+      await app.goto(`/no-access?reason=${reason}&ref=0123456789abcdef`);
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'No access to the panel' }),
+      ).toBeVisible();
+      expect(guard.problems).toEqual([]);
+    });
+  }
+
+  test('the whole sign-in, with its interstitial, causes no violation and no script request to Microsoft', async ({
+    app,
+    guard,
+  }) => {
+    await app.signInAs('helpdesk');
+    await app.ready();
+    expect(guard.problems).toEqual([]);
+  });
+
+  test('/break-glass renders without a violation', async ({ page, app, guard }) => {
+    await app.goto('/break-glass');
+    await expect(page.getByRole('heading', { level: 1, name: 'Break-glass access' })).toBeVisible();
+    expect(guard.problems).toEqual([]);
+  });
+});
+
+test.describe('Phase B: Settings pages', () => {
+  for (const route of [
+    '/settings',
+    '/settings/appearance',
+    '/settings/connection',
+    '/settings/access',
+  ]) {
+    test(`${route} for the owner renders without a violation`, async ({ page, app, guard }) => {
+      await app.goto(route);
+      await page.waitForLoadState('networkidle');
+      await page.mouse.wheel(0, 800);
+      expect(guard.problems).toEqual([]);
+    });
+  }
+
+  test('the break-glass banner and the restore page cause no violation', async ({
+    page,
+    app,
+    guard,
+  }) => {
+    test.slow();
+    await page.context().clearCookies();
+    await app.goto('/break-glass');
+    await page.getByLabel('Username').fill(readState().secrets.breakGlass.username);
+    await page.getByLabel('Password').fill(readState().secrets.breakGlass.password);
+    await page.getByRole('button', { name: 'Sign in with break-glass access' }).click();
+    await page.waitForURL(/\/settings\/restore-access$/);
+    await app.ready();
+    await expect(page.getByTestId('break-glass-banner')).toBeVisible();
+    expect(guard.problems).toEqual([]);
+  });
+});
+
+test.describe('Phase B: the wizard', () => {
+  test.use({ principal: 'anonymous', ownClientAddress: false });
+
+  test('the token form, the steps, the device code and the copy action cause no violation', async ({
+    page,
+    app,
+    guard,
+    context,
+  }) => {
+    test.slow();
+    allowStaleCsrfAfterUnlock(guard);
+    await app.servers.resetEmpty();
+    await context.grantPermissions(['clipboard-write'], {
+      origin: originOf('b'),
+    });
+    await app.goto('/setup', { instance: 'b' });
+    await expect(page.getByLabel('Setup token')).toBeVisible();
+    expect(guard.problems, 'the token form').toEqual([]);
+
+    await unlock(page);
+    await passEnvironment(page);
+    expect(guard.problems, 'the steps').toEqual([]);
+
+    await startDeviceSignIn(page);
+    await page.getByRole('button', { name: 'Copy the code' }).click();
+    await expect(page.getByText('Code copied')).toBeVisible();
+    // (Reading the clipboard back is not allowed by the Permissions-Policy: only writing is, by design.)
+    expect(guard.problems, 'the device code and the copy action').toEqual([]);
+
+    await page.getByRole('button', { name: 'Cancel the sign-in' }).click();
+    await page.getByRole('button', { name: 'Set up by hand' }).click();
+    await expect(page.getByRole('heading', { level: 3, name: 'Set up by hand' })).toBeVisible();
+    expect(guard.problems, 'manual mode').toEqual([]);
   });
 });

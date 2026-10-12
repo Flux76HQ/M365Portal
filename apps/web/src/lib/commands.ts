@@ -20,6 +20,7 @@ import {
   FolderTreeIcon,
   GaugeIcon,
   KeyboardIcon,
+  LifeBuoyIcon,
   LanguagesIcon,
   ListIcon,
   MonitorCogIcon,
@@ -27,7 +28,9 @@ import {
   PaletteIcon,
   ScrollTextIcon,
   SettingsIcon,
+  ShieldCheckIcon,
   SunIcon,
+  UnplugIcon,
   UsersIcon,
   type LucideIcon,
 } from 'lucide-react';
@@ -44,6 +47,12 @@ export type CommandRun =
 
 /** Where a command is listed in the palette. */
 export type CommandGroup = 'navigate' | 'preferences' | 'help';
+
+/** The kinds of actor `me` names (`MeResponse.actor.kind`). */
+export type ActorKind = MeResponse['actor']['kind'];
+
+/** Who is signed in: a Microsoft user or the break-glass session. */
+const SIGNED_IN: readonly ActorKind[] = ['user', 'break_glass'];
 
 export interface Command {
   /** Stable, unique; also the `value` the palette selects by. */
@@ -62,11 +71,15 @@ export interface Command {
    * preferences). Present but empty: nobody qualifies (deny by default).
    */
   readonly anyOf?: readonly Permission[];
+  /**
+   * The kind of actor the command is for (T-B-306): `user` and `break_glass` are the signed-in actors, and a
+   * command for them is not offered to the setup session or to a visitor. Both this and `anyOf` must hold.
+   * Absent: any actor. A command with a list but no actor to read is hidden (deny by default).
+   */
+  readonly actorKinds?: readonly ActorKind[];
   /** Offered only while the server reports this feature on. */
   readonly feature?: keyof MeResponse['features'];
 }
-
-const SETTINGS_PERMISSIONS = ['settings:branding', 'settings:connection'] as const;
 
 /** Every command of Phase A, in the order the sidebar shows them. */
 export const COMMANDS: readonly Command[] = Object.freeze([
@@ -137,7 +150,8 @@ export const COMMANDS: readonly Command[] = Object.freeze([
     run: { kind: 'navigate', to: ROUTES.settings },
     group: 'navigate',
     sidebar: true,
-    anyOf: SETTINGS_PERMISSIONS,
+    // Every signed-in actor has Settings: "Mijn toegang" is theirs. The overview lists only what they may open.
+    actorKinds: SIGNED_IN,
   },
   {
     id: 'settings-appearance',
@@ -147,6 +161,36 @@ export const COMMANDS: readonly Command[] = Object.freeze([
     run: { kind: 'navigate', to: ROUTES.appearance },
     group: 'navigate',
     anyOf: ['settings:branding'],
+    // The wizard's session holds this permission too, but it sits on the setup page, not in the Settings.
+    actorKinds: ['user'],
+  },
+  {
+    id: 'settings-connection',
+    labelKey: 'palette.command.settingsConnection',
+    keywordKeys: ['palette.keywords.connection'],
+    icon: UnplugIcon,
+    run: { kind: 'navigate', to: ROUTES.connection },
+    group: 'navigate',
+    anyOf: ['settings:connection'],
+    actorKinds: ['user'],
+  },
+  {
+    id: 'settings-access',
+    labelKey: 'palette.command.settingsAccess',
+    keywordKeys: ['palette.keywords.access'],
+    icon: ShieldCheckIcon,
+    run: { kind: 'navigate', to: ROUTES.access },
+    group: 'navigate',
+    actorKinds: SIGNED_IN,
+  },
+  {
+    id: 'settings-restore-access',
+    labelKey: 'palette.command.settingsRestoreAccess',
+    keywordKeys: ['palette.keywords.restoreAccess'],
+    icon: LifeBuoyIcon,
+    run: { kind: 'navigate', to: ROUTES.restoreAccess },
+    group: 'navigate',
+    actorKinds: ['break_glass'],
   },
   {
     id: 'design',
@@ -209,10 +253,18 @@ export const COMMANDS: readonly Command[] = Object.freeze([
 ] satisfies readonly Command[]);
 
 /** What `visibleCommands` reads of `me`: the permissions and the feature flags. */
-export type CommandActor = Pick<MeResponse, 'permissions' | 'features'>;
+export type CommandActor = Pick<MeResponse, 'permissions' | 'features'> & {
+  readonly actor?: Pick<MeResponse['actor'], 'kind'>;
+};
 
 function isVisible(command: Command, me: CommandActor): boolean {
   if (command.feature !== undefined && !me.features[command.feature]) return false;
+  if (
+    command.actorKinds !== undefined &&
+    !(me.actor !== undefined && command.actorKinds.includes(me.actor.kind))
+  ) {
+    return false;
+  }
   return command.anyOf === undefined || hasAccess(me, command.anyOf);
 }
 

@@ -1,7 +1,8 @@
 # Permissions
 
-> **Status:** Phase A. Part 1 is the panel's own catalogue and exists in code. Part 2 lists what the
-> panel will ask of Microsoft in Phases B to D; nothing in it is used in Phase A. Part 2 is seeded only
+> **Status:** Phase B. Part 1 is the panel's own catalogue and exists in code. Part 2 lists what the
+> panel asks of Microsoft in Phases B to D (written in Phase A); Part 3 is the Phase B role matrix and the
+> permissions the running panel holds, and wins where the two differ. Part 2 is seeded only
 > from [`research-microsoft.md`](../specs/001-m365portal/research-microsoft.md) (Microsoft Learn,
 > 2026-10-10); a fact that file does not contain is marked UNVERIFIED and has a register row in
 > [open-points.md](open-points.md). Nederlandse versie: zie [Nederlands](#nederlands).
@@ -127,6 +128,112 @@ and the runtime base image are owner decision OD-07.
 | Exchange Online module on Debian, Alpine or distroless | Learn lists Ubuntu LTS only, and PowerShell 7.4 or 7.6 and newer. Decides the runtime base if a PowerShell worker is chosen (U9). | D | UNVERIFIED | Register U9 |
 | Exchange and Graph throttling limits | Graph: 429 with `Retry-After`. No page publishes Exchange Online limits for app-only use (U7), and whether the identity and access write quota covers users and group memberships was not read (U16). | B | UNVERIFIED | Registers U7, U16 |
 
+## Part 3: Phase B, the role matrix and the runtime application
+
+> **Status:** Phase B (2026-10-12). Part 3 is normative for the roles and for what the running panel holds
+> at Microsoft. Where it differs from Part 2, which was seeded in Phase A from the research alone, Part 3
+> wins: the owner decision about the Graph set (ODB-02) is implemented with its default, the reduced set of
+> four application roles, and awaits the owner's confirmation at the gate. Every id below was re-read on
+> Microsoft Learn on 2026-10-10 (`specs/002-phase-b/research-microsoft-b.md`); the wizard still resolves the
+> role ids from the tenant at run time (FR-B-302) and never trusts this table.
+
+### Built-in roles
+
+The panel ships five immutable roles and one template. A role is a set of the 15 permissions of Part 1;
+an assignment binds a role to a user or an Entra group, optionally with a scope (FR-B-501 to FR-B-513).
+`x` means the role holds the permission. *Bestuur* is a template, not a role: assigning it creates an
+assignment of the read roles with the qualifier `basic` for `users:read`. The matrix is identical to
+the table in section 6.9.4 of the Phase B spec and `docs-contract.test.ts` compares the two cell by cell.
+Totals: *Eigenaar* 15, *Beheerder* 13, *Operator* 9, *Helpdesk* 6, *Lezer* 4, *Bestuur* 5.
+
+| Permission | Resource type | Eigenaar (`owner`) | Beheerder (`admin`) | Operator (`operator`) | Helpdesk (`helpdesk`) | Lezer (`reader`) | Bestuur (template) |
+|---|---|---|---|---|---|---|---|
+| `users:read` | `user` | x | x | x | x | x | basic |
+| `groups:read` | `group` | x | x | x | x | x | |
+| `groups:members:write` | `group` | x | x | x | x | | |
+| `distributionlists:read` | `distributionList` | x | x | x | x | x | x |
+| `distributionlists:members:write` | `distributionList` | x | x | x | x | | x |
+| `distributionlists:export` | `distributionList` | x | x | | | | |
+| `contacts:read` | `contact` | x | x | x | x | x | x |
+| `contacts:create` | `contact` | x | x | x | | | x |
+| `contacts:update` | `contact` | x | x | x | | | |
+| `contacts:delete` | `contact` | x | x | x | | | |
+| `audit:read` | none (global-only) | x | x | | | | |
+| `audit:export` | none (global-only) | x | x | | | | |
+| `settings:branding` | none (global-only) | x | x | | | | |
+| `settings:connection` | none (global-only) | x | | | | | |
+| `rbac:manage` | none (global-only) | x | | | | | |
+
+How a scope works. The "Resource type" column is the permission-to-resource-type map. A scope restricts
+an assignment per resource type: a scoped assignment of a role applies only to objects of the scope for
+every permission of that resource type, and it adds nothing for other types. The permissions marked
+"none (global-only)" (`audit:read`, `audit:export`, `settings:branding`, `settings:connection`,
+`rbac:manage`) come from unscoped assignments only: a scoped assignment never grants them. "Read
+everything, write only Sales" is therefore two assignments (*Lezer* unscoped and a members-write role
+scoped). The qualifier `basic` on `users:read` limits the answer to display name and e-mail address
+(`projectUser`). A role that holds `rbac:manage` or `settings:connection` cannot be bound to an Entra
+group (FR-B-515, ODB-16). The setup session holds exactly `settings:branding` and `settings:connection`
+(PB-06); the break-glass session holds only the restore-owner action (FR-B-523).
+
+### The runtime application at Microsoft Graph
+
+The running panel is granted application permissions only, four of them (set version 1,
+`GRAPH_APP_ROLES`). No call of Phases B to D was found that needs `Group.Read.All` or
+`Directory.Read.All`; `Group.Read.All` is not granted, and neither is `Directory.Read.All` (dropped).
+
+| Application role | Application role id (Microsoft Graph) | Used for | Learn source |
+|---|---|---|---|
+| `User.Read.All` | `df021288-bdef-4463-88db-98f22de89214` | Read users and their `accountEnabled`; sign-in lookup; `transitiveMemberOf` in Phase C. Replaces `User.ReadWrite.All`. | [user-get](https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0), permissions-reference |
+| `GroupMember.Read.All` | `98830695-27a2-44f7-8c18-0c3ebc9698f6` | `checkMemberGroups`, `getGroup`, `searchGroups`. Described as "memberships and basic group properties"; which group properties it returns is U36 (OV-19). | [directoryobject-checkmembergroups](https://learn.microsoft.com/en-us/graph/api/directoryobject-checkmembergroups?view=graph-rest-1.0) |
+| `GroupMember.ReadWrite.All` | `dbaae8cf-10b5-4b86-a4a1-f871c94c6695` | Membership writes of Phase C. Granted in Phase B so that one consent covers it (ODB-02); unused until Phase C. | [group-post-members](https://learn.microsoft.com/en-us/graph/api/group-post-members?view=graph-rest-1.0) |
+| `Organization.Read.All` | `498476ce-e0fe-48b0-b801-37ba7e2685c6` | Verification and the tenant display name. | [organization-get](https://learn.microsoft.com/en-us/graph/api/organization-get?view=graph-rest-1.0) |
+
+Delta against the five permissions of the brief: `User.ReadWrite.All` is replaced by `User.Read.All`
+(no user write is planned), `Group.ReadWrite.All` is dropped (its only planned use was creating the
+administrators group, and `Group.*` also opens group content), `Directory.Read.All` is dropped (Learn:
+avoid directory permissions where resource-specific ones exist; `memberOf` is replaced by
+`transitiveMemberOf`), `GroupMember.ReadWrite.All` and `Organization.Read.All` are kept, and
+`GroupMember.Read.All` and `User.Read.All` are added. Four permissions instead of five. A later write
+need is a new decision with its own evidence; the fallback ladder for U36 (add `ConsistencyLevel`, then
+`Group.ReadBasic.All` if it exists for applications, U46, then `Group.Read.All`) is in the plan, section 8.8.
+
+Never granted to the runtime application, by any code path or setting (`FORBIDDEN_APP_ROLES`):
+`RoleManagement.ReadWrite.Directory`, `AppRoleAssignment.ReadWrite.All` and `Application.ReadWrite.All`.
+Wizard step 4 reads what the service principal holds and fails when a forbidden role is present.
+
+### Exchange Online
+
+| Item | Value | Note |
+|---|---|---|
+| Application role `Exchange.ManageAsApp` | `dc50a0fb-09a3-484d-be87-e023b12c6440` on the resource `00000002-0000-0ff1-ce00-000000000000` | Required; admin consent through the wizard. |
+| Application role `Exchange.ManageAsAppV2` | granted when the tenant exposes it; its id is resolved at run time | Only the Admin API probe uses it (U6). |
+| `EXCHANGE_ROLES` key `exchange_administrator` | Entra role template `29232cdf-9323-42fd-ade2-1d097af3e4de` (Exchange Administrator; "Exchange Service Administrator" in the Graph API) | The default (B-03). Learn: it provides the permissions for any task in Exchange Online PowerShell. |
+| `EXCHANGE_ROLES` key `exchange_recipient_administrator` | Entra role template `31392ffb-586c-42d1-9346-e59415a2cc4e` (Exchange Recipient Administrator) | Selectable for the OV-13 experiment. Whether it suffices for list and contact writes is UNVERIFIED (U5). |
+
+No other template id is accepted: `EXCHANGE_ROLES` is the whole list, so a privileged role such as Global
+Administrator can never be assigned through the setting. The Exchange write path (distribution list
+members, mail contacts) is not built in Phase B; ADR-0102 records the decision (ODB-01).
+
+### What the wizard asks the administrator for (delegated, bootstrap token only)
+
+| Delegated scope | Why |
+|---|---|
+| `Application.ReadWrite.All` | Create the application and the service principal, upload the certificate, set redirect URIs and optional claims. |
+| `AppRoleAssignment.ReadWrite.All` | Grant the Graph application roles and `Exchange.ManageAsApp`. |
+| `RoleManagement.ReadWrite.Directory` | Assign the Entra role of Exchange to the service principal. |
+
+`Directory.Read.All` is not needed by any wizard call. The administrator is a Global Administrator, or a
+Privileged Role Administrator plus an Application Administrator or Cloud Application Administrator (or
+Application Developer when members may register applications). Consent is per user, never "on behalf of
+your organization". The token lives in memory and is discarded at the end of the wizard (FR-B-215).
+
+### Open items of this part
+
+U5 (the narrower Exchange role), U6 (`ManageAsApp` against `ManageAsAppV2`), U36 and U37 (group
+properties and `$filter` with `GroupMember.Read.All` alone), U46 (`Group.ReadBasic.All`) and U48
+(`assignedLicenses`) stay UNVERIFIED and have rows in [open-points.md](open-points.md); the owner-verified
+ledger OV-01 to OV-23 lists the checks that close them.
+
 ## Nederlands
 
 ### Deel 1: de panel-catalogus
@@ -167,3 +274,20 @@ Alles in dit deel komt uit `research-microsoft.md` (Microsoft Learn, 2026-10-10)
 - **Cmdlets.** De negen cmdlets bestaan en hun parameters zijn gecontroleerd, met uitzondering van
   `Set-Contact` (voor voor- en achternaam; U15), de lijst met dynamische distributiegroepen (U11) en de
   uitvoer-eigenschap `IsDirSynced` (U12).
+
+### Deel 3: de rollenmatrix van Fase B en de draaiende applicatie
+
+De rollenmatrix hierboven (Deel 3, Built-in roles) is normatief en gelijk aan sectie 6.9.4 van de spec van
+Fase B: vijf vaste rollen (Eigenaar, Beheerder, Operator, Helpdesk, Lezer) en het sjabloon Bestuur, dat data is
+en geen rol. Totalen: Eigenaar 15, Beheerder 13, Operator 9, Helpdesk 6, Lezer 4, Bestuur 5. Een scope beperkt een
+toewijzing per resourcetype; rechten zonder resourcetype (audit, instellingen, RBAC) komen alleen uit
+toewijzingen zonder scope. Rollen met `rbac:manage` of `settings:connection` kunnen niet aan een Entra-groep
+worden gekoppeld.
+
+De draaiende applicatie krijgt alleen applicatierechten, vier in totaal: `User.Read.All`,
+`GroupMember.Read.All`, `GroupMember.ReadWrite.All` en `Organization.Read.All`. `Group.Read.All` en
+`Directory.Read.All` worden niet gegeven. `RoleManagement.ReadWrite.Directory`,
+`AppRoleAssignment.ReadWrite.All` en `Application.ReadWrite.All` krijgt de applicatie nooit
+(`FORBIDDEN_APP_ROLES`). Voor Exchange is `Exchange.ManageAsApp` nodig met de Entra-rol Exchange Administrator
+(standaard); de smallere rol Exchange Recipient Administrator is ONGEVERIFIEERD (U5). Het schrijfpad voor
+distributielijsten en contacten is niet gebouwd in Fase B (ADR-0102, ODB-01).

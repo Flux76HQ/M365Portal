@@ -19,9 +19,14 @@
 import type { AppConfig } from './config/env.js';
 import type { DatabaseHandle } from './db/index.js';
 import type { RouteDefinition } from './http/route.js';
+import type { PagePolicy } from './http/spa-fallback.js';
 import { ProblemError } from './http/problem.js';
+import type { ClientsRegistry } from './integrations/registry.js';
 import type { Logger } from './logging/logger.js';
-import type { Sweeper } from './lifecycle/sweepers.js';
+import type { Scheduler, Sweeper } from './lifecycle/sweepers.js';
+import type { ActorResolver, PolicyPorts } from './policy/index.js';
+import type { RandomSource } from './ports/clock.js';
+import type { SecretsRuntime } from './secrets/state.js';
 import type { ShellRenderer } from './shell-port.js';
 
 /** What a module may use of the server. One object, built once, shared by all modules. */
@@ -45,7 +50,55 @@ export interface ModuleDeps {
   readonly sweepers: { register(sweeper: Sweeper): void };
   /** True from the moment shutdown begins; an upload in progress ends with 503 `shutting_down`. */
   readonly isShuttingDown: () => boolean;
+  /**
+   * Randomness (Phase B, T-B-022): identifiers, nonces, salts, jitter. Production passes a source over
+   * `node:crypto` (`systemRandom`); a test passes a seeded one. Code under `src/{setup,connection,auth,
+   * rbac,policy,integrations}` takes it from here and never calls an ambient random function.
+   */
+  readonly random: RandomSource;
+  /** Timers (Phase B, T-B-022): the same four-method scheduler the sweepers use. */
+  readonly scheduler: Scheduler;
+  /**
+   * The secrets state and services (Phase B, T-B-019, SB-32): a holder built before any module and
+   * filled by the `secrets` module's `start` hook. Reading it before that fails closed
+   * (`key_missing`). Other modules read `secrets.state()` per call and never keep the result.
+   */
+  readonly secrets: SecretsRuntime;
+  /**
+   * The Microsoft clients (Phase B, T-B-023, CB11): `graph()`, `exchange()`, `oidc()` and `appTokens()`,
+   * each throwing `SecretsUnavailableError` while the secrets are not usable and `NotConnectedError`
+   * before a tenant is pinned. Built by the composition root, started after the module `start` hooks
+   * and reloaded when the secrets module publishes a new state; services get clients here and nowhere else.
+   */
+  readonly clients: ClientsRegistry;
+  /**
+   * The ports of the policy layer (Phase B, T-B-240, CB10, SB-32): holders built before any module.
+   * The auth module registers its session store, the setup module its setup sessions and the rbac
+   * module the grants of a user; a holder that is still empty fails closed (anonymous).
+   */
+  readonly policy: PolicyPorts;
+  /**
+   * Who a request acts as: the one resolver of the application. The pipeline calls it lazily on the
+   * first read of the actor; the HTML shell calls it for the boot data, so the page and
+   * `GET /api/v1/me` can never disagree (SB-32, SB-38).
+   */
+  readonly resolveActor: ActorResolver;
 }
+
+/**
+ * The two availability gates of Phase B (CB2): `setupOpen` (the setup routes exist only while the
+ * wizard is open, FR-B-201) and `breakGlass` (the break-glass routes exist only when the account is
+ * configured, FR-B-521). A gate is a predicate on the request; the route wrapper (T-B-237) answers
+ * the standard 404 for a route whose gate is closed. No other name is a gate.
+ */
+export const AVAILABILITY_GATES = ['setupOpen', 'breakGlass'] as const;
+
+export type AvailabilityGate = (typeof AVAILABILITY_GATES)[number];
+
+/** The predicates a module offers, by gate. A module offers the gates it can decide, not all. */
+export type ModuleAvailability = Readonly<
+  Partial<Record<AvailabilityGate, (request: Request) => boolean>>
+>;
 
 export interface AppModule {
   /** Unique, lower case words: `branding`. */
@@ -58,6 +111,36 @@ export interface AppModule {
   start?(ctx: ModuleDeps): Promise<void>;
   /** Stop hook, called once at shutdown. */
   stop?(): Promise<void>;
+  /**
+   * Availability predicates (Phase B, additive): which gates this module can answer. Optional; the
+   * composition root merges them and the route wrapper reads them (`T-B-237`).
+   */
+  readonly availability?: ModuleAvailability;
+  /**
+   * What a page navigation gets before the shell renders (Phase B, additive, seam XB20): the setup
+   * module answers 404 for `/setup` once the wizard is closed and 303 to `/setup` for any other page
+   * while it is open. The first module that has one is used.
+   */
+  readonly pages?: PagePolicy;
+}
+
+/** Throws unless the `availability` of `module`, when there is one, names only the two gates, as functions. */
+export function assertModuleAvailability(module: AppModule): void {
+  const { availability } = module as { availability?: unknown };
+  if (availability === undefined) return;
+  if (typeof availability !== 'object' || availability === null || Array.isArray(availability)) {
+    throw new Error(`module "${module.id}": availability must be an object`);
+  }
+  for (const [gate, predicate] of Object.entries(availability)) {
+    if (!(AVAILABILITY_GATES as readonly string[]).includes(gate)) {
+      throw new Error(
+        `module "${module.id}" declares the gate "${gate}", which is not one of ${AVAILABILITY_GATES.join(' and ')}`,
+      );
+    }
+    if (typeof predicate !== 'function') {
+      throw new Error(`module "${module.id}": the gate "${gate}" must be a function`);
+    }
+  }
 }
 
 export type AppModuleFactory = (deps: ModuleDeps) => AppModule;

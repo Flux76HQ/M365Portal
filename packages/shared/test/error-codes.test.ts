@@ -1,8 +1,9 @@
 // T-A-022, contract C2, FR-A-022, FR-A-112 (TA-03): the problem registry and its messages.
 //
 // Three things are held together here:
-//   - the registry (`PROBLEM_CODES`) equals the codes and statuses of contract section 6 and of spec
-//     section 6.4; both documents are read, so a document that changes without the registry fails;
+//   - the registry (`PROBLEM_CODES`) equals the codes and statuses of the Phase A contract section 6
+//     and spec section 6.4 (34 codes) plus the 19 codes of Phase B spec section 6.9.5 (T-B-005);
+//     the documents are read, so a document that changes without the registry fails;
 //   - every code has a user-facing message in both languages in the `problem` fragments, and the
 //     fragments hold nothing else, so no code ships without a Dutch and an English text;
 //   - the English `title` and `detail` strings are generic and never sensitive.
@@ -64,6 +65,35 @@ const CONTRACT_6: readonly (readonly [string, number])[] = [
   ['request_header_fields_too_large', 431],
 ];
 
+/**
+ * Phase B spec 6.9.5, in its order: the 19 codes added by Phase B (T-B-005). `permission_denied`
+ * (Phase A) now covers a missing permission, a scope mismatch and a wrong actor kind alike.
+ */
+const SPEC_B_6_9_5: readonly (readonly [string, number])[] = [
+  ['unauthenticated', 401],
+  ['session_expired', 401],
+  ['step_up_required', 403],
+  ['escalation_denied', 403],
+  ['last_owner_protected', 409],
+  ['setup_token_invalid', 401],
+  ['setup_token_locked', 429],
+  ['setup_step_busy', 409],
+  ['setup_step_not_ready', 409],
+  ['setup_required', 409],
+  ['secrets_unavailable', 503],
+  ['policy_not_applied', 500],
+  ['principal_unknown', 422],
+  ['assignment_exists', 409],
+  ['assignment_invalid', 422],
+  ['break_glass_locked', 429],
+  ['graph_unavailable', 503],
+  ['graph_throttled', 503],
+  ['tenant_mismatch', 409],
+];
+
+/** Phase A and Phase B together: the complete registry. */
+const ALL_CODES: readonly (readonly [string, number])[] = [...CONTRACT_6, ...SPEC_B_6_9_5];
+
 const CODES = Object.keys(PROBLEM_CODES) as ProblemCode[];
 
 /** A copy of `value` without the member `key`. */
@@ -71,10 +101,72 @@ const without = (value: Readonly<Record<string, unknown>>, key: string): Record<
   Object.fromEntries(Object.entries(value).filter(([name]) => name !== key));
 
 describe('PROBLEM_CODES: the registry', () => {
-  it('holds exactly the 34 codes of contract section 6, with their status', () => {
+  it('holds the 34 codes of the Phase A contract section 6, with their status, and the 19 of Phase B', () => {
     expect(CONTRACT_6).toHaveLength(34);
+    expect(SPEC_B_6_9_5).toHaveLength(19);
     const actual = Object.entries(PROBLEM_CODES).map(([code, entry]) => [code, entry.status]);
-    expect(actual.sort()).toEqual([...CONTRACT_6].sort());
+    for (const row of CONTRACT_6) expect(actual, row[0]).toContainEqual([...row]);
+    expect(actual.sort()).toEqual([...ALL_CODES].sort());
+    expect(CODES).toHaveLength(53);
+  });
+
+  it('equals the table of Phase B spec 6.9.5 as the document states it', () => {
+    const spec = read('../../../specs/002-phase-b/spec.md');
+    const section =
+      /^\*\*Problem codes added by Phase B\*\*([\s\S]*?)^\*\*Wizard result codes\*\*/m.exec(
+        spec,
+      )?.[1] ?? '';
+    const rows = [...section.matchAll(/^\| `([a-z_]+)` \| (\d{3}) \|/gm)].map((match) => [
+      match[1],
+      Number(match[2]),
+    ]);
+    expect(rows).toHaveLength(19);
+    expect(rows.sort()).toEqual([...SPEC_B_6_9_5].sort());
+  });
+
+  it('answers the Phase B codes with the statuses and Retry-After rules of spec 6.9.5', () => {
+    for (const [code, status] of SPEC_B_6_9_5) {
+      expect(PROBLEM_CODES[code as ProblemCode].status, code).toBe(status);
+    }
+    // 401 carries WWW-Authenticate (FR-B-414) and 429 / graph_* carry Retry-After: the server adds
+    // the headers; the registry only has to hold the right status for each.
+    expect(PROBLEM_CODES.unauthenticated.status).toBe(401);
+    expect(PROBLEM_CODES.setup_token_locked.status).toBe(429);
+    expect(PROBLEM_CODES.break_glass_locked.status).toBe(429);
+  });
+
+  it('says that permission_denied covers a missing permission, a scope mismatch and a wrong actor kind', () => {
+    const { title, detail } = PROBLEM_CODES.permission_denied;
+    expect(`${title} ${detail}`).toMatch(/permission/i);
+    expect(detail).toMatch(/scope/i);
+    expect(detail).toMatch(/actor/i);
+  });
+
+  it('fails the registry guard when a Phase B code is missing or has the wrong status (negative fixture)', () => {
+    const guard = (actual: readonly (readonly [string, number])[]): void => {
+      const wanted = JSON.stringify([...ALL_CODES].sort());
+      if (JSON.stringify([...actual].sort()) !== wanted) {
+        throw new Error('registry differs from the Phase A and Phase B documents');
+      }
+    };
+    const actual = Object.entries(PROBLEM_CODES).map(
+      ([code, entry]) => [code, entry.status] as const,
+    );
+    expect(() => {
+      guard(actual);
+    }).not.toThrow();
+    expectGuardFails(
+      guard,
+      actual.filter(([code]) => code !== 'tenant_mismatch'),
+      {
+        reason: 'registry differs',
+      },
+    );
+    expectGuardFails(
+      guard,
+      actual.map(([code, status]) => [code, code === 'session_expired' ? 403 : status] as const),
+      { reason: 'registry differs' },
+    );
   });
 
   it('includes the three codes of the Node parser errors (amendment): bad_request 400, request_timeout 408, request_header_fields_too_large 431', () => {
@@ -360,6 +452,10 @@ const PLACEHOLDERS: Readonly<Record<string, readonly string[]>> = {
   origin_not_allowed: ['origin'],
   rate_limited: ['seconds'],
   image_processing_busy: ['seconds'],
+  // Phase B: the codes whose answer carries a Retry-After the UI shows (spec 6.9.5).
+  setup_token_locked: ['seconds'],
+  break_glass_locked: ['seconds'],
+  graph_throttled: ['seconds'],
   unknown: ['code', 'requestId'],
 };
 
@@ -407,7 +503,7 @@ describe('the problem fragments (en and nl)', () => {
     expect(() => {
       assertFragmentMatchesRegistry(fragment);
     }).not.toThrow();
-    expect(Object.keys(fragment)).toHaveLength(35);
+    expect(Object.keys(fragment)).toHaveLength(54);
   });
 
   it('every key starts with the namespace problem and a dot (C11)', () => {
@@ -429,6 +525,43 @@ describe('the problem fragments (en and nl)', () => {
       expect(fragment['problem.image_processing_busy']).toContain('{seconds}');
       expect(fragment['problem.unknown']).toContain('{code}');
       expect(fragment['problem.unknown']).toContain('{requestId}');
+    }
+  });
+
+  it('shows the wait in the three Phase B messages that carry a Retry-After', () => {
+    for (const fragment of [en, nl]) {
+      for (const code of ['setup_token_locked', 'break_glass_locked', 'graph_throttled']) {
+        expect(fragment[`problem.${code}`], code).toContain('{seconds}');
+      }
+    }
+  });
+
+  it('names a remedy in the Phase B messages the user can act on (FR-B-603)', () => {
+    // The user can do something about each of these; the message says what, in both languages.
+    const actionable = [
+      'secrets_unavailable',
+      'setup_token_invalid',
+      'setup_step_not_ready',
+      'tenant_mismatch',
+      'step_up_required',
+      'principal_unknown',
+      'assignment_invalid',
+      'assignment_exists',
+      'graph_unavailable',
+      'session_expired',
+    ];
+    for (const fragment of [en, nl]) {
+      for (const code of actionable) {
+        expect(fragment[`problem.${code}`]?.length ?? 0, code).toBeGreaterThan(40);
+      }
+    }
+  });
+
+  it('never carries a placeholder for text that came from Microsoft (FR-B-603)', () => {
+    for (const fragment of [en, nl]) {
+      for (const [key, message] of Object.entries(fragment)) {
+        expect(message, key).not.toMatch(/\{(?:message|error|description|detail|aadsts\w*)\}/i);
+      }
     }
   });
 

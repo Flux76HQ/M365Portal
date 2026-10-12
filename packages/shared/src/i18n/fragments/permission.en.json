@@ -1,0 +1,17 @@
+{
+  "permission.audit:export": "Export the audit log",
+  "permission.audit:read": "Read the audit log",
+  "permission.contacts:create": "Create contacts",
+  "permission.contacts:delete": "Delete contacts",
+  "permission.contacts:read": "See contacts",
+  "permission.contacts:update": "Edit contacts",
+  "permission.distributionlists:export": "Export distribution lists",
+  "permission.distributionlists:members:write": "Change the members of distribution lists",
+  "permission.distributionlists:read": "See distribution lists",
+  "permission.groups:members:write": "Change the members of groups",
+  "permission.groups:read": "See groups",
+  "permission.rbac:manage": "Manage roles and access",
+  "permission.settings:branding": "Change the appearance",
+  "permission.settings:connection": "Manage the connection with Microsoft 365",
+  "permission.users:read": "See users"
+}

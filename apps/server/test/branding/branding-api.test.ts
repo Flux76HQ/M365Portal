@@ -62,7 +62,7 @@ async function stage(app: BrandingApp, seed: number, slot = 'logoLight'): Promis
 
 describe('R6 GET /api/v1/branding', () => {
   it('is public: the anonymous actor gets the branding with an ETag of the revision', async () => {
-    const app = await createBrandingApp({ preview: false });
+    const app = await createBrandingApp({ signedIn: false });
     const response = await app.app.client.get(PATH);
     expect(response.status).toBe(200);
     expect(response.headers.get('etag')).toBe('"1"');
@@ -307,24 +307,24 @@ describe('R9 DELETE /api/v1/branding', () => {
 });
 
 describe('who may write (FR-A-033, FR-A-034)', () => {
-  it('gives the anonymous actor an audited 403 on PUT, DELETE and the upload', async () => {
-    const app = await createBrandingApp({ preview: false });
+  it('gives the anonymous actor an audited 401 on PUT, DELETE and the upload (was 403 in Phase A, FR-B-414)', async () => {
+    const app = await createBrandingApp({ signedIn: false });
     const before = app.audit().length;
     const responses = [
       await put(app.app.client, body('X')),
       await app.app.client.delete(PATH, { headers: { 'If-Match': '"1"' } }),
       await upload(app, await distinctPng(50)),
     ];
-    expect(responses.map((response) => response.status)).toEqual([403, 403, 403]);
+    expect(responses.map((response) => response.status)).toEqual([401, 401, 401]);
     for (const response of responses) {
-      expect(await readJson(response)).toMatchObject({ code: 'permission_denied' });
+      expect(await readJson(response)).toMatchObject({ code: 'unauthenticated' });
     }
     const denied = app.audit().slice(before);
     expect(denied.map((row) => [row.action, row.outcome, row.reason_code, row.actor_kind])).toEqual(
       [
-        ['branding.apply', 'denied', 'permission_denied', 'anonymous'],
-        ['branding.reset', 'denied', 'permission_denied', 'anonymous'],
-        ['branding.asset.stage', 'denied', 'permission_denied', 'anonymous'],
+        ['branding.apply', 'denied', 'permission_missing', 'anonymous'],
+        ['branding.reset', 'denied', 'permission_missing', 'anonymous'],
+        ['branding.asset.stage', 'denied', 'permission_missing', 'anonymous'],
       ],
     );
     expect(detailOf(denied[0] as never)).toEqual({
@@ -336,7 +336,7 @@ describe('who may write (FR-A-033, FR-A-034)', () => {
     expect(app.assets().filter((row) => row.unreferenced_at !== null)).toHaveLength(0);
   });
 
-  it('lets the preview actor write', async () => {
+  it('lets an administrator write', async () => {
     const app = await createBrandingApp();
     expect((await put(app.app.client, body('X'))).status).toBe(200);
     expect((await app.app.client.delete(PATH, { headers: { 'If-Match': '"2"' } })).status).toBe(
@@ -345,7 +345,7 @@ describe('who may write (FR-A-033, FR-A-034)', () => {
   });
 
   it('denies every write route of the table to the anonymous actor, with an audit entry (table-driven)', async () => {
-    const app = await createBrandingApp({ preview: false });
+    const app = await createBrandingApp({ signedIn: false });
     const routes = writeRoutesOf(app.app);
     expect(routes.map((route) => route.id).sort()).toEqual([
       'branding.apply',
@@ -359,7 +359,7 @@ describe('who may write (FR-A-033, FR-A-034)', () => {
         route.path,
         requestBodyFor(route),
       );
-      expect(response.status, route.id).toBe(403);
+      expect(response.status, route.id).toBe(401);
       const added = app.audit().slice(before);
       expect(added, route.id).toHaveLength(1);
       expect(added[0], route.id).toMatchObject({ action: route.id, outcome: 'denied' });

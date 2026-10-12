@@ -7,7 +7,8 @@ import type { RouteDefinition } from '../../src/http/route.js';
 import type { DatabaseHandle } from '../../src/db/index.js';
 import { assetsUploadRoutes } from '../../src/branding/routes/assets-upload.js';
 import { brandingRoutes } from '../../src/branding/routes/branding.js';
-import { createFixtureApp, fixtureRoutes, type FixtureApp } from '../helpers/http-app.js';
+import { ADMIN, createFixtureApp, fixtureRoutes, type FixtureApp } from '../helpers/http-app.js';
+import { createPolicyHarness } from '../helpers/policy-harness.js';
 import {
   createBrandingStorage,
   type BrandingApp,
@@ -16,8 +17,8 @@ import {
 } from './branding-fixture.js';
 
 export interface OutputsAppOptions extends BrandingStorageOptions {
-  /** The preview actor holds `settings:branding`; without it the actor is anonymous. Default: preview. */
-  readonly preview?: boolean;
+  /** The default client is an administrator with a real session; `false` leaves it anonymous. Default: signed in. */
+  readonly signedIn?: boolean;
   /** The routes under test, built from the storage. */
   readonly routes: (storage: BrandingStorage) => readonly RouteDefinition[];
   /** Also register the S2 upload and apply routes (for tests that stage assets over HTTP). */
@@ -32,8 +33,9 @@ export async function createOutputsApp(options: OutputsAppOptions): Promise<Bran
     now: () => clock.nowMs(),
   });
   const app: FixtureApp = await createFixtureApp({
-    env: options.preview === false ? {} : { PREVIEW_MODE: 'true' },
     clock,
+    identity: await createPolicyHarness({ db: database, clock }),
+    ...(options.signedIn === false ? {} : { signedIn: ADMIN }),
     context: { dataDir: storage.dataDir },
     rules: {
       read: { capacity: 10_000, refillIntervalMs: 1 },

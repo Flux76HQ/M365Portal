@@ -16,7 +16,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_LOCALE,
   LOCALES,
@@ -24,6 +24,9 @@ import {
   createTranslatorFrom,
   detectLocale,
   isLocale,
+  LAZY_NAMESPACES,
+  loadNamespace,
+  loadedNamespaces,
   placeholdersOf,
   stripPlaceholders,
   type Catalogue,
@@ -98,6 +101,48 @@ describe('detectLocale: the first of nl or en among the preferred languages, oth
   it('always returns a locale the module supports', () => {
     for (const languages of [[], ['nl'], ['en'], ['de'], ['zh-Hans-CN'], ['x']]) {
       expect(LOCALES).toContain(detectLocale(languages));
+    }
+  });
+});
+
+describe('detectLocale: the stored default language is a second argument, used only without a nl or en preference (FR-B-219 d, AM-15)', () => {
+  it('keeps the one-argument behaviour: the signature only gained an optional parameter', () => {
+    expect(detectLocale.length).toBeLessThanOrEqual(2);
+    expect(detectLocale(['nl-BE'])).toBe('nl');
+    expect(detectLocale(['de-DE'])).toBe('en');
+  });
+
+  it('uses the stored default when the browser names neither nl nor en', () => {
+    expect(detectLocale(['de-DE'], 'nl')).toBe('nl');
+    expect(detectLocale([], 'nl')).toBe('nl');
+    expect(detectLocale(undefined, 'nl')).toBe('nl');
+    expect(detectLocale(null, 'nl')).toBe('nl');
+    expect(detectLocale(['fr', 'x-nl', '*'], 'nl')).toBe('nl');
+    expect(detectLocale(['de-DE'], 'en')).toBe('en');
+  });
+
+  it('never overrides a browser preference for nl or en', () => {
+    expect(detectLocale(['en-US'], 'nl')).toBe('en');
+    expect(detectLocale(['nl-BE'], 'en')).toBe('nl');
+    expect(detectLocale(['de-DE', 'en-GB'], 'nl')).toBe('en');
+    expect(detectLocale(['de-DE', 'nl'], 'en')).toBe('nl');
+  });
+
+  it('ignores a stored default that is not a supported language, so storage cannot smuggle anything in', () => {
+    const storedValues: unknown[] = [
+      'de',
+      'NL',
+      'nl-BE',
+      '',
+      ' nl',
+      'constructor',
+      42,
+      null,
+      undefined,
+      {},
+    ];
+    for (const [index, stored] of storedValues.entries()) {
+      expect(detectLocale(['de-DE'], stored), `stored default number ${String(index)}`).toBe('en');
     }
   });
 });
@@ -636,11 +681,154 @@ function readSources(): Record<string, string> {
   return sources;
 }
 
+describe('loadNamespace: lazy namespace catalogues (FR-B-604, AM-21, CB15)', () => {
+  const lazyFile = (locale: string, namespace: string): Record<string, string> =>
+    JSON.parse(
+      readFileSync(join(i18nDirectory, 'locales', 'lazy', `${namespace}.${locale}.json`), 'utf8'),
+    ) as Record<string, string>;
+
+  it('is additive: the translator functions keep their signatures', () => {
+    expect(typeof loadNamespace).toBe('function');
+    expect(loadNamespace.length).toBe(2);
+    expect(createTranslator.length).toBe(1);
+    expect(createTranslatorFrom.length).toBe(2);
+  });
+
+  it('names the lazy namespaces and no others (T-B-307 moved the label, Appearance, sign-in and showcase text out of the entry)', () => {
+    expect([...LAZY_NAMESPACES]).toEqual([
+      'setup',
+      'connection',
+      'breakglass',
+      'access',
+      'showcase',
+      'signin',
+      'appearance',
+      'logo',
+      'accent',
+      'preview',
+      'role',
+      'permission',
+      'scope',
+      'qualifier',
+      'resource',
+      'origin',
+      'session',
+      'palette',
+      'shortcuts',
+    ]);
+  });
+
+  it.each(
+    LAZY_NAMESPACES.flatMap((namespace) => LOCALES.map((locale) => [namespace, locale] as const)),
+  )(
+    'loads %s in %s from locales/lazy/<namespace>.<locale>.json, every key in its own namespace',
+    async (namespace, locale) => {
+      const loaded = await loadNamespace(locale, namespace);
+      const expected = lazyFile(locale, namespace);
+      expect(Object.keys(expected).length).toBeGreaterThan(0);
+      expect({ ...loaded }).toEqual(expected);
+      for (const key of Object.keys(loaded))
+        expect(key.startsWith(`${namespace}.`), key).toBe(true);
+    },
+  );
+
+  it('keeps the lazy namespaces out of the entry catalogues, which is the point of loading them lazily', () => {
+    for (const catalogue of [en, nl] as Record<string, string>[]) {
+      for (const key of Object.keys(catalogue)) {
+        for (const namespace of LAZY_NAMESPACES) {
+          expect(key.startsWith(`${namespace}.`), key).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('is typed from the English file: the result has the keys of locales/lazy/<namespace>.en.json', async () => {
+    const loaded = await loadNamespace('en', 'breakglass');
+    const key: keyof typeof loaded = 'breakglass.form.title';
+    expect(typeof loaded[key]).toBe('string');
+  });
+
+  it('answers the same catalogue for a repeated call and imports the file once', async () => {
+    const first = await loadNamespace('nl', 'connection');
+    const second = await loadNamespace('nl', 'connection');
+    expect(second).toBe(first);
+    expect(loadedNamespaces('nl')).toContain('connection');
+  });
+
+  it('refuses a namespace or a locale it does not know', async () => {
+    await expect(loadNamespace('en', 'nope' as never)).rejects.toThrow(RangeError);
+    await expect(loadNamespace('en', 'common' as never)).rejects.toThrow(/lazy namespace/);
+    await expect(loadNamespace('de' as never, 'setup')).rejects.toThrow(RangeError);
+    await expect(loadNamespace('en', '__proto__' as never)).rejects.toThrow(RangeError);
+  });
+
+  it('makes the messages available to a translator, also one made before the load', async () => {
+    const dutch = createTranslator('nl');
+    await loadNamespace('nl', 'setup');
+    expect(dutch.t('setup.step.environment')).toBe(
+      lazyFile('nl', 'setup')['setup.step.environment'],
+    );
+    expect(createTranslator('nl').t('setup.step.finish')).toBe(
+      lazyFile('nl', 'setup')['setup.step.finish'],
+    );
+  });
+
+  it('shows the key itself, never a crash, for a lazy message whose namespace is not loaded', async () => {
+    vi.resetModules();
+    const fresh = await import('../src/i18n/index.js');
+    expect(fresh.createTranslator('en').t('access.page.title')).toBe('access.page.title');
+    await fresh.loadNamespace('en', 'access');
+    expect(fresh.createTranslator('en').t('access.page.title')).toBe(
+      lazyFile('en', 'access')['access.page.title'],
+    );
+  });
+
+  it('loads the namespaces that were asked for in one language into another (a language switch)', async () => {
+    vi.resetModules();
+    const fresh = await import('../src/i18n/index.js');
+    await fresh.loadNamespace('en', 'setup');
+    await fresh.loadNamespace('en', 'access');
+    expect(fresh.loadedNamespaces('nl')).toEqual([]);
+    await fresh.loadRequestedNamespaces('nl');
+    expect([...fresh.loadedNamespaces('nl')].sort()).toEqual(['access', 'setup']);
+    expect(fresh.createTranslator('nl').t('setup.step.connect')).toBe(
+      lazyFile('nl', 'setup')['setup.step.connect'],
+    );
+  });
+
+  it('names the namespaces asked for in one language and not yet loaded in another', async () => {
+    vi.resetModules();
+    const fresh = await import('../src/i18n/index.js');
+    expect(fresh.missingNamespaces('nl')).toEqual([]);
+    await fresh.loadNamespace('en', 'setup');
+    expect(fresh.missingNamespaces('nl')).toEqual(['setup']);
+    expect(fresh.missingNamespaces('en')).toEqual([]);
+    await fresh.loadNamespace('nl', 'setup');
+    expect(fresh.missingNamespaces('nl')).toEqual([]);
+  });
+
+  it('falls back to English for a lazy key the Dutch file lacks, like any other key', () => {
+    const translator = createTranslatorFrom('nl', {
+      en: { 'setup.step.x': 'English' },
+      nl: {},
+    });
+    expect(translator.t('setup.step.x')).toBe('English');
+  });
+});
+
 describe('module boundaries', () => {
   const sources = readSources();
 
   it('has the files the task names', () => {
-    for (const name of ['index', 'create-translator', 'types', 'detect', 'format']) {
+    for (const name of [
+      'index',
+      'create-translator',
+      'types',
+      'detect',
+      'format',
+      'catalogues',
+      'load-namespace',
+    ]) {
       expect(existsSync(join(i18nDirectory, `${name}.ts`)), name).toBe(true);
     }
   });

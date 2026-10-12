@@ -80,6 +80,7 @@ import {
   createWorkspace,
   expectedAudit,
   FIXTURE_BUDGET_MS,
+  FIXTURE_LOAD_ALLOWANCE,
   inputsFor,
   multipartBody,
   problemCodeOf,
@@ -1289,6 +1290,8 @@ describe('hostile corpus: every check of the runner fails on purpose', () => {
       { reason: 'H-00 (never) took more than 20 ms' },
     );
     expect(FIXTURE_BUDGET_MS).toBe(5_000);
+    // The allowance for a loaded machine stays small: a hang still fails within 15 s.
+    expect(FIXTURE_LOAD_ALLOWANCE).toBeLessThanOrEqual(3);
   });
 
   it('multipartBody writes the part as the server will read it, and a hostile name reaches it as written', async () => {

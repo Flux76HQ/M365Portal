@@ -8,7 +8,7 @@ import { createTranslator } from '@m365portal/shared/i18n';
 import type { Permission } from '@m365portal/shared/permissions';
 import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { sampleMe } from './helpers/boot-fixtures';
+import { sampleMe, sampleSignedInMe } from './helpers/boot-fixtures';
 import { renderApp } from './helpers/render-shell';
 
 const en = createTranslator('en');
@@ -93,7 +93,7 @@ describe.each(PAGES)('$path', ({ path, permission, phase, title, does }) => {
   });
 
   it('is open to the preview actor', async () => {
-    await renderApp({ me: sampleMe({ preview: true }), path });
+    await renderApp({ me: sampleSignedInMe(), path });
 
     expect(await screen.findByRole('heading', { level: 1, name: en.t(title) })).toBeInTheDocument();
   });

@@ -3,9 +3,9 @@
 // these tests run the same checks over `buildApp` with the branding module, plus the checks of
 // `route-table.test.ts` and `openapi.test.ts` (parity of table, router and document).
 //
-//   policy        every write route of the table refuses the anonymous actor with 403
-//                 `permission_denied` and a handler that is never entered; no write route is public;
-//                 the preview actor gets past authorisation on the same routes
+//   policy        every write route of the table refuses the anonymous actor with 401
+//                 `unauthenticated` and a handler that is never entered; no write route is public;
+//                 a signed-in administrator gets past authorisation on the same routes
 //   audit         for every write route and every way to be denied (permission, foreign Origin,
 //                 missing Origin, missing token, forged token) exactly one audit row with the fields
 //                 of FR-A-034; the chain verifies without a gap
@@ -42,6 +42,9 @@ import { createHttpClient, readJson, type HttpClient } from '../helpers/http-cli
 import { createLogCapture } from '../helpers/log-capture.js';
 import { createTempDataDir } from '../helpers/temp-data-dir.js';
 import { inProcessImages } from './branding-fixture.js';
+import { moduleDepsExtras } from '../helpers/module-deps-extras.js';
+import { createPolicyHarness } from '../helpers/policy-harness.js';
+import { signedInAs } from '../helpers/test-app.js';
 
 const SERVER_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const WEB = join(SERVER_ROOT, 'test', 'fixtures', 'web-dist');
@@ -73,11 +76,15 @@ interface Real {
   readonly built: BuiltApp;
   readonly client: HttpClient;
   readonly database: AppDatabase;
+  /** The `actor_id` the audit rows carry for this mode. */
+  readonly actorId: string;
   rows(): AuditRow[];
 }
 
+type Mode = 'anonymous' | 'admin';
+
 /** The real `buildApp` with the branding module, started as `startServer` would start it. */
-async function buildReal(mode: 'anonymous' | 'preview' = 'anonymous'): Promise<Real> {
+async function buildReal(mode: Mode = 'anonymous'): Promise<Real> {
   const dir = await createTempDataDir();
   const clock = createFakeClock();
   // Every call a long way after the last one: the rate limiter never runs dry in a long table.
@@ -101,11 +108,12 @@ async function buildReal(mode: 'anonymous' | 'preview' = 'anonymous'): Promise<R
     startFailure: () => undefined,
     migrationsFolder: MIGRATIONS,
   });
-  const config = loadConfigOrThrow({
+  const env = {
     PUBLIC_BASE_URL: ORIGIN,
     DATA_DIR: dir.path,
-    ...(mode === 'preview' ? { PREVIEW_MODE: 'true' } : {}),
-  });
+  };
+  const config = loadConfigOrThrow(env);
+  const identity = await createPolicyHarness({ db: database, clock });
   const handle = (): AppDatabase | undefined => database;
   const shellTemplate = await readFile(join(WEB, 'index.html'), 'utf8');
   const moduleDeps: ModuleDeps = {
@@ -119,6 +127,10 @@ async function buildReal(mode: 'anonymous' | 'preview' = 'anonymous'): Promise<R
     shellTemplate,
     sweepers: createSweeperRegistry({ log }),
     isShuttingDown: () => false,
+    ...moduleDepsExtras(handle, {
+      now: () => clock.nowMs(),
+      overrides: { policy: identity.ports, resolveActor: identity.resolve },
+    }),
   };
   const module = brandingModule(moduleDeps, {
     images: {
@@ -146,14 +158,31 @@ async function buildReal(mode: 'anonymous' | 'preview' = 'anonymous'): Promise<R
     shellTemplate,
     shutdown: { isShuttingDown: () => false },
   });
-  return {
-    built,
-    database,
-    client: createHttpClient({
+  const clientFor = (options: { headers?: Readonly<Record<string, string>> } = {}): HttpClient =>
+    createHttpClient({
       fetch: (request) => built.fetch(request, PEER),
       baseUrl: ORIGIN,
       origin: ORIGIN,
-    }),
+      ...(options.headers === undefined ? {} : { headers: options.headers }),
+    });
+  const admin =
+    mode === 'admin'
+      ? signedInAs(
+          {
+            db: database,
+            clock,
+            publicOrigin: ORIGIN,
+            setupSessions: identity.setupSessions,
+            clientFor,
+          },
+          { kind: 'user', roles: ['admin'] },
+        )
+      : undefined;
+  return {
+    built,
+    database,
+    actorId: admin?.oid ?? 'anonymous',
+    client: admin?.client ?? clientFor(),
     rows: () => database.sqlite.prepare('SELECT * FROM audit_log ORDER BY seq').all() as AuditRow[],
   };
 }
@@ -267,16 +296,14 @@ describe('the real table (T-A-092): the routes of R6 to R15', () => {
 });
 
 describe('policy over the real table (FR-A-033)', () => {
-  it('has no public write route, and refuses each write with 403 permission_denied', async () => {
+  it('has no public write route, and refuses each write with 401 unauthenticated (was 403, FR-B-414)', async () => {
     const real = await buildReal();
     const routes = writeRoutesOf(real.built);
     expect(routes.filter((route) => route.permission === undefined)).toEqual([]);
     for (const route of routes) {
       const response = await real.client.request(route.method, route.path, requestBodyFor(route));
-      expect(response.status, route.id).toBe(403);
-      expect((await readJson<{ code?: string }>(response)).code, route.id).toBe(
-        'permission_denied',
-      );
+      expect(response.status, route.id).toBe(401);
+      expect((await readJson<{ code?: string }>(response)).code, route.id).toBe('unauthenticated');
     }
     // Nothing but denials: the default row's `branding.init` and one denied row per route.
     expect(real.rows().filter((row) => row.outcome === 'denied')).toHaveLength(routes.length);
@@ -285,11 +312,11 @@ describe('policy over the real table (FR-A-033)', () => {
     ).toHaveLength(1);
   });
 
-  it('lets the preview actor past authorisation on the same routes (no 403, no denial row)', async () => {
-    const real = await buildReal('preview');
+  it('lets a signed-in administrator past authorisation on the same routes (no 401, no 403, no denial row)', async () => {
+    const real = await buildReal('admin');
     for (const route of writeRoutesOf(real.built)) {
       const response = await real.client.request(route.method, route.path, requestBodyFor(route));
-      expect(response.status, route.id).not.toBe(403);
+      expect([401, 403], route.id).not.toContain(response.status);
     }
     expect(real.rows().filter((row) => row.outcome === 'denied')).toEqual([]);
   });
@@ -311,39 +338,51 @@ describe('policy over the real table (FR-A-033)', () => {
 
 interface Scenario {
   readonly name: string;
-  readonly code: 'permission_denied' | 'origin_not_allowed' | 'csrf_invalid';
-  readonly applies: (mode: 'anonymous' | 'preview') => boolean;
+  readonly status: 401 | 403;
+  readonly code: 'unauthenticated' | 'origin_not_allowed' | 'csrf_invalid';
+  readonly reason: 'permission_missing' | 'origin_not_allowed' | 'csrf_invalid';
+  readonly applies: (mode: Mode) => boolean;
   readonly options: (route: WriteRoute) => Parameters<HttpClient['request']>[2];
 }
 
 const SCENARIOS: readonly Scenario[] = [
   {
     name: 'a missing permission',
-    code: 'permission_denied',
+    status: 401,
+    code: 'unauthenticated',
+    reason: 'permission_missing',
     applies: (mode) => mode === 'anonymous',
     options: (route) => requestBodyFor(route),
   },
   {
     name: 'a foreign Origin',
+    status: 403,
     code: 'origin_not_allowed',
+    reason: 'origin_not_allowed',
     applies: () => true,
     options: (route) => ({ ...requestBodyFor(route), origin: FOREIGN }),
   },
   {
     name: 'a missing Origin',
+    status: 403,
     code: 'origin_not_allowed',
+    reason: 'origin_not_allowed',
     applies: () => true,
     options: (route) => ({ ...requestBodyFor(route), origin: null }),
   },
   {
     name: 'a missing CSRF token',
+    status: 403,
     code: 'csrf_invalid',
+    reason: 'csrf_invalid',
     applies: () => true,
     options: (route) => ({ ...requestBodyFor(route), csrf: 'none' }),
   },
   {
     name: 'a forged CSRF token',
+    status: 403,
     code: 'csrf_invalid',
+    reason: 'csrf_invalid',
     applies: () => true,
     options: (route) => ({
       ...requestBodyFor(route),
@@ -356,7 +395,7 @@ const SCENARIOS: readonly Scenario[] = [
 ];
 
 /** The guard of `audit-integration.test.ts`, over a real application. Throws on the first deviation. */
-async function assertDenialsAudited(real: Real, mode: 'anonymous' | 'preview'): Promise<void> {
+async function assertDenialsAudited(real: Real, mode: Mode): Promise<void> {
   const routes = writeRoutesOf(real.built);
   if (routes.length === 0) throw new Error('the table has no write route');
   for (const route of routes) {
@@ -365,9 +404,9 @@ async function assertDenialsAudited(real: Real, mode: 'anonymous' | 'preview'): 
       const before = real.rows().length;
       const response = await real.client.request(route.method, route.path, scenario.options(route));
       const body = await readJson<{ code?: string }>(response);
-      if (response.status !== 403 || body.code !== scenario.code) {
+      if (response.status !== scenario.status || body.code !== scenario.code) {
         throw new Error(
-          `${where}: expected 403 ${scenario.code}, got ${String(response.status)} ${String(body.code)}`,
+          `${where}: expected ${String(scenario.status)} ${scenario.code}, got ${String(response.status)} ${String(body.code)}`,
         );
       }
       const rows = real.rows();
@@ -375,11 +414,11 @@ async function assertDenialsAudited(real: Real, mode: 'anonymous' | 'preview'): 
         throw new Error(`${where}: ${String(rows.length - before)} new rows`);
       const row = rows[rows.length - 1]!;
       const expected: Partial<AuditRow> = {
-        actor_kind: mode,
-        actor_id: mode,
+        actor_kind: mode === 'admin' ? 'user' : 'anonymous',
+        actor_id: real.actorId,
         action: route.id,
         outcome: 'denied',
-        reason_code: scenario.code,
+        reason_code: scenario.reason,
         request_id: response.headers.get('x-request-id'),
         client_ip: '127.0.0.1',
       };
@@ -402,7 +441,7 @@ async function assertDenialsAudited(real: Real, mode: 'anonymous' | 'preview'): 
   }
 }
 
-describe.each(['anonymous', 'preview'] as const)(
+describe.each(['anonymous', 'admin'] as const)(
   'audit integration over the real table, actor %s (FR-A-034, SC-A-009)',
   (mode) => {
     it('audits every denial of every write route, with the fields of FR-A-034', async () => {

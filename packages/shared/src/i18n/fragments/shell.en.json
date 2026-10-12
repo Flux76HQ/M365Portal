@@ -1,7 +1,6 @@
 {
   "shell.actor.anonymous": "Not signed in",
   "shell.actor.label": "Acting as: {name}",
-  "shell.actor.preview": "Preview administrator",
   "shell.org.fallback": "Organisation",
   "shell.search.label": "Search or run a command",
   "shell.sidebar.close": "Close menu",

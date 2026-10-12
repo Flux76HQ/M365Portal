@@ -60,7 +60,12 @@ export const CI_JOBS: readonly string[] = [
   'analyze',
 ];
 
-const ROW = /^\| (FR-A-\d{3}) \| (MUST|SHOULD) \|/;
+/** The names of the Exchange write path the owner has not decided (assembled so this file is clean too). */
+const UNDECIDED_WRITE_PATH = new RegExp(
+  `\\b(?:${['Invoke', 'Command'].join('')}|${['pw', 'sh'].join('')})\\b`,
+);
+
+const ROW = /^\| (FR-[AB]-\d{3}) \| (MUST|SHOULD) \|/;
 
 /** The prefix table of spec section 2: `server/` to `apps/server/test/`, and so on. */
 export function parsePrefixTable(specText: string): ReadonlyMap<string, string> {
@@ -68,6 +73,12 @@ export function parsePrefixTable(specText: string): ReadonlyMap<string, string> 
   for (const line of specText.split('\n')) {
     const match = /^\s*\| `([a-z0-9]+)\/` \| `([^`]+\/)`(?: [^|]*)? \|\s*$/.exec(line);
     if (match?.[1] !== undefined && match[2] !== undefined) table.set(match[1], match[2]);
+  }
+  if (table.size > 0) return table;
+  // Phase B states the prefixes in one line of prose: "`server/` is `apps/server/test/`, ...".
+  const prose = specText.split('\n').find((line) => line.includes('**Test path prefixes.**'));
+  for (const match of (prose ?? '').matchAll(/`([a-z0-9]+)\/` is `([^`]+\/)`/g)) {
+    if (match[1] !== undefined && match[2] !== undefined) table.set(match[1], match[2]);
   }
   return table;
 }
@@ -134,6 +145,9 @@ export function parseControls(
       controls.push({ kind: 'command', command: token });
     } else if (looksLikePath(token, prefixes)) {
       controls.push({ kind: 'test', ref: token, candidates: candidatePaths(token, prefixes) });
+    } else if (/^(?:tools|scripts|eslint-rules)\/\S+\.[a-z]+\}?$/.test(token)) {
+      // A control that lives outside the test folders (Phase B: `tools/traceability/traceability.test.ts`).
+      controls.push({ kind: 'test', ref: token, candidates: expandBraces(token) });
     }
   }
   return controls;
@@ -195,6 +209,11 @@ export function indexWorkflows(root: string): WorkflowIndex {
 }
 
 export interface TraceabilityOptions {
+  /**
+   * Only the title line of a task counts as "a task" (`- [ ] **T-B-nnn** ... FR-B-xxx`). Phase B asks
+   * for it (T-B-394): a requirement named only in prose below a task is not carried by it.
+   */
+  readonly titlesOnly?: boolean;
   /** Spec path relative to the root. */
   readonly spec?: string;
   /** Tasks path relative to the root. */
@@ -240,10 +259,17 @@ export function checkTraceability(
   options: TraceabilityOptions = {},
 ): TraceabilityResult {
   const specText = readFileSync(join(root, options.spec ?? 'specs/001-m365portal/spec.md'), 'utf8');
-  const tasksText = readFileSync(
+  const rawTasks = readFileSync(
     join(root, options.tasks ?? 'specs/001-m365portal/tasks.md'),
     'utf8',
   );
+  const tasksText =
+    options.titlesOnly === true
+      ? rawTasks
+          .split('\n')
+          .filter((line) => /^- \[[ x]\] \*\*T-[AB]-\d+\*\*/.test(line))
+          .join('\n')
+      : rawTasks;
   const reviewOnly = options.reviewOnly ?? REVIEW_ONLY;
   const prefixes = parsePrefixTable(specText);
   const requirements = parseRequirements(specText);
@@ -317,8 +343,10 @@ function hasLintRule(root: string, rule: string): boolean {
 
 /** "FR-A-040 to FR-A-049" or "FR-A-040..049" in tasks.md covers the ids in between. */
 function coveredByRange(id: string, tasksText: string): boolean {
-  const wanted = Number(id.slice('FR-A-'.length));
-  for (const match of tasksText.matchAll(/FR-A-(\d{3})(?: to |\.\.)(?:FR-A-)?(\d{3})/g)) {
+  const family = id.slice(0, 5);
+  const wanted = Number(id.slice(5));
+  const range = new RegExp(`${family}(\\d{3})(?: to |\\.\\.)(?:${family})?(\\d{3})`, 'g');
+  for (const match of tasksText.matchAll(range)) {
     if (match[1] === undefined || match[2] === undefined) continue;
     if (wanted >= Number(match[1]) && wanted <= Number(match[2])) return true;
   }
@@ -458,4 +486,190 @@ export function findPhaseBArtefacts(root: string): string[] {
     }
   });
   return [...new Set(found)].sort();
+}
+
+// ---------------------------------------------------------------------------------------------
+// No Phase C artefact (Phase B, FR-B-712, T-B-394)
+//
+// Phase B ends with a report and a stop (spec 002 section 3): nothing of Phase C may exist before
+// the owner approves. The guard looks for the things Phase C creates: its server modules, its
+// routes, a write or a list method on the Microsoft clients, a Phase C report, and the PowerShell
+// path that the Exchange write decision (ODB-01) has not taken. It is switched by the same constant
+// as the Phase B guard: while the phase is 'B' it applies; 'C' lifts it.
+
+/** Server source directories that only Phase C and D create. */
+export const PHASE_C_SERVER_DIRECTORIES: readonly string[] = [
+  'users',
+  'groups',
+  'distribution',
+  'contacts',
+  'exchange-write',
+];
+
+/** Route paths that only Phase C registers (string literals in the code of the apps; comments ignored). */
+export const PHASE_C_ROUTE_PATHS: readonly string[] = ['/api/v1/users', '/api/v1/groups'];
+
+/** Method names on the Microsoft client ports that read or write more than Phase B needs. */
+const BEYOND_PHASE_B_METHOD =
+  /^(?:list|create|update|delete|add|remove|set|reset|patch|assign|revoke|invite|restore)/;
+
+/** The members of `interface <name>` in a source text, with comments ignored. */
+export function interfaceMembers(text: string, name: string): string[] {
+  const source = ts.createSourceFile('port.ts', text, ts.ScriptTarget.Latest, true);
+  const members: string[] = [];
+  source.forEachChild((node) => {
+    if (ts.isInterfaceDeclaration(node) && node.name.text === name) {
+      for (const member of node.members) {
+        if (
+          (ts.isMethodSignature(member) || ts.isPropertySignature(member)) &&
+          ts.isIdentifier(member.name)
+        ) {
+          members.push(member.name.text);
+        }
+      }
+    }
+  });
+  return members;
+}
+
+/** The array literal assigned to `write:` in `return { ... write: [...] }` of a `capabilities()`. */
+export function capabilityWrites(text: string): string[][] {
+  const source = ts.createSourceFile('client.ts', text, ts.ScriptTarget.Latest, true);
+  const found: string[][] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isPropertyAssignment(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === 'write' &&
+      ts.isArrayLiteralExpression(node.initializer)
+    ) {
+      found.push(
+        node.initializer.elements.map((element) =>
+          ts.isStringLiteralLike(element) ? element.text : element.getText(source),
+        ),
+      );
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+
+/** What of Phase C exists in the tree: empty when clean. */
+export function findPhaseCArtefacts(root: string): string[] {
+  const found: string[] = [];
+  const rel = (path: string): string => relative(root, path).split(sep).join('/');
+
+  for (const directory of PHASE_C_SERVER_DIRECTORIES) {
+    if (existsSync(join(root, 'apps/server/src', directory))) {
+      found.push(`apps/server/src/${directory} exists (Phase C)`);
+    }
+  }
+  if (existsSync(join(root, 'docs/phase-reports/phase-C.md'))) {
+    found.push('docs/phase-reports/phase-C.md exists (Phase C)');
+  }
+
+  walk(join(root, 'apps'), (path) => {
+    const fromRoot = rel(path);
+    if (!fromRoot.includes('/src/') || !/\.tsx?$/.test(path) || /\.(test|spec)\./.test(path))
+      return;
+    const { strings } = literalsAndDeclarations(path);
+    for (const literal of strings) {
+      if (
+        PHASE_C_ROUTE_PATHS.some((banned) => literal === banned || literal.startsWith(`${banned}/`))
+      ) {
+        found.push(`${fromRoot} mentions the Phase C path "${literal}" in code`);
+      }
+    }
+    if (UNDECIDED_WRITE_PATH.test(readFileSync(path, 'utf8'))) {
+      found.push(`${fromRoot} names the undecided Exchange write path (ODB-01)`);
+    }
+  });
+
+  // The route table of the server: a route below /api/v1/users or /api/v1/groups also appears as a
+  // template literal or a concatenation, so the source text of the route files is searched as well.
+  walk(join(root, 'apps/server/src'), (path) => {
+    if (!path.endsWith('.ts')) return;
+    const text = readFileSync(path, 'utf8');
+    if (/path:\s*[`'"]\/api\/v1\/(?:users|groups)(?:[/'"`]|\$)/.test(text)) {
+      found.push(`${rel(path)} registers a route below /api/v1/users or /api/v1/groups (Phase C)`);
+    }
+  });
+
+  const graphPort = join(root, 'apps/server/src/ports/graph.ts');
+  if (existsSync(graphPort)) {
+    for (const member of interfaceMembers(readFileSync(graphPort, 'utf8'), 'GraphClient')) {
+      if (BEYOND_PHASE_B_METHOD.test(member)) {
+        found.push(
+          `apps/server/src/ports/graph.ts: GraphClient has the method ${member} (a list or write method is Phase C)`,
+        );
+      }
+    }
+  }
+  const exchangePort = join(root, 'apps/server/src/ports/exchange.ts');
+  if (existsSync(exchangePort)) {
+    for (const member of interfaceMembers(readFileSync(exchangePort, 'utf8'), 'ExchangeClient')) {
+      if (BEYOND_PHASE_B_METHOD.test(member) && member !== 'listDistributionGroupMembers') {
+        found.push(
+          `apps/server/src/ports/exchange.ts: ExchangeClient has the method ${member} (a write method is Phase C)`,
+        );
+      }
+    }
+  }
+  walk(join(root, 'apps/server/src/integrations/exchange'), (path) => {
+    if (!path.endsWith('.ts')) return;
+    for (const write of capabilityWrites(readFileSync(path, 'utf8'))) {
+      if (write.length > 0) {
+        found.push(
+          `${rel(path)}: ExchangeClient.capabilities().write is not empty (${write.join(', ')})`,
+        );
+      }
+    }
+  });
+  return [...new Set(found)].sort();
+}
+
+/**
+ * The report of Phase B (`docs/phase-reports/phase-B.md`), once it exists: it ends with the question
+ * and an approval line that the owner fills and nobody else (FR-B-712), and it holds a row for every
+ * decision ODB-01 to ODB-18 and every owner-verified item OV-01 to OV-23. Empty when the report does
+ * not exist yet (T-B-999 writes it last).
+ */
+export function checkPhaseBReport(root: string): string[] {
+  const path = join(root, 'docs/phase-reports/phase-B.md');
+  if (!existsSync(path)) return [];
+  const text = readFileSync(path, 'utf8');
+  const problems: string[] = [];
+  const question = /Akkoord om door te gaan met fase C\?/.exec(text);
+  if (question === null) {
+    problems.push(
+      'docs/phase-reports/phase-B.md: the question "Akkoord om door te gaan met fase C?" is missing',
+    );
+  } else {
+    const after = text
+      .slice(question.index + question[0].length)
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '');
+    const approval = after[0];
+    if (approval === undefined || !/^[^:]{3,80}:\s*(?:_+|\.+)?\s*$/.test(approval)) {
+      problems.push(
+        `docs/phase-reports/phase-B.md: the line after the question must be an approval line with nothing filled in (FR-B-712), found "${approval ?? ''}"`,
+      );
+    }
+    if (after.length > 1) {
+      problems.push(
+        'docs/phase-reports/phase-B.md: nothing may follow the approval line (FR-B-712)',
+      );
+    }
+  }
+  for (let number = 1; number <= 18; number += 1) {
+    const id = `ODB-${String(number).padStart(2, '0')}`;
+    if (!text.includes(id)) problems.push(`docs/phase-reports/phase-B.md: ${id} is missing`);
+  }
+  for (let number = 1; number <= 23; number += 1) {
+    const id = `OV-${String(number).padStart(2, '0')}`;
+    if (!text.includes(id)) problems.push(`docs/phase-reports/phase-B.md: ${id} is missing`);
+  }
+  return problems;
 }

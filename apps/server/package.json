@@ -14,24 +14,32 @@
     "schema:check": "tsx scripts/check-schema.ts"
   },
   "dependencies": {
+    "@azure/msal-node": "catalog:",
     "@hono/node-server": "catalog:",
     "@hono/zod-openapi": "catalog:",
+    "@peculiar/x509": "catalog:",
     "better-sqlite3": "catalog:",
     "drizzle-orm": "catalog:",
     "hono": "catalog:",
+    "jose": "catalog:",
+    "libsodium-wrappers": "catalog:",
     "pino": "catalog:",
+    "reflect-metadata": "catalog:",
     "saxes": "catalog:",
     "sharp": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@m365portal/shared": "workspace:*",
+    "@mswjs/interceptors": "catalog:",
     "@seriousme/openapi-schema-validator": "catalog:",
     "@types/better-sqlite3": "catalog:",
     "@types/node": "catalog:",
     "drizzle-kit": "catalog:",
     "esbuild": "catalog:",
+    "msw": "catalog:",
     "tsx": "catalog:",
+    "typescript": "catalog:",
     "vitest": "catalog:"
   }
 }

@@ -35,7 +35,7 @@ function collect(response: IncomingMessage): Promise<Buffer> {
 }
 
 export async function startVersionProxy(): Promise<VersionProxy> {
-  const upstreamPort = portOf('preview');
+  const upstreamPort = portOf('a');
   const state: VersionProxy = {
     origin: '',
     version: BUILD_VERSION,

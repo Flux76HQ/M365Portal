@@ -1,0 +1,5 @@
+mount: packages/shared/src/schemas/rbac-extra.ts
+// A role label function next to the schemas: the one home is rbac/labels.ts.
+export function roleLabelKey(role: string): string {
+  return `role.${role}`;
+}

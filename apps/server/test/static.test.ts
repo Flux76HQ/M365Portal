@@ -24,7 +24,7 @@ import { expectGuardFails } from '@m365portal/shared/testing';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import { WORKER_CSP } from '../src/http/csp.js';
-import { isShellRequest, spaFallback } from '../src/http/spa-fallback.js';
+import { isShellRequest, spaFallback, type PagePolicy } from '../src/http/spa-fallback.js';
 import { isServablePath, serviceWorkerRoute, staticFallback } from '../src/http/static.js';
 import {
   NONCE_PLACEHOLDER,
@@ -75,7 +75,9 @@ interface SiteApp extends FixtureApp {
   readonly site: Site;
 }
 
-async function siteApp(options: Pick<FixtureAppOptions, 'rules'> = {}): Promise<SiteApp> {
+async function siteApp(
+  options: Pick<FixtureAppOptions, 'rules'> & { readonly pages?: PagePolicy } = {},
+): Promise<SiteApp> {
   const site = await makeSite();
   const shell = createPlaceholderShell(readShellTemplate(site.root));
   const app = await createFixtureApp({
@@ -84,7 +86,10 @@ async function siteApp(options: Pick<FixtureAppOptions, 'rules'> = {}): Promise<
       ...fixtureRoutes(calls, csrf),
       serviceWorkerRoute({ root: site.root }),
     ],
-    fallbacks: [staticFallback({ root: site.root }), spaFallback({ shell })],
+    fallbacks: [
+      staticFallback({ root: site.root }),
+      spaFallback({ shell, ...(options.pages === undefined ? {} : { pages: options.pages }) }),
+    ],
   });
   return Object.assign(app, { site });
 }
@@ -639,6 +644,52 @@ describe('the SPA fallback (FR-A-048, plan 7.5)', () => {
     const response = await app.client.get('/api/v1/fixture/read', { headers: HTML });
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('application/json');
+  });
+});
+
+describe('the page policy of the SPA fallback (XB20, FR-B-201, FR-B-207)', () => {
+  const seen: string[] = [];
+  const policy: PagePolicy = {
+    decide(_request, path) {
+      seen.push(path);
+      if (path === '/setup' || path.startsWith('/setup/')) return 'not_found';
+      if (path === '/elsewhere') return { redirect: '/setup' };
+      return 'shell';
+    },
+  };
+
+  it('answers 404 with the shell for a page the policy says does not exist (the client renders Not-found)', async () => {
+    const app = await siteApp({ pages: policy });
+    const response = await app.client.get('/setup', { headers: HTML });
+    expect(response.status).toBe(404);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.text()).toContain('<div id="root">');
+    expect((await app.client.get('/setup/step', { headers: HTML })).status).toBe(404);
+  });
+
+  it('answers 303 to the place the policy names, and caches nothing', async () => {
+    const app = await siteApp({ pages: policy });
+    const response = await app.client.get('/elsewhere', { headers: HTML });
+    expect(response.status).toBe(303);
+    expect(response.headers.get('location')).toBe('/setup');
+    expect(response.headers.get('cache-control')).toContain('no-store');
+  });
+
+  it('serves the shell for every other page (+ negative: without a policy /setup is the shell)', async () => {
+    const app = await siteApp({ pages: policy });
+    expect((await app.client.get('/users', { headers: HTML })).status).toBe(200);
+    const plain = await siteApp();
+    expect((await plain.client.get('/setup', { headers: HTML })).status).toBe(200);
+  });
+
+  it('asks about page navigations only: not about files, the API or a request that does not accept HTML', async () => {
+    seen.length = 0;
+    const app = await siteApp({ pages: policy });
+    await app.client.get('/assets/app-abc123.js');
+    await app.client.get('/api/v1/health/live');
+    await app.client.get('/users', { headers: { accept: 'application/json' } });
+    expect(seen).toEqual([]);
   });
 });
 

@@ -1,0 +1,11 @@
+{
+  "noaccess.action.otherAccount": "Een ander account gebruiken",
+  "noaccess.action.signInAgain": "Opnieuw aanmelden",
+  "noaccess.reason.graph_unavailable": "Je bent aangemeld, maar het paneel kon je rollen niet controleren omdat Microsoft niet antwoordde.",
+  "noaccess.reason.no_role": "Je bent aangemeld, maar dit account heeft nog geen rol in het paneel.",
+  "noaccess.reference": "Referentie",
+  "noaccess.referenceHelp": "Geef deze referentie aan je beheerder als je om hulp vraagt.",
+  "noaccess.remedy.graph_unavailable": "Probeer het zo meteen opnieuw. Blijft het gebeuren, vertel het dan je beheerder en geef de referentie hieronder door.",
+  "noaccess.remedy.no_role": "Vraag een eigenaar of beheerder van het paneel om je een rol te geven en meld je daarna opnieuw aan.",
+  "noaccess.title": "Geen toegang tot het paneel"
+}

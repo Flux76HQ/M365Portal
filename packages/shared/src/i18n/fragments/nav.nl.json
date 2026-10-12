@@ -1,12 +1,15 @@
 {
+  "nav.access": "Mijn toegang",
   "nav.appearance": "Uiterlijk",
   "nav.auditLog": "Auditlog",
+  "nav.connection": "Verbinding",
   "nav.contacts": "Contacten",
   "nav.dashboard": "Dashboard",
   "nav.design": "Componentenoverzicht",
   "nav.distributionLists": "Distributielijsten",
   "nav.groups": "Groepen",
   "nav.noAccess": "Geen toegang",
+  "nav.restoreAccess": "Toegang herstellen",
   "nav.settings": "Instellingen",
   "nav.users": "Gebruikers"
 }

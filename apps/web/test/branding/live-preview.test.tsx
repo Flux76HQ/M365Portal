@@ -4,8 +4,6 @@
 import { deriveAccentTokens } from '@m365portal/shared/branding/accent';
 import { logoPlateFor } from '@m365portal/shared/branding/logo-plate';
 import { monogramFor } from '@m365portal/shared/branding/monogram';
-import enCatalogue from '@m365portal/shared/i18n/locales/en.json';
-import nlCatalogue from '@m365portal/shared/i18n/locales/nl.json';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -14,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LivePreview } from '../../src/features/branding/LivePreview';
 import { loadBrandingTools } from '../../src/features/branding/tools';
 import type { AssetRef, LogoVariant } from '../../src/features/branding/types';
+import { enCatalogue, nlCatalogue } from './catalogues';
 import { renderInLanguage } from './helpers';
 
 const en = enCatalogue as Record<string, string>;

@@ -7,11 +7,11 @@ import { expect, test } from '../fixtures.js';
 import { openAppearance, readBranding, restoreDefaults } from '../branding-helpers.js';
 
 test.beforeEach(async ({ app }) => {
-  await app.servers.start('preview');
+  await app.servers.start('a');
 });
 
 test.afterEach(async ({ app, request }) => {
-  await app.servers.start('preview'); // whatever the test did, the next one finds a server
+  await app.servers.start('a'); // whatever the test did, the next one finds a server
   await restoreDefaults(request, app);
 });
 
@@ -36,7 +36,7 @@ test('a navigation with the server stopped shows the offline page, in both langu
 }) => {
   await app.goto('/');
   await warm(page, ['/']);
-  await app.servers.stop('preview');
+  await app.servers.stop('a');
 
   const response = await page.goto(app.url('/users'));
   expect(response?.status()).toBe(200);
@@ -65,7 +65,7 @@ test('any route gives the offline page, also a deep link the browser never visit
 }) => {
   await app.goto('/');
   await warm(page, ['/']);
-  await app.servers.stop('preview');
+  await app.servers.stop('a');
   for (const path of ['/settings/appearance', '/design', '/no-such-page', '/?x=1']) {
     await page.goto(app.url(path));
     await expect(
@@ -84,10 +84,10 @@ test('Try again reloads, and the application comes back once the server does', a
 }) => {
   await app.goto('/');
   await warm(page, ['/']);
-  await app.servers.stop('preview');
+  await app.servers.stop('a');
   await page.goto(app.url('/users'));
   await expect(page.getByRole('heading', { level: 1, name: 'You are offline' })).toBeVisible();
-  await app.servers.start('preview');
+  await app.servers.start('a');
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Users' })).toBeVisible({
     timeout: 20_000,
@@ -110,7 +110,7 @@ test('hashed assets still load from the cache, and the response says the worker 
       .filter((path) => path.startsWith('/assets/')),
   );
   expect(assets.length).toBeGreaterThan(3);
-  await app.servers.stop('preview');
+  await app.servers.stop('a');
 
   const results = await page.evaluate(
     async (paths) => {
@@ -178,7 +178,7 @@ test('no /api response ever comes from a cache: online it is the server, stopped
   });
   expect(keys.filter((path) => path.includes('/api'))).toEqual([]);
 
-  await app.servers.stop('preview');
+  await app.servers.stop('a');
   const failures = await page.evaluate(async () => {
     const out: string[] = [];
     for (const path of ['/api/v1/me', '/api/v1/branding', '/API/v1/me', '/api/%76%31/me']) {
@@ -211,7 +211,7 @@ test.describe('saving while the server is gone', () => {
     await fields.name.fill('Offline Edit');
     await expect(fields.save).toBeEnabled();
 
-    await app.servers.stop('preview');
+    await app.servers.stop('a');
     const writes: string[] = [];
     page.on('request', (r) => {
       if (r.method() !== 'GET') writes.push(`${r.method()} ${new URL(r.url()).pathname}`);
@@ -231,7 +231,7 @@ test.describe('saving while the server is gone', () => {
     await expect(page.locator('input[data-slot="import-file"]')).toBeAttached();
 
     // The server returns: nothing is replayed behind the person's back.
-    await app.servers.start('preview');
+    await app.servers.start('a');
     await page.waitForTimeout(2500);
     const attemptsWhileDown = writes.length;
     // The write may not even leave the page (the CSRF token is fetched first and that fails).
@@ -261,7 +261,7 @@ test.describe('saving while the server is gone', () => {
     const name = page.getByRole('textbox', { name: /^Organisatienaam/ });
     await name.waitFor();
     await name.fill('Offline Wijziging');
-    await app.servers.stop('preview');
+    await app.servers.stop('a');
     await page.getByRole('button', { name: 'Opslaan', exact: true }).click();
     const reason = page.locator('#offline-state');
     await expect(reason).toContainText('Je bent offline');

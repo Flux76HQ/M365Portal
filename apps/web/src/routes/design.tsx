@@ -3,6 +3,7 @@ import { NotFound } from '../components/pages/NotFound';
 import { Showcase } from '../features/showcase/Showcase';
 import { validateShowcaseSearch } from '../features/showcase/search';
 import { gatedPage } from '../lib/gating';
+import { loadLazyNamespace } from '../lib/locale';
 
 // The page is long: it mounts in parts, one after each task, so no single commit blocks the main thread
 // (lib/staged.ts; T-A-173).
@@ -17,6 +18,10 @@ export const Route = createFileRoute('/design')({
   staticData: { titleKey: 'nav.design' },
   // The state of the demo table (`q`, `sort`, `page`, `size`, `f.department`) and `scenario` live in the URL.
   validateSearch: validateShowcaseSearch,
+  // The showcase text is a lazy catalogue: no other page needs it (T-B-307).
+  loader: async ({ context }) => {
+    if (context.me.features.showcase) await loadLazyNamespace('showcase');
+  },
   beforeLoad: ({ context }) => ({
     access: context.me.features.showcase ? ('allowed' as const) : ('missing' as const),
   }),

@@ -5,9 +5,12 @@
   "pages.noAccess.title": "Je hebt geen toegang tot deze pagina",
   "pages.notFound.description": "Het adres leidt niet naar een pagina van dit paneel. Controleer het adres of ga terug naar het dashboard.",
   "pages.notFound.title": "Pagina niet gevonden",
+  "pages.settings.access.description": "Uw rollen en wat die toestaan.",
   "pages.settings.appearance.description": "Organisatienaam, accentkleur en logo's.",
-  "pages.settings.later": "Verbindingsinstellingen komen in fase B en toegangsbeheer in fase D.",
+  "pages.settings.connection.description": "Hoe het paneel met Microsoft 365 is verbonden: certificaat, bewijs, herstel.",
+  "pages.settings.later": "Toegangsbeheer (rollen toekennen) komt in fase D.",
   "pages.settings.lead": "De instellingen van dit paneel.",
   "pages.settings.list": "Beschikbare instellingen",
+  "pages.settings.restoreAccess.description": "Geef de rol Eigenaar terug aan iemand. Alleen voor de break-glass-sessie.",
   "pages.settings.title": "Instellingen"
 }

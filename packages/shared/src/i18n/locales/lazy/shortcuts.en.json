@@ -1,0 +1,15 @@
+{
+  "shortcuts.action.close": "Close the palette or a dialog",
+  "shortcuts.action.overview": "Show this overview",
+  "shortcuts.action.palette": "Open the command palette",
+  "shortcuts.action.search": "Open search",
+  "shortcuts.close": "Close",
+  "shortcuts.description": "These shortcuts work on every page.",
+  "shortcuts.key.command": "Cmd",
+  "shortcuts.key.control": "Ctrl",
+  "shortcuts.key.escape": "Esc",
+  "shortcuts.list": "Keyboard shortcuts",
+  "shortcuts.setting.hint": "The question mark and the slash work only outside text fields. Turn them off if they get in the way of speech input or other tools. Ctrl or Cmd plus K always works.",
+  "shortcuts.setting.label": "Single-character shortcuts",
+  "shortcuts.title": "Keyboard shortcuts"
+}

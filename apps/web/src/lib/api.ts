@@ -13,7 +13,11 @@
 //   - never keeps the server's English `title` or `detail`: the UI shows the catalogue message of the
 //     code (lib/problem.ts), so those texts are dropped here and cannot leak into a screen;
 //   - notes the version the server reports and raises "update available" when it is not the version
-//     this bundle was built from (E-21).
+//     this bundle was built from (E-21);
+//   - tells the session effects (lib/auth-nav.ts) what the server said about the session: the deadline of
+//     the idle timeout from `X-Session-Idle-Expires` on every response, `unauthenticated` and
+//     `session_expired` (the browser goes to the sign-in page), and `step_up_required` (the step-up dialog
+//     opens; the write is not replayed). Only those codes: another 401 or 403 is the caller's business.
 //
 // Retrying is the job of TanStack Query, with `shouldRetry` below as its rule: a request that was
 // refused (4xx) is never repeated, a network error or a 5xx is repeated twice. A write is never
@@ -21,6 +25,8 @@
 import { RequestIdSchema, OriginSchema } from '@m365portal/shared/schemas/common';
 import { CsrfResponseSchema } from '@m365portal/shared/schemas/meta';
 import { ProblemFieldErrorSchema, type ProblemFieldError } from '@m365portal/shared/problem';
+import { getSessionStore } from '../features/auth/session-store';
+import { browserLocation, createAuthEffects, type AuthEffects } from './auth-nav';
 
 /** The build version of this bundle (vite.config.ts defines it from the VERSION file). */
 declare const __APP_VERSION__: string | undefined;
@@ -177,6 +183,11 @@ export interface ApiClientOptions {
    * not known (a development server), and the update signal then never rises.
    */
   readonly buildVersion?: string | null;
+  /**
+   * What to do about the session (T-B-295). Absent: nothing, which is what a client built for a test
+   * does; `getApiClient()` wires the effects of the page.
+   */
+  readonly auth?: AuthEffects;
 }
 
 export interface UpdateSignal {
@@ -200,6 +211,7 @@ export interface ApiClient {
   readonly updateAvailable: UpdateSignal;
 }
 
+const IDLE_HEADER = 'X-Session-Idle-Expires';
 const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 const CSRF_PATH = '/api/v1/csrf';
 const CSRF_HEADER = 'X-CSRF-Token';
@@ -240,13 +252,23 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   const send = options.fetch ?? defaultFetch;
   const buildVersion =
     options.buildVersion === undefined ? defaultBuildVersion() : options.buildVersion;
+  const auth = options.auth;
+
+  /** The session effects of an error the server answered with; the error is thrown by the caller. */
+  function observe(error: ApiError): ApiError {
+    if (auth === undefined) return error;
+    if (error.code === 'unauthenticated') auth.unauthenticated();
+    else if (error.code === 'session_expired') auth.sessionExpired();
+    else if (error.code === 'step_up_required') auth.stepUpRequired();
+    return error;
+  }
 
   // --- the CSRF token ---------------------------------------------------------------------------
   let token: Promise<string> | undefined;
 
   async function fetchToken(): Promise<string> {
     const response = await perform('GET', CSRF_PATH, undefined);
-    if (!response.ok) throw await toApiError(response);
+    if (!response.ok) throw observe(await toApiError(response));
     const parsed = CsrfResponseSchema.safeParse(await readJson(response));
     if (!parsed.success) throw invalidResponse(response);
     return parsed.data.token;
@@ -284,12 +306,17 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     }
     if (csrfToken !== undefined) headers.set(CSRF_HEADER, csrfToken);
 
+    let response: Response;
     try {
-      return await send(withQuery(path, requestOptions?.query), init);
+      response = await send(withQuery(path, requestOptions?.query), init);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') throw error;
       throw new NetworkError('the server could not be reached', { cause: error });
     }
+    // The deadline after this request slid the session (a response without a session has no header).
+    const idle = response.headers.get(IDLE_HEADER);
+    if (idle !== null) auth?.idleExpires(idle);
+    return response;
   }
 
   async function execute<T>(
@@ -324,7 +351,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     checkPath(path);
 
     const response = await execute(verb, path, requestOptions);
-    if (!response.ok) throw await toApiError(response);
+    if (!response.ok) throw observe(await toApiError(response));
 
     const isJson = (response.headers.get('Content-Type') ?? '').includes('json');
     let data: unknown;
@@ -388,6 +415,8 @@ let shared: ApiClient | undefined;
 
 /** The client of this page, created on first use. */
 export function getApiClient(): ApiClient {
-  shared ??= createApiClient();
+  shared ??= createApiClient({
+    auth: createAuthEffects({ location: browserLocation(), store: getSessionStore() }),
+  });
   return shared;
 }

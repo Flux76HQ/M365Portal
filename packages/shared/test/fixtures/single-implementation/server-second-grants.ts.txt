@@ -1,0 +1,8 @@
+mount: apps/server/src/rbac/my-grants.ts
+// A second computation of the effective grants, with its own idea of expiry.
+export const computeGrants = (assignments: readonly { expiresAt: string | null }[]): number =>
+  assignments.length;
+
+export function matchScope(): boolean {
+  return true;
+}

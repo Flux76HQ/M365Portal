@@ -14,7 +14,11 @@ describe('app router', () => {
       fetch: () => Promise.reject(new Error('offline')),
     });
     const queryClient = createAppQueryClient();
-    seedQueryClient(queryClient, { me: sampleMe(), branding: sampleBranding() }, api);
+    seedQueryClient(
+      queryClient,
+      { me: sampleMe({ kind: 'user' }), branding: sampleBranding() },
+      api,
+    );
     const router = createAppRouter(createMemoryHistory({ initialEntries: ['/'] }), {
       queryClient,
       api,

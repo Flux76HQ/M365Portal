@@ -26,15 +26,23 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { RootProviders } from '../src/components/pages/root-providers';
+import { renderApp } from './helpers/render-shell';
 import { useToast } from '../src/components/ui/toast';
 import { createApiClient, type ApiClient } from '../src/lib/api';
-import { gatedPage, hasAccess, loadMe, requireAnyOf, requirePermission } from '../src/lib/gating';
+import {
+  gatedPage,
+  hasAccess,
+  isPublicPath,
+  loadMe,
+  requireAnyOf,
+  requirePermission,
+} from '../src/lib/gating';
 import { createLanguageController } from '../src/lib/locale';
 import { createAppQueryClient, seedQueryClient } from '../src/lib/query';
 import { baseRouterOptions, createAppRouter } from '../src/router';
 import { createStorage } from '../src/lib/storage';
 import type { RouterContext } from '../src/lib/router-context';
-import { sampleBranding, sampleMe } from './helpers/boot-fixtures';
+import { sampleBranding, sampleMe, sampleSignedInMe } from './helpers/boot-fixtures';
 
 // ---------------------------------------------------------------------------------------------
 // Spies on the providers, to record the order in which they render. They call through.
@@ -302,7 +310,7 @@ describe('requirePermission', () => {
   it('hasAccess answers the same question for a component', () => {
     expect(hasAccess(sampleMe({ permissions: ['users:read'] }), ['users:read'])).toBe(true);
     expect(hasAccess(sampleMe(), ['users:read'])).toBe(false);
-    expect(hasAccess(sampleMe({ preview: true }), ['audit:read'])).toBe(true);
+    expect(hasAccess(sampleSignedInMe(), ['audit:read'])).toBe(true);
   });
 });
 
@@ -322,7 +330,7 @@ describe('loadMe', () => {
   });
 
   it('fetches /api/v1/me when nothing was embedded (a development server)', async () => {
-    const me = sampleMe({ preview: true });
+    const me = sampleSignedInMe();
     const urls: string[] = [];
     const api = createApiClient({
       buildVersion: null,
@@ -504,5 +512,126 @@ describe('createAppRouter', () => {
       environment.context,
     );
     expect(router.options.context).toBe(environment.context);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The sign-in gate of the root route (T-B-297; FR-B-607, FR-B-402; plan 12.1)
+// ---------------------------------------------------------------------------------------------
+
+describe('isPublicPath: the pages an anonymous visitor may open', () => {
+  it.each(['/signin', '/no-access', '/break-glass', '/setup', '/setup/anything', '/setup/a/b'])(
+    '%s is public',
+    (path) => {
+      expect(isPublicPath(path)).toBe(true);
+    },
+  );
+
+  it.each([
+    '/',
+    '/users',
+    '/settings',
+    '/settings/connection',
+    '/setupx',
+    '/setup-wizard',
+    '/signin/extra',
+    '/signins',
+    '/Signin',
+    '/break-glass/x',
+    '/no-access/x',
+    '/design',
+    '',
+    '/this-page-does-not-exist',
+  ])('%s is gated', (path) => {
+    expect(isPublicPath(path)).toBe(false);
+  });
+});
+
+describe('an anonymous visitor of a gated route is replaced by /signin?returnTo=<the path>', () => {
+  it('replaces the entry in the history, so Back does not return to the gated page', async () => {
+    const { router } = await renderApp({ me: sampleMe(), path: '/users' });
+    await screen.findByRole('heading', { level: 1 });
+    expect(router.state.location.pathname).toBe('/signin');
+    expect(router.state.location.search).toEqual({ returnTo: '/users' });
+    expect(router.history.length).toBe(1);
+  });
+
+  it('keeps the query of the page in returnTo', async () => {
+    const { router } = await renderApp({ me: sampleMe(), path: '/settings/appearance?tab=logo' });
+    await screen.findByRole('heading', { level: 1 });
+    expect(router.state.location.search).toEqual({ returnTo: '/settings/appearance?tab=logo' });
+  });
+
+  it('gates the dashboard and an address that is no page too, and leaves returnTo out for /', async () => {
+    const dashboard = await renderApp({ me: sampleMe(), path: '/' });
+    await screen.findByRole('heading', { level: 1 });
+    expect(dashboard.router.state.location.pathname).toBe('/signin');
+    expect(dashboard.router.state.location.search).toEqual({});
+    dashboard.unmount();
+
+    const unknown = await renderApp({ me: sampleMe(), path: '/this-page-does-not-exist' });
+    await screen.findByRole('heading', { level: 1 });
+    expect(unknown.router.state.location.pathname).toBe('/signin');
+    expect(unknown.router.state.location.search).toEqual({ returnTo: '/this-page-does-not-exist' });
+  });
+
+  it('never carries an unsafe path as returnTo', async () => {
+    const { router } = await renderApp({ me: sampleMe(), path: '/setupx' });
+    await screen.findByRole('heading', { level: 1 });
+    expect(router.state.location.pathname).toBe('/signin');
+    // /setupx starts with /setup, which a sign-in may never return to (safeReturnTo), so it is dropped.
+    expect(router.state.location.search).toEqual({});
+  });
+
+  it('does not touch the public pages: /signin, /no-access, /break-glass and /setup* stay where they are', async () => {
+    for (const path of ['/signin', '/no-access', '/break-glass', '/setup', '/setup/anything']) {
+      const { router, unmount } = await renderApp({ me: sampleMe(), path });
+      await screen.findByRole('main');
+      expect(router.state.location.pathname, path).toBe(path);
+      unmount();
+    }
+  });
+
+  it('does not touch /setup* for any setup state: the server decides, not the client', async () => {
+    for (const setupState of [
+      'unconfigured',
+      'in_progress',
+      'awaiting_first_signin',
+      'completed',
+    ] as const) {
+      const { router, unmount } = await renderApp({ me: sampleMe({ setupState }), path: '/setup' });
+      await screen.findByRole('main');
+      expect(router.state.location.pathname, setupState).toBe('/setup');
+      unmount();
+    }
+  });
+});
+
+describe('a signed-in actor without the permission stays on the page and sees the No-access content', () => {
+  it('shows it in place, at the same URL', async () => {
+    const { router } = await renderApp({
+      me: sampleMe({ kind: 'user', roles: ['reader'] }),
+      path: '/settings/appearance',
+    });
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: createTranslator('en').t('pages.noAccess.title'),
+      }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/settings/appearance');
+  });
+});
+
+describe('no route renders a preview banner (FR-B-102)', () => {
+  it('shows no banner on any route for a normal actor, and none says "preview"', async () => {
+    for (const path of ['/', '/users', '/settings', '/signin', '/no-access']) {
+      const { unmount } = await renderApp({ me: sampleSignedInMe(), path });
+      await screen.findByRole('main');
+      expect(screen.queryByRole('status'), path).not.toBeInTheDocument();
+      expect(document.body.textContent.toLowerCase(), path).not.toContain('preview mode');
+      expect(document.body.textContent.toLowerCase(), path).not.toContain('voorbeeldmodus');
+      unmount();
+    }
   });
 });

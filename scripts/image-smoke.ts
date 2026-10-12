@@ -8,7 +8,9 @@
 //
 // It runs the image the way docker-compose.yml documents it: `--read-only --tmpfs /tmp --cap-drop ALL
 // --security-opt no-new-privileges`, a fresh named volume (it inherits the owner 65532 of the image's
-// /data), `PREVIEW_MODE=true` on a loopback URL. With bridge networking the port is published on
+// /data), a generated `APP_KEY` and a loopback URL. There is no preview mode any more (FR-B-102): the
+// branding upload and apply run as the SETUP actor, after `setup-token` printed the token with
+// `docker exec` and `POST /api/v1/setup/unlock` accepted it. With bridge networking the port is published on
 // 127.0.0.1; with SMOKE_NETWORK=host the container binds the host port itself, so PORT is the host
 // port: the image default (DEFAULT_PORT) for the first run, SMOKE_ALT_PORT (default 18080) for the third.
 //
@@ -22,6 +24,15 @@
 // migration applied twice), a second run on a /data the user cannot write (`/readyz` 503
 // `data_dir_not_writable`, `/healthz` 200), a third run with PORT=SMOKE_ALT_PORT, and idle and peak
 // memory with two concurrent large uploads (PR-15).
+// Phase B adds (T-B-353; FR-B-706, FR-B-110, FR-B-106, FR-B-710; SC-B-016; U34): the CLI commands
+// `generate-app-key` and `hash-password` through the planned command line (the first form that passes
+// is recorded as the verified form, U34), `setup-token` through `docker exec`, the unlock and the
+// environment step, a certificate created INSIDE the image by the product and parsed with the host's
+// `openssl x509` (RSA 2048, 360 days), persistence of state and certificate over a restart, a start
+// without the key (`/readyz` 503 `app_key_missing`), the image size against the ceiling, and the memory
+// of the 128 MiB scrypt of the break-glass hash. A break-glass sign-in itself needs a pinned tenant
+// (409 `setup_required` before), so the verification cannot run in an unconfigured image: the memory
+// is measured on the same parameters through the `hash-password` command in a memory-limited container.
 //
 // Environment: SMOKE_IMAGE, SMOKE_MODE (full|skeleton), SMOKE_NETWORK (host|bridge), SMOKE_EXPECT_USER
 // (default 65532; a wrong value must make the run fail), SMOKE_PREFIX (name prefix of every container
@@ -29,6 +40,7 @@
 // which the JSON report is written). Exit 0 when every check passed, 1 otherwise. Everything this
 // script creates is removed again, by name, also when a check fails.
 import { spawnSync } from 'node:child_process';
+import { randomBytes, X509Certificate } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createConnection, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -92,9 +104,64 @@ interface DockerResult {
 }
 
 function docker(args: readonly string[], input?: string): DockerResult {
+  // `-e NAME` without a value (the sealing key) reads the environment of this process, so the key is
+  // in no argument list.
   const done = spawnSync('docker', args, { encoding: 'utf8', input, maxBuffer: 64 * 1024 * 1024 });
   if (done.error) throw new Error(`cannot run docker: ${done.error.message}`);
   return { status: done.status ?? 1, stdout: done.stdout, stderr: done.stderr };
+}
+
+interface CliForm {
+  readonly name: string;
+  readonly args: (command: readonly string[]) => string[];
+}
+const CLI_BASE = [
+  'run',
+  '--rm',
+  '-i',
+  '--network',
+  'none',
+  '--read-only',
+  '--tmpfs',
+  '/tmp',
+  '--cap-drop',
+  'ALL',
+  '--security-opt',
+  'no-new-privileges',
+] as const;
+/** The planned command lines of the CLI (U34), in order of preference. The first that passes is recorded. */
+const CLI_FORMS: readonly CliForm[] = [
+  {
+    name: 'docker run --rm -i IMAGE dist/cli.js <command>',
+    args: (command) => [...CLI_BASE, image, 'dist/cli.js', ...command],
+  },
+  {
+    name: 'docker run --rm -i --entrypoint /nodejs/bin/node IMAGE dist/cli.js <command>',
+    args: (command) => [
+      ...CLI_BASE,
+      '--entrypoint',
+      '/nodejs/bin/node',
+      image,
+      'dist/cli.js',
+      ...command,
+    ],
+  },
+];
+let cliForm: CliForm | undefined;
+
+/** Runs a CLI command in a throwaway container. The first call settles which command line works. */
+function cli(command: readonly string[], input?: string): DockerResult {
+  if (cliForm !== undefined) return docker(cliForm.args(command), input);
+  let last: DockerResult = { status: 1, stdout: '', stderr: 'no command line was tried' };
+  for (const form of CLI_FORMS) {
+    last = docker(form.args(command), input);
+    if (last.status === 0) {
+      cliForm = form;
+      figures.cliForm = form.name;
+      return last;
+    }
+  }
+  return last;
 }
 
 function dockerOk(args: readonly string[]): string {
@@ -159,6 +226,27 @@ function freePort(): Promise<number> {
   });
 }
 
+/** The cookies of one client, the way a browser keeps them: name to value, a cleared cookie is dropped. */
+class CookieJar {
+  readonly #cookies = new Map<string, string>();
+  header(): Record<string, string> {
+    return this.#cookies.size === 0
+      ? {}
+      : { cookie: [...this.#cookies].map(([name, value]) => `${name}=${value}`).join('; ') };
+  }
+  absorb(headers: Headers): void {
+    for (const line of headers.getSetCookie()) {
+      const pair = line.split(';')[0] ?? '';
+      const at = pair.indexOf('=');
+      if (at <= 0) continue;
+      const name = pair.slice(0, at).trim();
+      const value = pair.slice(at + 1).trim();
+      if (value === '' || /;\s*max-age=0/i.test(line)) this.#cookies.delete(name);
+      else this.#cookies.set(name, value);
+    }
+  }
+}
+
 interface Answer {
   readonly status: number;
   readonly headers: Headers;
@@ -176,15 +264,17 @@ async function http(
     headers?: Record<string, string>;
     body?: FormData | string;
     redirect?: 'manual' | 'follow';
+    jar?: CookieJar;
   } = {},
 ): Promise<Answer> {
-  const response = await fetch(origin + path, {
+  const response = await fetch(origin.replace('//localhost:', '//127.0.0.1:') + path, {
     method: init.method ?? 'GET',
-    headers: { origin, ...(init.headers ?? {}) },
+    headers: { origin, ...(init.jar?.header() ?? {}), ...(init.headers ?? {}) },
     ...(init.body === undefined ? {} : { body: init.body }),
     redirect: init.redirect ?? 'follow',
     signal: AbortSignal.timeout(30_000),
   });
+  init.jar?.absorb(response.headers);
   const bytes = Buffer.from(await response.arrayBuffer());
   return {
     status: response.status,
@@ -210,7 +300,14 @@ interface RunOptions {
   /** The container port (PORT). `undefined` leaves PORT to the image default. */
   readonly port?: number;
   readonly mount: string;
+  /** More settings of the application, as the operator would put them in the environment. */
+  readonly env?: Readonly<Record<string, string>>;
+  /** Default true: the sealing key is passed (`-e APP_KEY`, read from this process, never an argument). */
+  readonly appKey?: boolean;
 }
+
+/** The sealing key of this run, made by the image's own `generate-app-key` (see `main`). */
+let sealingKey = '';
 
 async function startContainer(options: RunOptions): Promise<Running> {
   const name = nameOf(options.kind);
@@ -223,7 +320,9 @@ async function startContainer(options: RunOptions): Promise<Running> {
         'Stop what uses it, or run without SMOKE_NETWORK=host (bridge networking, published port).',
     );
   }
-  const origin = `http://127.0.0.1:${String(hostPort)}`;
+  // PUBLIC_BASE_URL must be https or http on the host localhost (FR-B-103), so the origin is
+  // localhost; the requests of this script connect to 127.0.0.1 (see `http`).
+  const origin = `http://localhost:${String(hostPort)}`;
   const args = [
     'run',
     '-d',
@@ -243,15 +342,16 @@ async function startContainer(options: RunOptions): Promise<Running> {
     ...(network === 'host'
       ? ['--network', 'host']
       : ['-p', `127.0.0.1:${String(hostPort)}:${String(containerPort)}`]),
-    '-e',
-    'PREVIEW_MODE=true',
+    ...(options.appKey === false ? [] : ['-e', 'APP_KEY']),
     '-e',
     `PUBLIC_BASE_URL=${origin}`,
+    ...Object.entries(options.env ?? {}).flatMap(([name, value]) => ['-e', `${name}=${value}`]),
     ...(options.port === undefined ? [] : ['-e', `PORT=${String(options.port)}`]),
     '-v',
     `${options.mount}:/data`,
     image,
   ];
+  process.env.APP_KEY = sealingKey;
   dockerOk(args);
   return { name, origin, port: hostPort, startedAt: startedAtOf(name) };
 }
@@ -527,8 +627,9 @@ interface Upload {
   readonly warnings: readonly { readonly code: string }[];
 }
 
-async function csrfToken(origin: string): Promise<string> {
-  return (await http(origin, '/api/v1/csrf')).json<{ token: string }>().token;
+async function csrfToken(origin: string, jar?: CookieJar): Promise<string> {
+  return (await http(origin, '/api/v1/csrf', { ...(jar ? { jar } : {}) })).json<{ token: string }>()
+    .token;
 }
 
 /**
@@ -565,6 +666,7 @@ async function upload(
   filename: string,
   type: string,
   tokensAcquired = false,
+  jar?: CookieJar,
 ): Promise<{ status: number; body: string; parsed?: Upload }> {
   if (!tokensAcquired) await acquireUploadTokens(1);
   const form = new FormData();
@@ -573,6 +675,7 @@ async function upload(
     method: 'POST',
     headers: { 'x-csrf-token': token },
     body: form,
+    ...(jar ? { jar } : {}),
   });
   const ok = answer.status === 200 || answer.status === 201;
   return {
@@ -643,13 +746,60 @@ async function main(): Promise<void> {
     return JSON.stringify(test);
   });
 
+  // The CLI of the image (FR-B-110; U34) -------------------------------------------------------------------
+  const breakGlassPassword = randomBytes(18).toString('base64url');
+  let breakGlassHash = '';
+  await check(
+    'generate-app-key prints one line: 32 random bytes as base64 (U34 form recorded)',
+    () => {
+      const done = cli(['generate-app-key']);
+      expect(done.status === 0, `exit ${String(done.status)}: ${done.stderr.trim().slice(0, 200)}`);
+      const lines = done.stdout.split('\n').filter((line) => line !== '');
+      expect(lines.length === 1, `${String(lines.length)} lines on standard output, expected one`);
+      const key = lines[0] ?? '';
+      expect(Buffer.from(key, 'base64').length === 32, 'the line is not 32 bytes of base64');
+      sealingKey = key;
+      return `one line of ${String(key.length)} characters; verified form: ${cliForm?.name ?? '?'}`;
+    },
+  );
+  if (sealingKey === '') return;
+  await check(
+    'hash-password reads standard input and prints only a scrypt hash line (FR-B-521)',
+    () => {
+      const refused = cli(['hash-password'], 'short\n');
+      expect(
+        refused.status === 1 && refused.stdout === '',
+        `a short password gave exit ${String(refused.status)}`,
+      );
+      const done = cli(['hash-password'], `${breakGlassPassword}\n`);
+      expect(done.status === 0, `exit ${String(done.status)}: ${done.stderr.trim().slice(0, 200)}`);
+      const line = done.stdout.trim();
+      expect(
+        /^scrypt:\d+:\d+:\d+:[A-Za-z0-9+/_=-]+:[A-Za-z0-9+/_=-]+$/.test(line),
+        'not a scrypt hash line',
+      );
+      expect(!line.includes('$'), 'the hash holds a dollar sign, which Compose would interpolate');
+      expect(!done.stdout.includes(breakGlassPassword), 'the password is printed');
+      breakGlassHash = line;
+      return `scrypt hash of ${String(line.length)} characters, no dollar sign; a 5-character password is refused`;
+    },
+  );
+  if (breakGlassHash === '') return;
+
   // Run 1: the default port --------------------------------------------------------------------------------
   const volume = newVolume();
   let first: Running | undefined;
   await check(
-    'run 1 starts (default PORT, read-only, cap-drop ALL, no-new-privileges)',
+    'run 1 starts (default PORT, read-only, cap-drop ALL, no-new-privileges, APP_KEY, break-glass variables)',
     async () => {
-      first = await startContainer({ kind: 'main', mount: volume });
+      first = await startContainer({
+        kind: 'main',
+        mount: volume,
+        env: {
+          BREAK_GLASS_USERNAME: 'smoke-break-glass',
+          BREAK_GLASS_PASSWORD_HASH: breakGlassHash,
+        },
+      });
       return `${first.name} on ${first.origin}`;
     },
   );
@@ -695,6 +845,139 @@ async function main(): Promise<void> {
   }
 
   // Full mode ------------------------------------------------------------------------------------------------
+
+  // The setup gate, in the image (FR-B-106, FR-B-110, FR-B-203, FR-B-706) -----------------------------------------
+  const jar = new CookieJar();
+  let setupToken = '';
+  let certificateDer: Buffer = Buffer.alloc(0);
+  const printToken = (container: string): string => {
+    const done = docker(['exec', container, '/nodejs/bin/node', 'dist/cli.js', 'setup-token']);
+    expect(
+      done.status === 0,
+      `setup-token exited ${String(done.status)}: ${done.stderr.trim().slice(0, 200)}`,
+    );
+    return done.stdout.trim();
+  };
+  const unlockWith = async (origin: string, target: CookieJar, token: string): Promise<Answer> => {
+    const anonymous = await csrfToken(origin);
+    return http(origin, '/api/v1/setup/unlock', {
+      method: 'POST',
+      headers: { 'x-csrf-token': anonymous, 'content-type': 'application/json' },
+      body: JSON.stringify({ token }),
+      jar: target,
+    });
+  };
+  await check('setup-token prints the token with docker exec and the logs never hold it', () => {
+    setupToken = printToken(main1.name);
+    expect(
+      setupToken.length >= 24 && setupToken.length <= 128,
+      `a token of ${String(setupToken.length)} characters`,
+    );
+    expect(!logsOf(main1.name).includes(setupToken), 'the setup token is in the container logs');
+    return `${String(setupToken.length)} characters, printed once, not in the logs`;
+  });
+  await check(
+    'before the unlock the status asks for the token; a wrong token is refused (401)',
+    async () => {
+      const status = await http(main1.origin, '/api/v1/setup/status');
+      expect(status.status === 200, `status answered ${String(status.status)}`);
+      const body = status.json<{ state: string; tokenRequired: boolean }>();
+      expect(
+        body.state === 'unconfigured' && body.tokenRequired,
+        `status ${status.text().slice(0, 120)}`,
+      );
+      const wrong = await unlockWith(main1.origin, new CookieJar(), 'x'.repeat(setupToken.length));
+      expect(wrong.status === 401, `a wrong token answered ${String(wrong.status)}`);
+      const state = await http(main1.origin, '/api/v1/setup/state');
+      expect(
+        state.status === 401,
+        `the wizard state without a session answered ${String(state.status)}`,
+      );
+      return 'status unconfigured with tokenRequired, wrong token 401, state without a session 401';
+    },
+  );
+  await check(
+    'POST /api/v1/setup/unlock accepts the printed token and sets the setup cookie',
+    async () => {
+      const answer = await unlockWith(main1.origin, jar, setupToken);
+      expect(
+        answer.status === 200,
+        `unlock answered ${String(answer.status)}: ${answer.text().slice(0, 200)}`,
+      );
+      expect(
+        answer.json<{ state: string }>().state === 'in_progress',
+        'the state is not in_progress',
+      );
+      expect(answer.headers.getSetCookie().length > 0, 'no cookie was set');
+      expect(!answer.text().includes(setupToken), 'the token is echoed');
+      return 'state in_progress, cookie set';
+    },
+  );
+  await check(
+    'POST /api/v1/setup/environment answers with the six checks of FR-B-213',
+    async () => {
+      const token = await csrfToken(main1.origin, jar);
+      const answer = await http(main1.origin, '/api/v1/setup/environment', {
+        method: 'POST',
+        headers: { 'x-csrf-token': token, 'content-type': 'application/json' },
+        body: '{}',
+        jar,
+      });
+      expect(
+        answer.status === 200,
+        `environment answered ${String(answer.status)}: ${answer.text().slice(0, 200)}`,
+      );
+      const result = answer.json<{ checks: { key: string; status: string }[] }>();
+      const byKey = new Map(result.checks.map((entry) => [entry.key, entry.status]));
+      expect(
+        [...byKey.keys()].sort().join() ===
+          ['app_key', 'data_dir', 'network', 'node_version', 'public_base_url', 'time_skew'].join(),
+        `checks: ${[...byKey.keys()].join(', ')}`,
+      );
+      for (const key of ['app_key', 'data_dir', 'public_base_url', 'node_version'])
+        expect(byKey.get(key) === 'ok', `check ${key} is ${byKey.get(key) ?? 'missing'}`);
+      return `app_key, data_dir, public_base_url and node_version ok; network ${byKey.get('network') ?? '?'}, time_skew ${byKey.get('time_skew') ?? '?'} (this host decides those two)`;
+    },
+  );
+  await check(
+    'a certificate is created inside the image and parses with the host openssl (RSA 2048, 360 days)',
+    async () => {
+      const answer = await http(main1.origin, '/api/v1/setup/certificate.cer', { jar });
+      expect(
+        answer.status === 200,
+        `certificate.cer answered ${String(answer.status)}: ${answer.text().slice(0, 200)}`,
+      );
+      expect(
+        (answer.headers.get('content-type') ?? '').startsWith('application/x-x509-ca-cert'),
+        `content type ${answer.headers.get('content-type') ?? 'none'}`,
+      );
+      certificateDer = answer.bytes;
+      expect(
+        !certificateDer.toString('latin1').includes('PRIVATE'),
+        'private material in the body',
+      );
+      const openssl = (args: readonly string[]): string => {
+        const done = spawnSync('openssl', ['x509', '-inform', 'DER', '-noout', ...args], {
+          input: certificateDer,
+          encoding: 'utf8',
+        });
+        if (done.error) throw new Error(`cannot run openssl: ${done.error.message}`);
+        expect(done.status === 0, `openssl x509 failed: ${done.stderr.trim().slice(0, 200)}`);
+        return done.stdout;
+      };
+      const text = openssl(['-text']);
+      expect(text.includes('Public-Key: (2048 bit)'), 'the key is not RSA 2048');
+      expect(text.includes('rsaEncryption'), 'the key is not RSA');
+      const dates = openssl(['-startdate', '-enddate']);
+      const start = Date.parse(/notBefore=(.+)/.exec(dates)?.[1] ?? '');
+      const end = Date.parse(/notAfter=(.+)/.exec(dates)?.[1] ?? '');
+      const days = (end - start) / 86_400_000;
+      expect(Math.abs(days - 360) < 1.01, `the validity is ${days.toFixed(2)} days, expected 360`);
+      const fingerprint = new X509Certificate(certificateDer).fingerprint256;
+      figures.certificateSha256 = fingerprint.replaceAll(':', '').slice(0, 16).toLowerCase();
+      return `${String(certificateDer.length)} bytes DER, RSA 2048, ${days.toFixed(1)} days, SHA-256 ${figures.certificateSha256}...`;
+    },
+  );
   await check('Intl: grapheme segmenter and Dutch plural rules (PR-16)', () => {
     const code =
       "const g=[...new Intl.Segmenter('nl',{granularity:'grapheme'}).segment('e\\u0301\\u{1F1F3}\\u{1F1F1}\\u{1F468}\\u200D\\u{1F469}\\u200D\\u{1F467}')].length;" +
@@ -771,12 +1054,13 @@ async function main(): Promise<void> {
         method: 'PUT',
         headers: { 'content-type': 'application/json', 'if-match': '"1"' },
         body: '{}',
+        jar,
       });
       expect(
         withoutToken.status === 403,
         `a write without a CSRF token answered ${String(withoutToken.status)}, expected 403`,
       );
-      const token = await csrfToken(main1.origin);
+      const token = await csrfToken(main1.origin, jar);
       const uploaded = await upload(
         main1.origin,
         token,
@@ -784,16 +1068,19 @@ async function main(): Promise<void> {
         logoPng(),
         'logo.png',
         'image/png',
+        false,
+        jar,
       );
       expect(
         uploaded.parsed !== undefined,
         `upload answered ${String(uploaded.status)}: ${uploaded.body}`,
       );
-      const current = await http(main1.origin, '/api/v1/branding');
+      const current = await http(main1.origin, '/api/v1/branding', { jar });
       const etag = current.headers.get('etag') ?? '"1"';
       const put = await http(main1.origin, '/api/v1/branding', {
         method: 'PUT',
         headers: { 'x-csrf-token': token, 'content-type': 'application/json', 'if-match': etag },
+        jar,
         body: JSON.stringify({
           orgName: 'Acme Corp',
           accent: '#0078d4',
@@ -827,7 +1114,7 @@ async function main(): Promise<void> {
   );
 
   await check('a safe SVG upload is accepted and stored as PNG (R-06, real upload)', async () => {
-    const token = await csrfToken(main1.origin);
+    const token = await csrfToken(main1.origin, jar);
     const result = await upload(
       main1.origin,
       token,
@@ -835,12 +1122,14 @@ async function main(): Promise<void> {
       Buffer.from(SAFE_SVG),
       'logo.svg',
       'image/svg+xml',
+      false,
+      jar,
     );
     expect(
       result.parsed !== undefined,
       `SVG upload answered ${String(result.status)}: ${result.body}`,
     );
-    const stored = await http(main1.origin, result.parsed.asset.url);
+    const stored = await http(main1.origin, result.parsed.asset.url, { jar });
     expect(
       stored.status === 200 && stored.bytes.subarray(1, 4).toString('latin1') === 'PNG',
       'the stored SVG derivative is not a PNG',
@@ -850,7 +1139,7 @@ async function main(): Promise<void> {
   });
 
   await check('hostile SVGs are neutralised, not executed (script, XXE, bomb)', async () => {
-    const token = await csrfToken(main1.origin);
+    const token = await csrfToken(main1.origin, jar);
     const cases: [string, string][] = [
       [
         'script',
@@ -874,9 +1163,11 @@ async function main(): Promise<void> {
         Buffer.from(svg),
         `${label}.svg`,
         'image/svg+xml',
+        false,
+        jar,
       );
       if (result.parsed !== undefined) {
-        const stored = await http(main1.origin, result.parsed.asset.url);
+        const stored = await http(main1.origin, result.parsed.asset.url, { jar });
         expect(
           stored.bytes.subarray(1, 4).toString('latin1') === 'PNG',
           `${label}: stored output is not a PNG`,
@@ -895,13 +1186,13 @@ async function main(): Promise<void> {
   });
 
   await check('two concurrent largest uploads: peak memory recorded (PR-15)', async () => {
-    const token = await csrfToken(main1.origin);
+    const token = await csrfToken(main1.origin, jar);
     const big = largestPng();
     await acquireUploadTokens(2);
     const begin = Date.now();
     const both = await Promise.all([
-      upload(main1.origin, token, 'logoLight', big, 'big-1.png', 'image/png', true),
-      upload(main1.origin, token, 'logoDark', big, 'big-2.png', 'image/png', true),
+      upload(main1.origin, token, 'logoLight', big, 'big-1.png', 'image/png', true, jar),
+      upload(main1.origin, token, 'logoDark', big, 'big-2.png', 'image/png', true, jar),
     ]);
     const memory = memoryOf(main1.name);
     figures.peakRssMb = memory.peakMb;
@@ -950,8 +1241,121 @@ async function main(): Promise<void> {
       return `orgName "${branding.orgName}", revision ${String(branding.revision)}, no migration applied`;
     },
   );
+  await check(
+    'the restart keeps the setup state and the certificate (FR-B-106; the session ends, the token file stays)',
+    async () => {
+      const again = new CookieJar();
+      const status = await http(main1.origin, '/api/v1/setup/status');
+      const body = status.json<{ state: string; tokenRequired: boolean }>();
+      expect(
+        body.state === 'in_progress' && body.tokenRequired,
+        `status after the restart: ${status.text().slice(0, 120)}`,
+      );
+      const stale = await http(main1.origin, '/api/v1/setup/state', { jar });
+      expect(
+        stale.status === 401,
+        `the old setup cookie still opens the wizard (${String(stale.status)})`,
+      );
+      const token = printToken(main1.name);
+      expect(token === setupToken, 'setup-token prints another token after the restart');
+      const unlocked = await unlockWith(main1.origin, again, token);
+      expect(
+        unlocked.status === 200,
+        `unlock after the restart answered ${String(unlocked.status)}`,
+      );
+      const answer = await http(main1.origin, '/api/v1/setup/certificate.cer', { jar: again });
+      expect(answer.status === 200, `certificate.cer answered ${String(answer.status)}`);
+      expect(answer.bytes.equals(certificateDer), 'the certificate changed over the restart');
+      return 'state in_progress, the old cookie is dead, the same token unlocks, the same certificate (byte for byte)';
+    },
+  );
   await check('docker stop after the restart exits 0 within 10 s', () => stopAndCheck(main1));
+  await check(
+    'a start without APP_KEY on the same volume: /readyz 503 with the secrets check (FR-B-108)',
+    async () => {
+      const run = await startContainer({ kind: 'nokey', mount: volume, appKey: false });
+      await waitFor('/healthz 200', 30_000, async () => {
+        try {
+          return (await http(run.origin, '/healthz')).status === 200 ? true : undefined;
+        } catch {
+          return undefined;
+        }
+      });
+      const ready = await http(run.origin, '/readyz');
+      expect(ready.status === 503, `/readyz answered ${String(ready.status)}, expected 503`);
+      expect(
+        ready.text().includes('secrets') && ready.text().includes('app_key_missing'),
+        `/readyz does not name the secrets check: ${ready.text().slice(0, 300)}`,
+      );
+      stopAndCheck(run);
+      removeContainer(run);
+      return '/readyz 503 secrets app_key_missing, /healthz 200';
+    },
+  );
   removeContainer(main1);
+
+  // Size, Compose and the memory of the break-glass hash (FR-B-110, FR-B-710; SC-B-016) ---------------------------
+  await check('the image size against the ceiling is re-measured', () => {
+    const bytes = Number(dockerOk(['image', 'inspect', '--format', '{{.Size}}', image]));
+    const megabytes = bytes / 1_000_000;
+    figures.imageSizeMb = Number(megabytes.toFixed(1));
+    expect(
+      megabytes <= LIMITS.imageSizeCeilingMegabytes,
+      `the image is ${megabytes.toFixed(1)} MB, the ceiling is ${String(LIMITS.imageSizeCeilingMegabytes)} MB`,
+    );
+    return `${megabytes.toFixed(1)} MB of ${String(LIMITS.imageSizeCeilingMegabytes)} MB`;
+  });
+  await check('docker compose config -q passes on the example file (FR-B-705)', () => {
+    const done = spawnSync('docker', ['compose', '-f', 'docker-compose.yml', 'config', '-q'], {
+      cwd: root,
+      encoding: 'utf8',
+    });
+    expect(
+      done.status === 0,
+      `docker compose config -q exited ${String(done.status)}: ${(done.stderr || done.error?.message) ?? ''}`,
+    );
+    return 'docker-compose.yml is valid';
+  });
+  await check(
+    'idle RSS is at most 200 MB and the 128 MiB scrypt of the break-glass hash fits in 256 MB',
+    () => {
+      expect(
+        memoryIdle.rssMb <= 200,
+        `idle RSS is ${String(memoryIdle.rssMb)} MB, the limit is 200 MB`,
+      );
+      const code =
+        "const c=require('crypto');const t=Date.now();c.scryptSync('x'.repeat(20),Buffer.alloc(16),32,{N:131072,r:8,p:1,maxmem:268435456});" +
+        'console.log(JSON.stringify({ms:Date.now()-t,peakKb:process.resourceUsage().maxRSS}))';
+      const done = docker([
+        'run',
+        '--rm',
+        '--network',
+        'none',
+        '--read-only',
+        '--cap-drop',
+        'ALL',
+        '--memory',
+        '256m',
+        '--memory-swap',
+        '256m',
+        '--entrypoint',
+        '/nodejs/bin/node',
+        image,
+        '-e',
+        code,
+      ]);
+      expect(
+        done.status === 0,
+        `scrypt with N=131072 in 256 MB exited ${String(done.status)}: ${done.stderr.trim().slice(0, 200)}`,
+      );
+      const parsed = JSON.parse(done.stdout.trim()) as { ms: number; peakKb: number };
+      figures.scryptPeakRssMb = Math.round(parsed.peakKb / 1024);
+      figures.scryptMs = parsed.ms;
+      const hashed = cli(['hash-password'], `${breakGlassPassword}\n`);
+      expect(hashed.status === 0, 'hash-password failed under the same parameters');
+      return `idle RSS ${String(memoryIdle.rssMb)} MB; scrypt N=131072 r=8 p=1 took ${String(parsed.ms)} ms with peak RSS ${String(Math.round(parsed.peakKb / 1024))} MB inside a 256 MB container`;
+    },
+  );
 
   // Run 2: a /data the user cannot write -----------------------------------------------------------------------
   const readOnlyData = mkdtempSync(join(tmpdir(), 'm365portal-smoke-rodata-'));

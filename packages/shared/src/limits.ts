@@ -52,6 +52,11 @@ export const LIMITS = deepFreeze({
      * the app must allow at least this many bytes.
      */
     importRequestBytes: 9_437_184,
+    /**
+     * The small auth bodies (`unlock`, `logout`, `logout-all`, `break-glass`): 4,096 bytes
+     * (`AUTH_BODY_MAX_BYTES`, FR-B-703). Phase B adds no request larger than the import above.
+     */
+    authBytes: 4_096,
   },
 
   /** The image pipeline (upload and import). */
@@ -112,6 +117,223 @@ export const LIMITS = deepFreeze({
     write: { capacity: 10, refillIntervalMs: 2_000 },
     /** Asset upload and branding import: capacity 3, refill 0.1 per second. */
     upload: { capacity: 3, refillIntervalMs: 10_000 },
+    /** Sign-in routes under `/auth` and `/api/v1/auth` (`RATE_AUTH`): capacity 10, refill 0.2 per second (SB-28). */
+    auth: { capacity: 10, refillIntervalMs: 5_000 },
+    /** Setup routes (`RATE_SETUP`): capacity 10, refill 0.2 per second (SB-28). */
+    setup: { capacity: 10, refillIntervalMs: 5_000 },
+  },
+
+  // ------------------------------------------------------------------------------------------
+  // Phase B (spec 6.9.2). The name of the spec's constant is in the comment of each entry; the
+  // unit is in the key. A setting that is also an environment variable (6.9.1) has the three
+  // numbers `default`, `min` and `max`, which configuration reads from here and nowhere else.
+  // ------------------------------------------------------------------------------------------
+
+  /** The setup wizard (FR-B-201 to FR-B-223). */
+  setup: {
+    /** `SETUP_UNLOCK_FAILS_PER_CLIENT`: failures per client address ... */
+    unlockFailsPerClient: 5,
+    /** ... within this window; the address is then locked for `lockMinutes` (FR-B-204). */
+    unlockFailsPerClientWindowMinutes: 15,
+    /** `SETUP_UNLOCK_FAILS_GLOBAL`: failures from everyone ... */
+    unlockFailsGlobal: 30,
+    /** ... within this window lock unlocking for everyone for `lockMinutes`. */
+    unlockFailsGlobalWindowMinutes: 60,
+    /** `SETUP_LOCK_MINUTES`; `Retry-After` is the remaining seconds. */
+    lockMinutes: 15,
+    /** `SETUP_SESSION_IDLE_MINUTES`: in memory, a restart ends the session (FR-B-205). */
+    sessionIdleMinutes: 60,
+    /** `SETUP_SESSION_ABSOLUTE_HOURS`. */
+    sessionAbsoluteHours: 8,
+    /** `SETUP_SESSIONS_MAX`: live setup sessions, the oldest is evicted. */
+    sessionsMax: 5,
+    /** `SETUP_MIN_WAIT_MS`: floor of every computed wait (FR-B-212, SB-06). */
+    minWaitMs: 500,
+    /** `SETUP_TOKEN_BYTES`: generated token, base64url, mode 0600. */
+    tokenBytes: 32,
+    /** `SETUP_LEASE_HEARTBEAT_SECONDS`: runner lease (FR-B-209). */
+    leaseHeartbeatSeconds: 15,
+    /** `SETUP_LEASE_EXPIRY_SECONDS`. */
+    leaseExpirySeconds: 120,
+    /** `SETUP_LOG_RETAINED`: rows kept in the setup log (FR-B-211). */
+    logRetained: 1_000,
+    /** `SETUP_LOG_PAGE_MAX`: rows per page of the log. */
+    logPageMax: 200,
+    /** `SETUP_DETAIL_STRING_MAX_BYTES`: step detail strings (FR-B-210). */
+    detailStringMaxBytes: 256,
+    /** `SETUP_VERIFY_RESULT_MAX_BYTES`: the stored proof list (FR-B-309). */
+    verifyResultMaxBytes: 51_200,
+    /** `SETUP_TRANSIENT_BACKOFF`: doubling from 1 s to 30 s, full jitter, at most 6 tries (FR-B-212). */
+    transientBackoff: { initialMs: 1_000, maxMs: 30_000, maxTries: 6 },
+    /** `SETUP_REPLICATION_BACKOFF`: doubling from 2 s to 60 s, full jitter. */
+    replicationBackoff: { initialMs: 2_000, maxMs: 60_000 },
+    /** `SETUP_OBJECT_CHAIN_WINDOW_SECONDS`: the replication window for object chains. */
+    objectChainWindowSeconds: 300,
+    /** `SETUP_PROPAGATION_TIMEOUT_SECONDS` (setting): role-to-token propagation window. */
+    propagationTimeoutSeconds: { default: 900, min: 60, max: 3_600 },
+    /** `SETUP_SKEW_WARN_SECONDS` (our threshold, U35). */
+    skewWarnSeconds: 60,
+    /** `SETUP_SKEW_FAIL_SECONDS`. */
+    skewFailSeconds: 300,
+    /** `SETUP_MUTATING_CALLS_CLEAN_RUN`: informative; the fault-injection test derives its points from the fake tenant. */
+    mutatingCallsCleanRun: 11,
+  },
+
+  /** The application certificate (FR-B-106, FR-B-111). */
+  certificate: {
+    /** `CERT_RSA_BITS`. */
+    rsaBits: 2_048,
+    /** `CERT_VALIDITY_DAYS`: Learn allows at most one year from the start date. */
+    validityDays: 360,
+    /** `CERT_BACKDATE_MINUTES`: `notBefore` is this far in the past. */
+    backdateMinutes: 5,
+    /** `CERT_WARN_DAYS`: warning banner level. */
+    warnDays: 60,
+    /** `CERT_CRITICAL_DAYS`: critical banner level. */
+    criticalDays: 14,
+  },
+
+  /** Secrets at rest (FR-B-104, FR-B-105). */
+  secrets: {
+    /** `APP_KEY_BYTES`. */
+    appKeyBytes: 32,
+    /** `SECRET_NONCE_BYTES`: XChaCha20-Poly1305. */
+    nonceBytes: 24,
+    /** `KEY_ID_BYTES`. */
+    keyIdBytes: 8,
+    /** `APP_KEY_FILE_MAX_BYTES`. */
+    appKeyFileMaxBytes: 1_024,
+  },
+
+  /** The Microsoft clients (FR-B-311 to FR-B-316, FR-B-403, FR-B-404). */
+  microsoft: {
+    /** `CLIENT_ASSERTION_LIFETIME_SECONDS`: Learn allows at most 10 minutes after `nbf`. */
+    clientAssertionLifetimeSeconds: 300,
+    /** `TOKEN_ENDPOINT_TIMEOUT_SECONDS`. */
+    tokenEndpointTimeoutSeconds: 10,
+    /** `ID_TOKEN_MAX_BYTES`. */
+    idTokenMaxBytes: 8_192,
+    /** `CLOCK_TOLERANCE_SECONDS`: `exp`, `nbf`, `iat` (U33). */
+    clockToleranceSeconds: 60,
+    /** `JWKS_CACHE_HOURS`. */
+    jwksCacheHours: 24,
+    /** `JWKS_REFRESH_MINUTES`. */
+    jwksRefreshMinutes: 60,
+    /** `JWKS_UNKNOWN_KID_COOLDOWN_MINUTES`. */
+    jwksUnknownKidCooldownMinutes: 5,
+    /** `GRAPH_CHECK_MEMBER_GROUPS_MAX_IDS`: Learn allows up to 20 groups per request. */
+    graphCheckMemberGroupsMaxIds: 20,
+    /** `GRAPH_RETRY_MAX`. */
+    graphRetryMax: 4,
+    /** `GRAPH_RETRY_AFTER_MAX_WAIT_SECONDS`: a longer wait fails fast as `graph_throttled`. */
+    graphRetryAfterMaxWaitSeconds: 60,
+    /** `GRAPH_5XX_BACKOFF`: idempotent calls only, full jitter. */
+    graph5xxBackoff: { initialMs: 500, maxMs: 10_000, maxRetries: 4 },
+    /** `GRAPH_BUDGET_INTERACTIVE_SECONDS`: per call including retries. */
+    graphBudgetInteractiveSeconds: 20,
+    /** `GRAPH_BUDGET_WIZARD_SECONDS`. */
+    graphBudgetWizardSeconds: 60,
+    /** `GRAPH_IN_FLIGHT_MAX`. */
+    graphInFlightMax: 4,
+    /** `GRAPH_CACHE_TTL_SECONDS` (FR-B-313). */
+    graphCacheTtlSeconds: { organization: 300, user: 60, group: 60 },
+    /** `GRAPH_CACHE_ENTRIES`. */
+    graphCacheEntries: 1_000,
+    /** `EXCHANGE_RESULT_SIZE_MAX` (FR-B-314). */
+    exchangeResultSizeMax: 1_000,
+    /** `EXCHANGE_PAGING_WINDOW_SECONDS`: a `nextLink` is valid for 5 to 10 minutes. */
+    exchangePagingWindowSeconds: 300,
+  },
+
+  /** Sign-in transactions (FR-B-402). The rate classes `auth` and `setup` are in `rateLimit`. */
+  signIn: {
+    /** `LOGIN_TX_MAX`: the oldest is evicted. */
+    loginTxMax: 1_000,
+    /** `LOGIN_TX_PER_CLIENT_MAX`. */
+    loginTxPerClientMax: 20,
+    /** `LOGIN_TX_LIFETIME_SECONDS`. */
+    loginTxLifetimeSeconds: 600,
+    /** `RETURN_TO_MAX_CHARS`. */
+    returnToMaxChars: 256,
+  },
+
+  /** Sessions (FR-B-407, FR-B-411, FR-B-416). */
+  session: {
+    /** `SESSION_IDLE_TIMEOUT_MINUTES` (setting). */
+    idleTimeoutMinutes: { default: 30, min: 5, max: 480 },
+    /** `SESSION_ABSOLUTE_TIMEOUT_HOURS` (setting); hours x 60 must exceed the idle minutes. */
+    absoluteTimeoutHours: { default: 8, min: 1, max: 24 },
+    /** `SESSION_WRITE_INTERVAL_SECONDS`. */
+    writeIntervalSeconds: 60,
+    /** `SESSIONS_PER_PRINCIPAL_MAX`. */
+    perPrincipalMax: 10,
+    /** `SESSION_PURGE_MINUTES`. */
+    purgeMinutes: 60,
+    /** `SESSION_IDLE_WARNING_SECONDS`. */
+    idleWarningSeconds: 120,
+    /** `SESSION_ABSOLUTE_WARNING_MINUTES`. */
+    absoluteWarningMinutes: 5,
+    /** `STEP_UP_WINDOW_MINUTES`. */
+    stepUpWindowMinutes: 10,
+    /** `STEP_UP_AUTH_TIME_LEEWAY_SECONDS`. */
+    stepUpAuthTimeLeewaySeconds: 60,
+    /** `REVALIDATE_RETRY_SECONDS`: after a Graph failure (FR-B-409). */
+    revalidateRetrySeconds: 30,
+  },
+
+  /** Break-glass (FR-B-110, FR-B-521, FR-B-522). */
+  breakGlass: {
+    /** `BREAK_GLASS_SESSION_MINUTES`: not sliding. */
+    sessionMinutes: 30,
+    /** `BREAK_GLASS_FAILS_PER_CLIENT` ... */
+    failsPerClient: 5,
+    /** ... within this window (429 `break_glass_locked`). */
+    failsPerClientWindowMinutes: 15,
+    /** `BREAK_GLASS_FAILS_GLOBAL` ... */
+    failsGlobal: 20,
+    /** ... within this window. */
+    failsGlobalWindowMinutes: 60,
+    /** The scrypt parameter floors and ceilings; `128 * N * r` is at most `maxMemoryBytes` (SB-04). */
+    scrypt: {
+      /** `SCRYPT_N_MIN`. */
+      nMin: 16_384,
+      /** `SCRYPT_N_MAX`; the CLI writes N = 131,072, r = 8, p = 1. */
+      nMax: 131_072,
+      /** `SCRYPT_MAX_MEMORY_BYTES`. */
+      maxMemoryBytes: 134_217_728,
+      /** `SCRYPT_SALT_BYTES`, lower bound. */
+      saltMinBytes: 16,
+      /** `SCRYPT_SALT_BYTES`, upper bound. */
+      saltMaxBytes: 64,
+      /** `SCRYPT_HASH_BYTES`, lower bound. */
+      hashMinBytes: 32,
+      /** `SCRYPT_HASH_BYTES`, upper bound. */
+      hashMaxBytes: 64,
+    },
+    /** `BREAK_GLASS_QUEUE_RUNNING`: one verification at a time. */
+    queueRunning: 1,
+    /** `BREAK_GLASS_QUEUE_WAITING`. */
+    queueWaiting: 2,
+    /** `BREAK_GLASS_PASSWORD_MIN_CHARS`: the `hash-password` floor. */
+    passwordMinChars: 14,
+  },
+
+  /** RBAC (FR-B-409, FR-B-507, FR-B-508, FR-B-513). */
+  rbac: {
+    /** `GROUP_CACHE_TTL_SECONDS` (setting). */
+    groupCacheTtlSeconds: { default: 300, min: 30, max: 3_600 },
+    /** `GROUPS_BOUND_MAX`: distinct bound Entra groups. */
+    groupsBoundMax: 200,
+    /** `ASSIGNMENTS_MAX`. */
+    assignmentsMax: 5_000,
+    /** `ROLES_MAX`: includes the five built-in roles. */
+    rolesMax: 100,
+    /** `SCOPE_ITEMS_PER_ASSIGNMENT_MAX`. */
+    scopeItemsPerAssignmentMax: 50,
+    /** `SCOPE_VALUE_MAX_CHARS`. */
+    scopeValueMaxChars: 64,
+    /** `ASSIGNMENT_EXPIRY_MAX_DAYS`. */
+    assignmentExpiryMaxDays: 730,
   },
 
   /** Clients the rate limiter tracks at most (memory bound); idle entries are evicted first. */
@@ -142,7 +364,7 @@ export const LIMITS = deepFreeze({
   imageSizeCeilingMegabytes: 400,
 } as const);
 
-/** The names of the rate limit classes: `read`, `write` and `upload`. */
+/** The names of the rate limit classes: `read`, `write`, `upload`, `auth` and `setup`. */
 export type RateLimitClass = keyof typeof LIMITS.rateLimit;
 
 /** Tokens earned per second by a rate class, the figure spec 6.5 states (2, 0.5 and 0.1). */

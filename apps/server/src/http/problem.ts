@@ -24,9 +24,14 @@ export const PROBLEM_CONTENT_TYPE = 'application/problem+json';
 
 /**
  * The retry hint of codes whose hint is fixed (contract section 6): a locked database is usually
- * free again in a second, a server that is shutting down is back in a few.
+ * free again in a second, a server that is shutting down is back in a few, and Graph is asked again
+ * after 30 seconds (contract section 9.1).
  */
-export const RETRY_AFTER_SECONDS = { storage_busy: 1, shutting_down: 5 } as const;
+export const RETRY_AFTER_SECONDS = {
+  storage_busy: 1,
+  shutting_down: 5,
+  graph_unavailable: 30,
+} as const;
 
 /** `errors[]` is capped, so that a body with thousands of faults cannot make the answer large. */
 export const MAX_FIELD_ERRORS = 50;
@@ -94,7 +99,8 @@ function describeRetryAfter(code: ProblemCode, details: ProblemDetails): string 
     }
     return String(seconds);
   }
-  if (code === 'storage_busy' || code === 'shutting_down') return String(RETRY_AFTER_SECONDS[code]);
+  if (code === 'storage_busy' || code === 'shutting_down' || code === 'graph_unavailable')
+    return String(RETRY_AFTER_SECONDS[code]);
   return undefined;
 }
 

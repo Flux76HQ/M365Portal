@@ -8,6 +8,8 @@
 //     document does not know, and a document entry the router does not hold, each fail the check.
 //
 // The route at `/api/v1/openapi.json` itself is T-A-042 and is tested in this file once it exists.
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { Validator } from '@seriousme/openapi-schema-validator';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { Hono } from 'hono';
@@ -21,6 +23,7 @@ import { registeredRoutesOf } from '../src/http/route-table.js';
 import type { AppEnv } from '../src/http/request-context.js';
 import { createFixtureApp, type FixtureApp } from './helpers/http-app.js';
 import { readJson } from './helpers/http-client.js';
+import { startWizardServer } from './setup/support/server-scene.js';
 
 type Operation = Record<string, unknown> & {
   readonly responses?: Record<string, { content?: Record<string, unknown> }>;
@@ -383,5 +386,188 @@ describe('GET /api/v1/openapi.json (R3)', () => {
         registered: registeredRoutesOf(app.http.app),
       }),
     ).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Phase B (T-B-392, XB36): the 32 routes P01 to P32 of the contract, on the real application
+// ---------------------------------------------------------------------------------------------
+
+const CONTRACT = fileURLToPath(
+  new URL('../../../specs/002-phase-b/contracts/phase-b-api.md', import.meta.url),
+);
+
+interface ContractRoute {
+  readonly number: string;
+  readonly id: string;
+  readonly key: string;
+  readonly access: string;
+  readonly rateClass: string;
+}
+
+/** The route index of the contract (section 2), read independently of the code. */
+function contractRoutes(): ContractRoute[] {
+  const rows = [
+    ...readFileSync(CONTRACT, 'utf8').matchAll(
+      /^\| (P\d\d) \| `([^`]+)` \| `(GET|POST|PUT|PATCH|DELETE) ([^`?]+)\??[^`]*` \| ([^|]+) \| (auth|setup|read|write) \|/gm,
+    ),
+  ];
+  return rows.map((row) => ({
+    number: row[1] ?? '',
+    id: row[2] ?? '',
+    key: `${row[3] ?? ''} ${row[4] ?? ''}`.replaceAll(/\{([^}]+)\}/g, '{$1}'),
+    access: (row[5] ?? '').trim(),
+    rateClass: row[6] ?? '',
+  }));
+}
+
+/** Every disagreement between the contract and the document, as readable lines. */
+function contractProblems(document: OpenApiDocument, routes: readonly ContractRoute[]): string[] {
+  const problems: string[] = [];
+  const documented = operationsOf(document);
+  for (const route of routes) {
+    const operation = documented.get(route.key);
+    if (operation === undefined) {
+      problems.push(`${route.number} ${route.id}: ${route.key} is not documented`);
+      continue;
+    }
+    if (operation['x-route-id'] !== route.id) {
+      problems.push(
+        `${route.number}: x-route-id is ${String(operation['x-route-id'])}, the contract says ${route.id}`,
+      );
+    }
+    if (operation['x-rate-limit'] !== route.rateClass) {
+      problems.push(
+        `${route.number} ${route.id}: x-rate-limit is ${String(operation['x-rate-limit'])}, the contract says ${route.rateClass}`,
+      );
+    }
+    const marked = ['x-permission', 'x-public'].filter((name) => operation[name] !== undefined);
+    if (route.access.startsWith('public') && operation['x-public'] === undefined) {
+      problems.push(
+        `${route.number} ${route.id}: the contract says public, the document has no x-public`,
+      );
+    }
+    if (
+      !route.access.startsWith('public') &&
+      marked.length === 0 &&
+      operation['x-access'] === undefined
+    ) {
+      problems.push(
+        `${route.number} ${route.id}: the document names neither a permission nor an access`,
+      );
+    }
+  }
+  return problems;
+}
+
+/** Secrets must not be in the document: tokens, cookie values, setup tokens, key material. */
+function documentLeaks(text: string, canaries: readonly string[]): string[] {
+  const found: string[] = [];
+  for (const canary of canaries)
+    if (canary !== '' && text.includes(canary)) found.push('a canary value');
+  if (/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./.test(text)) found.push('a JWT-shaped token');
+  if (text.includes('-----BEGIN ')) found.push('a PEM block');
+  if (/\bm365portal_(?:session|setup|tx)=[A-Za-z0-9_-]{20,}/.test(text))
+    found.push('a cookie value');
+  return found;
+}
+
+describe('the contract routes P01 to P32 on the real application (T-B-392)', () => {
+  it('documents all 32 routes with their ids, methods, paths and rate classes, and validates against OpenAPI 3.1', async () => {
+    const server = await startWizardServer({
+      env: {
+        BREAK_GLASS_USERNAME: 'operator',
+        BREAK_GLASS_PASSWORD_HASH: `scrypt:16384:8:1:${Buffer.alloc(16, 3).toString('base64url')}:${Buffer.alloc(32, 5).toString('base64url')}`,
+      },
+    });
+    const response = await server.client().get('/api/v1/openapi.json');
+    const text = await response.text();
+    const document = JSON.parse(text) as OpenApiDocument;
+    const routes = contractRoutes();
+    expect(routes.map((route) => route.number)).toEqual(
+      Array.from({ length: 32 }, (_unused, index) => `P${String(index + 1).padStart(2, '0')}`),
+    );
+    expect(contractProblems(document, routes)).toEqual([]);
+
+    const verdict = await new Validator().validate(document as never);
+    expect(verdict.valid, JSON.stringify(verdict.errors ?? [])).toBe(true);
+
+    // The documented set equals the registered set: the server asserts it at start, and here the
+    // document is the one the running application serves.
+    const ids = new Set(
+      [...operationsOf(document).values()].map((operation) => operation['x-route-id']),
+    );
+    for (const route of routes) expect(ids.has(route.id), route.id).toBe(true);
+
+    // The document names the extensions on every operation, and leaks nothing.
+    for (const [key, operation] of operationsOf(document)) {
+      expect(operation['x-route-id'], key).toEqual(expect.any(String));
+      expect(operation['x-rate-limit'], key).toEqual(expect.any(String));
+    }
+    expect(documentLeaks(text, [server.token() ?? ''])).toEqual([]);
+  });
+
+  describe('negative fixtures: the checks fail on purpose', () => {
+    const route: ContractRoute = {
+      number: 'P99',
+      id: 'x.route',
+      key: 'GET /api/v1/x',
+      access: 'public',
+      rateClass: 'read',
+    };
+    const documentWith = (extra: Record<string, unknown>): OpenApiDocument => ({
+      openapi: '3.1.0',
+      info: { title: 't', version: '1' },
+      paths: {
+        '/api/v1/x': {
+          get: { 'x-route-id': 'x.route', 'x-rate-limit': 'read', 'x-public': true, ...extra },
+        },
+      },
+    });
+
+    it('a contract route that is not documented', () => {
+      expectGuardFails(
+        (input: { document: OpenApiDocument; routes: ContractRoute[] }) => {
+          const problems = contractProblems(input.document, input.routes);
+          if (problems.length > 0) throw new Error(problems.join('; '));
+        },
+        { document: documentWith({}), routes: [{ ...route, key: 'GET /api/v1/missing' }] },
+        { reason: 'is not documented' },
+      );
+    });
+
+    it('a wrong route id or rate class', () => {
+      for (const [extra, reason] of [
+        [{ 'x-route-id': 'other.route' }, 'x-route-id'],
+        [{ 'x-rate-limit': 'write' }, 'x-rate-limit'],
+      ] as const) {
+        expectGuardFails(
+          (input: { document: OpenApiDocument; routes: ContractRoute[] }) => {
+            const problems = contractProblems(input.document, input.routes);
+            if (problems.length > 0) throw new Error(problems.join('; '));
+          },
+          { document: documentWith(extra), routes: [route] },
+          { reason },
+        );
+      }
+    });
+
+    it('a document that holds a token, a cookie value, a PEM block or the setup token', () => {
+      for (const leak of [
+        'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signaturesignature',
+        'm365portal_setup=' + 'a'.repeat(40),
+        '-----BEGIN ' + 'CERTIFICATE-----',
+        'SETUP-CANARY-0123456789',
+      ]) {
+        expectGuardFails(
+          (text: string) => {
+            const found = documentLeaks(text, ['SETUP-CANARY-0123456789']);
+            if (found.length > 0) throw new Error(found.join(', '));
+          },
+          `{"description":"${leak}"}`,
+          { reason: /canary|JWT|cookie|PEM/ },
+        );
+      }
+    });
   });
 });

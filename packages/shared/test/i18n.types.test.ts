@@ -117,12 +117,36 @@ const EQUAL = [
  * diagnostic it expects: TS2345 is "argument not assignable", TS2578 an unused `@ts-expect-error`.
  */
 const MUST_COMPILE: Readonly<Record<string, string>> = {
-  // MessageKey is derived from the bundled en.json, whatever it holds.
+  // MessageKey is derived from the bundled en.json, whatever it holds, plus the English files of the
+  // lazy namespaces (T-B-291): the entry keys are exactly those of en.json, the lazy keys are exactly
+  // those of the lazy files, and the two sets do not overlap.
   'derived-from-en-json.ts': [
     IMPORT_TYPES,
+    "import type { LazyMessageKey } from '../../src/i18n/index.js';",
     "import type En from '../../src/i18n/locales/en.json';",
+    "import type EnSetup from '../../src/i18n/locales/lazy/setup.en.json';",
+    "import type EnConnection from '../../src/i18n/locales/lazy/connection.en.json';",
+    "import type EnBreakglass from '../../src/i18n/locales/lazy/breakglass.en.json';",
+    "import type EnAccess from '../../src/i18n/locales/lazy/access.en.json';",
+    "import type EnShowcase from '../../src/i18n/locales/lazy/showcase.en.json';",
+    "import type EnSignin from '../../src/i18n/locales/lazy/signin.en.json';",
+    "import type EnAppearance from '../../src/i18n/locales/lazy/appearance.en.json';",
+    "import type EnLogo from '../../src/i18n/locales/lazy/logo.en.json';",
+    "import type EnAccent from '../../src/i18n/locales/lazy/accent.en.json';",
+    "import type EnPreview from '../../src/i18n/locales/lazy/preview.en.json';",
+    "import type EnRole from '../../src/i18n/locales/lazy/role.en.json';",
+    "import type EnPermission from '../../src/i18n/locales/lazy/permission.en.json';",
+    "import type EnScope from '../../src/i18n/locales/lazy/scope.en.json';",
+    "import type EnQualifier from '../../src/i18n/locales/lazy/qualifier.en.json';",
+    "import type EnResource from '../../src/i18n/locales/lazy/resource.en.json';",
+    "import type EnOrigin from '../../src/i18n/locales/lazy/origin.en.json';",
+    "import type EnSession from '../../src/i18n/locales/lazy/session.en.json';",
+    "import type EnPalette from '../../src/i18n/locales/lazy/palette.en.json';",
+    "import type EnShortcuts from '../../src/i18n/locales/lazy/shortcuts.en.json';",
     EQUAL,
-    'export type Derived = Expect<Equal<MessageKey, MessageKeyOf<typeof En>>>;',
+    'export type Derived = Expect<Equal<Exclude<MessageKey, LazyMessageKey>, MessageKeyOf<typeof En>>>;',
+    'export type Lazy = Expect<Equal<LazyMessageKey, MessageKeyOf<typeof EnSetup> | MessageKeyOf<typeof EnConnection> | MessageKeyOf<typeof EnBreakglass> | MessageKeyOf<typeof EnAccess> | MessageKeyOf<typeof EnShowcase> | MessageKeyOf<typeof EnSignin> | MessageKeyOf<typeof EnAppearance> | MessageKeyOf<typeof EnLogo> | MessageKeyOf<typeof EnAccent> | MessageKeyOf<typeof EnPreview> | MessageKeyOf<typeof EnRole> | MessageKeyOf<typeof EnPermission> | MessageKeyOf<typeof EnScope> | MessageKeyOf<typeof EnQualifier> | MessageKeyOf<typeof EnResource> | MessageKeyOf<typeof EnOrigin> | MessageKeyOf<typeof EnSession> | MessageKeyOf<typeof EnPalette> | MessageKeyOf<typeof EnShortcuts>>>;',
+    'export type Disjoint = Expect<Equal<Extract<MessageKeyOf<typeof En>, LazyMessageKey>, never>>;',
   ].join('\n'),
 
   // The derivation on a catalogue of the test's own: plain keys stay, plural groups collapse to

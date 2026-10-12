@@ -2,10 +2,10 @@
 //
 // No framework: a lookup in a flat JSON catalogue, a one-pass `{name}` interpolation, plurals chosen
 // by `Intl.PluralRules`, and a fall back to the `en` catalogue. Both bundled catalogues are imported
-// here, so they travel in the entry chunk of the web app (PD-16).
+// in `catalogues.ts`, so they travel in the entry chunk of the web app (PD-16); the lazy namespaces
+// join them when `loadNamespace` has loaded them.
+import { liveCatalogueSet } from './catalogues.js';
 import { createFormatters, interpolate, pluralRulesFor } from './format.js';
-import en from './locales/en.json' with { type: 'json' };
-import nl from './locales/nl.json' with { type: 'json' };
 import {
   DEFAULT_LOCALE,
   isLocale,
@@ -17,8 +17,11 @@ import {
   type Translator,
 } from './types.js';
 
-/** The catalogues the application ships: the merged output of the fragments (T-A-161). */
-const BUNDLED: Readonly<Record<Locale, Catalogue>> = { en, nl };
+/**
+ * The catalogues the application ships: the merged output of the fragments (T-A-161) and, once they
+ * are loaded, the lazy namespaces. The objects are read at every lookup.
+ */
+const BUNDLED: Readonly<Record<Locale, Catalogue>> = liveCatalogueSet();
 
 /** An own string property of a catalogue; `constructor` and `__proto__` are never messages. */
 function messageOf(catalogue: Catalogue | undefined, key: string): string | undefined {

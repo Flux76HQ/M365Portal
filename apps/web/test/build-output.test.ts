@@ -298,7 +298,7 @@ describe('the inlined boot script (plan 8.2)', () => {
 
   it('is the first of the inline classic <script nonce>, before the style and the loader', () => {
     // Three inline scripts, in this order: the boot script (theme and language), the static shell's
-    // small script (organisation name, preview banner) and the loader that starts the application.
+    // small script (organisation name) and the loader that starts the application.
     const scripts = inlineScripts();
     expect(scripts).toHaveLength(3);
     for (const script of scripts) expect(script.attributes.get('nonce')).toBe(NONCE);
@@ -397,13 +397,6 @@ describe('font preload', () => {
 // ---------------------------------------------------------------------------------------------
 
 describe('the static app shell', () => {
-  const catalogue = (locale: 'en' | 'nl') =>
-    JSON.parse(
-      readFileSync(
-        join(WEB_ROOT, '..', '..', 'packages/shared/src/i18n/locales', `${locale}.json`),
-        'utf8',
-      ),
-    ) as Record<string, string>;
   const shell = () => /<div id="root">([\s\S]*?)<\/div>\s*<script/.exec(html)?.[1] ?? '';
 
   it('is inside #root, hidden from assistive technology and inert: a picture, not a page', () => {
@@ -418,18 +411,11 @@ describe('the static app shell', () => {
     expect(markup).not.toMatch(/<(?:a|button|input|h1|main|header|aside|nav)\b/);
   });
 
-  it('has the preview banner text of the catalogues, in both languages and escaped', () => {
-    // Prettier wraps `</span\n>` in the source; the markup is compared without that whitespace.
-    const markup = shell().replace(/<\/span\s+>/g, '</span>');
-    for (const locale of ['en', 'nl'] as const) {
-      const entries = catalogue(locale);
-      for (const key of ['banner.preview.title', 'banner.preview.message']) {
-        const text = entries[key]!;
-        expect(markup, `${locale} ${key}`).toContain(
-          `<span data-shell-lang="${locale}" hidden>${text.replace(/&/g, '&amp;')}</span>`,
-        );
-      }
-    }
+  it('has no preview banner and no text token left over: the markup is the same for everybody (FR-B-102)', () => {
+    const markup = shell();
+    expect(markup).not.toContain('data-shell-banner');
+    expect(markup.toLowerCase()).not.toContain('preview');
+    expect(markup).not.toContain('voorbeeldmodus');
     expect(html).not.toMatch(/\{\{(?:en|nl):/);
   });
 
@@ -448,7 +434,7 @@ describe('the static app shell', () => {
     const own = scripts.filter((tag) => tag.index > root);
     expect(own.length).toBeGreaterThanOrEqual(1);
     expect(contentAfter(html, own[0]!)).toContain('data-shell-org');
-    expect(contentAfter(html, own[0]!)).toContain('data-shell-banner');
+    expect(contentAfter(html, own[0]!)).not.toContain('data-shell-banner');
     expect(contentAfter(html, own[0]!)).toContain('data-shell-lang');
   });
 });

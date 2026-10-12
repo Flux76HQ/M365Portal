@@ -178,9 +178,8 @@ describe('revealStaticShell', () => {
     document.body.innerHTML =
       (boot === null ? '' : `<script type="application/json" id="m365-boot">${boot}</script>`) +
       '<div id="root"><div data-slot="static-shell" hidden>' +
-      '<div data-shell-banner hidden class="items-start">' +
-      '<span data-shell-lang="en" hidden>Preview</span><span data-shell-lang="nl" hidden>Voorbeeld</span>' +
-      '</div><bdi data-shell-org></bdi><bdi data-shell-org></bdi></div></div>';
+      '<p><span data-shell-lang="en" hidden>Hello</span><span data-shell-lang="nl" hidden>Hallo</span></p>' +
+      '<bdi data-shell-org></bdi><bdi data-shell-org></bdi></div></div>';
     return document;
   }
   const visible = (doc: Document): string[] =>
@@ -188,13 +187,8 @@ describe('revealStaticShell', () => {
       .filter((element) => !element.hidden)
       .map((element) => element.textContent);
 
-  it('writes the organisation name as text into every placeholder and turns the banner on for preview', () => {
-    const doc = page(
-      JSON.stringify({
-        me: { features: { preview: true } },
-        branding: { orgName: '<b>شركة</b> & Co' },
-      }),
-    );
+  it('writes the organisation name as text into every placeholder', () => {
+    const doc = page(JSON.stringify({ branding: { orgName: '<b>شركة</b> & Co' } }));
     revealStaticShell(doc);
     const names = [...doc.querySelectorAll('[data-shell-org]')];
     expect(names.map((element) => element.textContent)).toEqual([
@@ -202,23 +196,20 @@ describe('revealStaticShell', () => {
       '<b>شركة</b> & Co',
     ]);
     expect(doc.querySelector('[data-shell-org] b')).toBeNull();
-    const banner = doc.querySelector<HTMLElement>('[data-shell-banner]')!;
-    expect(banner.hidden).toBe(false);
-    expect(banner.classList.contains('flex')).toBe(true);
   });
 
-  it('keeps the banner off when preview mode is off', () => {
+  it('has no preview banner to switch on any more: the boot data of an old server changes nothing (FR-B-102)', () => {
     const doc = page(
-      JSON.stringify({ me: { features: { preview: false } }, branding: { orgName: 'Acme' } }),
+      JSON.stringify({ me: { features: { preview: true } }, branding: { orgName: 'Acme' } }),
     );
     revealStaticShell(doc);
-    expect(doc.querySelector<HTMLElement>('[data-shell-banner]')!.hidden).toBe(true);
+    expect(doc.querySelector('[data-shell-banner]')).toBeNull();
     expect(doc.querySelector('[data-shell-org]')?.textContent).toBe('Acme');
   });
 
   it('shows the text of the language of the page and only that', () => {
-    expect(visible(revealStaticShell_(page(null, 'en')))).toEqual(['Preview']);
-    expect(visible(revealStaticShell_(page(null, 'nl')))).toEqual(['Voorbeeld']);
+    expect(visible(revealStaticShell_(page(null, 'en')))).toEqual(['Hello']);
+    expect(visible(revealStaticShell_(page(null, 'nl')))).toEqual(['Hallo']);
     // A language the shell has no text for shows none (never the wrong one).
     expect(visible(revealStaticShell_(page(null, 'de')))).toEqual([]);
   });
@@ -239,7 +230,6 @@ describe('revealStaticShell', () => {
         revealStaticShell(doc);
       }).not.toThrow();
       expect(doc.querySelector('[data-shell-org]')?.textContent).toBe('');
-      expect(doc.querySelector<HTMLElement>('[data-shell-banner]')!.hidden).toBe(true);
     }
   });
 });

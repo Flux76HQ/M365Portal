@@ -1,0 +1,8 @@
+{
+  "scope.department": "All {target} in the department “{value}”",
+  "scope.id": "Only {target} with ID {id}",
+  "scope.invalid": "An invalid scope",
+  "scope.prefix.alias": "All {target} whose alias starts with “{value}”",
+  "scope.prefix.displayName": "All {target} whose name starts with “{value}”",
+  "scope.prefix.mail": "All {target} whose email address starts with “{value}”"
+}

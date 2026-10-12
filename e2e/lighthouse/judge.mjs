@@ -67,7 +67,8 @@ export const MAX_RUNS = 3;
  * @property {number} [tbtMs]
  *
  * @typedef {object} Cell
- * @property {'preview'|'default'} instance
+ * @property {string} instance           the group: a-public, b-setup, a-owner
+ * @property {boolean} [reportOnly]    measured and reported, never a failure (the signed-in pages)
  * @property {'mobile'|'desktop'} preset
  * @property {string} route
  * @property {number} [expectedStatus]   default 200
@@ -76,7 +77,7 @@ export const MAX_RUNS = 3;
 
 /** Is this the one combination the plan 14.3 decision covers? */
 export function usesDefaultInstanceGate(cell) {
-  return cell.instance === 'default' && cell.preset === 'mobile';
+  return cell.instance !== 'preview' && cell.preset === 'mobile';
 }
 
 function finite(value) {
@@ -279,13 +280,29 @@ export function judgeCell(cell) {
  * @param {Cell[]} cells
  */
 export function judge(cells) {
-  const results = cells.map((cell) => ({
-    instance: cell.instance,
-    preset: cell.preset,
-    route: cell.route,
-    runs: cell.measurements.length,
-    ...judgeCell(cell),
-  }));
+  const results = cells.map((cell) => {
+    const judged = judgeCell(cell);
+    // A report-only cell (the signed-in pages) never fails the pass: its misses are notes.
+    if (cell.reportOnly === true && judged.verdict === 'fail') {
+      return {
+        instance: cell.instance,
+        preset: cell.preset,
+        route: cell.route,
+        runs: cell.measurements.length,
+        ...judged,
+        verdict: 'reported',
+        reasons: [],
+        notes: [...judged.notes, ...judged.reasons.map((reason) => `not gated: ${reason}`)],
+      };
+    }
+    return {
+      instance: cell.instance,
+      preset: cell.preset,
+      route: cell.route,
+      runs: cell.measurements.length,
+      ...judged,
+    };
+  });
   const failed = results.filter((r) => r.verdict === 'fail');
   return {
     pass: results.length > 0 && failed.length === 0,

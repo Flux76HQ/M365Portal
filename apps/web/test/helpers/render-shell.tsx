@@ -17,7 +17,10 @@ import userEvent from '@testing-library/user-event';
 import { type ReactNode } from 'react';
 import { AppShell } from '../../src/components/shell/AppShell';
 import { RootProviders } from '../../src/components/pages/root-providers';
-import { createApiClient } from '../../src/lib/api';
+import { AuthRuntimeProvider } from '../../src/features/auth/runtime';
+import { createSessionStore } from '../../src/features/auth/session-store';
+import { createApiClient, type FetchFunction } from '../../src/lib/api';
+import { createAuthEffects, type BrowserLocation } from '../../src/lib/auth-nav';
 import type { MeResponse } from '../../src/lib/boot-data';
 import { loadMe, requirePermission, gatedPage } from '../../src/lib/gating';
 import { createLanguageController } from '../../src/lib/locale';
@@ -50,6 +53,10 @@ export interface RenderShellOptions {
   readonly storage?: AppStorage;
   /** More routes under the root, for a test that needs a page that throws or loads slowly. */
   readonly extraRoutes?: (root: AnyRoute) => AnyRoute[];
+  /** The network of the API client; by default there is none and every request fails. */
+  readonly fetch?: FetchFunction;
+  /** For a test with fake timers: how the simulated user advances them (`vi.advanceTimersByTime`). */
+  readonly advanceTimers?: (milliseconds: number) => void | Promise<void>;
 }
 
 function Page({ children }: { readonly children: ReactNode }): ReactNode {
@@ -105,19 +112,29 @@ function shellTree(extraRoutes?: RenderShellOptions['extraRoutes']) {
 
 /** The shell on small code-based routes (`shellTree`), or, with `real: true`, on the real route tree. */
 export async function renderShell(options: RenderShellOptions & { readonly real?: boolean } = {}) {
+  // The session UI of this render: its own store, and a location that records where the page is sent.
+  const store = createSessionStore();
+  const moves: string[] = [];
+  let currentPath = options.path ?? '/';
+  const location: BrowserLocation = {
+    get pathname() {
+      return new URL(currentPath, 'http://panel.test').pathname;
+    },
+    get search() {
+      return new URL(currentPath, 'http://panel.test').search;
+    },
+    assign: (url) => moves.push(`assign ${url}`),
+    replace: (url) => moves.push(`replace ${url}`),
+  };
   const api = createApiClient({
     buildVersion: null,
-    fetch: () => Promise.reject(new TypeError('the test has no network')),
+    fetch: options.fetch ?? (() => Promise.reject(new TypeError('the test has no network'))),
+    auth: createAuthEffects({ location, store }),
   });
   const queryClient = createAppQueryClient();
-  seedQueryClient(
-    queryClient,
-    {
-      me: options.me ?? sampleMe(),
-      branding: options.branding ?? sampleBranding('Acme'),
-    },
-    api,
-  );
+  const me = options.me ?? sampleMe();
+  seedQueryClient(queryClient, { me, branding: options.branding ?? sampleBranding('Acme') }, api);
+  store.noteMeSession(me.session);
   const backend = options.backend ?? new MemoryBackend();
   const storage = options.storage ?? createStorage(backend);
   const language = createLanguageController({
@@ -134,17 +151,25 @@ export async function renderShell(options: RenderShellOptions & { readonly real?
           history,
           ...baseRouterOptions({ queryClient, api }),
         });
-  const user = userEvent.setup();
+  router.subscribe('onResolved', () => {
+    currentPath = router.state.location.href;
+  });
+  const user = userEvent.setup(
+    options.advanceTimers === undefined ? {} : { advanceTimers: options.advanceTimers },
+  );
   const view = render(
-    <RootProviders
-      router={router as never}
-      queryClient={queryClient}
-      language={language}
-      storage={storage}
-    />,
+    <AuthRuntimeProvider runtime={{ store, location }}>
+      <RootProviders
+        router={router as never}
+        queryClient={queryClient}
+        language={language}
+        storage={storage}
+      />
+    </AuthRuntimeProvider>,
   );
   await router.load();
-  return { ...view, user, router, backend, storage, language, queryClient };
+  currentPath = router.state.location.href;
+  return { ...view, user, router, backend, storage, language, queryClient, store, moves, api };
 }
 
 /** The application on its real, file-based route tree. */

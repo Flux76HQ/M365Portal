@@ -32,6 +32,7 @@ import { brandingAssetUrl } from '@m365portal/shared/schemas/branding';
 import { appendAudit, type AuditDetail } from '../audit/index.js';
 import { withTransaction, type DatabaseHandle } from '../db/index.js';
 import { ProblemError } from '../http/problem.js';
+import type { ActorKind } from '../policy/actor.js';
 import { AssetFileMissingError, type AssetMetadata, type AssetStore } from './asset-store.js';
 import { DEFAULT_BRANDING, SYSTEM_ACTOR, type BrandingChoice } from './defaults.js';
 import type { IconKind } from './pipeline/job-protocol.js';
@@ -52,7 +53,7 @@ import {
 
 /** Who made a change, for the row (`updated_by_*`) and for the audit entry. */
 export interface ChangeContext {
-  readonly actor: { readonly kind: 'anonymous' | 'preview' | 'system'; readonly id: string };
+  readonly actor: { readonly kind: ActorKind | 'system'; readonly id: string };
   readonly requestId?: string;
   /** The client address; personal data, so it goes to the audit entry and nowhere else. */
   readonly clientIp?: string;

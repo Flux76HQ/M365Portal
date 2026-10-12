@@ -1,0 +1,14 @@
+{
+  "preview.button.primary": "Primair",
+  "preview.button.secondary": "Secundair",
+  "preview.description": "Wijzigingen verschijnen hier meteen. Er wordt niets opgeslagen tot u op Opslaan drukt.",
+  "preview.paneLabel": "Voorbeeld, {theme}: {name}",
+  "preview.state.active": "Ingedrukt",
+  "preview.state.focus": "Focus",
+  "preview.state.hover": "Aanwijzen",
+  "preview.state.rest": "Rust",
+  "preview.summary": "{theme}: de zijbalk, de koptekst en knoppen voor de organisatie {name}, met de accentkleur {accent}.",
+  "preview.theme.dark": "Donker thema",
+  "preview.theme.light": "Licht thema",
+  "preview.title": "Voorbeeld"
+}

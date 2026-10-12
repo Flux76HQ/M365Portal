@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { fixtureById } from '../../apps/server/test/fixtures/hostile-corpus.js';
 import { writeHostileFiles } from '../../apps/server/test/fixtures/write-hostile.js';
-import { expect, test } from '../fixtures.js';
+import { contextAs, expect, test } from '../fixtures.js';
 import {
   appearanceFields,
   makeJpeg,
@@ -23,7 +23,7 @@ import {
 } from '../branding-helpers.js';
 
 test.beforeEach(async ({ app }) => {
-  await app.servers.restart('preview');
+  await app.servers.restart('a');
 });
 
 test.afterEach(async ({ request, app }) => {
@@ -288,7 +288,7 @@ test.describe('saving', () => {
         expect(favicon).not.toBe(defaults.icons.favicon32?.url);
 
         await restoreDefaults(request, app);
-        await app.servers.restart('preview');
+        await app.servers.restart('a');
       });
     }
     testInfo.annotations.push({
@@ -372,7 +372,7 @@ test.describe('two people', () => {
     guard.allowResponse({ status: 412, url: '/api/v1/branding' });
     const mine = await openAppearance(page, app);
 
-    const otherContext = await browser.newContext({ locale: 'en-US', timezoneId: 'UTC' });
+    const otherContext = await contextAs(browser, 'administrator');
     try {
       const other = await otherContext.newPage();
       const theirs = await openAppearance(other, app);
@@ -506,7 +506,7 @@ test.describe('export and import', () => {
     for (let offset = 40; offset < 60; offset += 1) png[offset] = (png[offset] ?? 0) ^ 0xff;
     document_.images.logoLight = png.toString('base64');
 
-    await app.servers.restart('preview'); // fresh upload budget for the import
+    await app.servers.restart('a'); // fresh upload budget for the import
     const reopened = await openAppearance(page, app);
     await reopened.reset.waitFor();
     await page.locator('input[data-slot="import-file"]').setInputFiles({
@@ -591,6 +591,21 @@ test.describe('the wrong address (E-14)', () => {
   }) => {
     const wrong = new URL(app.origin());
     wrong.hostname = '127.0.0.1';
+    // Cookies belong to a host: the owner's session is copied to the wrong address, so that the page is
+    // the signed-in app there too (the server checks the origin of a write, not who is asking).
+    const session = (await page.context().cookies(app.origin())).find(
+      (cookie) => cookie.name === 'm365portal_session',
+    );
+    expect(session, 'the owner is signed in').toBeDefined();
+    await page.context().addCookies([
+      {
+        name: 'm365portal_session',
+        value: session?.value ?? '',
+        url: wrong.origin,
+        httpOnly: true,
+        sameSite: 'Strict',
+      },
+    ]);
     await page.goto(`${wrong.origin}/settings/appearance`);
     const fields = appearanceFields(page);
     await fields.name.waitFor();

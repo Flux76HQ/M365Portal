@@ -1,45 +1,55 @@
 // The component showcase (FR-A-131; US-5): `/design` exists only on an instance that runs with
-// SHOWCASE=true. The anonymous instance answers the Not-found page for it, as for any unknown address
-// (and it is not in the menu or the palette); the preview instance shows the whole library.
+// SHOWCASE=true. Phase A compared two instances; Phase B has one configured instance, which runs with
+// SHOWCASE=true, and the specs that need it off restart it with SHOWCASE=false on the same data
+// directory (the signed-in owner stays signed in) and restore it afterwards. With it off the owner gets
+// the Not-found page for /design, as for any unknown address (and it is not in the menu or the
+// palette); with it on the whole library shows.
 import { expect, test } from '../fixtures.js';
+import { restartServer } from '../servers.js';
 
-test('on the anonymous instance /design is the Not-found page, at the same URL', async ({
-  page,
-  app,
-}) => {
-  await app.goto('/design', { instance: 'anonymous' });
-  await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
-  await expect(page).toHaveURL(/\/design$/);
-  await expect(page.getByRole('heading', { name: 'Component showcase' })).toHaveCount(0);
-  await expect(page.locator('[data-slot="specimen"]')).toHaveCount(0);
-});
+test.describe('with SHOWCASE=false', () => {
+  test.beforeAll(async () => {
+    await restartServer('a', { SHOWCASE: 'false' });
+  });
+  test.afterAll(async () => {
+    await restartServer('a');
+  });
 
-test('on the anonymous instance the showcase is neither in the menu nor in the palette', async ({
-  page,
-  app,
-}) => {
-  await app.goto('/', { instance: 'anonymous' });
-  await expect(page.getByRole('link', { name: 'Component showcase' })).toHaveCount(0);
-  await page.keyboard.press('Control+k');
-  await page.keyboard.type('showcase');
-  await expect(page.getByRole('option', { name: /showcase/i })).toHaveCount(0);
-});
+  test('/design is the Not-found page, at the same URL', async ({ page, app }) => {
+    await app.goto('/design');
+    await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
+    await expect(page).toHaveURL(/\/design$/);
+    await expect(page.getByRole('heading', { name: 'Component showcase' })).toHaveCount(0);
+    await expect(page.locator('[data-slot="specimen"]')).toHaveCount(0);
+  });
 
-test('/api/v1/me tells the page whether the showcase exists', async ({ request, app }) => {
-  const read = async (instance: 'preview' | 'anonymous'): Promise<boolean> => {
-    const me = (await (await request.get(app.url('/api/v1/me', instance))).json()) as {
+  test('the showcase is neither in the menu nor in the palette', async ({ page, app }) => {
+    await app.goto('/');
+    await expect(page.getByRole('link', { name: 'Component showcase' })).toHaveCount(0);
+    await page.keyboard.press('Control+k');
+    await page.keyboard.type('showcase');
+    await expect(page.getByRole('option', { name: /showcase/i })).toHaveCount(0);
+  });
+
+  test('/api/v1/me says the showcase does not exist', async ({ request, app }) => {
+    const me = (await (await request.get(app.url('/api/v1/me'))).json()) as {
       features: { showcase: boolean };
     };
-    return me.features.showcase;
-  };
-  expect(await read('preview')).toBe(true);
-  expect(await read('anonymous')).toBe(false);
+    expect(me.features.showcase).toBe(false);
+  });
 });
 
-test('on the preview instance /design is the whole library, in five groups', async ({
-  page,
+test('/api/v1/me tells the page that the showcase exists on instance A', async ({
+  request,
   app,
 }) => {
+  const me = (await (await request.get(app.url('/api/v1/me'))).json()) as {
+    features: { showcase: boolean };
+  };
+  expect(me.features.showcase).toBe(true);
+});
+
+test('on instance A /design is the whole library, in five groups', async ({ page, app }) => {
   await app.goto('/design');
   await expect(page.getByRole('heading', { level: 1, name: 'Component showcase' })).toBeVisible();
   await expect(

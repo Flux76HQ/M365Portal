@@ -1,7 +1,6 @@
 {
   "shell.actor.anonymous": "Niet aangemeld",
   "shell.actor.label": "Actief als: {name}",
-  "shell.actor.preview": "Voorbeeldbeheerder",
   "shell.org.fallback": "Organisatie",
   "shell.search.label": "Zoeken of een opdracht uitvoeren",
   "shell.sidebar.close": "Menu sluiten",

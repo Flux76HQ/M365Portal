@@ -9,14 +9,17 @@ import { createTranslator } from '@m365portal/shared/i18n';
 import { CLIENT_PATHS } from '@m365portal/shared/routes';
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { sampleBranding, sampleMe } from './helpers/boot-fixtures';
+import { sampleBranding, sampleMe, sampleSignedInMe } from './helpers/boot-fixtures';
 import { renderApp } from './helpers/render-shell';
+
+/** A signed-in user who holds no permission: the shell around the page, and the in-place No-access for a gated one. */
+const person = () => sampleMe({ kind: 'user' });
 
 const en = createTranslator('en');
 const nl = createTranslator('nl');
 
 describe('the Settings overview', () => {
-  it('lists Appearance only, for an actor who may change it', async () => {
+  it('lists Appearance and My access, for an actor who may change the appearance', async () => {
     await renderApp({ me: sampleMe({ permissions: ['settings:branding'] }), path: '/settings' });
 
     const main = await screen.findByRole('main');
@@ -25,25 +28,45 @@ describe('the Settings overview', () => {
     ).toBeInTheDocument();
     const list = within(main).getByRole('list', { name: en.t('pages.settings.list') });
     const links = within(list).getAllByRole('link');
-    expect(links).toHaveLength(1);
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/settings/appearance',
+      '/settings/access',
+    ]);
     expect(links[0]).toHaveAccessibleName(new RegExp(en.t('nav.appearance')));
-    expect(links[0]).toHaveAttribute('href', '/settings/appearance');
+    expect(links[1]).toHaveAccessibleName(new RegExp(en.t('nav.access')));
     expect(within(main).getByText(en.t('pages.settings.later'))).toBeInTheDocument();
   });
 
-  it('lists nothing to an actor who may only see the connection settings (none exist yet)', async () => {
+  it('lists Connection and My access to an actor who may manage the connection (T-B-306)', async () => {
     await renderApp({ me: sampleMe({ permissions: ['settings:connection'] }), path: '/settings' });
 
     const main = await screen.findByRole('main');
     expect(
       await within(main).findByRole('heading', { level: 1, name: en.t('pages.settings.title') }),
     ).toBeInTheDocument();
-    expect(within(main).queryByRole('link')).not.toBeInTheDocument();
+    const links = within(main).getAllByRole('link');
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/settings/connection',
+      '/settings/access',
+    ]);
     expect(within(main).getByText(en.t('pages.settings.later'))).toBeInTheDocument();
   });
 
+  it('lists only My access to a signed-in user with no settings permission, and nothing to hide it behind No-access', async () => {
+    await renderApp({ me: person(), path: '/settings' });
+    const main = await screen.findByRole('main');
+    expect(
+      await within(main).findByRole('heading', { level: 1, name: en.t('pages.settings.title') }),
+    ).toBeInTheDocument();
+    expect(
+      within(main)
+        .getAllByRole('link')
+        .map((link) => link.getAttribute('href')),
+    ).toEqual(['/settings/access']);
+  });
+
   it('is in Dutch when the page is Dutch', async () => {
-    await renderApp({ me: sampleMe({ preview: true }), path: '/settings', language: 'nl' });
+    await renderApp({ me: sampleSignedInMe(), path: '/settings', language: 'nl' });
 
     expect(
       await screen.findByRole('heading', { level: 1, name: nl.t('pages.settings.title') }),
@@ -79,17 +102,17 @@ describe('Settings, Appearance', () => {
 });
 
 describe('No-access', () => {
-  it('shows the anonymous actor No-access at the same URL for every gated page', async () => {
+  it('shows an actor without the permission No-access at the same URL for every gated page', async () => {
     for (const path of [
       '/users',
       '/groups',
       '/distribution-lists',
       '/contacts',
       '/audit',
-      '/settings',
       '/settings/appearance',
+      '/settings/connection',
     ]) {
-      const view = await renderApp({ path });
+      const view = await renderApp({ me: person(), path });
 
       expect(
         await screen.findByRole('heading', { level: 1, name: en.t('pages.noAccess.title') }),
@@ -100,21 +123,21 @@ describe('No-access', () => {
     }
   });
 
-  it('is also a page of its own at /no-access, with a way back', async () => {
-    await renderApp({ path: '/no-access' });
+  it('is also a page of its own at /no-access, the public variant of the sign-in flow (no_role unless told otherwise)', async () => {
+    await renderApp({ me: person(), path: '/no-access' });
 
     expect(
-      await screen.findByRole('heading', { level: 1, name: en.t('pages.noAccess.title') }),
+      await screen.findByRole('heading', { level: 1, name: en.t('noaccess.title') }),
     ).toBeInTheDocument();
-    expect(screen.getByText(en.t('pages.noAccess.description'))).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: en.t('pages.backToDashboard') })).toHaveAttribute(
+    expect(screen.getByText(en.t('noaccess.reason.no_role'))).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: en.t('noaccess.action.signInAgain') })).toHaveAttribute(
       'href',
-      '/',
+      '/auth/login?prompt=login',
     );
   });
 
   it('keeps the shell around it', async () => {
-    await renderApp({ path: '/users' });
+    await renderApp({ me: person(), path: '/users' });
     await screen.findByRole('heading', { level: 1, name: en.t('pages.noAccess.title') });
 
     expect(
@@ -127,6 +150,7 @@ describe('No-access', () => {
 describe('Not-found', () => {
   it('answers an unknown URL inside the shell, with a way back and a title', async () => {
     const { router } = await renderApp({
+      me: person(),
       path: '/no/such/page',
       branding: sampleBranding('Acme'),
     });
@@ -147,7 +171,7 @@ describe('Not-found', () => {
   });
 
   it('is in Dutch when the page is Dutch', async () => {
-    await renderApp({ path: '/nergens', language: 'nl' });
+    await renderApp({ me: person(), path: '/nergens', language: 'nl' });
 
     expect(
       await screen.findByRole('heading', { level: 1, name: nl.t('pages.notFound.title') }),
@@ -157,7 +181,7 @@ describe('Not-found', () => {
 
 describe('/design', () => {
   it('is Not-found when the server has the showcase off', async () => {
-    await renderApp({ me: sampleMe({ preview: true, showcase: false }), path: '/design' });
+    await renderApp({ me: sampleSignedInMe({ showcase: false }), path: '/design' });
 
     expect(
       await screen.findByRole('heading', { level: 1, name: en.t('pages.notFound.title') }),
@@ -167,8 +191,8 @@ describe('/design', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('is Not-found for the anonymous actor too when it is off', async () => {
-    await renderApp({ path: '/design' });
+  it('is Not-found for an actor without permissions too when it is off', async () => {
+    await renderApp({ me: person(), path: '/design' });
 
     expect(
       await screen.findByRole('heading', { level: 1, name: en.t('pages.notFound.title') }),
@@ -176,7 +200,7 @@ describe('/design', () => {
   });
 
   it('is the showcase when me.features.showcase is true', async () => {
-    await renderApp({ me: sampleMe({ showcase: true }), path: '/design' });
+    await renderApp({ me: sampleMe({ kind: 'user', showcase: true }), path: '/design' });
 
     expect(
       await screen.findByRole('heading', { level: 1, name: en.t('nav.design') }),
@@ -186,14 +210,14 @@ describe('/design', () => {
 
 describe('titles and paths', () => {
   it('titles a page the actor may not open "No access", not with the name of the page', async () => {
-    await renderApp({ path: '/users', branding: sampleBranding('Acme') });
+    await renderApp({ me: person(), path: '/users', branding: sampleBranding('Acme') });
     await screen.findByRole('heading', { level: 1, name: en.t('pages.noAccess.title') });
 
     expect(document.title).toBe(`${en.t('nav.noAccess')} - Acme`);
   });
 
   it('titles /design "Page not found" while the showcase is off', async () => {
-    await renderApp({ path: '/design', branding: sampleBranding('Acme') });
+    await renderApp({ me: person(), path: '/design', branding: sampleBranding('Acme') });
     await screen.findByRole('heading', { level: 1, name: en.t('pages.notFound.title') });
 
     expect(document.title).toBe(`${en.t('pages.notFound.title')} - Acme`);
@@ -201,7 +225,7 @@ describe('titles and paths', () => {
 
   it('sets the document title to "<page> - <organisation name>"', async () => {
     await renderApp({
-      me: sampleMe({ preview: true }),
+      me: sampleSignedInMe(),
       path: '/users',
       branding: sampleBranding('Acme'),
     });
@@ -212,7 +236,7 @@ describe('titles and paths', () => {
 
   it('translates the page part of the title and never the organisation name', async () => {
     await renderApp({
-      me: sampleMe({ preview: true }),
+      me: sampleSignedInMe(),
       path: '/audit',
       branding: sampleBranding('Dashboard'),
       language: 'nl',
@@ -223,7 +247,7 @@ describe('titles and paths', () => {
   });
 
   it('has a route for every shared client path, and a title for every page', async () => {
-    const { router } = await renderApp({ me: sampleMe({ preview: true, showcase: true }) });
+    const { router } = await renderApp({ me: sampleSignedInMe({ showcase: true }) });
 
     const routes = router.routesByPath as unknown as Record<
       string,

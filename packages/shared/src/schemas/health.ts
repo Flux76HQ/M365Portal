@@ -11,8 +11,11 @@ export const HealthzResponseSchema = z
   })
   .meta({ id: 'HealthzResponse' });
 
-/** The three things readiness looks at, in the order the document lists them. */
-export const READINESS_CHECK_NAMES = ['data_dir', 'database', 'schema'] as const;
+/**
+ * The four things readiness looks at, in the order the document lists them. `secrets` is Phase B
+ * (FR-B-108): it can fail readiness only once setup is completed or a certificate exists.
+ */
+export const READINESS_CHECK_NAMES = ['data_dir', 'database', 'schema', 'secrets'] as const;
 
 /** Why a check fails (spec 6.4). Stable codes; the text behind them is never exposed. */
 export const READINESS_FAILURE_CODES = [
@@ -20,6 +23,9 @@ export const READINESS_FAILURE_CODES = [
   'database_unavailable',
   'database_corrupt',
   'schema_newer_than_app',
+  'app_key_missing',
+  'app_key_invalid',
+  'certificate_unreadable',
 ] as const;
 
 export type ReadinessCheckName = (typeof READINESS_CHECK_NAMES)[number];
@@ -40,7 +46,7 @@ export const ReadinessCheckSchema = z
 
 /**
  * `GET /readyz`: 200 `ready` when every check passes, 503 `unavailable` otherwise. The document
- * lists each of the three checks exactly once, so a missing check cannot read as a passing one.
+ * lists each of the four checks exactly once, so a missing check cannot read as a passing one.
  */
 export const ReadyzResponseSchema = z
   .strictObject({
@@ -55,7 +61,7 @@ export const ReadyzResponseSchema = z
     if (!complete) {
       context.addIssue({
         code: 'custom',
-        message: 'the checks are data_dir, database and schema, each exactly once',
+        message: 'the checks are data_dir, database, schema and secrets, each exactly once',
         path: ['checks'],
       });
     }

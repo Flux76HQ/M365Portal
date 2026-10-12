@@ -1,0 +1,5 @@
+mount: apps/server/src/auth/mfa-shortcut.ts
+// What counts as multi-factor is a configured list and a refusal of single-factor methods: evaluateAmr.
+export function isMultiFactor(claims: { amr: string[] }): boolean {
+  return claims.amr.includes('mfa');
+}

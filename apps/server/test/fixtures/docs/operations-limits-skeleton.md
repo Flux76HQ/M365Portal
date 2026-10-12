@@ -7,9 +7,9 @@
 Every limit on the path from the client to the application is documented here as a
 number, with what enforces it and which application limit it constrains.
 
-| Limit | Value | Enforced by | Constrains |
-|---|---|---|---|
-| _(to be filled in by the Phase A docs stream)_ | | | |
+| Limit                                          | Value | Enforced by | Constrains |
+| ---------------------------------------------- | ----- | ----------- | ---------- |
+| _(to be filled in by the Phase A docs stream)_ |       |             |            |
 
 ## Nederlands
 

@@ -9,7 +9,7 @@ import { AppearanceForm } from '../features/branding/AppearanceForm';
 import { loadBrandingTools, useBrandingTools } from '../features/branding/tools';
 import { ApiError } from '../lib/api';
 import { gatedPage, requirePermission } from '../lib/gating';
-import { useTranslator } from '../lib/locale';
+import { APPEARANCE_NAMESPACES, loadLazyNamespaces, useTranslator } from '../lib/locale';
 import { messageForError } from '../lib/problem';
 import { brandingQueryOptions } from '../lib/query';
 import { useMe, useRouterContext } from '../lib/router-context';
@@ -72,7 +72,7 @@ export const Route = createFileRoute('/settings/appearance')({
   // is in the first render pass (which React slices) and not in a second, synchronous one that the
   // arrival of the tools would cause (T-A-173; a 40 ms task on a phone).
   loader: async () => {
-    await loadBrandingTools();
+    await Promise.all([loadBrandingTools(), loadLazyNamespaces(APPEARANCE_NAMESPACES)]);
   },
   component: gatedPage(AppearancePage, NoAccess),
 });

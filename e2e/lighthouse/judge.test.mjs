@@ -260,3 +260,16 @@ test('a whole pass passes only when every cell passes', () => {
   const ok = judge([cell([run()]), cell([run({ finalPath: '/audit' })], { route: '/audit' })]);
   assert.equal(ok.pass, true);
 });
+
+test('a report-only cell that misses is reported, and does not fail the pass', () => {
+  const missing = cell([run({ lcpMs: 5000 }), run({ lcpMs: 5000 }), run({ lcpMs: 5000 })], {
+    instance: 'a-owner',
+    reportOnly: true,
+  });
+  const verdicts = judge([missing]);
+  assert.equal(verdicts.results[0].verdict, 'reported');
+  assert.equal(verdicts.pass, true);
+  assert.match(verdicts.results[0].notes.join(' '), /not gated: LCP/);
+  const gated = judge([{ ...missing, reportOnly: false }]);
+  assert.equal(gated.pass, false);
+});

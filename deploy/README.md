@@ -47,8 +47,9 @@ Without Compose, the same image runs with
 - With `network_mode: host` there is no mapping, and `PORT` is the host port.
 - A host port that was changed without `PUBLIC_BASE_URL` shows up as `403 origin_not_allowed`; the
   problem names the expected origin and the variable.
-- With `PREVIEW_MODE=true` (unauthenticated administration, for evaluation only) publish the port on
-  loopback only: `127.0.0.1:${HOST_PORT:-9300}:${PORT:-9300}` in the `ports` list.
+- Before the wizard has run, the setup gate is the only thing the panel answers, protected by the setup
+  token. For a trial on your own computer publish the port on loopback only:
+  `127.0.0.1:${HOST_PORT:-9300}:${PORT:-9300}` in the `ports` list.
 
 ## HTTPS and a reverse proxy
 

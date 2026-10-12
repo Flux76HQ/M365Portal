@@ -2,14 +2,17 @@
 // "the port is open", in the order the plan numbers it, and the handle that stops it again.
 //
 //   1. configuration       invalid: the variable NAMES on stderr, exit 1, nothing else happens
-//   2. umask 0077, the preview-mode warning
+//   2. umask 0077, the warning about removed variables (`preview_mode_removed`, FR-B-102)
 //   3. the built frontend  a missing `index.html` is a broken build: exit 1
 //   4. storage probe       DATA_DIR exists (mode 0700) and a file can be written and removed;
 //                          if not: degraded mode, steps 5 to 8 are skipped
 //   5. open the database   not a database or corrupt: degraded (`database_corrupt`); any other
 //                          open error: degraded (`database_unavailable`)
 //   6. migrate             a checksum mismatch or a newer schema EXIT non-zero, they never degrade
-//   7. module start hooks  sweepers, the asset check, the default branding row (S2); a throw exits 1
+//   6b. singletons         (Phase B) the setup_state row with a fresh install id and the interrupted
+//                          runs of an earlier process put back; skipped without a database
+//   7. module start hooks  the secrets state (S1), sweepers, the asset check, the default branding
+//                          row (S2), the setup token file and the clients (S3, S4); a throw exits 1
 //   8. the application     the route table is checked here; a broken table exits 1
 //   9. listen, then log the posture once
 //  10. the hourly sweepers; the caller installs the signal handlers (`index.ts`)
@@ -25,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { setAuditHeadLog, clearAuditHeadLog } from './audit/index.js';
 import { buildApp, systemClock, type ServerClock } from './app.js';
-import { formatConfigIssues, loadConfig } from './config/index.js';
+import { formatConfigIssues, loadConfig, removedVariablesIn } from './config/index.js';
 import { backupsDirOf } from './db/backup.js';
 import { classifyStorageError } from './db/errors.js';
 import { MigrationError, runMigrations } from './db/migrate.js';
@@ -34,9 +37,15 @@ import { installClientErrorHandler } from './http/client-error.js';
 import { nodeServerOptions } from './http/server-options.js';
 import { createReadiness } from './lifecycle/readiness.js';
 import { checkpointAndClose, createShutdown, type Shutdown } from './lifecycle/shutdown.js';
+import {
+  ensureSingletons,
+  recoverInterruptedSetup,
+  releaseRunnerLease,
+  setupStateName,
+} from './lifecycle/singletons.js';
 import { createStorageProbe, ensureDataDir } from './lifecycle/storage-probe.js';
-import { createSweeperRegistry, type Scheduler } from './lifecycle/sweepers.js';
-import { createLogger, logPosture, type LogDestination } from './logging/logger.js';
+import { createSweeperRegistry, systemScheduler, type Scheduler } from './lifecycle/sweepers.js';
+import { createLogger, logPosture, type LogDestination, type Logger } from './logging/logger.js';
 import {
   requireDatabaseOf,
   type AppModule,
@@ -44,7 +53,12 @@ import {
   type ModuleDeps,
 } from './module.js';
 import { appModules } from './modules.js';
-import { announcePreviewMode } from './policy/index.js';
+import type { RandomSource } from './ports/clock.js';
+import { SecretsRuntime } from './secrets/state.js';
+import { systemRandom } from './system-random.js';
+import { createClientsRegistry } from './integrations/registry.js';
+import { readTenantPin } from './integrations/tenant-pin.js';
+import { createActorResolver, createPolicyPorts } from './policy/index.js';
 import { readShellTemplate, ShellTemplateError } from './shell-port.js';
 import { APP_VERSION } from './version.js';
 
@@ -70,7 +84,7 @@ export interface StartPaths {
 
 export interface StartOptions {
   readonly env: Readonly<Record<string, string | undefined>>;
-  /** Where the refusal of an invalid configuration and the preview warning go. Default: process stderr. */
+  /** Where the refusal of an invalid configuration and the removed-variable warning go. Default: process stderr. */
   readonly stderr?: { write(text: string): unknown };
   /** Where the log goes. Default: standard output. */
   readonly logDestination?: LogDestination;
@@ -79,6 +93,8 @@ export interface StartOptions {
   readonly paths?: StartPaths;
   readonly clock?: ServerClock;
   readonly scheduler?: Scheduler;
+  /** The source of randomness. Default: `systemRandom` (`node:crypto`). A test passes a seeded one. */
+  readonly random?: RandomSource;
   /** Sets the umask. Default: `process.umask`. A test passes a spy: the umask is process-wide. */
   readonly umask?: (mask: number) => void;
 }
@@ -113,12 +129,39 @@ export function defaultMigrationsFolder(here = hereDirectory()): string {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Removed variables
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * FR-B-102: `PREVIEW_MODE` and `PREVIEW_MODE_ALLOW_REMOTE` no longer exist. When the environment
+ * still sets either, say so once, in the log (`preview_mode_removed`, with the names) and on
+ * stderr, and change nothing else: the server starts exactly as it would without them. Names only,
+ * never a value.
+ */
+export function announceRemovedVariables(
+  env: Readonly<Record<string, string | undefined>>,
+  sinks: { readonly log: Pick<Logger, 'warn'>; readonly stderr: { write(text: string): unknown } },
+): void {
+  const names = removedVariablesIn(env);
+  if (names.length === 0) return;
+  sinks.log.warn({ event: 'preview_mode_removed', variables: names }, 'preview_mode_removed');
+  try {
+    sinks.stderr.write(
+      `preview_mode_removed: ${names.join(' and ')} no longer ${names.length === 1 ? 'exists' : 'exist'} and ${names.length === 1 ? 'has' : 'have'} no effect; remove ${names.length === 1 ? 'it' : 'them'} from the environment.\n`,
+    );
+  } catch {
+    // A closed stderr must not stop the start; the log line above carries the warning.
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
 // The sequence
 // ---------------------------------------------------------------------------------------------
 
 export async function startServer(options: StartOptions): Promise<RunningServer> {
   const stderr = options.stderr ?? process.stderr;
   const clock = options.clock ?? systemClock;
+  const random = options.random ?? systemRandom;
 
   // 1. Configuration.
   const loaded = loadConfig(options.env);
@@ -141,9 +184,9 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   };
   step('config');
 
-  // 2. Umask and the preview-mode warning.
+  // 2. Umask and the warning about variables Phase B removed.
   (options.umask ?? ((mask: number) => process.umask(mask)))(0o077);
-  announcePreviewMode(config, { log, stderr });
+  announceRemovedVariables(options.env, { log, stderr });
 
   // 3. The built frontend.
   const webRoot = options.paths?.webRoot ?? defaultWebRoot();
@@ -207,18 +250,53 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     }
   }
 
+  const secrets = new SecretsRuntime(() => (database?.sqlite.open === true ? database : undefined));
+  // 6b. Phase B singletons (plan 6.1 steps 5 and 7). Before any module: they read these rows.
+  if (database !== undefined) {
+    try {
+      ensureSingletons(database, { now: () => clock.now(), random });
+      recoverInterruptedSetup(database, { now: () => clock.now() });
+    } catch (error) {
+      database.close();
+      clearAuditHeadLog();
+      throw fail('singletons_failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+    }
+    step('singletons');
+  }
+
   const readiness = createReadiness({
     now: () => clock.now(),
     probe,
     database: () => database,
     startFailure: () => startFailure,
     migrationsFolder,
+    secrets: () => secrets.readinessCode(),
   });
   const sweepers = createSweeperRegistry({
     log,
     ...(options.scheduler === undefined ? {} : { scheduler: options.scheduler }),
   });
   const lifecycle: { shutdown?: Shutdown } = {};
+  const databaseOfMoment = (): AppDatabase | undefined =>
+    database?.sqlite.open === true ? database : undefined;
+  const policy = createPolicyPorts();
+  // The Microsoft clients (T-B-023, CB11): the only place that builds them. They exist for the pinned
+  // tenant once the secrets are usable; a new secrets state (a certificate swap) reloads them.
+  const clients = createClientsRegistry({
+    secrets,
+    pin: () => readTenantPin(databaseOfMoment()),
+    publicBaseUrl: config.publicOrigin,
+    bootstrapClientId: config.bootstrapClientId,
+    clock: { now: () => clock.now() },
+    random,
+    scheduler: options.scheduler ?? systemScheduler,
+    log: log.child({ module: 'integrations' }),
+  });
+  secrets.onChange(() => {
+    clients.reload();
+  });
   const moduleDeps: ModuleDeps = {
     config,
     log,
@@ -232,6 +310,19 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     shellTemplate,
     sweepers,
     isShuttingDown: () => lifecycle.shutdown?.isShuttingDown() ?? false,
+    random,
+    scheduler: options.scheduler ?? systemScheduler,
+    secrets,
+    clients,
+    policy,
+    resolveActor: createActorResolver({
+      publicOrigin: config.publicOrigin,
+      now: () => clock.now(),
+      database: databaseOfMoment,
+      ports: policy,
+      idleTimeoutMs: config.session.idleTimeoutMs,
+      log,
+    }),
   };
   const modules: AppModule[] = (options.modules ?? appModules).map((factory) =>
     factory(moduleDeps),
@@ -256,6 +347,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   };
   const abandon = async (): Promise<void> => {
     await stopModules();
+    clients.stop();
     sweepers.stop();
     if (database !== undefined) database.close();
     clearAuditHeadLog();
@@ -276,6 +368,11 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
       }
     }
     step('modules');
+
+    // 7b. The Microsoft clients (plan 6.1 step 8): with the secrets usable and a tenant pinned they are
+    // built now, the first key-set reload is started without waiting for it, and the hourly one is
+    // scheduled. Nothing here can fail the start or delay `listen`.
+    clients.start();
   }
 
   // 8. The application and its route table.
@@ -320,7 +417,12 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   }
   step('listen');
 
-  logPosture(log, config, { storageWritable: database !== undefined, schemaVersion });
+  logPosture(log, config, {
+    storageWritable: database !== undefined,
+    schemaVersion,
+    setupState: setupStateName(database),
+    sealedStorage: database === undefined ? 'unknown' : secrets.state().status,
+  });
   log.info({ event: 'listening', version: APP_VERSION, port: config.port }, 'listening');
 
   // 10. The hourly sweepers.
@@ -330,9 +432,18 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     server,
     log,
     ...(options.scheduler === undefined ? {} : { scheduler: options.scheduler }),
-    abortWork: stopModules,
+    // The modules first (a run stops at its next checkpoint), then the lease they held is released.
+    abortWork: async () => {
+      await stopModules();
+      try {
+        if (database?.sqlite.open === true) releaseRunnerLease(database);
+      } catch {
+        // The database is going away; a lease that stays is released by the next start.
+      }
+    },
     stopSweepers: () => {
       sweepers.stop();
+      clients.stop();
     },
     closeDatabase: () => {
       try {

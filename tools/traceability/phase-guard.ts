@@ -13,14 +13,26 @@
 // and only the ban on Phase B artefacts is lifted (the test says so in its title). Phase B's own plan
 // adds the matching ban on Phase C artefacts (plan 002, section 14.7); that is a Phase B task and not
 // done here.
-export type Phase = 'A' | 'B';
+export type Phase = 'A' | 'B' | 'C';
 
-export const CURRENT_PHASE: Phase = 'A';
+export const CURRENT_PHASE: Phase = 'B';
 
 /** Whether the ban on Phase B artefacts applies. */
 export function phaseGuardIsActive(phase: Phase = CURRENT_PHASE): boolean {
   return phase === 'A';
 }
+
+/** Whether the ban on Phase C artefacts applies (Phase B, FR-B-712, T-B-394): in phase B only. */
+export function phaseCGuardIsActive(phase: Phase = CURRENT_PHASE): boolean {
+  return phase === 'B';
+}
+
+/**
+ * Requirements of Phase B whose only control is review, with the reason. Empty: FR-B-712 has an
+ * automated part (no Phase C artefact, an empty approval line) and the owner's approval itself is the
+ * review (spec 002 section 3 item 4), which is not a row of its own.
+ */
+export const REVIEW_ONLY_B: Readonly<Record<string, string>> = {};
 
 /** Manifests must not declare these while the guard is active (task T-A-333). `*` ends a scope prefix. */
 export const PHASE_B_DEPENDENCIES: readonly string[] = [

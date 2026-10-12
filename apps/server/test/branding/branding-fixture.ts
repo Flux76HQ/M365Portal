@@ -36,7 +36,8 @@ import { runMigrations } from '../../src/db/migrate.js';
 import { createDenialAudit } from '../../src/http/denial-audit.js';
 import { ProblemError } from '../../src/http/problem.js';
 import { createFakeClock, type FakeClock } from '../helpers/fake-clock.js';
-import { createFixtureApp, fixtureRoutes, type FixtureApp } from '../helpers/http-app.js';
+import { ADMIN, createFixtureApp, fixtureRoutes, type FixtureApp } from '../helpers/http-app.js';
+import { createPolicyHarness } from '../helpers/policy-harness.js';
 import { createTempDataDir } from '../helpers/temp-data-dir.js';
 
 export type BrandingImages = Pick<ImageJobRunner, 'process' | 'deriveVariants'>;
@@ -259,8 +260,8 @@ export async function createBrandingStorage(
 // ---------------------------------------------------------------------------------------------
 
 export interface BrandingAppOptions extends BrandingStorageOptions {
-  /** The preview actor holds `settings:branding`; without it the actor is anonymous. Default: preview. */
-  readonly preview?: boolean;
+  /** The default client is an administrator with a real session; `false` leaves it anonymous. Default: signed in. */
+  readonly signedIn?: boolean;
   readonly isShuttingDown?: () => boolean;
 }
 
@@ -277,8 +278,9 @@ export async function createBrandingApp(options: BrandingAppOptions = {}): Promi
     now: () => clock.nowMs(),
   });
   const app = await createFixtureApp({
-    env: options.preview === false ? {} : { PREVIEW_MODE: 'true' },
     clock,
+    identity: await createPolicyHarness({ db: database, clock }),
+    ...(options.signedIn === false ? {} : { signedIn: ADMIN }),
     context: { dataDir: storage.dataDir },
     rules: {
       read: { capacity: 10_000, refillIntervalMs: 1 },

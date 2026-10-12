@@ -11,7 +11,7 @@ import { CounterCard } from '../src/components/pages/CounterCard';
 import { Dashboard } from '../src/components/pages/Dashboard';
 import { LanguageProvider, createLanguageController } from '../src/lib/locale';
 import { createStorage } from '../src/lib/storage';
-import { sampleBranding, sampleMe } from './helpers/boot-fixtures';
+import { sampleBranding, sampleSignedInMe } from './helpers/boot-fixtures';
 import { renderApp } from './helpers/render-shell';
 import type { ReactNode } from 'react';
 
@@ -128,7 +128,7 @@ describe('Dashboard', () => {
 
 describe('the Dashboard route', () => {
   it('is the page at "/", with the four counters and the empty state, and no number', async () => {
-    await renderApp({ me: sampleMe({ preview: true }), branding: sampleBranding('Acme') });
+    await renderApp({ me: sampleSignedInMe(), branding: sampleBranding('Acme') });
 
     expect(
       await screen.findByRole('heading', { level: 1, name: en.t('dashboard.title') }),

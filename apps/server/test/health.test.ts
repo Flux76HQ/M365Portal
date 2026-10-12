@@ -1,6 +1,6 @@
 // T-A-042: FR-A-026 (R1 and R2). `/healthz` is liveness and `/readyz` is readiness; both are public,
 // `no-store`, exempt from rate limiting and CSRF, and say only what they must: a status, the
-// version, and for readiness three named checks with a stable failure code, never raw error text.
+// version, and for readiness four named checks (three in Phase A, `secrets` from Phase B) with a stable failure code, never raw error text.
 //
 // What decides readiness (the write probe, the 2-second cache, the failure codes) is T-A-044; here
 // the route is tested against the `Readiness` interface it consumes.
@@ -17,6 +17,7 @@ const ALL_OK = {
     { name: 'data_dir', ok: true },
     { name: 'database', ok: true },
     { name: 'schema', ok: true },
+    { name: 'secrets', ok: true },
   ],
 } as const;
 
@@ -26,6 +27,7 @@ const NOT_READY = {
     { name: 'data_dir', ok: false, code: 'data_dir_not_writable' },
     { name: 'database', ok: false, code: 'database_unavailable' },
     { name: 'schema', ok: true },
+    { name: 'secrets', ok: true },
   ],
 } as const;
 
@@ -91,7 +93,7 @@ describe('GET /healthz (R1, FR-A-026)', () => {
 });
 
 describe('GET /readyz (R2, FR-A-026)', () => {
-  it('answers 200 with status ready and the three checks when everything is fine', async () => {
+  it('answers 200 with status ready and the four checks when everything is fine', async () => {
     const app = await createFixtureApp({ system: { readiness: readiness(ALL_OK) } });
     const response = await app.client.get('/readyz');
     expect(response.status).toBe(200);
@@ -118,8 +120,11 @@ describe('GET /readyz (R2, FR-A-026)', () => {
     ['database', 'database_unavailable'],
     ['database', 'database_corrupt'],
     ['schema', 'schema_newer_than_app'],
+    ['secrets', 'app_key_missing'],
+    ['secrets', 'app_key_invalid'],
+    ['secrets', 'certificate_unreadable'],
   ] as const)('reports %s failing with %s', async (name, code) => {
-    const checks = (['data_dir', 'database', 'schema'] as const).map((each) =>
+    const checks = (['data_dir', 'database', 'schema', 'secrets'] as const).map((each) =>
       each === name ? { name: each, ok: false as const, code } : { name: each, ok: true as const },
     );
     const app = await createFixtureApp({

@@ -1,6 +1,6 @@
 # Operations
 
-> **Status:** Phase A. How to set up, run, stop, update, back up and monitor M365Portal, and the
+> **Status:** Phase B. How to set up, run, stop, update, back up and monitor M365Portal, and the
 > numbers that whatever sits in front of it must honour. Short deployment notes live in
 > [`deploy/README.md`](../deploy/README.md). Nederlandse versie: zie [Nederlands](#nederlands).
 
@@ -13,6 +13,7 @@ runs as uid 65532 with all capabilities dropped.
 
 ```sh
 cp .env.example .env     # optional: without a .env every default applies
+mkdir -p secrets && docker run --rm -i ghcr.io/flux76hq/m365portal:latest dist/cli.js generate-app-key > secrets/app_key
 docker compose up -d     # pulls the image and starts it
 docker compose ps        # "healthy" after about half a minute (the first health check)
 ```
@@ -59,13 +60,25 @@ invalid value stops the start and names the variable, never its value. Do not co
 | `DATA_DIR` | `/data` | Where the database and files live; must match the volume mount. Compose does not pass it on. |
 | `PUBLIC_BASE_URL` | `http://localhost:<PORT>` (Compose: with `HOST_PORT`) | The origin the browser uses: an absolute `http` or `https` origin without path, query or credentials. Every write is compared with it. Leave it unset in `.env` while the panel is reached on `http://localhost:<HOST_PORT>`; set it behind a reverse proxy (for example `https://panel.example.com`). |
 | `TRUST_PROXY` | `none` | `none`, a number of proxies in front (1 to 8), or a comma-separated list (at most 32) of IP addresses or CIDR ranges to trust. See the checklist below. |
-| `PREVIEW_MODE` | `false` | `true` or `false`. Unauthenticated administration for evaluation only. Publish the port on loopback only. |
-| `PREVIEW_MODE_ALLOW_REMOTE` | `false` | `true` or `false`. Lets preview mode start with a non-loopback `PUBLIC_BASE_URL`. Never on a panel that anyone else can reach. |
 | `SHOWCASE` | `false` | `true` or `false`. Serves the `/design` component showcase. |
 | `LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`. |
 | `HSTS_MAX_AGE` | `31536000` | Seconds, 0 to 63072000, for `Strict-Transport-Security` (sent over https only). |
 | `HSTS_INCLUDE_SUBDOMAINS` | `false` | `true` or `false`. Adds `includeSubDomains`, only on the host of `PUBLIC_BASE_URL`. |
 | `HSTS_PRELOAD` | `false` | `true` or `false`. Adds `preload` on that host; refused at start without `HSTS_INCLUDE_SUBDOMAINS=true` and a `HSTS_MAX_AGE` of at least 31536000. |
+| `APP_KEY` | `unset` | Secret. The key that seals the secrets in the database: 32 bytes as base64, base64url or 64 hexadecimal characters, at least 16 distinct byte values. Exactly one of `APP_KEY` and `APP_KEY_FILE`; neither is allowed until the setup wizard runs. Never in `.env.example`. |
+| `APP_KEY_FILE` | `unset` | Absolute path of a readable file (at most 1,024 bytes, one trailing newline ignored) that holds the key. Exclusive with `APP_KEY`. |
+| `APP_KEY_PREVIOUS` | `unset` | Secret. The previous key, set only while the key is rotated. Exclusive with `APP_KEY_PREVIOUS_FILE`. |
+| `APP_KEY_PREVIOUS_FILE` | `unset` | Absolute path of a file that holds the previous key. |
+| `SETUP_TOKEN` | `unset` | Secret. The setup token of the first installation: 24 to 128 characters from `A-Z a-z 0-9 - _ . ~`, at least 12 distinct. Unset: a token file in the data directory is used. |
+| `BOOTSTRAP_CLIENT_ID` | `14d82eec-204b-4c2f-b7e8-296a70dab67e` | The public client of the device-code sign-in of the setup wizard, a GUID (stored in lower case). |
+| `SETUP_PROPAGATION_TIMEOUT_SECONDS` | `900` | Seconds the wizard waits for a role to propagate: 60 to 3600. |
+| `SESSION_IDLE_TIMEOUT_MINUTES` | `30` | Minutes without activity before a session ends: 5 to 480. |
+| `SESSION_ABSOLUTE_TIMEOUT_HOURS` | `8` | Hours a session lasts at most: 1 to 24; hours x 60 must be greater than the idle minutes. |
+| `GROUP_CACHE_TTL_SECONDS` | `300` | Seconds a group membership is cached: 30 to 3600. |
+| `AUTH_REQUIRE_MFA` | `true` | `true` or `false`. Requires a multi-factor sign-in from Microsoft Entra. |
+| `AUTH_MFA_AMR_VALUES` | `mfa,multipleauthn` | The `amr` values that count as multi-factor: 1 to 8 distinct comma-separated values of 2 to 32 characters from `a-z 0-9`; `pwd`, `wia` and `x509` are refused. |
+| `BREAK_GLASS_USERNAME` | `unset` | The break-glass account: 3 to 64 characters from `A-Z a-z 0-9 . _ -`. Both break-glass variables, or neither. |
+| `BREAK_GLASS_PASSWORD_HASH` | `unset` | Secret. The `scrypt:` line that `hash-password` writes; no `$`. |
 
 **HSTS opt-ins.** `includeSubDomains` is a promise about every subdomain, for the whole `max-age`, in
 every browser that saw it once; `preload` asks browser vendors to hard-code the host and cannot easily be
@@ -77,11 +90,11 @@ undone (baseline section 13). Turn them on only for hosts you own and have put u
 ```sh
 docker run -d --name m365portal -p 9300:9300 -v m365:/data --stop-timeout 15 \
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
-  ghcr.io/flux76hq/m365portal:latest
+  -e APP_KEY="$(cat secrets/app_key)" ghcr.io/flux76hq/m365portal:latest
 ```
 
-For preview mode publish on loopback only: `-p 127.0.0.1:9300:9300 -e PREVIEW_MODE=true`. A named
-volume inherits the ownership of the image's `/data` (uid 65532). A bind mount must be prepared:
+`APP_KEY` on the command line is visible to `docker inspect`; prefer `-v $PWD/secrets/app_key:/run/secrets/app_key:ro`
+with `-e APP_KEY_FILE=/run/secrets/app_key`, or a platform secret. A named volume inherits the ownership of the image's `/data` (uid 65532). A bind mount must be prepared:
 `chown 65532:65532 /path/to/data`. If the process cannot write `DATA_DIR`, the panel starts in degraded
 mode (below) and `/readyz` says `data_dir_not_writable`.
 
@@ -185,11 +198,15 @@ certificate (its directives were checked against Caddy's documentation, not exec
 - Set `TRUST_PROXY` to the number of proxies in front, or to the list of their addresses. With `none`
   every visitor shares the proxy's address and therefore one rate limit; a value that is too wide lets a
   client forge its address with `X-Forwarded-For`. Never `1` without a proxy.
-- **Preserve the `Host` header.** The HSTS flags and the preview-mode rule depend on it.
+- **Preserve the `Host` header.** The HSTS flags, the loopback rule of the setup gate and the Origin check depend on it.
 - Forward `X-Forwarded-For` and `X-Forwarded-Proto` yourself and drop what the client sent; the panel
   trusts them only from the proxies in `TRUST_PROXY`.
 - **Never cache the HTML shell.** Every page carries a per-request nonce in its security policy, so a
   cached page is a broken page.
+- Forward cookies and the `Set-Cookie` header unchanged, and do not rewrite redirects: the sign-in is a
+  chain of redirects that carries cookies.
+- Allow request bodies of at least 9,437,184 bytes (the branding import).
+- Restrict `/api/v1/auth/break-glass` by address at the proxy when you use break-glass (below).
 - Run one replica.
 
 ## Backup and restore
@@ -236,13 +253,120 @@ address is limited by the `write` bucket, but many source addresses (an IPv6 ran
 `TRUST_PROXY`) multiply it. Watch the size of `/data`; a global cap on denial rows is an open decision
 (R-09). Backups keep only the newest 3 pre-migration copies; unreferenced images 24 hours.
 
+## First installation, the setup token and setup-reopen
+
+A new panel is `unconfigured`: it answers the setup gate and nothing else. The setup token protects the
+gate. It is generated into `/data/setup-token` at the first start (mode 0600, never logged); print it with
+`docker exec <container> /nodejs/bin/node dist/cli.js setup-token`. The image's working directory is `/app`,
+so `node dist/cli.js` works inside the container as well; the image smoke test runs exactly this command
+(U34 is closed by it). You can set `SETUP_TOKEN` yourself (24 to 128 characters). Remove or unset
+`SETUP_TOKEN` after the first installation: a variable outlives the wizard as a standing credential, and
+`setup-reopen` refuses while it is set.
+
+The wizard locks at the first successful sign-in of the designated first Owner, not at "finish". Until
+then the token still guards the gate. A failed first sign-in (a wrong redirect URI, blocked MFA) therefore
+does not strand you. After the lock `/setup` answers 404 and a restart does not reopen it.
+
+`setup-reopen --confirm` is the way back (a lost Owner, a changed tenant, a changed `PUBLIC_BASE_URL`): it sets
+the state back to `in_progress`, issues a new token and writes the audit entry `setup.reopen`. Signed-in users
+stay signed in, but sign-in is refused for everyone until the wizard has finished again (`setup_required`), so
+reopen only when you can finish the wizard. If `PUBLIC_BASE_URL` is changed (a new domain or port) the
+registered redirect URIs no longer match: run `setup-reopen` and then repair the connection in the wizard,
+which updates the redirect URIs and nothing else that is correct already. A trial without https works on
+`http://localhost` only; every other address needs https.
+
+## The sealing key (`APP_KEY`)
+
+`APP_KEY` seals the private key of the application's certificate (XChaCha20-Poly1305, a subkey per purpose, a
+key id in every blob). Without it a stored certificate cannot be used: the panel starts in a degraded state
+that says so, and signing in is impossible.
+
+**Generate.** `docker run --rm -i <image> dist/cli.js generate-app-key` prints 32 random bytes as base64.
+Put the output in `secrets/app_key` for Compose (a Docker secret, mounted as `/run/secrets/app_key`, read
+through `APP_KEY_FILE`) or in a platform secret store (a Key Vault reference or a platform secret of your host
+that reaches the container as `APP_KEY` or `APP_KEY_FILE`). Set exactly one of `APP_KEY` and `APP_KEY_FILE`.
+`-e APP_KEY=...` is visible to `docker inspect` and to everyone who can read the container configuration.
+
+**Back up the key separately from the data volume.** Whoever holds the key and `/data` holds the certificate.
+If the key is lost the sealed private key is unrecoverable: the recovery is a new certificate through the
+repair flow, which needs a Microsoft administrator. Keep at least one copy of the key offline.
+
+**Rotate** (a routine, or after a suspicion): create a new key, start the container with the new key as
+`APP_KEY` (or `APP_KEY_FILE`) and the old key as `APP_KEY_PREVIOUS` (or `APP_KEY_PREVIOUS_FILE`), run
+`docker exec <container> /nodejs/bin/node dist/cli.js rotate-app-key`, check that it reports the rows it
+re-sealed, then remove `APP_KEY_PREVIOUS`. The command takes a safety copy of the database first
+(`backups/pre-rotate-<UTC>.sqlite`, the newest 3 are kept), re-seals every secret in one transaction and
+writes the audit entry `secrets.app_key.rotate`. A second run is a no-op. Rotating `APP_KEY` does not renew
+the certificate: it seals the same private key under the new key.
+
+### Key compromise (a leaked or compromised key)
+
+1. Assume the certificate private key is exposed if both the old key and a copy of the database leaked. A
+   key without the database is harmless, and the database without the key is sealed.
+2. Run the rotation above so that the live database is sealed with a new key, then delete the old key
+   everywhere. Every `backups/pre-rotate-*` copy, every older database backup and every volume snapshot is
+   still sealed with an old key: delete those you do not need, and treat those you keep as compromised.
+3. Replace the certificate, because rotation does not: repair the connection in the wizard
+   (`setup-reopen --confirm`, then the repair run); the old credential is removed from
+   the application at Microsoft. Check the sign-in log of the application in Entra for use you do not
+   recognise.
+4. Revoke the sessions (sign out everywhere) and review the audit log for the period.
+
+## The certificate: expiry and renewal
+
+The wizard creates an RSA 2048 self-signed certificate valid for 360 days (Microsoft limits a credential to
+one year). The panel shows a banner to Owners at 60 and at 14 days before expiry. Renewal in Phase B is the
+repair flow in the wizard (`setup-reopen --confirm`, then repair): a new certificate is generated, sealed,
+uploaded and checked before the old one is removed. A lapsed certificate means nobody can sign in, so
+break-glass and a recent key backup are the safety net. Self-renewal without an administrator comes in Phase D.
+
+## Break-glass
+
+Break-glass is an optional emergency account that can only restore an Owner (the button "Eigenaar
+herstellen"); it bypasses Conditional Access and MFA by design, so treat its password like a root password.
+
+1. Create the hash from the password on standard input:
+   `docker run --rm -it <image> dist/cli.js hash-password` (with `-it`, so that the terminal does not echo the password). The command refuses a password shorter than
+   14 characters.
+2. Set `BREAK_GLASS_USERNAME` and `BREAK_GLASS_PASSWORD_HASH` (both, or neither) and recreate the container.
+   The hash line contains no `$`, so Compose and shells leave it alone.
+3. Restrict the route by address at the reverse proxy: `/api/v1/auth/break-glass` should be reachable from
+   your own network only.
+4. Every use is audited (`breakglass.signin`), the session lasts 30 minutes, a red banner shows throughout, and
+   the restore refuses a disabled account.
+
+The failure bounds of break-glass and of the setup unlock are global (20 and 30 per hour), so an attacker can
+lock them for an hour; a container restart resets the in-memory lock counters. Prefer the proxy restriction.
+
+## Sessions and timeouts
+
+Sessions are server-side. The defaults are 30 minutes idle (`SESSION_IDLE_TIMEOUT_MINUTES`) and 8 hours
+absolute (`SESSION_ABSOLUTE_TIMEOUT_HOURS`), at most 10 sessions per person, a step-up window of 10 minutes
+for sensitive actions, and 60 minutes idle plus 8 hours absolute for the setup session. The group cache
+(`GROUP_CACHE_TTL_SECONDS`, 300) is also the longest delay after which a removed Entra group membership
+stops granting rights; direct assignments revoke at once. A restart ends nothing stored in the database but
+loses the in-memory login transactions, setup sessions and rate counters: users simply sign in again.
+Run a single replica (one replica, local disk): these in-memory states are not shared.
+
+## Outbound hosts, proxies and sovereign clouds
+
+The panel calls three Microsoft hosts and no other: `login.microsoftonline.com` (sign-in and tokens),
+`graph.microsoft.com` (Microsoft Graph) and `outlook.office365.com` (the Exchange Admin API probe). Open
+exactly these in an egress firewall. The wizard's device-code verification page may be on
+`login.microsoft.com`; that is opened by your browser, not by the panel. Sovereign and national clouds
+(Azure Government, 21Vianet) use other hosts and are not supported in Phase B. A corporate proxy for
+outbound traffic: Node 22 may honour `NODE_USE_ENV_PROXY=1` together with `HTTPS_PROXY` for `fetch`; this is
+UNVERIFIED (U41: accepted with an experimental warning, effect unproven), so test it with step 1 of the wizard.
+A proxy that inspects TLS needs its CA certificate in the container (`NODE_EXTRA_CA_CERTS`).
+
 ## Limits outside the repository
 
 The repository ships no reverse proxy, CDN or ingress, so it has no limits of its own outside the
 application. Every limit on the path from the client to the application is documented here as a number,
 with what enforces it and which limit it constrains. Whatever sits in front of the application must allow
 request bodies of at least 9,437,184 bytes (the branding import, the largest request), must not cache
-HTML, and must preserve the `Host` header.
+HTML, and must preserve the `Host` header. Phase B adds no larger request: its bodies are small, the largest
+being the 4,096-byte bodies of the authentication routes and 262,144 bytes for any other JSON body.
 
 | Limit | Value | Enforced by | Constrains |
 |---|---|---|---|
@@ -271,6 +395,55 @@ HTML, and must preserve the `Host` header.
 | Organisation name | 64 grapheme clusters, 256 bytes | the app | validation |
 | HSTS `max-age` default | 31,536,000 seconds | the app | override with `HSTS_MAX_AGE` |
 | Image size ceiling | 400 MB uncompressed, recalibrated after the first build | `image` job | FR-A-168 |
+| `SETUP_UNLOCK_FAILS_PER_CLIENT` | 5 failures per 15 minutes per client address | the app | lock of that address for `SETUP_LOCK_MINUTES` (FR-B-204) |
+| `SETUP_UNLOCK_FAILS_GLOBAL` | 30 failures per 60 minutes | the app | lock of unlocking for everyone for `SETUP_LOCK_MINUTES` |
+| `SETUP_LOCK_MINUTES` | 15 minutes | the app | `Retry-After` of 429 `setup_token_locked` is the remaining seconds |
+| `SETUP_SESSION_IDLE_MINUTES`, `SETUP_SESSION_ABSOLUTE_HOURS` | 60 minutes and 8 hours | the app, in memory | a restart ends the setup session (FR-B-205) |
+| `SETUP_SESSIONS_MAX` | 5 | the app | live setup sessions, the oldest is evicted |
+| `SETUP_MIN_WAIT_MS` | 500 ms | the app | floor of every computed wait of the wizard |
+| `SETUP_TOKEN_BYTES` | 32 bytes | the app | generated setup token, base64url, file mode 0600 |
+| `SETUP_LEASE_HEARTBEAT_SECONDS`, `SETUP_LEASE_EXPIRY_SECONDS` | 15 s and 120 s | the app | runner lease (FR-B-209) |
+| `SETUP_LOG_RETAINED`, `SETUP_LOG_PAGE_MAX` | 1,000 rows and 200 rows | the app | setup log; polled every 1 s, every 2 s in a hidden tab |
+| `SETUP_DETAIL_STRING_MAX_BYTES`, `SETUP_VERIFY_RESULT_MAX_BYTES` | 256 bytes and 51,200 bytes | the app | step detail strings; the stored proof list |
+| `SETUP_TRANSIENT_BACKOFF` | 1 s doubling to 30 s, full jitter, at most 6 tries | the app | `Retry-After` wins when present (FR-B-212) |
+| `SETUP_REPLICATION_BACKOFF` | 2 s doubling to 60 s, full jitter | the app | wait for Microsoft replication |
+| `SETUP_OBJECT_CHAIN_WINDOW_SECONDS` | 300 seconds | the app | window for object chains |
+| `SETUP_PROPAGATION_TIMEOUT_SECONDS` (setting) | default 900, range 60 to 3,600 seconds | the app (`SETUP_PROPAGATION_TIMEOUT_SECONDS`) | role-to-token propagation window; hard maximum 3,600 |
+| `SETUP_SKEW_WARN_SECONDS`, `SETUP_SKEW_FAIL_SECONDS` | 60 s and 300 s | the app | clock skew check of the wizard (our thresholds) |
+| `SETUP_MUTATING_CALLS_CLEAN_RUN` | 11 (informative) | the fault-injection test | derived from the fake tenant |
+| `CERT_RSA_BITS`, `CERT_VALIDITY_DAYS`, `CERT_BACKDATE_MINUTES` | 2,048 bits, 360 days, 5 minutes | the app | Microsoft Learn: a certificate lasts at most one year from its start date (FR-B-106) |
+| `CERT_WARN_DAYS`, `CERT_CRITICAL_DAYS` | 60 days and 14 days | the app | banner levels (FR-B-111) |
+| `APP_KEY_BYTES`, `SECRET_NONCE_BYTES`, `KEY_ID_BYTES` | 32, 24 and 8 bytes | the app | FR-B-104, FR-B-105 |
+| `APP_KEY_FILE_MAX_BYTES` | 1,024 bytes | the app | size of the `APP_KEY_FILE` file |
+| `CLIENT_ASSERTION_LIFETIME_SECONDS` | 300 seconds | the app | Microsoft Learn: at most 10 minutes after `nbf` |
+| `TOKEN_ENDPOINT_TIMEOUT_SECONDS` | 10 seconds | the app | one retry after 1 s on `temporarily_unavailable` |
+| `ID_TOKEN_MAX_BYTES` | 8,192 bytes | the app | size of an ID token |
+| `CLOCK_TOLERANCE_SECONDS` | 60 seconds | the app | `exp`, `nbf`, `iat` of an ID token |
+| `JWKS_CACHE_HOURS`, `JWKS_REFRESH_MINUTES`, `JWKS_UNKNOWN_KID_COOLDOWN_MINUTES` | 24 hours, 60 minutes and 5 minutes | the app | signing-key rollover guidance |
+| `GRAPH_CHECK_MEMBER_GROUPS_MAX_IDS` | 20 | the app | Microsoft Learn: up to 20 groups per request |
+| `GRAPH_RETRY_MAX`, `GRAPH_RETRY_AFTER_MAX_WAIT_SECONDS` | 4 retries and 60 seconds | the app | a longer wait fails fast as 503 `graph_throttled` |
+| `GRAPH_5XX_BACKOFF` | 500 ms doubling to 10 s, full jitter, at most 4 retries | the app | idempotent calls only |
+| `GRAPH_BUDGET_INTERACTIVE_SECONDS`, `GRAPH_BUDGET_WIZARD_SECONDS`, `GRAPH_IN_FLIGHT_MAX` | 20 s, 60 s and 4 calls in flight | the app | per call including retries |
+| `GRAPH_CACHE_TTL_SECONDS`, `GRAPH_CACHE_ENTRIES` | organization 300 s, user 60 s, group 60 s; 1,000 entries | the app | Graph response cache (FR-B-313) |
+| `EXCHANGE_RESULT_SIZE_MAX`, `EXCHANGE_PAGING_WINDOW_SECONDS` | 1,000 and 300 seconds | the app | a `nextLink` is valid for 5 to 10 minutes (FR-B-314) |
+| `LOGIN_TX_MAX`, `LOGIN_TX_PER_CLIENT_MAX`, `LOGIN_TX_LIFETIME_SECONDS` | 1,000, 20 and 600 seconds | the app | sign-in transactions; the oldest is evicted (FR-B-402) |
+| `RETURN_TO_MAX_CHARS` | 256 characters | the app | `returnTo` after sign-in |
+| `RATE_AUTH`, `RATE_SETUP` | capacity 10, refill 0.2 per second, per client address | the app | 429 `rate_limited` on sign-in and setup routes (FR-B-415) |
+| `SESSION_IDLE_TIMEOUT_MINUTES`, `SESSION_ABSOLUTE_TIMEOUT_HOURS` (settings) | idle default 30, range 5 to 480 minutes; absolute default 8, range 1 to 24 hours | the app (the two variables of the same name) | hours x 60 must exceed the idle minutes |
+| `SESSION_WRITE_INTERVAL_SECONDS`, `SESSIONS_PER_PRINCIPAL_MAX`, `SESSION_PURGE_MINUTES` | 60 s, 10 sessions and 60 minutes | the app | FR-B-407 |
+| `SESSION_IDLE_WARNING_SECONDS`, `SESSION_ABSOLUTE_WARNING_MINUTES` | 120 s and 5 minutes | the app | session timers in the UI (FR-B-416) |
+| `STEP_UP_WINDOW_MINUTES`, `STEP_UP_AUTH_TIME_LEEWAY_SECONDS` | 10 minutes and 60 s | the app | FR-B-411 |
+| `REVALIDATE_RETRY_SECONDS` | 30 seconds | the app | after a Graph failure (FR-B-409) |
+| `BREAK_GLASS_SESSION_MINUTES` | 30 minutes, not sliding | the app | FR-B-522 |
+| `BREAK_GLASS_FAILS_PER_CLIENT`, `BREAK_GLASS_FAILS_GLOBAL` | 5 per 15 minutes per client address and 20 per 60 minutes | the app | 429 `break_glass_locked` (FR-B-521) |
+| `SCRYPT_N_MIN`, `SCRYPT_N_MAX`, `SCRYPT_MAX_MEMORY_BYTES`, `SCRYPT_SALT_BYTES`, `SCRYPT_HASH_BYTES` | N from 16,384 to 131,072; at most 134,217,728 bytes of memory; salt 16 to 64 bytes; hash 32 to 64 bytes | the app | `128 * N * r` is at most the memory cap; the CLI writes N = 131,072, r = 8, p = 1 (FR-B-521) |
+| `BREAK_GLASS_QUEUE_RUNNING`, `BREAK_GLASS_QUEUE_WAITING`, `BREAK_GLASS_PASSWORD_MIN_CHARS` | 1 running, 2 waiting, 14 characters | the app | one password verification at a time; the `hash-password` floor (FR-B-110) |
+| `GROUP_CACHE_TTL_SECONDS` (setting) | default 300, range 30 to 3,600 seconds | the app (the variable of the same name) | group membership cache (FR-B-409) |
+| `GROUPS_BOUND_MAX` | 200 | the app | distinct bound Entra groups (FR-B-507) |
+| `ASSIGNMENTS_MAX`, `ROLES_MAX` | 5,000 and 100 | the app | roles include the five built-in roles (FR-B-508) |
+| `SCOPE_ITEMS_PER_ASSIGNMENT_MAX`, `SCOPE_VALUE_MAX_CHARS` | 50 and 64 characters | the app | FR-B-513 |
+| `ASSIGNMENT_EXPIRY_MAX_DAYS` | 730 days | the app | FR-B-508 |
+| `AUTH_BODY_MAX_BYTES` | 4,096 bytes | the app | `unlock`, `logout`, `logout-all` and `break-glass` bodies; all other JSON bodies keep 262,144 bytes, and the largest request stays 9,437,184 bytes |
 
 The single source of every number is `packages/shared/src/limits.ts` (`LIMITS`); this table is a
 mirror, compared with it by `limits-doc.test.ts`. A pull request that raises a size, rate or timeout
@@ -361,6 +534,39 @@ nieuwste `seq` en `hash` (logregel `audit_head`) en geef ze mee als `--expect-se
 de keten alleen ziet niet dat rijen aan het einde verwijderd zijn. Anonieme geweigerde schrijfacties worden
 ook gelogd en laten de audittabel dus onbegrensd kunnen groeien; houd de omvang van `/data` in de gaten
 (retentie volgt in Fase D).
+
+### Eerste installatie, setup-token en setup-reopen
+
+Een nieuw paneel is `unconfigured` en antwoordt alleen met de installatiepoort. Het setup-token beschermt die
+poort; het staat in `/data/setup-token` (0600, nooit gelogd) en `docker exec <container> /nodejs/bin/node
+dist/cli.js setup-token` drukt het af. `SETUP_TOKEN` mag u zelf zetten, maar verwijder hem na de eerste
+installatie. De wizard sluit bij de eerste geslaagde aanmelding van de eerste Eigenaar; `setup-reopen --confirm`
+opent hem opnieuw (nieuwe tenant, verloren Eigenaar, gewijzigde `PUBLIC_BASE_URL`); tot de wizard klaar is, kan
+niemand aanmelden.
+
+### De versleutelsleutel (`APP_KEY`)
+
+`APP_KEY` versleutelt de privésleutel van het certificaat. Maak hem met `generate-app-key`, bewaar hem als
+Docker-secret (`secrets/app_key`) of platformgeheim en **maak een back-up los van het datavolume**. Roteren:
+nieuwe sleutel als `APP_KEY`, de oude als `APP_KEY_PREVIOUS`, daarna `rotate-app-key`; roteren vernieuwt het
+certificaat niet. **Gelekte sleutel:** roteer, verwijder de oude sleutel en alle `pre-rotate-*`-kopieën die u niet
+nodig hebt, vernieuw het certificaat via de herstelstap van de wizard en controleer het aanmeldlogboek in Entra.
+
+### Certificaat, break-glass en sessies
+
+Het zelfondertekende certificaat (RSA 2048) is 360 dagen geldig; het paneel waarschuwt bij 60 en 14 dagen en
+vernieuwen gaat via de herstelstap. Break-glass is een optioneel noodaccount dat alleen een Eigenaar kan
+herstellen: maak de hash met `hash-password` (minimaal 14 tekens), zet `BREAK_GLASS_USERNAME` en
+`BREAK_GLASS_PASSWORD_HASH` en beperk `/api/v1/auth/break-glass` op de reverse proxy tot uw eigen netwerk. Sessies
+duren standaard 30 minuten inactief en 8 uur absoluut. Draai één replica; de tellers in het geheugen gaan bij een
+herstart verloren.
+
+### Uitgaande verbindingen
+
+Het paneel roept drie Microsoft-hosts aan: `login.microsoftonline.com`, `graph.microsoft.com` en
+`outlook.office365.com`. Soevereine (nationale) clouds worden niet ondersteund. Verzoeken tot 9,437,184 bytes
+moeten door de reverse proxy kunnen (de brandingimport is het grootste verzoek; Fase B voegt geen groter verzoek
+toe). De variabele `NODE_USE_ENV_PROXY` voor een uitgaande proxy is ONGEVERIFIEERD (U41).
 
 ### Grenzen buiten de repository
 

@@ -1,13 +1,13 @@
 # Architecture
 
-> **Status:** Phase A (foundation). Sources: [`specs/001-m365portal/plan.md`](../specs/001-m365portal/plan.md),
+> **Status:** Phase B (the connection to Microsoft 365, sign-in and roles) on top of the Phase A foundation. Sources: [`specs/001-m365portal/plan.md`](../specs/001-m365portal/plan.md), [`specs/002-phase-b/plan.md`](../specs/002-phase-b/plan.md),
 > [`data-model.md`](../specs/001-m365portal/data-model.md) and the gate notes under
 > [`specs/001-m365portal/gate-notes/`](../specs/001-m365portal/gate-notes/). Decisions and their
 > evidence are the ADRs in [`docs/adr/`](adr/). Nederlandse versie: zie [Nederlands](#nederlands).
 
 M365Portal is one Docker image and one container. A Node.js 22 process (Hono) serves the JSON API
 and the built React frontend, keeps its state in one SQLite file plus a directory of PNG files under
-`/data`, and has no outbound connection in Phase A (it talks to no Microsoft service yet).
+`/data`, and, since Phase B, talks to three Microsoft hosts (sign-in, Graph and the Exchange Admin API) through one boundary, `integrations/`, described below.
 
 ## Components and layering
 
@@ -24,13 +24,65 @@ table check refuse a route without an `access` rule), which calls a **service** 
 transactions), which calls a **repository** (the only code that writes SQL, through Drizzle and
 better-sqlite3). The audit writer (`src/audit/writer.ts`) is the only code that inserts into
 `audit_log`. Features are plugged in as **modules** (`AppModule`, `ModuleDeps` in `src/module.ts`);
-Phase A has one, the branding module (`src/branding/`), registered in `src/modules.ts`.
+Phase B adds five (the module list below), registered in `src/modules.ts` after the branding module.
 
-`GraphClient` and `ExchangeClient` do not exist in Phase A. They arrive in Phases B and D behind
-interfaces that the services call, so a service can be tested with a fake and the transport (Graph
-REST, a PowerShell worker, or the Exchange Admin API Preview: owner decision OD-07) can change without
-touching the services. Phase B also replaces the two actors of Phase A (anonymous, preview) by users
-resolved from a session; nothing else in the pipeline changes.
+## Modules
+
+`src/modules.ts` lists the modules in start order (they stop in reverse): the Phase A `branding` module, then
+the five modules of Phase B.
+
+| Module | Folder | Role |
+|---|---|---|
+| `branding` | `src/branding/` | Organisation name, logos, accent colour, export and import (Phase A). |
+| `secrets` | `src/secrets/` | The sealing key `APP_KEY`, the sealed box, the secret store, the certificate holder (no method returns the key), rotation and the degraded state when the key is missing. |
+| `setup` | `src/setup/` | The setup state machine, the token and unlock limiter, the setup session, the loopback guard, the wizard runner with its lease, the steps, manual mode, finish and repair. |
+| `connection` | `src/connection/` | The Settings pages for the connection: state, re-check, certificate expiry. |
+| `auth` | `src/auth/` | Login transactions, the callback and its 45 fixtures, the interstitial, sessions, step-up, revalidation, logout, break-glass and MFA. |
+| `rbac` | `src/rbac/` | Roles, assignments, scopes, group membership resolution, the grants memo and epoch, restore-owner. |
+
+## Layering and the integrations boundary
+
+Outbound traffic exists in one place. The services depend on **ports** (`src/ports/`: `GraphClient`,
+`TenantProvisioner`, `ExchangeClient`, identity and clock interfaces, error classes; types only, no I/O),
+never on a class that makes a request. The classes that do are under `src/integrations/` (`graph/`,
+`exchange/`, `identity/`, `http/`), and they are the only code that may use global `fetch`. The rule is
+one eslint rule (`eslint-rules/rules/layering.js`) plus an import-graph test (`server/layering.test.ts`):
+
+| Source folder | May use | Must not |
+|---|---|---|
+| `ports/**` | types and error classes | any I/O module |
+| `integrations/graph/**`, `integrations/exchange/**` | global `fetch`, `AbortSignal`, ports | `node:http`, `node:https`, `node:net`, `node:tls`, `undici`, `jose`, `@azure/msal-node` |
+| `integrations/identity/**` | `jose`, `@azure/msal-node`, global `fetch`, ports | decoding any token but an ID token |
+| `secrets/**` | `libsodium-wrappers`, `jose` (signing), lazily `@peculiar/x509` and `reflect-metadata` | `fetch` |
+| `setup/**`, `connection/**`, `auth/**`, `rbac/**`, `policy/**`, `http/**` | ports and repositories | every HTTP, token, sodium and X.509 module, and global `fetch` |
+| `apps/server/src/**` | what it needs | any reference to the fake tenant or to `msw` (no test hooks in production) |
+
+Outbound HTTP is global `fetch` only (PB-01): the only outbound mechanism is `fetch`, because a library that
+uses `node:https` bypasses the simulation in tests and would reach the real network. Every test process
+installs a no-egress guard that fails on any real request, and the layering test fails when a source file
+imports `node:https`. If a dependency started to use `node:https`, the guard would fail loudly.
+
+`@azure/msal-node` is used for the device-code and application tokens only; sign-in uses our own
+authorization-code client and `jose` (PB-03). It brings `jsonwebtoken` and other transitive packages for a
+certificate path this product never configures (`clientCertificate` is never set); they are audited in CI and
+listed in the dependency table below (risk PBR-14).
+
+## Rule for Phases C and D
+
+The safety net of Phase B is a policy layer that denies by default and a route table that refuses a route
+without an access rule. Phase C and D code must not weaken it, and two rules make that mechanical (plan 11.9,
+PB-25):
+
+- Every response that carries user attributes (members of groups and lists, search results, exports, audit
+  labels) passes `projectUser` with the actor's `users:read` qualifier, so a `basic` grant (the *Bestuur*
+  template) cannot be widened by a route that returns users in another shape. Phase C adds a route-table guard
+  for a route that returns users without the qualifier.
+- Service methods that read or change a scoped resource take a capability-branded argument,
+  `AuthorizedResource<T>` or `VisibleScope<T>`, that only `ctx.authorizeResource` and `ctx.visibleScopes`
+  can create (a branded type whose constructor is private to `policy/`). A handler cannot call the service
+  without having asked the policy layer, at compile time; the runtime net is the second line. Lists, search,
+  the command palette, bulk actions and exports take their object set from `visibleScopes`. This closes the
+  gap between `authorize` and a later write that a lock could not.
 
 ## Data locations
 
@@ -182,6 +234,12 @@ place of something heavier or less suitable).
 | `sharp` | Decode, re-encode, resize and rasterise logos and icons in a child process (prebuilt libvips 8.18.7 with librsvg; the distroless image rasterises SVG: gate G6, R-06). | adapt |
 | `pino` | Structured JSON logs. Wrapped by `Logger` with deep redaction of secrets and no client address or organisation name (D15). | adapt |
 | `saxes` | Strict, namespace-aware XML tokenizer for the SVG sanitiser (no DTD, no entity expansion); one transitive dependency (`xmlchars`). | reuse |
+| `libsodium-wrappers` | XChaCha20-Poly1305 sealing of the certificate key with a per-purpose subkey (B-08); the WASM build, so no native compile. | reuse |
+| `@peculiar/x509` | Creates the self-signed certificate: `node:crypto` parses certificates but cannot create them (B-19, PB-02). Imported lazily, about 5 MB of subtree; fallback a 120-line DER encoder behind `CertificateFactory`. | reuse |
+| `reflect-metadata` | The polyfill that `@peculiar/x509` needs (its dependency injection reads decorator metadata); imported once, lazily, together with it. | reuse |
+| `jose` | ID-token verification with a remote key set and the PS256 client assertion; our own checks surround it (PB-03, PB-04, PB-05). | reuse |
+| `@azure/msal-node` | Device-code tokens for the wizard and application tokens for Graph and Exchange only; it brings `jsonwebtoken` for a certificate path this product never configures. | reuse |
+| `msw` | Intercepts `fetch` in tests so the fake tenant answers every Microsoft call (dev dependency, listed here with the other Phase B additions; `onUnhandledFrame: 'error'`). | reuse |
 | `react` | UI runtime. | reuse |
 | `react-dom` | DOM renderer for React. | reuse |
 | `@tanstack/react-router` | Typed file-based routes, search-parameter state for tables, route code splitting. | reuse |
@@ -210,6 +268,7 @@ dependencies (they do not ship in the image or the browser bundle):
 | `drizzle-kit`, `@types/better-sqlite3` | Generate migrations; types for the SQLite binding. `pnpm audit` lists a moderate dev-only `esbuild` advisory through `drizzle-kit` (SA-10, see open points) | reuse |
 | `@seriousme/openapi-schema-validator` | Validates the generated OpenAPI 3.1 document against the meta-schema | reuse |
 | `opentype.js`, `@types/opentype.js`, `@fontsource/inter` | Generate the monogram glyph table (`pnpm glyphs:generate`). Inter is SIL OFL 1.1; the generated table is a derived work and carries the notice in its header | reuse |
+| `@mswjs/interceptors` | The no-egress guard: fails any request that does not go through the simulation (PB-01) | reuse |
 | `vitest`, `happy-dom`, `@testing-library/*` | Unit, integration and component tests | reuse |
 | `eslint` and plugins, `prettier`, `globals` | Lint and format; `eslint-plugin-jsx-a11y` is unmaintained and forced onto ESLint 10 (risk PR-04) | reuse |
 | `@playwright/test`, `@axe-core/playwright` | End-to-end and accessibility tests; Playwright 1.56.x matches the pre-installed Chromium | reuse |
@@ -254,6 +313,8 @@ manual, recorded in each phase report, and repeated before every phase gate.
 | Screen reader pass | Walk the shell, the DataTable, the command palette, the Appearance form and the dialogs with NVDA on Firefox or Chrome and with VoiceOver on Safari; confirm names, roles, states, the live regions (result count, toasts) and focus order | Before each phase gate; after a change to a component in `components/ui/` |
 | Text spacing | Apply the WCAG 1.4.12 override (line height 1.5, paragraph spacing 2 times, letter spacing 0.12 em, word spacing 0.16 em) with a bookmarklet or the dev tools and check that nothing is clipped or overlaps | Before each phase gate |
 | Colour-only cues | Check that no state is carried by colour alone: every status has text or a shape (a selected row has a leading bar and a check mark; an error has text and an icon) | When a component with a state is added |
+| Session timing | Let a session reach its idle warning with a screen reader and keyboard only: the warning is announced, can be dismissed, and "stay signed in" is reachable without a mouse (WCAG 2.2.1) | Before each phase gate |
+| The wizard | Walk the setup wizard with a screen reader and the keyboard: step list, live log region, device code (readable and copyable), error and retry messages, focus after each step | Before each phase gate |
 | Zoom to 400 % | Set the browser to 400 % (a 320 px wide viewport) and check that every page works without horizontal scrolling and without loss of content | Before each phase gate |
 
 Automated controls in CI: axe on every route in both themes at two widths, keyboard, forced-colours and
@@ -298,6 +359,14 @@ validatie, handler, foutafhandeling. De tabel hierboven noemt per stap het doel 
 De tabel `Dependency | Reason | Mark` hierboven bevat elke directe productie-afhankelijkheid met de reden
 en de markering hergebruiken (reuse), aanpassen (adapt) of vervangen (replace). `pnpm docs:check` faalt
 als er een afhankelijkheid zonder rij bijkomt. Ontwikkelafhankelijkheden staan in de tweede tabel.
+
+Fase B voegt vijf productie-afhankelijkheden toe (`libsodium-wrappers` voor het versleutelen van de
+certificaatsleutel, `@peculiar/x509` met `reflect-metadata` voor het zelfondertekende certificaat, `jose` voor
+ID-tokens en `@azure/msal-node` voor apparaatcode- en applicatietokens) en `msw` voor de simulatie in de tests.
+Uitgaand verkeer bestaat op één plek, `integrations/`, en gebruikt alleen de globale `fetch`; een bewaker zonder
+uitgaand verkeer in elk testproces faalt bij elke echte aanroep. De modules `secrets`, `setup`, `connection`,
+`auth` en `rbac` komen na `branding`. Voor Fase C en D geldt: elk antwoord met gebruikersattributen gaat door
+`projectUser`, en servicemethoden nemen een `AuthorizedResource` of `VisibleScope` als argument.
 
 ### Prestatie-architectuur
 

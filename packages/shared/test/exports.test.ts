@@ -38,6 +38,9 @@ const EXPECTED_TARGETS: Readonly<Record<string, string>> = {
   './routes': './src/routes.ts',
   './schemas/*': './src/schemas/*.ts',
   './branding/*': './src/branding/*.ts',
+  './rbac/*': './src/rbac/*.ts',
+  './auth/*': './src/auth/*.ts',
+  './setup/*': './src/setup/*.ts',
   './tokens': './src/tokens/index.ts',
   './i18n': './src/i18n/index.ts',
   './i18n/*': './src/i18n/*.ts',
@@ -45,8 +48,15 @@ const EXPECTED_TARGETS: Readonly<Record<string, string>> = {
   './testing': './src/testing/index.ts',
 };
 
-/** Directories that must never hold a barrel file (TA-05). */
-const BARRELLESS_DIRECTORIES = ['src/branding', 'src/schemas'];
+/** Directories that must never hold a barrel file (TA-05; Phase B adds rbac, auth and setup, XB2). */
+const BARRELLESS_DIRECTORIES = ['src/branding', 'src/schemas', 'src/rbac', 'src/auth', 'src/setup'];
+
+/**
+ * Phase B subpath families (tasks.md XB2). Their modules arrive from several streams at different
+ * times, so the pattern may match no file yet; it is a defect only once no stream has delivered
+ * any (`T-B-059` re-runs this test with the real modules present).
+ */
+const MAY_BE_EMPTY: readonly string[] = ['./rbac/*', './auth/*', './setup/*'];
 
 interface ExportsCheckInput {
   readonly manifest: unknown;
@@ -115,7 +125,7 @@ function checkExports({ manifest, files }: ExportsCheckInput): string[] {
       continue;
     }
     if (target.includes('*')) {
-      if (matchPattern(target, files).length === 0) {
+      if (matchPattern(target, files).length === 0 && !MAY_BE_EMPTY.includes(key)) {
         problems.push(`"${key}" matches no file (${target})`);
       }
     } else if (!files.includes(target.slice(2))) {
@@ -167,6 +177,16 @@ describe('exports map of @m365portal/shared', () => {
           /^index\.[cm]?[jt]sx?$/.test(file.slice(directory.length + 1)),
       );
       expect(barrels, directory).toEqual([]);
+    }
+  });
+
+  it('has the three Phase B wildcard subpaths, pointing at TypeScript source (XB2)', () => {
+    const manifest = readManifest();
+    const exportsMap = isRecord(manifest) && isRecord(manifest.exports) ? manifest.exports : {};
+    for (const family of ['rbac', 'auth', 'setup']) {
+      const { types, target } = targetOf(exportsMap[`./${family}/*`]);
+      expect(target, family).toBe(`./src/${family}/*.ts`);
+      expect(types, family).toBe(target);
     }
   });
 
@@ -274,6 +294,39 @@ describe('exports map check: negative fixtures (the check must fail on purpose)'
       guardExports,
       { manifest: manifestWith(() => undefined), files: [...files, 'src/branding/index.ts'] },
       { name: 'exports check', reason: 'src/branding/index.ts is a barrel file' },
+    );
+  });
+
+  it('fails when a barrel file appears in src/rbac, src/auth or src/setup (XB2)', () => {
+    for (const family of ['rbac', 'auth', 'setup']) {
+      expectGuardFails(
+        guardExports,
+        {
+          manifest: manifestWith(() => undefined),
+          files: [...files, `src/${family}/index.ts`],
+        },
+        { name: 'exports check', reason: `src/${family}/index.ts is a barrel file` },
+      );
+    }
+  });
+
+  it('fails when one of the Phase B wildcard subpaths is missing or redirected (XB2)', () => {
+    for (const family of ['rbac', 'auth', 'setup']) {
+      expectGuardFails(
+        guardExports,
+        { manifest: manifestWith((map) => Reflect.deleteProperty(map, `./${family}/*`)), files },
+        { name: 'exports check', reason: `lacks the subpath "./${family}/*"` },
+      );
+    }
+    expectGuardFails(
+      guardExports,
+      {
+        manifest: manifestWith((map) => {
+          map['./auth/*'] = { types: './src/auth/index.ts', default: './src/auth/index.ts' };
+        }),
+        files,
+      },
+      { name: 'exports check', reason: '"./auth/*" points at ./src/auth/index.ts' },
     );
   });
 

@@ -1,0 +1,14 @@
+{
+  "preview.button.primary": "Primary",
+  "preview.button.secondary": "Secondary",
+  "preview.description": "Changes appear here at once. Nothing is saved until you press Save.",
+  "preview.paneLabel": "Preview, {theme}: {name}",
+  "preview.state.active": "Pressed",
+  "preview.state.focus": "Focus",
+  "preview.state.hover": "Hover",
+  "preview.state.rest": "Rest",
+  "preview.summary": "{theme}: the sidebar, the header and buttons for the organisation {name}, with the accent colour {accent}.",
+  "preview.theme.dark": "Dark theme",
+  "preview.theme.light": "Light theme",
+  "preview.title": "Preview"
+}

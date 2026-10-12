@@ -24,7 +24,7 @@ import type { SampleQuery, SampleSource } from '../src/features/showcase/sample-
 import { validateShowcaseSearch } from '../src/features/showcase/search';
 import { createColumnStorage, createTableLabels } from '../src/lib/table-wiring';
 import { STORAGE_KEYS, createStorage } from '../src/lib/storage';
-import { sampleMe } from './helpers/boot-fixtures';
+import { sampleSignedInMe } from './helpers/boot-fixtures';
 import { MemoryBackend, renderShell } from './helpers/render-shell';
 
 const en = createTranslator('en');
@@ -108,7 +108,7 @@ async function renderShowcase(
   const source =
     options.source ?? createSampleSource({ delayMs: 0, wait: () => Promise.resolve() });
   const shell = await renderShell({
-    me: sampleMe({ showcase: true, preview: true }),
+    me: sampleSignedInMe({ showcase: true }),
     path: options.path ?? '/design',
     language: options.language,
     backend: options.backend,

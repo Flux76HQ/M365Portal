@@ -9,11 +9,15 @@
 //   beforeLoad: requirePermission(['users:read']),          // adds { access: 'allowed' | 'denied' }
 //   component: gatedPage(UsersPage, NoAccess),              // shows NoAccess when it was denied
 //
+// A visitor with no session at all never reaches a gate: the root route sends an anonymous actor to
+// `/signin?returnTo=<the path>` first (`requireSignIn`), except on the public pages (`isPublicPath`).
+//
 // `access` is merged into the route context, so a child route without a gate of its own inherits the
 // verdict of its parent, and a child with a gate replaces it. The root route's `beforeLoad` is
 // `loadMe`, which puts `me` into the context first.
+import { safeReturnTo } from '@m365portal/shared/auth/return-to';
 import { hasAnyPermission, type Permission } from '@m365portal/shared/permissions';
-import { useRouteContext } from '@tanstack/react-router';
+import { redirect, useRouteContext } from '@tanstack/react-router';
 import { createElement, type ComponentType, type ReactNode } from 'react';
 import type { MeResponse } from './boot-data';
 import { meQueryOptions } from './query';
@@ -43,6 +47,43 @@ export async function loadMe(
     staleTime: 'static',
   });
   return { me };
+}
+
+/**
+ * The pages an anonymous visitor may open (FR-B-607): the sign-in page, the no-access page, the
+ * break-glass form (the server answers 404 when it is not configured) and the setup wizard, which the
+ * client never gates: the server decides who may see `/setup*` (FR-B-207). Exact paths, and `/setup`
+ * followed by a segment boundary.
+ */
+export function isPublicPath(pathname: string): boolean {
+  return (
+    pathname === '/signin' ||
+    pathname === '/no-access' ||
+    pathname === '/break-glass' ||
+    pathname === '/setup' ||
+    pathname.startsWith('/setup/')
+  );
+}
+
+/**
+ * The root route's sign-in gate: an anonymous actor on a page that is not public is replaced (history
+ * `replace`) by `/signin?returnTo=<path and query>`. `returnTo` goes through `safeReturnTo`, so an
+ * unsafe path (the setup wizard, the API) is not carried along, and it is left out for the dashboard.
+ * Gating is cosmetic: the server refuses every request of an actor without the right anyway.
+ */
+export function requireSignIn(
+  me: Pick<MeResponse, 'actor'>,
+  location: { readonly pathname: string; readonly searchStr?: string },
+): void {
+  if (me.actor.kind !== 'anonymous' || isPublicPath(location.pathname)) return;
+  const returnTo = safeReturnTo(`${location.pathname}${location.searchStr ?? ''}`);
+  // The search object is built here so that the router writes the query itself (`returnTo` is a path).
+  redirect({
+    to: '/signin',
+    search: returnTo === '/' ? {} : { returnTo },
+    replace: true,
+    throw: true,
+  });
 }
 
 /**

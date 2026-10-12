@@ -13,9 +13,12 @@
   "devDependencies": {
     "@axe-core/playwright": "catalog:",
     "@m365portal/shared": "workspace:*",
+    "@mswjs/interceptors": "catalog:",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "lighthouse": "catalog:",
-    "sharp": "catalog:"
+    "msw": "catalog:",
+    "sharp": "catalog:",
+    "tsx": "catalog:"
   }
 }

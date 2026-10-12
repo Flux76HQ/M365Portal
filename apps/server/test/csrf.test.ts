@@ -40,7 +40,8 @@ import { createErrorHandler, errorBoundary, notFoundHandler } from '../src/http/
 import { problemResponse } from '../src/http/problem.js';
 import { requestContext, type AppEnv } from '../src/http/request-context.js';
 import { createFakeClock, type FakeClock } from './helpers/fake-clock.js';
-import { createFixtureApp } from './helpers/http-app.js';
+import { ANONYMOUS_ACTOR } from '../src/policy/actor.js';
+import { ADMIN, createFixtureApp } from './helpers/http-app.js';
 import { readJson } from './helpers/http-client.js';
 
 const EXPECTED = 'http://localhost:9090';
@@ -1355,7 +1356,7 @@ describe('GET /api/v1/csrf (R5)', () => {
   });
 
   it('is public, and the token it returns lets a write through (the client flow)', async () => {
-    const app = await createFixtureApp({ system: {}, env: { PREVIEW_MODE: 'true' } });
+    const app = await createFixtureApp({ system: {}, signedIn: ADMIN });
     const response = await app.client.post('/api/v1/fixture/things', { json: { name: 'x' } });
     expect(response.status).toBe(201);
   });
@@ -1368,9 +1369,13 @@ describe('GET /api/v1/csrf (R5)', () => {
   });
 
   it('keeps answering after a token expired: a new one is valid', async () => {
-    const app = await createFixtureApp({ system: {}, env: { PREVIEW_MODE: 'true' } });
+    const app = await createFixtureApp({ system: {}, signedIn: ADMIN });
     const old = CsrfResponseSchema.parse(await readJson(await app.client.get(CSRF)));
     app.clock.advance(LIMITS.csrfTokenLifetimeMs + 120_000);
+    // The session stayed in use meanwhile (its deadlines slid): only the token is old.
+    app.identity.db.sqlite
+      .prepare('UPDATE session SET last_seen_at = ?, absolute_expires_at = ?')
+      .run(app.clock.iso(), new Date(app.clock.nowMs() + 3_600_000).toISOString());
     const stale = await app.client.post('/api/v1/fixture/things', {
       json: { name: 'x' },
       csrf: { token: old.token },
@@ -1389,5 +1394,166 @@ describe('GET /api/v1/csrf (R5)', () => {
     const route = app.http.table.routes.find((candidate) => candidate.id === 'meta.csrf');
     expect(route?.rateLimit).toBe('read');
     expect(route?.access).toEqual({ public: true });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Phase B: the binding is computed from the cookies as sent (T-B-241, FR-B-408, FR-B-205, SB-09)
+// ---------------------------------------------------------------------------------------------
+
+describe('the CSRF token is bound to the cookies the browser sent (FR-B-408)', () => {
+  const PING = '/api/v1/fixture/ping';
+  const SESSION = 'm365portal_session';
+  const SETUP = 'm365portal_setup';
+  const id = (letter: string): string => letter.repeat(43);
+  const cookie = (...pairs: string[]): Record<string, string> => ({ cookie: pairs.join('; ') });
+
+  async function post(
+    app: Awaited<ReturnType<typeof createFixtureApp>>,
+    tokenFrom: Record<string, string>,
+    sendWith: Record<string, string>,
+  ): Promise<number> {
+    // A token fetched by a browser that held `tokenFrom`, used by a browser that holds `sendWith`.
+    const token = await app.clientFor({ headers: tokenFrom }).csrfToken();
+    const response = await app
+      .clientFor({ headers: sendWith })
+      .post(PING, { json: {}, csrf: { token } });
+    return response.status;
+  }
+
+  const matrix: readonly {
+    readonly name: string;
+    readonly tokenFrom: Record<string, string>;
+    readonly sendWith: Record<string, string>;
+    readonly status: number;
+  }[] = [
+    { name: 'anonymous with anonymous', tokenFrom: {}, sendWith: {}, status: 200 },
+    {
+      name: 'a user with the same session',
+      tokenFrom: cookie(`${SESSION}=${id('a')}`),
+      sendWith: cookie(`${SESSION}=${id('a')}`),
+      status: 200,
+    },
+    {
+      name: 'a user token used by an anonymous browser',
+      tokenFrom: cookie(`${SESSION}=${id('a')}`),
+      sendWith: {},
+      status: 403,
+    },
+    {
+      name: 'an anonymous token used by a user',
+      tokenFrom: {},
+      sendWith: cookie(`${SESSION}=${id('a')}`),
+      status: 403,
+    },
+    {
+      name: "another user's token",
+      tokenFrom: cookie(`${SESSION}=${id('a')}`),
+      sendWith: cookie(`${SESSION}=${id('b')}`),
+      status: 403,
+    },
+    {
+      name: 'a setup actor with the same setup session',
+      tokenFrom: cookie(`${SETUP}=${id('s')}`),
+      sendWith: cookie(`${SETUP}=${id('s')}`),
+      status: 200,
+    },
+    {
+      name: 'a user token used as a setup actor',
+      tokenFrom: cookie(`${SESSION}=${id('a')}`),
+      sendWith: cookie(`${SETUP}=${id('t')}`),
+      status: 403,
+    },
+    {
+      name: 'an Owner holding both cookies, with a token fetched holding both',
+      tokenFrom: cookie(`${SESSION}=${id('a')}`, `${SETUP}=${id('s')}`),
+      sendWith: cookie(`${SETUP}=${id('s')}`, `${SESSION}=${id('a')}`),
+      status: 200,
+    },
+    {
+      name: 'an Owner holding both cookies, with a token fetched holding the session only',
+      tokenFrom: cookie(`${SESSION}=${id('a')}`),
+      sendWith: cookie(`${SESSION}=${id('a')}`, `${SETUP}=${id('s')}`),
+      status: 403,
+    },
+    {
+      name: 'an Owner holding both cookies, with a token fetched holding the setup cookie only',
+      tokenFrom: cookie(`${SETUP}=${id('s')}`),
+      sendWith: cookie(`${SESSION}=${id('a')}`, `${SETUP}=${id('s')}`),
+      status: 403,
+    },
+    {
+      name: 'a rotated session (sign-in, step-up, logout): the old token fails',
+      tokenFrom: cookie(`${SESSION}=${id('a')}`),
+      sendWith: cookie(`${SESSION}=${id('r')}`),
+      status: 403,
+    },
+    {
+      name: 'a duplicated session cookie counts as absent, like an anonymous browser',
+      tokenFrom: {},
+      sendWith: cookie(`${SESSION}=${id('a')}`, `${SESSION}=${id('a')}`),
+      status: 200,
+    },
+    {
+      name: 'a cookie of another name is not part of the binding',
+      tokenFrom: {},
+      sendWith: cookie(`tracking=${id('z')}`),
+      status: 200,
+    },
+  ];
+
+  it.each(matrix)('$name', async ({ tokenFrom, sendWith, status }) => {
+    const app = await createFixtureApp({ system: {} });
+    expect(await post(app, tokenFrom, sendWith)).toBe(status);
+    if (status === 403) expect(app.calls.of('fixture.ping')).toBe(0);
+  });
+
+  it('answers the refusal with csrf_invalid and nothing about the cookies', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const token = await app.clientFor({ headers: cookie(`${SESSION}=${id('a')}`) }).csrfToken();
+    const response = await app
+      .clientFor({ headers: cookie(`${SESSION}=${id('b')}`) })
+      .post(PING, { json: {}, csrf: { token } });
+    const body = await readJson<Record<string, unknown>>(response);
+    expect(body.code).toBe('csrf_invalid');
+    expect(JSON.stringify(body)).not.toContain(id('a'));
+    expect(JSON.stringify(body)).not.toContain(id('b'));
+  });
+
+  it('lets the client recover once: after a rotation it fetches a new token and the write goes through', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const before = app.clientFor({ headers: cookie(`${SESSION}=${id('a')}`) });
+    const old = await before.csrfToken();
+    const after = app.clientFor({ headers: cookie(`${SESSION}=${id('r')}`) });
+    expect((await after.post(PING, { json: {}, csrf: { token: old } })).status).toBe(403);
+    expect((await after.post(PING, { json: {} })).status).toBe(200);
+  });
+
+  it('computes the binding with no database: the fixture has none', async () => {
+    const app = await createFixtureApp({ system: {} });
+    const client = app.clientFor({
+      headers: cookie(`${SESSION}=${id('a')}`, `${SETUP}=${id('s')}`),
+    });
+    expect((await client.post(PING, { json: {} })).status).toBe(200);
+  });
+
+  it('does not resolve the actor to check the token', async () => {
+    let resolved = 0;
+    const app = await createFixtureApp({
+      system: {},
+      resolveActor: () => {
+        resolved += 1;
+        return ANONYMOUS_ACTOR;
+      },
+    });
+    const client = app.clientFor({ headers: cookie(`${SESSION}=${id('a')}`) });
+    const token = await client.csrfToken();
+    await client.post(PING, { json: {}, csrf: { token: `${token}x` } });
+    expect(resolved).toBe(0);
+  });
+
+  it('needs no token for the sign-in navigations: they are GETs', async () => {
+    const app = await createFixtureApp({ system: {} });
+    expect((await app.client.get('/api/v1/fixture/read')).status).toBe(200);
   });
 });

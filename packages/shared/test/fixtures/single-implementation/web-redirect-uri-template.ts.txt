@@ -1,0 +1,5 @@
+mount: apps/web/src/lib/consent-link.ts
+// The registered redirect URI is derived once from PUBLIC_BASE_URL: redirectUris().
+export function callbackUrl(origin: string): string {
+  return `${origin}/auth/callback`;
+}

@@ -1,0 +1,5 @@
+{
+  "origin.direct": "Assigned directly",
+  "origin.group": "Through the group {group}",
+  "origin.groupUnnamed": "Through a group (name not known)"
+}

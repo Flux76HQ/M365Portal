@@ -5,15 +5,28 @@
 // instead, which does not reach the catalogues.
 export { createTranslator, createTranslatorFrom } from './create-translator.js';
 export { detectLocale } from './detect.js';
+export {
+  loadNamespace,
+  loadRequestedNamespaces,
+  loadedNamespaces,
+  missingNamespaces,
+  type LoadedNamespace,
+} from './load-namespace.js';
 export { createFormatters, interpolate, placeholdersOf, stripPlaceholders } from './format.js';
 export {
   DEFAULT_LOCALE,
+  LAZY_NAMESPACES,
   LOCALES,
   PLURAL_CATEGORIES,
+  isLazyNamespace,
   isLocale,
   type Catalogue,
   type CatalogueSet,
   type Formatters,
+  type LazyCatalogueTypes,
+  type LazyMessageKey,
+  type LazyMessageKeyOf,
+  type LazyNamespace,
   type Locale,
   type LooseTranslator,
   type MessageKey,

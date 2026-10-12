@@ -13,6 +13,7 @@ import { CsrfResponseSchema } from '@m365portal/shared/schemas/meta';
 import { z } from 'zod';
 import { loadConfig } from '../../src/config/index.js';
 import { createCsrf, type Csrf } from '../../src/http/csrf.js';
+import { csrfBindingOfHeaders } from '../../src/policy/session-hash.js';
 import { createRateLimiter, type RateLimiter, type RateRule } from '../../src/http/rate-limit.js';
 import {
   createHttpApp,
@@ -30,9 +31,21 @@ import { healthRoutes, type Readiness } from '../../src/routes/health.js';
 import { metaRoutes } from '../../src/routes/meta.js';
 import { robotsRoutes } from '../../src/routes/robots.js';
 import type { FakeClock } from './fake-clock.js';
-import { createTestApp, type TestApp, type TestAppContext } from './test-app.js';
+import { ANONYMOUS_ACTOR } from '../../src/policy/index.js';
+import { createPolicyHarness, type PolicyHarness } from './policy-harness.js';
+import {
+  createTestApp,
+  signedInAs,
+  type SignedIn,
+  type SignedInOptions,
+  type TestApp,
+  type TestAppContext,
+} from './test-app.js';
 
 export const FIXTURE_PERMISSION = 'settings:branding';
+
+/** An administrator: every permission of the fixture routes (`settings:branding`, `audit:read`, ...). */
+export const ADMIN: SignedInOptions = { kind: 'user', roles: ['admin'] };
 
 export const ThingInputSchema = z
   .strictObject({ name: z.string().min(1).max(32) })
@@ -66,8 +79,9 @@ export function createFixtureCalls(): FixtureCalls {
 export function fixtureRoutes(
   calls: FixtureCalls,
   csrf: Csrf,
-  options: { readonly withCsrf?: boolean } = {},
+  options: { readonly withCsrf?: boolean; readonly publicOrigin?: string } = {},
 ): RouteDefinition[] {
+  const publicOrigin = options.publicOrigin ?? 'http://localhost:9300';
   const enter = (id: string): void => {
     calls.byRoute.set(id, (calls.byRoute.get(id) ?? 0) + 1);
   };
@@ -97,7 +111,7 @@ export function fixtureRoutes(
             },
             handler: (c) => {
               enter('fixture.csrf');
-              return c.json(csrf.issue(''), 200);
+              return c.json(csrf.issue(csrfBindingOfHeaders(c.req.raw.headers, publicOrigin)), 200);
             },
           }),
         ];
@@ -314,19 +328,50 @@ export interface FixtureAppOptions {
   /** Environment variables over the harness defaults (`PREVIEW_MODE`, `TRUST_PROXY`, ...). */
   readonly env?: Readonly<Record<string, string>>;
   /** Replaces the fixture routes. The fixture CSRF route is added when none of them is `/api/v1/csrf`. */
-  readonly routes?: (context: { calls: FixtureCalls; csrf: Csrf }) => readonly RouteDefinition[];
+  readonly routes?: (context: {
+    calls: FixtureCalls;
+    csrf: Csrf;
+    publicOrigin: string;
+  }) => readonly RouteDefinition[];
   readonly fallbacks?: readonly FallbackDefinition[];
   /** Rate limit rules instead of `LIMITS.rateLimit`, for a test that must reach a limit. */
-  readonly rules?: Readonly<Record<'read' | 'write' | 'upload', RateRule>>;
+  readonly rules?: Readonly<
+    Partial<Record<'read' | 'write' | 'upload' | 'auth' | 'setup', RateRule>>
+  >;
   readonly onDenied?: OnRouteDenied;
+  readonly onPolicyError?: HttpAppDeps['onPolicyError'];
+  /** The actor resolver the pipeline calls (T-B-237). Default: the one `createHttpApp` builds. */
+  readonly resolveActor?: HttpAppDeps['resolveActor'];
+  /** Told about every request that passed its guards on a route that slides a session. */
+  readonly slideSession?: HttpAppDeps['slideSession'];
+  /** The predicates of the availability gates (T-B-237), as the modules offer them. */
+  readonly availability?: HttpAppDeps['availability'];
   /** Told about every storage failure the error handler answers (readiness follows it). */
   readonly onStorageFailure?: HttpAppDeps['onStorageFailure'];
   readonly context?: Partial<Pick<TestAppContext, 'dataDir'>>;
   /** A clock the test already has (the denial audit reads time from the same one). */
   readonly clock?: FakeClock;
+  /**
+   * Real identities (T-B-244): `true` builds a migrated database with the real resolvers over the
+   * session table, and the application resolves actors from the cookies of `signedInAs`. A harness
+   * the test already has works too. Without it every request is anonymous, or
+   * `resolveActor` decides.
+   */
+  readonly identity?: true | PolicyHarness;
+  /**
+   * Sign this actor in and make it the default `client` of the application (T-B-245): the way a test
+   * that used the preview actor says "an administrator". Implies `identity`.
+   */
+  readonly signedIn?: SignedInOptions;
 }
 
 export interface FixtureApp extends TestApp<FixtureFetchable> {
+  /** The identities of `identity: true`; a harness that was not asked for throws on first use. */
+  readonly identity: PolicyHarness;
+  /** Sign a user, the setup actor or break-glass in: the rows, the cookies, a client (CB16). */
+  signedInAs(options: SignedInOptions): SignedIn;
+  /** The actor of the option `signedIn`, whose client is `client`. */
+  readonly signedIn?: SignedIn;
   readonly calls: FixtureCalls;
   readonly csrf: Csrf;
   readonly limiter: RateLimiter;
@@ -339,14 +384,21 @@ export interface FixtureFetchable {
 }
 
 export async function createFixtureApp(options: FixtureAppOptions = {}): Promise<FixtureApp> {
+  const identity =
+    options.identity === undefined && options.signedIn === undefined
+      ? undefined
+      : options.identity === undefined || options.identity === true
+        ? await createPolicyHarness()
+        : options.identity;
   const calls = createFixtureCalls();
   let csrf: Csrf | undefined;
   let limiter: RateLimiter | undefined;
 
+  const clock = options.clock ?? identity?.clock;
   const testApp = await createTestApp<FixtureFetchable>({
     ...(options.env === undefined ? {} : { env: options.env }),
     ...(options.context?.dataDir === undefined ? {} : { dataDir: options.context.dataDir }),
-    ...(options.clock === undefined ? {} : { clock: options.clock }),
+    ...(clock === undefined ? {} : { clock }),
     buildApp: (context) => {
       const loaded = loadConfig(context.env);
       if (!loaded.ok) throw new Error('the fixture configuration was refused');
@@ -363,7 +415,7 @@ export async function createFixtureApp(options: FixtureAppOptions = {}): Promise
       });
       const source = createDocumentSource();
       const version = options.system?.version ?? SYSTEM_VERSION;
-      const readyChecks = ['data_dir', 'database', 'schema'] as const;
+      const readyChecks = ['data_dir', 'database', 'schema', 'secrets'] as const;
       const systemRoutes =
         options.system === undefined
           ? []
@@ -380,6 +432,7 @@ export async function createFixtureApp(options: FixtureAppOptions = {}): Promise
               ...metaRoutes({
                 version,
                 publicOrigin: config.publicOrigin,
+                binding: (c) => csrfBindingOfHeaders(c.req.raw.headers, config.publicOrigin),
                 showcase: config.showcase,
                 storageAvailable: options.system.storageAvailable ?? (() => true),
                 csrf,
@@ -387,9 +440,12 @@ export async function createFixtureApp(options: FixtureAppOptions = {}): Promise
               }),
               ...robotsRoutes(),
             ];
-      const routes = options.routes?.({ calls, csrf }) ?? [
+      const routes = options.routes?.({ calls, csrf, publicOrigin: config.publicOrigin }) ?? [
         ...systemRoutes,
-        ...fixtureRoutes(calls, csrf, { withCsrf: options.system === undefined }),
+        ...fixtureRoutes(calls, csrf, {
+          withCsrf: options.system === undefined,
+          publicOrigin: config.publicOrigin,
+        }),
       ];
       const http = createHttpApp({
         config,
@@ -400,6 +456,10 @@ export async function createFixtureApp(options: FixtureAppOptions = {}): Promise
         log,
         now: () => context.clock.nowMs(),
         ...(options.onDenied === undefined ? {} : { onDenied: options.onDenied }),
+        ...(options.onPolicyError === undefined ? {} : { onPolicyError: options.onPolicyError }),
+        resolveActor: options.resolveActor ?? identity?.resolve ?? (() => ANONYMOUS_ACTOR),
+        ...(options.slideSession === undefined ? {} : { slideSession: options.slideSession }),
+        ...(options.availability === undefined ? {} : { availability: options.availability }),
         ...(options.onStorageFailure === undefined
           ? {}
           : { onStorageFailure: options.onStorageFailure }),
@@ -409,7 +469,34 @@ export async function createFixtureApp(options: FixtureAppOptions = {}): Promise
     },
   });
   if (csrf === undefined || limiter === undefined) throw new Error('the fixture was not built');
-  return Object.assign(testApp, { calls, csrf, limiter, http: testApp.app.http });
+  const fixture = Object.assign(testApp, {
+    calls,
+    csrf,
+    limiter,
+    http: testApp.app.http,
+    // Undefined unless the application was built with `identity`; `signedInAs` says so.
+    identity: identity as unknown as PolicyHarness,
+    signedInAs: (signedIn: SignedInOptions): SignedIn => {
+      if (identity === undefined)
+        throw new Error('this fixture application was built without identity');
+      return signedInAs(
+        {
+          db: identity.db,
+          clock: identity.clock,
+          publicOrigin: testApp.publicOrigin,
+          setupSessions: identity.setupSessions,
+          clientFor: (clientOptions) => testApp.clientFor(clientOptions),
+        },
+        signedIn,
+      );
+    },
+  });
+  if (options.signedIn !== undefined) {
+    // The default client acts as the signed-in actor; `fixture.anonymous` is the one that does not.
+    const actor = fixture.signedInAs(options.signedIn);
+    Object.assign(fixture, { client: actor.client, signedIn: actor });
+  }
+  return fixture;
 }
 
 /** The default limits, for tests that need a number from them. */

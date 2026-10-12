@@ -3,7 +3,7 @@
 //
 // The inline boot script imports this module and nothing else of the i18n code, so it imports only
 // `./types.js` (checked by `shared/i18n.test.ts`).
-import { DEFAULT_LOCALE, type Locale } from './types.js';
+import { DEFAULT_LOCALE, isLocale, type Locale } from './types.js';
 
 /** The language part of a tag: `nl-BE` and `NL_be` give `nl`, `x-nl` gives `x`, `-nl` gives ``. */
 function primarySubtag(tag: string): string {
@@ -20,13 +20,21 @@ function primarySubtag(tag: string): string {
  * The input is data from outside, so entries that are not strings are skipped. Only the two-letter
  * codes `nl` and `en` are recognised; a three-letter code such as `nld` is not a tag a browser sends
  * and is not guessed at.
+ *
+ * `storedDefault` is the default language the setup wizard stored (FR-B-219 d, AM-15). It is used
+ * only when the list names neither `nl` nor `en`, so it never overrides a browser preference; the
+ * caller applies a language the person chose in this browser before it asks. A value that is not
+ * one of the two languages is ignored.
  */
-export function detectLocale(languages: readonly unknown[] | null | undefined): Locale {
+export function detectLocale(
+  languages: readonly unknown[] | null | undefined,
+  storedDefault?: unknown,
+): Locale {
   for (const tag of languages ?? []) {
     if (typeof tag !== 'string') continue;
     const language = primarySubtag(tag.trim());
     if (language === 'nl') return 'nl';
     if (language === 'en') return 'en';
   }
-  return DEFAULT_LOCALE;
+  return isLocale(storedDefault) ? storedDefault : DEFAULT_LOCALE;
 }

@@ -84,6 +84,136 @@ const SPEC_6_5: Readonly<Record<string, number>> = {
   imageSizeCeilingMegabytes: 400,
 };
 
+/**
+ * Spec 6.9.2 (Phase B), row by row: [spec constant, `LIMITS` path, value]. The spec constant is the
+ * name of the row in the spec and in `docs/operations.md`; the path is where it lives in `LIMITS`
+ * (camel case, the unit in the name). A row of the spec that states several numbers has one entry
+ * per number (a window, a floor and a ceiling).
+ */
+const SPEC_6_9_2: readonly (readonly [constant: string, path: string, value: number])[] = [
+  // Setup
+  ['SETUP_UNLOCK_FAILS_PER_CLIENT', 'setup.unlockFailsPerClient', 5],
+  ['SETUP_UNLOCK_FAILS_PER_CLIENT (window)', 'setup.unlockFailsPerClientWindowMinutes', 15],
+  ['SETUP_UNLOCK_FAILS_GLOBAL', 'setup.unlockFailsGlobal', 30],
+  ['SETUP_UNLOCK_FAILS_GLOBAL (window)', 'setup.unlockFailsGlobalWindowMinutes', 60],
+  ['SETUP_LOCK_MINUTES', 'setup.lockMinutes', 15],
+  ['SETUP_SESSION_IDLE_MINUTES', 'setup.sessionIdleMinutes', 60],
+  ['SETUP_SESSION_ABSOLUTE_HOURS', 'setup.sessionAbsoluteHours', 8],
+  ['SETUP_SESSIONS_MAX', 'setup.sessionsMax', 5],
+  ['SETUP_MIN_WAIT_MS', 'setup.minWaitMs', 500],
+  ['SETUP_TOKEN_BYTES', 'setup.tokenBytes', 32],
+  ['SETUP_LEASE_HEARTBEAT_SECONDS', 'setup.leaseHeartbeatSeconds', 15],
+  ['SETUP_LEASE_EXPIRY_SECONDS', 'setup.leaseExpirySeconds', 120],
+  ['SETUP_LOG_RETAINED', 'setup.logRetained', 1_000],
+  ['SETUP_LOG_PAGE_MAX', 'setup.logPageMax', 200],
+  ['SETUP_DETAIL_STRING_MAX_BYTES', 'setup.detailStringMaxBytes', 256],
+  ['SETUP_VERIFY_RESULT_MAX_BYTES', 'setup.verifyResultMaxBytes', 51_200],
+  ['SETUP_TRANSIENT_BACKOFF (initial)', 'setup.transientBackoff.initialMs', 1_000],
+  ['SETUP_TRANSIENT_BACKOFF (ceiling)', 'setup.transientBackoff.maxMs', 30_000],
+  ['SETUP_TRANSIENT_BACKOFF (tries)', 'setup.transientBackoff.maxTries', 6],
+  ['SETUP_REPLICATION_BACKOFF (initial)', 'setup.replicationBackoff.initialMs', 2_000],
+  ['SETUP_REPLICATION_BACKOFF (ceiling)', 'setup.replicationBackoff.maxMs', 60_000],
+  ['SETUP_OBJECT_CHAIN_WINDOW_SECONDS', 'setup.objectChainWindowSeconds', 300],
+  ['SETUP_PROPAGATION_TIMEOUT_SECONDS (default)', 'setup.propagationTimeoutSeconds.default', 900],
+  ['SETUP_PROPAGATION_TIMEOUT_SECONDS (min)', 'setup.propagationTimeoutSeconds.min', 60],
+  ['SETUP_PROPAGATION_TIMEOUT_SECONDS (max)', 'setup.propagationTimeoutSeconds.max', 3_600],
+  ['SETUP_SKEW_WARN_SECONDS', 'setup.skewWarnSeconds', 60],
+  ['SETUP_SKEW_FAIL_SECONDS', 'setup.skewFailSeconds', 300],
+  ['SETUP_MUTATING_CALLS_CLEAN_RUN', 'setup.mutatingCallsCleanRun', 11],
+  // Certificate
+  ['CERT_RSA_BITS', 'certificate.rsaBits', 2_048],
+  ['CERT_VALIDITY_DAYS', 'certificate.validityDays', 360],
+  ['CERT_BACKDATE_MINUTES', 'certificate.backdateMinutes', 5],
+  ['CERT_WARN_DAYS', 'certificate.warnDays', 60],
+  ['CERT_CRITICAL_DAYS', 'certificate.criticalDays', 14],
+  // Secrets
+  ['APP_KEY_BYTES', 'secrets.appKeyBytes', 32],
+  ['SECRET_NONCE_BYTES', 'secrets.nonceBytes', 24],
+  ['KEY_ID_BYTES', 'secrets.keyIdBytes', 8],
+  ['APP_KEY_FILE_MAX_BYTES', 'secrets.appKeyFileMaxBytes', 1_024],
+  // Microsoft
+  ['CLIENT_ASSERTION_LIFETIME_SECONDS', 'microsoft.clientAssertionLifetimeSeconds', 300],
+  ['TOKEN_ENDPOINT_TIMEOUT_SECONDS', 'microsoft.tokenEndpointTimeoutSeconds', 10],
+  ['ID_TOKEN_MAX_BYTES', 'microsoft.idTokenMaxBytes', 8_192],
+  ['CLOCK_TOLERANCE_SECONDS', 'microsoft.clockToleranceSeconds', 60],
+  ['JWKS_CACHE_HOURS', 'microsoft.jwksCacheHours', 24],
+  ['JWKS_REFRESH_MINUTES', 'microsoft.jwksRefreshMinutes', 60],
+  ['JWKS_UNKNOWN_KID_COOLDOWN_MINUTES', 'microsoft.jwksUnknownKidCooldownMinutes', 5],
+  ['GRAPH_CHECK_MEMBER_GROUPS_MAX_IDS', 'microsoft.graphCheckMemberGroupsMaxIds', 20],
+  ['GRAPH_RETRY_MAX', 'microsoft.graphRetryMax', 4],
+  ['GRAPH_RETRY_AFTER_MAX_WAIT_SECONDS', 'microsoft.graphRetryAfterMaxWaitSeconds', 60],
+  ['GRAPH_5XX_BACKOFF (initial)', 'microsoft.graph5xxBackoff.initialMs', 500],
+  ['GRAPH_5XX_BACKOFF (ceiling)', 'microsoft.graph5xxBackoff.maxMs', 10_000],
+  ['GRAPH_5XX_BACKOFF (retries)', 'microsoft.graph5xxBackoff.maxRetries', 4],
+  ['GRAPH_BUDGET_INTERACTIVE_SECONDS', 'microsoft.graphBudgetInteractiveSeconds', 20],
+  ['GRAPH_BUDGET_WIZARD_SECONDS', 'microsoft.graphBudgetWizardSeconds', 60],
+  ['GRAPH_IN_FLIGHT_MAX', 'microsoft.graphInFlightMax', 4],
+  ['GRAPH_CACHE_TTL_SECONDS (organization)', 'microsoft.graphCacheTtlSeconds.organization', 300],
+  ['GRAPH_CACHE_TTL_SECONDS (user)', 'microsoft.graphCacheTtlSeconds.user', 60],
+  ['GRAPH_CACHE_TTL_SECONDS (group)', 'microsoft.graphCacheTtlSeconds.group', 60],
+  ['GRAPH_CACHE_ENTRIES', 'microsoft.graphCacheEntries', 1_000],
+  ['EXCHANGE_RESULT_SIZE_MAX', 'microsoft.exchangeResultSizeMax', 1_000],
+  ['EXCHANGE_PAGING_WINDOW_SECONDS', 'microsoft.exchangePagingWindowSeconds', 300],
+  // Sign-in
+  ['LOGIN_TX_MAX', 'signIn.loginTxMax', 1_000],
+  ['LOGIN_TX_PER_CLIENT_MAX', 'signIn.loginTxPerClientMax', 20],
+  ['LOGIN_TX_LIFETIME_SECONDS', 'signIn.loginTxLifetimeSeconds', 600],
+  ['RETURN_TO_MAX_CHARS', 'signIn.returnToMaxChars', 256],
+  ['RATE_AUTH (capacity)', 'rateLimit.auth.capacity', 10],
+  ['RATE_AUTH (refill interval)', 'rateLimit.auth.refillIntervalMs', 5_000],
+  ['RATE_SETUP (capacity)', 'rateLimit.setup.capacity', 10],
+  ['RATE_SETUP (refill interval)', 'rateLimit.setup.refillIntervalMs', 5_000],
+  // Session
+  ['SESSION_IDLE_TIMEOUT_MINUTES (default)', 'session.idleTimeoutMinutes.default', 30],
+  ['SESSION_IDLE_TIMEOUT_MINUTES (min)', 'session.idleTimeoutMinutes.min', 5],
+  ['SESSION_IDLE_TIMEOUT_MINUTES (max)', 'session.idleTimeoutMinutes.max', 480],
+  ['SESSION_ABSOLUTE_TIMEOUT_HOURS (default)', 'session.absoluteTimeoutHours.default', 8],
+  ['SESSION_ABSOLUTE_TIMEOUT_HOURS (min)', 'session.absoluteTimeoutHours.min', 1],
+  ['SESSION_ABSOLUTE_TIMEOUT_HOURS (max)', 'session.absoluteTimeoutHours.max', 24],
+  ['SESSION_WRITE_INTERVAL_SECONDS', 'session.writeIntervalSeconds', 60],
+  ['SESSIONS_PER_PRINCIPAL_MAX', 'session.perPrincipalMax', 10],
+  ['SESSION_PURGE_MINUTES', 'session.purgeMinutes', 60],
+  ['SESSION_IDLE_WARNING_SECONDS', 'session.idleWarningSeconds', 120],
+  ['SESSION_ABSOLUTE_WARNING_MINUTES', 'session.absoluteWarningMinutes', 5],
+  ['STEP_UP_WINDOW_MINUTES', 'session.stepUpWindowMinutes', 10],
+  ['STEP_UP_AUTH_TIME_LEEWAY_SECONDS', 'session.stepUpAuthTimeLeewaySeconds', 60],
+  ['REVALIDATE_RETRY_SECONDS', 'session.revalidateRetrySeconds', 30],
+  // Break-glass
+  ['BREAK_GLASS_SESSION_MINUTES', 'breakGlass.sessionMinutes', 30],
+  ['BREAK_GLASS_FAILS_PER_CLIENT', 'breakGlass.failsPerClient', 5],
+  ['BREAK_GLASS_FAILS_PER_CLIENT (window)', 'breakGlass.failsPerClientWindowMinutes', 15],
+  ['BREAK_GLASS_FAILS_GLOBAL', 'breakGlass.failsGlobal', 20],
+  ['BREAK_GLASS_FAILS_GLOBAL (window)', 'breakGlass.failsGlobalWindowMinutes', 60],
+  ['SCRYPT_N_MIN', 'breakGlass.scrypt.nMin', 16_384],
+  ['SCRYPT_N_MAX', 'breakGlass.scrypt.nMax', 131_072],
+  ['SCRYPT_MAX_MEMORY_BYTES', 'breakGlass.scrypt.maxMemoryBytes', 134_217_728],
+  ['SCRYPT_SALT_BYTES (min)', 'breakGlass.scrypt.saltMinBytes', 16],
+  ['SCRYPT_SALT_BYTES (max)', 'breakGlass.scrypt.saltMaxBytes', 64],
+  ['SCRYPT_HASH_BYTES (min)', 'breakGlass.scrypt.hashMinBytes', 32],
+  ['SCRYPT_HASH_BYTES (max)', 'breakGlass.scrypt.hashMaxBytes', 64],
+  ['BREAK_GLASS_QUEUE_RUNNING', 'breakGlass.queueRunning', 1],
+  ['BREAK_GLASS_QUEUE_WAITING', 'breakGlass.queueWaiting', 2],
+  ['BREAK_GLASS_PASSWORD_MIN_CHARS', 'breakGlass.passwordMinChars', 14],
+  // RBAC
+  ['GROUP_CACHE_TTL_SECONDS (default)', 'rbac.groupCacheTtlSeconds.default', 300],
+  ['GROUP_CACHE_TTL_SECONDS (min)', 'rbac.groupCacheTtlSeconds.min', 30],
+  ['GROUP_CACHE_TTL_SECONDS (max)', 'rbac.groupCacheTtlSeconds.max', 3_600],
+  ['GROUPS_BOUND_MAX', 'rbac.groupsBoundMax', 200],
+  ['ASSIGNMENTS_MAX', 'rbac.assignmentsMax', 5_000],
+  ['ROLES_MAX', 'rbac.rolesMax', 100],
+  ['SCOPE_ITEMS_PER_ASSIGNMENT_MAX', 'rbac.scopeItemsPerAssignmentMax', 50],
+  ['SCOPE_VALUE_MAX_CHARS', 'rbac.scopeValueMaxChars', 64],
+  ['ASSIGNMENT_EXPIRY_MAX_DAYS', 'rbac.assignmentExpiryMaxDays', 730],
+  // Request size
+  ['AUTH_BODY_MAX_BYTES', 'body.authBytes', 4_096],
+];
+
+/** The paths of spec 6.5 and 6.9.2 together: the complete shape of `LIMITS`. */
+const SPEC_ALL: Readonly<Record<string, number>> = {
+  ...SPEC_6_5,
+  ...Object.fromEntries(SPEC_6_9_2.map(([, path, value]) => [path, value])),
+};
+
 /** Every leaf of a nested object as `dotted.path -> value`. */
 function leaves(value: unknown, prefix = ''): Map<string, unknown> {
   const found = new Map<string, unknown>();
@@ -105,19 +235,28 @@ function leaves(value: unknown, prefix = ''): Map<string, unknown> {
 function assertSpecTable(candidate: unknown): void {
   const actual = leaves(candidate);
   const problems: string[] = [];
-  for (const [path, expected] of Object.entries(SPEC_6_5)) {
+  for (const [path, expected] of Object.entries(SPEC_ALL)) {
     if (!actual.has(path)) problems.push(`missing ${path}`);
     else if (actual.get(path) !== expected) {
       problems.push(`${path} is ${String(actual.get(path))}, the spec says ${String(expected)}`);
     }
   }
   for (const path of actual.keys()) {
-    if (!(path in SPEC_6_5)) problems.push(`${path} is not a row of spec 6.5`);
+    if (!(path in SPEC_ALL)) problems.push(`${path} is not a row of spec 6.5 or 6.9.2`);
   }
-  if (problems.length > 0) throw new Error(`limits differ from spec 6.5: ${problems.join('; ')}`);
+  if (problems.length > 0)
+    throw new Error(`limits differ from spec 6.5 and 6.9.2: ${problems.join('; ')}`);
 }
 
-describe('LIMITS: spec section 6.5', () => {
+describe('LIMITS: spec sections 6.5 and 6.9.2', () => {
+  it('names every spec constant of 6.9.2 once, and every path once', () => {
+    const constants = SPEC_6_9_2.map(([constant]) => constant);
+    const paths = SPEC_6_9_2.map(([, path]) => path);
+    expect(new Set(constants).size).toBe(constants.length);
+    expect(new Set(paths).size).toBe(paths.length);
+    for (const path of paths) expect(path in SPEC_6_5, path).toBe(false);
+  });
+
   it('holds every row of the table with its exact value, and nothing else', () => {
     expect(() => {
       assertSpecTable(LIMITS);
@@ -158,13 +297,27 @@ describe('LIMITS: rate classes', () => {
     ['read', 120, 2],
     ['write', 10, 0.5],
     ['upload', 3, 0.1],
+    ['auth', 10, 0.2],
+    ['setup', 10, 0.2],
   ])('%s: capacity %d, refill %d per second', (rateClass, capacity, perSecond) => {
     expect(LIMITS.rateLimit[rateClass].capacity).toBe(capacity);
     expect(refillPerSecond(rateClass)).toBe(perSecond);
   });
 
-  it('knows exactly the three classes of the spec', () => {
-    expect(Object.keys(LIMITS.rateLimit).sort()).toEqual(['read', 'upload', 'write']);
+  it('knows exactly the five classes of the spec: three of Phase A, `auth` and `setup` (SB-28)', () => {
+    expect(Object.keys(LIMITS.rateLimit).sort()).toEqual([
+      'auth',
+      'read',
+      'setup',
+      'upload',
+      'write',
+    ]);
+  });
+
+  it('the Phase B classes allow bursts of 10 and refill one token every 5 seconds', () => {
+    for (const rateClass of ['auth', 'setup'] as const) {
+      expect(LIMITS.rateLimit[rateClass]).toEqual({ capacity: 10, refillIntervalMs: 5_000 });
+    }
   });
 
   it('orders the classes from the cheapest to the most expensive (a write never beats a read)', () => {

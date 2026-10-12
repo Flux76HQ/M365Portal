@@ -15,6 +15,9 @@
 import type { Page, TestInfo } from '@playwright/test';
 import { expect, test } from '../fixtures.js';
 import { restoreDefaults } from '../branding-helpers.js';
+import { NO_ACCESS_STATES, SIGNIN_ERROR_STATES, WIZARD_STATES } from '../routes.js';
+import { allowStaleCsrfAfterUnlock } from '../support/wizard-page.js';
+import { reachWizardState } from '../support/wizard-states.js';
 
 test.beforeEach(async ({ app, request }) => {
   // The Appearance page shows the saved values: other specs leave the defaults, but make sure.
@@ -109,4 +112,149 @@ test('the stored theme really paints the page (the dark baselines are dark)', as
   await prepare(page, '/', app);
   const dark = testInfo.project.name.endsWith('dark');
   await app.expectTheme(dark ? 'dark' : 'light');
+});
+
+// ---- Phase B (T-B-379): the new routes and states ----------------------------------------------------------
+// The same rules as above (threshold 0, animations off, reduced motion, UTC, fixed locale, the font awaited),
+// and the parts that change between runs are masked: times, codes and thumbprints, the activity log,
+// the countdowns. Baselines for these are NOT made here: text rendering of the sandbox differs from the
+// runner image, so they are taken from the artefact of the first CI run (`*-actual.png` of the failed
+// `e2e` job, as in Phase A) and committed after the owner has looked at them. Until then each of these
+// tests fails with "A snapshot doesn't exist".
+
+/** What differs from run to run on the new pages. */
+const MOVING = (page: Page) => [
+  ...MASKS(page),
+  page.locator('time'),
+  page.locator('code'),
+  page.locator('[role="log"]'),
+  page.locator('[role="timer"]'),
+  page.locator('[data-slot="token-locked"]'),
+  page.locator('[data-slot="device-code-panel"] p', { hasText: /expires in/ }),
+  page.getByText(/Next attempt in \d+ s/),
+  page.getByText(/Trying again in \d+ s/),
+  page.getByText(/\b(359|360) days\b/),
+  page.locator('[data-slot="proof-list"] p', { hasText: /Generated at/ }),
+  // The certificate is generated on every run, so its thumbprint differs (connection card and proof rows),
+  // and so does the moment of the last verification.
+  page.locator('dd.font-mono'),
+  page.getByText(/Attempt \d+/),
+  page.locator('[role="progressbar"]'),
+  page.locator('[data-slot="proof-list"] p', { hasText: /Thumbprint/ }),
+  page.getByText(/Last verified/),
+  // The row of a waiting sub-action: countdown, attempt and the button move against each other.
+  page.locator('[data-slot="waiting-note"]'),
+];
+
+/**
+ * The moving text becomes a fixed filler before the shot, so the masked boxes have the same size in
+ * every run (a mask covers the box of the element, and the box follows the text length).
+ */
+async function pinMovingText(page: Page): Promise<void> {
+  for (const locator of MOVING(page).slice(MASKS(page).length)) {
+    await locator.evaluateAll((nodes) => {
+      nodes.forEach((node) => {
+        if (node.getAttribute('role') === 'progressbar') return;
+        if (node.getAttribute('data-slot') === 'waiting-note') return;
+        node.textContent = '0000000000';
+      });
+    });
+  }
+}
+
+async function shoot(
+  page: Page,
+  slug: string,
+  testInfo: TestInfo,
+  options: { fullPage?: boolean; maxDiffPixels?: number } = {},
+): Promise<void> {
+  await page.waitForFunction(() => document.getAnimations().length === 0);
+  await pinVersionText(page);
+  await pinMovingText(page);
+  await page.mouse.move(0, 0);
+  await expect(page).toHaveScreenshot(nameOf(slug, testInfo), {
+    ...SHOT,
+    maxDiffPixels: options.maxDiffPixels ?? SHOT.maxDiffPixels,
+    fullPage: options.fullPage ?? true,
+    mask: MOVING(page),
+  });
+}
+
+test.describe('Phase B: the sign-in pages', () => {
+  test.use({ principal: 'anonymous' });
+
+  for (const code of SIGNIN_ERROR_STATES) {
+    test(`signin-${code}`, async ({ page, app }, testInfo) => {
+      test.skip(testInfo.project.name === 'ultrawide', 'one ultrawide screenshot: the Dashboard');
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await app.goto(`/signin?error=${code}`);
+      await assertSelfHostedFont(page);
+      await shoot(page, `signin-${code}`, testInfo);
+    });
+  }
+
+  test('signin-plain', async ({ page, app }, testInfo) => {
+    test.skip(testInfo.project.name === 'ultrawide', 'one ultrawide screenshot: the Dashboard');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await app.goto('/signin');
+    await shoot(page, 'signin-plain', testInfo);
+  });
+
+  for (const reason of NO_ACCESS_STATES) {
+    test(`no-access-${reason}`, async ({ page, app }, testInfo) => {
+      test.skip(testInfo.project.name === 'ultrawide', 'one ultrawide screenshot: the Dashboard');
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await app.goto(`/no-access?reason=${reason}&ref=0123456789abcdef`);
+      await shoot(page, `no-access-${reason}`, testInfo);
+    });
+  }
+});
+
+test.describe('Phase B: the Settings pages (owner)', () => {
+  for (const [slug, path] of [
+    ['connection', '/settings/connection'],
+    ['access', '/settings/access'],
+  ] as const) {
+    test(`settings-${slug}`, async ({ page, app }, testInfo) => {
+      test.skip(testInfo.project.name === 'ultrawide', 'one ultrawide screenshot: the Dashboard');
+      await prepare(page, path, app);
+      await page.waitForLoadState('networkidle');
+      await shoot(page, `settings-${slug}`, testInfo);
+    });
+  }
+});
+
+test.describe('Phase B: /setup (empty instance B)', () => {
+  test.use({ principal: 'anonymous', ownClientAddress: false });
+
+  // The token form, and one state per status of a step.
+  for (const state of WIZARD_STATES.filter((entry) => entry !== 'finish')) {
+    test(`setup-${state}`, async ({ page, app, guard }, testInfo) => {
+      test.skip(testInfo.project.name === 'ultrawide', 'one ultrawide screenshot: the Dashboard');
+      test.setTimeout(240_000);
+      allowStaleCsrfAfterUnlock(guard);
+      guard.allowResponse({ status: 429, url: '/api/v1/setup/unlock' });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await reachWizardState(page, state);
+      guard.take('console');
+      guard.take('status');
+      await app.ready();
+      // The wizard runs live against the fake tenant, so the length of the page (log lines, retries) and the
+      // attempt counter differ from run to run: the picture is the viewport, with the counters masked.
+      // The wizard moves focus when a step changes, and the browser may scroll the page by a pixel or two
+      // to show it: the viewport shot starts from the top every time (a shift of one pixel is what turned
+      // a whole mobile page red).
+      await page.evaluate(() => {
+        for (const element of [document.scrollingElement, ...document.querySelectorAll('*')]) {
+          if (element !== null && element.scrollTop !== 0) element.scrollTop = 0;
+        }
+      });
+      await page.waitForFunction(() => document.getAnimations().length === 0);
+      // Owner decision of 2026-10-12: the live wizard states may differ by a few anti-aliased corner pixels of
+      // the cards between runs (up to 108 pixels measured over three runner artefacts, in places that no
+      // content change touches). The per-pixel threshold stays 0, and 120 stays below the 132 pixels of the
+      // real change that the Phase A rule was made for. Every other screenshot keeps `maxDiffPixels: 0`.
+      await shoot(page, `setup-${state}`, testInfo, { fullPage: false, maxDiffPixels: 120 });
+    });
+  }
 });

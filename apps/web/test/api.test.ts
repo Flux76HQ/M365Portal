@@ -18,7 +18,9 @@ import {
   shouldRetry,
   type FetchFunction,
 } from '../src/lib/api';
+import { createAuthEffects, type BrowserLocation } from '../src/lib/auth-nav';
 import { createAppQueryClient } from '../src/lib/query';
+import { createSessionStore } from '../src/features/auth/session-store';
 
 // ---------------------------------------------------------------------------------------------
 // A fake network
@@ -822,5 +824,217 @@ describe('the version signal', () => {
     client.observeVersion('2.0.0');
 
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The session: 401, session_expired, step_up_required and the idle deadline (T-B-295; FR-B-606,
+// FR-B-414 web half, FR-B-416; plan 12.3)
+// ---------------------------------------------------------------------------------------------
+
+describe('what the client does when the session is the problem', () => {
+  /** A location that records where the client sends the browser. */
+  function fakeLocation(pathname = '/users', search = '?page=2') {
+    const moves: string[] = [];
+    const location: BrowserLocation = {
+      pathname,
+      search,
+      assign: (url) => moves.push(`assign ${url}`),
+      replace: (url) => moves.push(`replace ${url}`),
+    };
+    return { location, moves };
+  }
+
+  function sessionClient(handler: Handler, where: { pathname?: string; search?: string } = {}) {
+    const { location, moves } = fakeLocation(where.pathname, where.search);
+    const store = createSessionStore();
+    const net = network(handler);
+    const client = createApiClient({
+      fetch: net.fetch,
+      buildVersion: null,
+      auth: createAuthEffects({ location, store }),
+    });
+    return { client, store, moves, calls: net.calls };
+  }
+
+  it('sends an unauthenticated visitor to /signin?returnTo=<the current path>, and the call still fails', async () => {
+    const { client, moves } = sessionClient(() => problem(401, 'unauthenticated'));
+    await expect(client.get('/api/v1/rbac/roles')).rejects.toMatchObject({
+      code: 'unauthenticated',
+      status: 401,
+    });
+    expect(moves).toEqual(['replace /signin?returnTo=%2Fusers%3Fpage%3D2']);
+  });
+
+  it('sends an expired session to /signin?error=session_expired&returnTo=<the current path>', async () => {
+    const { client, moves } = sessionClient(() => problem(401, 'session_expired'));
+    await expect(client.get('/api/v1/me')).rejects.toMatchObject({ code: 'session_expired' });
+    expect(moves).toEqual(['replace /signin?error=session_expired&returnTo=%2Fusers%3Fpage%3D2']);
+  });
+
+  it('leaves out returnTo when the current page is the dashboard, and never returns to a path the sign-in refuses', async () => {
+    const dashboard = sessionClient(() => problem(401, 'unauthenticated'), {
+      pathname: '/',
+      search: '',
+    });
+    await expect(dashboard.client.get('/api/v1/me')).rejects.toBeInstanceOf(ApiError);
+    expect(dashboard.moves).toEqual(['replace /signin']);
+
+    for (const pathname of ['/api/v1/me', '//evil.example', '/a\\b']) {
+      const hostile = sessionClient(() => problem(401, 'unauthenticated'), {
+        pathname,
+        search: '',
+      });
+      await expect(hostile.client.get('/api/v1/me'), pathname).rejects.toBeInstanceOf(ApiError);
+      expect(hostile.moves, pathname).toEqual(['replace /signin']);
+    }
+  });
+
+  it('does not navigate when the person is already on the sign-in page', async () => {
+    const { client, moves } = sessionClient(() => problem(401, 'unauthenticated'), {
+      pathname: '/signin',
+      search: '?error=signin_failed',
+    });
+    await expect(client.get('/api/v1/me')).rejects.toBeInstanceOf(ApiError);
+    expect(moves).toEqual([]);
+  });
+
+  it('does not leave the pages that answer their own 401: the break-glass form and the setup wizard', async () => {
+    for (const pathname of ['/break-glass', '/setup', '/setup/anything']) {
+      const { client, moves } = sessionClient(() => problem(401, 'unauthenticated'), {
+        pathname,
+        search: '',
+      });
+      await expect(client.get('/api/v1/me'), pathname).rejects.toBeInstanceOf(ApiError);
+      expect(moves, pathname).toEqual([]);
+    }
+    // A look-alike path is a different page and still goes to the sign-in.
+    const other = sessionClient(() => problem(401, 'unauthenticated'), {
+      pathname: '/break-glassy',
+      search: '',
+    });
+    await expect(other.client.get('/api/v1/me')).rejects.toBeInstanceOf(ApiError);
+    expect(other.moves).toEqual(['replace /signin?returnTo=%2Fbreak-glassy']);
+  });
+
+  it('navigates only for these two codes: a 401 or 403 with another code never moves the browser (+ negative)', async () => {
+    for (const [status, code] of [
+      [401, 'setup_token_invalid'],
+      [401, 'break_glass_locked'],
+      [401, 'http_401'],
+      [403, 'permission_denied'],
+      [403, 'csrf_invalid'],
+      [403, 'origin_not_allowed'],
+      [500, 'internal_error'],
+    ] as const) {
+      const { client, moves, store } = sessionClient(withCsrf(() => problem(status, code)));
+      await expect(client.post('/api/v1/branding', { body: {} }), code).rejects.toBeInstanceOf(
+        ApiError,
+      );
+      expect(moves, code).toEqual([]);
+      expect(store.getSnapshot().stepUpRequested, code).toBe(false);
+    }
+  });
+
+  it('moves the browser once when several calls fail together', async () => {
+    const { client, moves } = sessionClient(() => problem(401, 'session_expired'));
+    await Promise.allSettled([
+      client.get('/api/v1/me'),
+      client.get('/api/v1/rbac/roles'),
+      client.get('/api/v1/branding'),
+    ]);
+    expect(moves).toHaveLength(1);
+  });
+
+  it('opens the step-up dialog on step_up_required, does not navigate and does not replay the write', async () => {
+    const { client, moves, store, calls } = sessionClient(
+      withCsrf(() => problem(403, 'step_up_required')),
+    );
+    await expect(
+      client.post('/api/v1/rbac/assignments', { body: { role: 'admin' } }),
+    ).rejects.toMatchObject({ code: 'step_up_required', status: 403 });
+    expect(store.getSnapshot().stepUpRequested).toBe(true);
+    expect(moves).toEqual([]);
+    // One CSRF request and exactly one attempt at the write: nothing was replayed.
+    expect(
+      calls.filter((call) => call.method === 'POST' && pathOf(call) !== '/api/v1/csrf'),
+    ).toHaveLength(1);
+  });
+
+  it('keeps the single refetch-and-retry for csrf_invalid, and does not treat it as a session problem', async () => {
+    let writes = 0;
+    const { client, moves, store } = sessionClient(
+      withCsrf((call) => {
+        if (call.method !== 'POST') return json({});
+        writes += 1;
+        return writes === 1 ? problem(403, 'csrf_invalid') : json({ ok: true });
+      }),
+    );
+    await expect(client.post('/api/v1/branding', { body: {} })).resolves.toEqual({ ok: true });
+    expect(writes).toBe(2);
+    expect(moves).toEqual([]);
+    expect(store.getSnapshot().stepUpRequested).toBe(false);
+  });
+
+  it('reads X-Session-Idle-Expires of every response into the session store', async () => {
+    const first = '2026-10-12T10:20:30.000Z';
+    const second = '2026-10-12T10:50:30.000Z';
+    let n = 0;
+    const { client, store } = sessionClient((call) => {
+      n += 1;
+      if (pathOf(call) === '/api/v1/csrf') return csrfResponse();
+      return n === 1
+        ? json({ ok: true }, { headers: { 'X-Session-Idle-Expires': first } })
+        : problem(500, 'internal_error', {}, { 'X-Session-Idle-Expires': second });
+    });
+    expect(store.getSnapshot().idleExpiresAt).toBeNull();
+    await client.get('/api/v1/branding');
+    expect(store.getSnapshot().idleExpiresAt).toBe(Date.parse(first));
+    await expect(client.get('/api/v1/branding')).rejects.toBeInstanceOf(ApiError);
+    expect(store.getSnapshot().idleExpiresAt).toBe(Date.parse(second));
+  });
+
+  it('ignores a header that is not a timestamp and keeps the last deadline when a response has none', async () => {
+    const good = '2026-10-12T10:20:30.000Z';
+    const answers: Record<string, string>[] = [
+      { 'X-Session-Idle-Expires': good },
+      {},
+      { 'X-Session-Idle-Expires': 'tomorrow' },
+      { 'X-Session-Idle-Expires': '2026-10-12 10:50:30' },
+      { 'X-Session-Idle-Expires': `${good}\r\nX: y` },
+    ];
+    let index = 0;
+    const { client, store } = sessionClient(() => {
+      const headers = answers[index] ?? {};
+      index += 1;
+      return json({}, { headers });
+    });
+    for (const answer of answers) {
+      expect(answer).toBeDefined();
+      await client.get('/api/v1/branding');
+    }
+    expect(store.getSnapshot().idleExpiresAt).toBe(Date.parse(good));
+  });
+
+  it('a client made without the session effects never moves the browser and never fails on the header', async () => {
+    const net = network(() =>
+      problem(401, 'unauthenticated', {}, { 'X-Session-Idle-Expires': '2026-10-12T10:20:30.000Z' }),
+    );
+    const client = createApiClient({ fetch: net.fetch, buildVersion: null });
+    await expect(client.get('/api/v1/me')).rejects.toMatchObject({ code: 'unauthenticated' });
+  });
+
+  it('also reads the deadline from the answer to the CSRF request', async () => {
+    const deadline = '2026-10-12T11:00:00.000Z';
+    const { client, store } = sessionClient((call) =>
+      pathOf(call) === '/api/v1/csrf'
+        ? json(
+            { token: 'token-9', expiresAt: TOKEN_EXPIRES },
+            { headers: { 'X-Session-Idle-Expires': deadline } },
+          )
+        : json({ ok: true }),
+    );
+    await client.post('/api/v1/branding', { body: {} });
+    expect(store.getSnapshot().idleExpiresAt).toBe(Date.parse(deadline));
   });
 });

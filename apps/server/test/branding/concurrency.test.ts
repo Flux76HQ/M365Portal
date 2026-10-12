@@ -17,7 +17,7 @@ import {
   type BrandingImages,
 } from './branding-fixture.js';
 
-const PREVIEW = { actor: { kind: 'preview', id: 'preview' } } as const;
+const STAFF = { actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa' } } as const;
 const choice = (orgName: string, light: string | null = null) =>
   ({ orgName, accent: '#0078d4', logos: { light, dark: null, compact: null } }) as const;
 
@@ -54,8 +54,8 @@ describe('two writers on the same revision (FR-A-083, E-11)', () => {
       assets: storage.store,
       images: gated.images,
     });
-    const first = racing.apply(choice('First writer'), 1, PREVIEW);
-    const second = racing.apply(choice('Second writer'), 1, PREVIEW);
+    const first = racing.apply(choice('First writer'), 1, STAFF);
+    const second = racing.apply(choice('Second writer'), 1, STAFF);
     // Both are past the revision check and waiting for the image job.
     await new Promise((resolve) => setImmediate(resolve));
     expect(gated.started()).toBe(2);
@@ -86,8 +86,8 @@ describe('two writers on the same revision (FR-A-083, E-11)', () => {
       images: inProcessImages(),
     });
     const results = await Promise.allSettled([
-      storage.service.apply(choice('Via connection one'), 1, PREVIEW),
-      second.apply(choice('Via connection two'), 1, PREVIEW),
+      storage.service.apply(choice('Via connection one'), 1, STAFF),
+      second.apply(choice('Via connection two'), 1, STAFF),
     ]);
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
@@ -99,10 +99,10 @@ describe('two writers on the same revision (FR-A-083, E-11)', () => {
     gated.release();
     const storage = await createBrandingStorage({ images: gated.images });
     const startedBefore = gated.started();
-    await expect(storage.service.apply(choice('Late'), 7, PREVIEW)).rejects.toMatchObject({
+    await expect(storage.service.apply(choice('Late'), 7, STAFF)).rejects.toMatchObject({
       code: 'branding_conflict',
     });
-    await expect(storage.service.reset(0, PREVIEW)).rejects.toMatchObject({
+    await expect(storage.service.reset(0, STAFF)).rejects.toMatchObject({
       code: 'branding_conflict',
     });
     expect(gated.started()).toBe(startedBefore);
@@ -113,8 +113,8 @@ describe('two writers on the same revision (FR-A-083, E-11)', () => {
   it('decides apply against reset the same way: one winner', async () => {
     const storage = await createBrandingStorage();
     const results = await Promise.allSettled([
-      storage.service.apply(choice('Applied'), 1, PREVIEW),
-      storage.service.reset(1, PREVIEW),
+      storage.service.apply(choice('Applied'), 1, STAFF),
+      storage.service.reset(1, STAFF),
     ]);
     expect(results.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
     expect(storage.service.revision()).toBe(2);
@@ -132,19 +132,19 @@ describe('the revision (I-2)', () => {
       seen.push(storage.service.revision());
     };
 
-    await accepted(storage.service.apply(choice('One'), 1, PREVIEW));
-    await accepted(storage.service.apply(choice('One'), 2, PREVIEW)); // identical values: still a change
-    await accepted(storage.service.reset(3, PREVIEW));
-    await accepted(storage.service.apply(choice('Four'), 4, PREVIEW));
+    await accepted(storage.service.apply(choice('One'), 1, STAFF));
+    await accepted(storage.service.apply(choice('One'), 2, STAFF)); // identical values: still a change
+    await accepted(storage.service.reset(3, STAFF));
+    await accepted(storage.service.apply(choice('Four'), 4, STAFF));
     expect(seen).toEqual([1, 2, 3, 4, 5]);
 
     // Rejected attempts leave the revision where it is: stale, invalid name, invalid accent, unknown asset.
     const unknown = createHash('sha256').update('nothing').digest('hex');
     for (const attempt of [
-      storage.service.apply(choice('Stale'), 4, PREVIEW),
-      storage.service.apply(choice(''), 5, PREVIEW),
-      storage.service.apply({ ...choice('Bad accent'), accent: 'blue' }, 5, PREVIEW),
-      storage.service.apply(choice('Unknown asset', unknown), 5, PREVIEW),
+      storage.service.apply(choice('Stale'), 4, STAFF),
+      storage.service.apply(choice(''), 5, STAFF),
+      storage.service.apply({ ...choice('Bad accent'), accent: 'blue' }, 5, STAFF),
+      storage.service.apply(choice('Unknown asset', unknown), 5, STAFF),
     ]) {
       await expect(attempt).rejects.toBeDefined();
     }

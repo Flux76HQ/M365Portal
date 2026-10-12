@@ -30,7 +30,7 @@ import {
 } from './branding-fixture.js';
 
 const PREVIEW = {
-  actor: { kind: 'preview', id: 'preview' },
+  actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa' },
   requestId: 'req-0123456789',
   clientIp: '203.0.113.9',
 } as const;
@@ -191,8 +191,8 @@ describe('the audit entries (data-model 7.4)', () => {
     const entry = storage.audit().at(-1);
     expect(entry).toMatchObject({
       action: 'branding.apply',
-      actor_kind: 'preview',
-      actor_id: 'preview',
+      actor_kind: 'user',
+      actor_id: '00000000-0000-4000-8000-0000000000aa',
       target_type: 'branding',
       target_id: '1',
       outcome: 'success',
@@ -572,8 +572,8 @@ describe('what the service stores and returns (I-9, FR-A-081, FR-A-082)', () => 
     const storage = await createBrandingStorage();
     await storage.service.apply(choice('Who'), 1, PREVIEW);
     expect(brandingRow(storage)).toMatchObject({
-      updated_by_kind: 'preview',
-      updated_by_id: 'preview',
+      updated_by_kind: 'user',
+      updated_by_id: '00000000-0000-4000-8000-0000000000aa',
     });
   });
 });

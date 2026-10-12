@@ -14,19 +14,32 @@
 //
 // Negative fixtures: an application whose denial hook writes nothing, and one that audits only
 // permission denials, must fail the guard `assertDenialsAudited`.
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { defaultPaths } from '../scripts/schema-snapshot.js';
 import {
+  AUDIT_ACTIONS,
+  AUDIT_ACTION_NAMES,
+  AUDIT_ACTOR_KINDS,
+  AUDIT_ACTOR_KINDS_READABLE,
+  AUDIT_DETAIL_KEYS,
+  AuditDetailError,
+  AuditEntryError,
+  DENIAL_REASON_CODES,
+  appendAudit,
+  buildDetail,
   clearAuditHeadLog,
   setAuditHeadLog,
   verifyChain,
+  type AuditDetail,
   type ChainVerdict,
 } from '../src/audit/index.js';
 import {
   DATABASE_FILE_NAME,
   openDatabase,
+  withTransaction,
   type AppDatabase,
   type DatabaseHandle,
 } from '../src/db/index.js';
@@ -34,8 +47,11 @@ import { runMigrations } from '../src/db/migrate.js';
 import { createDenialAudit } from '../src/http/denial-audit.js';
 import type { OnRouteDenied } from '../src/http/route.js';
 import { createLogger } from '../src/logging/logger.js';
+import { appendReference } from './helpers/audit-reference.js';
 import { createFakeClock } from './helpers/fake-clock.js';
+import { createPolicyHarness } from './helpers/policy-harness.js';
 import {
+  ADMIN,
   createFixtureApp,
   requestBodyFor,
   writeRoutesOf,
@@ -64,6 +80,8 @@ interface AuditRow {
 
 interface Audited {
   readonly app: FixtureApp;
+  /** Who the default client acts as, as the audit entries name it. */
+  readonly actor: { readonly kind: string; readonly id: string };
   readonly dataDir: string;
   rows(): AuditRow[];
   verdict(): ChainVerdict;
@@ -74,7 +92,8 @@ interface Audited {
 type Storage = 'working' | 'read-only' | 'locked' | 'absent';
 
 interface AuditedOptions {
-  readonly mode?: 'anonymous' | 'preview';
+  /** `admin`: an administrator is signed in and is the default client. */
+  readonly mode?: 'anonymous' | 'admin';
   readonly storage?: Storage;
   /** Wrap or replace the real denial audit, for the negative fixtures. */
   readonly hook?: (real: OnRouteDenied) => OnRouteDenied;
@@ -122,7 +141,10 @@ async function audited(options: AuditedOptions = {}): Promise<Audited> {
     now: () => clock.nowMs(),
   });
   const app = await createFixtureApp({
-    env: options.mode === 'preview' ? { PREVIEW_MODE: 'true' } : {},
+    // The resolver reads sessions through `reader`, the connection that never fails.
+    ...(options.mode === 'admin'
+      ? { identity: await createPolicyHarness({ db: reader, clock }), signedIn: ADMIN }
+      : {}),
     clock,
     context: { dataDir: dir.path },
     // Roomy buckets: the tables below send far more writes than the real limits allow in a burst.
@@ -131,6 +153,10 @@ async function audited(options: AuditedOptions = {}): Promise<Audited> {
   });
   return {
     app,
+    actor:
+      app.signedIn === undefined
+        ? { kind: 'anonymous', id: 'anonymous' }
+        : { kind: 'user', id: app.signedIn.oid },
     dataDir: dir.path,
     rows: () => reader.sqlite.prepare('SELECT * FROM audit_log ORDER BY seq').all() as AuditRow[],
     verdict: () => verifyChain(reader.sqlite),
@@ -144,43 +170,57 @@ async function audited(options: AuditedOptions = {}): Promise<Audited> {
 
 interface Scenario {
   readonly name: string;
-  readonly code: 'permission_denied' | 'origin_not_allowed' | 'csrf_invalid';
+  /** The status and the problem code of the answer. */
+  readonly status: 401 | 403;
+  readonly code: 'unauthenticated' | 'origin_not_allowed' | 'csrf_invalid';
+  /** The `reason_code` of the audit entry (FR-B-602 for an authorisation denial). */
+  readonly reason: 'permission_missing' | 'origin_not_allowed' | 'csrf_invalid';
   /** Can this scenario happen for this actor and route? */
-  readonly applies: (mode: 'anonymous' | 'preview', route: WriteRoute) => boolean;
+  readonly applies: (mode: 'anonymous' | 'admin', route: WriteRoute) => boolean;
   readonly send: (client: HttpClient, route: WriteRoute) => Promise<Response>;
 }
 
 const SCENARIOS: readonly Scenario[] = [
   {
-    name: 'a missing permission',
-    code: 'permission_denied',
+    name: 'a missing permission (the anonymous actor is asked to sign in: 401, was 403 in Phase A)',
+    status: 401,
+    code: 'unauthenticated',
+    reason: 'permission_missing',
     applies: (mode, route) => mode === 'anonymous' && route.permission !== undefined,
     send: (client, route) => client.request(route.method, route.path, requestBodyFor(route)),
   },
   {
     name: 'a foreign Origin',
+    status: 403,
     code: 'origin_not_allowed',
+    reason: 'origin_not_allowed',
     applies: () => true,
     send: (client, route) =>
       client.request(route.method, route.path, { ...requestBodyFor(route), origin: FOREIGN }),
   },
   {
     name: 'a missing Origin',
+    status: 403,
     code: 'origin_not_allowed',
+    reason: 'origin_not_allowed',
     applies: () => true,
     send: (client, route) =>
       client.request(route.method, route.path, { ...requestBodyFor(route), origin: null }),
   },
   {
     name: 'a missing CSRF token',
+    status: 403,
     code: 'csrf_invalid',
+    reason: 'csrf_invalid',
     applies: () => true,
     send: (client, route) =>
       client.request(route.method, route.path, { ...requestBodyFor(route), csrf: 'none' }),
   },
   {
     name: 'a forged CSRF token',
+    status: 403,
     code: 'csrf_invalid',
+    reason: 'csrf_invalid',
     applies: () => true,
     send: (client, route) =>
       client.request(route.method, route.path, {
@@ -199,10 +239,10 @@ function detailOf(row: AuditRow): Record<string, unknown> {
 
 /**
  * The guard: for every write route of the table and every way to be denied, the request is refused
- * with 403 and exactly one audit row exists afterwards, with the fields of FR-A-034. Throws on the
+ * with its status (401 for a missing permission of the anonymous actor, 403 for Origin and CSRF) and exactly one audit row exists afterwards, with the fields of FR-A-034. Throws on the
  * first deviation, naming the route and the scenario.
  */
-async function assertDenialsAudited(target: Audited, mode: 'anonymous' | 'preview'): Promise<void> {
+async function assertDenialsAudited(target: Audited, mode: 'anonymous' | 'admin'): Promise<void> {
   const routes = writeRoutesOf(target.app);
   if (routes.length === 0) throw new Error('the table has no write route');
   for (const route of routes) {
@@ -211,9 +251,9 @@ async function assertDenialsAudited(target: Audited, mode: 'anonymous' | 'previe
       const before = target.rows().length;
       const response = await scenario.send(target.app.client, route);
       const body = await readJson<{ code?: string }>(response);
-      if (response.status !== 403 || body.code !== scenario.code) {
+      if (response.status !== scenario.status || body.code !== scenario.code) {
         throw new Error(
-          `${where}: expected 403 ${scenario.code}, got ${String(response.status)} ${String(body.code)}`,
+          `${where}: expected ${String(scenario.status)} ${scenario.code}, got ${String(response.status)} ${String(body.code)}`,
         );
       }
       const rows = target.rows();
@@ -225,11 +265,11 @@ async function assertDenialsAudited(target: Audited, mode: 'anonymous' | 'previe
       const row = rows[rows.length - 1];
       if (row === undefined) throw new Error(`${where}: no audit row`);
       const expected: Partial<AuditRow> = {
-        actor_kind: mode,
-        actor_id: mode,
+        actor_kind: target.actor.kind,
+        actor_id: target.actor.id,
         action: route.id,
         outcome: 'denied',
-        reason_code: scenario.code,
+        reason_code: scenario.reason,
         request_id: response.headers.get('x-request-id'),
         client_ip: '127.0.0.1',
       };
@@ -262,7 +302,7 @@ function sortKeys(value: Record<string, unknown>): Record<string, unknown> {
 // Every write route, every denial
 // ---------------------------------------------------------------------------------------------
 
-describe.each(['anonymous', 'preview'] as const)(
+describe.each(['anonymous', 'admin'] as const)(
   'every denied write is audited, actor %s (FR-A-034, SC-A-009)',
   (mode) => {
     it('writes an entry for each write route and each way to be denied, with the fields of FR-A-034', async () => {
@@ -292,7 +332,8 @@ describe('the entry of a denial (FR-A-034, FR-A-073)', () => {
       json: { name: 'x' },
       headers: { 'x-request-id': 'request-id-0001' },
     });
-    expect(response.status).toBe(403);
+    // An anonymous caller is asked to sign in (401); the entry still names the denied permission.
+    expect(response.status).toBe(401);
     const [row] = target.rows();
     expect(row).toMatchObject({
       seq: 1,
@@ -300,7 +341,7 @@ describe('the entry of a denial (FR-A-034, FR-A-073)', () => {
       actor_id: 'anonymous',
       action: 'fixture.create',
       outcome: 'denied',
-      reason_code: 'permission_denied',
+      reason_code: 'permission_missing',
       client_ip: '127.0.0.1',
       request_id: 'request-id-0001',
     });
@@ -332,16 +373,16 @@ describe('the entry of a denial (FR-A-034, FR-A-073)', () => {
     });
   });
 
-  it('names the preview actor when preview mode is on', async () => {
-    const target = await audited({ mode: 'preview' });
+  it('names the signed-in user: kind user and the oid, never a name', async () => {
+    const target = await audited({ mode: 'admin' });
     await target.app.client.post('/api/v1/fixture/things', {
       json: { name: 'x' },
       origin: FOREIGN,
     });
     const [row] = target.rows();
     expect(row).toMatchObject({
-      actor_kind: 'preview',
-      actor_id: 'preview',
+      actor_kind: 'user',
+      actor_id: target.actor.id,
       reason_code: 'origin_not_allowed',
     });
   });
@@ -400,7 +441,7 @@ describe('the entry of a denial (FR-A-034, FR-A-073)', () => {
     expect(target.rows()).toHaveLength(0);
     release();
     const response = await pending;
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
     expect(target.rows()).toHaveLength(1);
   });
 });
@@ -421,14 +462,15 @@ describe('what is not audited (FR-A-034, PA-15)', () => {
     });
     const first = await target.app.client.post('/api/v1/fixture/things', { json: { name: 'x' } });
     const second = await target.app.client.post('/api/v1/fixture/things', { json: { name: 'x' } });
-    expect(first.status).toBe(403);
+    expect(first.status).toBe(401);
     expect(second.status).toBe(429);
     expect(target.rows()).toHaveLength(1);
   });
 
   it('a denied read, a refused audited read and a read of a permission route', async () => {
     const target = await audited();
-    expect((await target.app.client.get('/api/v1/fixture/secret')).status).toBe(403);
+    // Anonymous: 401 and no entry (attacker-reachable volume, FR-B-602).
+    expect((await target.app.client.get('/api/v1/fixture/secret')).status).toBe(401);
     expect(
       (
         await target.app.client.get('/api/v1/fixture/export', {
@@ -436,12 +478,12 @@ describe('what is not audited (FR-A-034, PA-15)', () => {
         })
       ).status,
     ).toBe(403);
-    expect((await target.app.client.get('/api/v1/fixture/export')).status).toBe(403);
+    expect((await target.app.client.get('/api/v1/fixture/export')).status).toBe(401);
     expect(target.rows()).toHaveLength(0);
   });
 
   it('a 404, a 405, an OPTIONS, a 413, a 415 and a 422', async () => {
-    const target = await audited({ mode: 'preview' });
+    const target = await audited({ mode: 'admin' });
     const { client } = target.app;
     expect((await client.get('/api/v1/nowhere')).status).toBe(404);
     expect((await client.post('/api/v1/fixture/read')).status).toBe(405);
@@ -467,7 +509,7 @@ describe('what is not audited (FR-A-034, PA-15)', () => {
   });
 
   it('a request that is allowed', async () => {
-    const target = await audited({ mode: 'preview' });
+    const target = await audited({ mode: 'admin' });
     expect(
       (await target.app.client.post('/api/v1/fixture/things', { json: { name: 'x' } })).status,
     ).toBe(201);
@@ -496,8 +538,8 @@ describe('when the audit entry cannot be written the request fails closed (FR-A-
     expect(target.rows()).toHaveLength(0);
   });
 
-  it('does not let a preview-mode write through when its Origin denial cannot be written', async () => {
-    const target = await audited({ mode: 'preview', storage: 'read-only' });
+  it('does not let a signed-in write through when its Origin denial cannot be written', async () => {
+    const target = await audited({ mode: 'admin', storage: 'read-only' });
     const response = await target.app.client.post('/api/v1/fixture/things', {
       json: { name: 'x' },
       origin: FOREIGN,
@@ -595,7 +637,7 @@ describe('negative fixtures: the guard fails on an application that does not aud
   it('fails when only permission denials are audited (Origin and CSRF denials are lost)', async () => {
     const target = await audited({
       hook: (real) => async (c, denial) => {
-        if (denial.code === 'permission_denied') await real(c, denial);
+        if (denial.code === 'permission_missing') await real(c, denial);
       },
     });
     await expectGuardFails((t: Audited) => assertDenialsAudited(t, 'anonymous'), target, {
@@ -623,6 +665,543 @@ describe('negative fixtures: the guard fails on an application that does not aud
     });
     await expectGuardFails((t: Audited) => assertDenialsAudited(t, 'anonymous'), target, {
       reason: 'audit detail',
+    });
+  });
+});
+
+// =============================================================================================
+// T-B-013 (FR-B-601 writer half, SB-21, AM-04, CB3, XB10): the Phase B vocabulary of the writer
+// =============================================================================================
+
+const SPEC_B_PATH = new URL('../../../specs/002-phase-b/spec.md', import.meta.url);
+
+interface SpecAction {
+  readonly name: string;
+  readonly targetType: string;
+  readonly outcomes: readonly string[];
+  readonly actorKinds: readonly string[];
+  readonly detailKeys: readonly string[];
+}
+
+const withoutNote = (cell: string): string => cell.replace(/\([^)]*\)/g, '');
+
+/** The rows of table 6.9.6 of the Phase B spec. */
+function specActions(): SpecAction[] {
+  const spec = readFileSync(SPEC_B_PATH, 'utf8');
+  const start = spec.indexOf('#### 6.9.6 Audit actions and detail allow-list');
+  const end = spec.indexOf('Rules. (1)', start);
+  const names = (cell: string): string[] =>
+    [...cell.matchAll(/`([a-z_.A-Z0-9]+)`/g)].map((m) => m[1] ?? '');
+  const rows: SpecAction[] = [];
+  for (const line of spec.slice(start, end).split('\n')) {
+    const cells = line.split(/(?<!\\)\|/).map((cell) => cell.trim());
+    const name = /^`([a-z_.]+)`$/.exec(cells[1] ?? '')?.[1];
+    if (name === undefined || cells.length < 7) continue;
+    rows.push({
+      name,
+      targetType: /`([a-z_]+)`/.exec(cells[2] ?? '')?.[1] ?? '',
+      outcomes: names(cells[3] ?? ''),
+      // A note in parentheses ("(SB-21: ... at `finish`)") is not part of the list.
+      actorKinds: names(withoutNote(cells[4] ?? '')),
+      detailKeys: names(withoutNote(cells[5] ?? '')),
+    });
+  }
+  return rows;
+}
+
+/** A migrated database in a temporary directory, with the real writer in front of it. */
+async function auditDatabase(): Promise<AppDatabase> {
+  const dir = await createTempDataDir();
+  const database = openDatabase({ path: join(dir.path, DATABASE_FILE_NAME) });
+  await runMigrations(database.sqlite, {
+    migrationsFolder: PATHS.migrationsFolder,
+    backupsDir: join(dir.path, 'backups'),
+  });
+  onTestFinished(() => {
+    if (database.sqlite.open) database.close();
+  });
+  return database;
+}
+
+const TS = '2026-10-10T12:00:00.000Z';
+
+function append(
+  database: AppDatabase,
+  entry: Partial<Parameters<typeof appendAudit>[1]> & {
+    detail?: AuditDetail | Record<string, unknown>;
+  },
+): void {
+  withTransaction(database, (tx) =>
+    appendAudit(tx, {
+      ts: TS,
+      actorKind: 'setup',
+      actorId: 'setup',
+      action: 'setup.unlock',
+      targetType: 'setup',
+      targetId: '',
+      outcome: 'success',
+      ...entry,
+    }),
+  );
+}
+
+describe('the actor kinds of the writer (FR-B-601, DM-05)', () => {
+  it('writes anonymous, user, setup, break_glass, system and cli', () => {
+    expect([...AUDIT_ACTOR_KINDS]).toEqual([
+      'anonymous',
+      'user',
+      'setup',
+      'break_glass',
+      'system',
+      'cli',
+    ]);
+  });
+
+  it('keeps preview readable, and out of the write set', () => {
+    expect(AUDIT_ACTOR_KINDS).not.toContain('preview');
+    expect([...AUDIT_ACTOR_KINDS_READABLE]).toEqual([...AUDIT_ACTOR_KINDS, 'preview']);
+  });
+
+  it.each(AUDIT_ACTOR_KINDS)('accepts %s on write', async (kind) => {
+    const database = await auditDatabase();
+    expect(() => {
+      append(database, {
+        actorKind: kind,
+        actorId: kind === 'user' ? '00000000-0000-4000-8000-000000000001' : kind,
+      });
+    }).not.toThrow();
+  });
+
+  it.each(['admin', 'USER', 'Setup', '', 'break-glass', 'root'])(
+    'rejects the kind %j on write',
+    async (kind) => {
+      const database = await auditDatabase();
+      expect(() => {
+        append(database, { actorKind: kind as never });
+      }).toThrow(AuditEntryError);
+    },
+  );
+
+  it('still reads a Phase A row written by the preview actor, and the chain still verifies across old and new rows', async () => {
+    const database = await auditDatabase();
+    // A Phase A install wrote these: a preview row and an anonymous denial with permission_denied.
+    // The real writer no longer takes `preview`, so the old row is seeded by the independent reference writer.
+    appendReference(database.sqlite, {
+      ts: '2026-01-01T00:00:00.000Z',
+      actorKind: 'preview',
+      actorId: 'preview',
+      action: 'branding.apply',
+      targetType: 'branding',
+      targetId: '1',
+      outcome: 'success',
+    });
+    append(database, {
+      actorKind: 'anonymous',
+      actorId: 'anonymous',
+      action: 'branding.apply',
+      outcome: 'denied',
+      reasonCode: 'permission_denied',
+      detail: { permission: 'settings:branding', method: 'PUT' },
+    });
+    append(database, {
+      actorKind: 'user',
+      actorId: '00000000-0000-4000-8000-000000000001',
+      action: 'rbac.assignment.create',
+      outcome: 'success',
+      targetType: 'rbac_assignment',
+      targetId: '00000000-0000-4000-8000-000000000002',
+    });
+    const kinds = database.sqlite
+      .prepare('SELECT actor_kind FROM audit_log ORDER BY seq')
+      .all() as { actor_kind: string }[];
+    expect(kinds.map((row) => row.actor_kind)).toEqual(['preview', 'anonymous', 'user']);
+    for (const row of kinds) expect(AUDIT_ACTOR_KINDS_READABLE).toContain(row.actor_kind);
+    expect(verifyChain(database.sqlite)).toMatchObject({ ok: true, checked: 3 });
+  });
+
+  it('rejects preview on write (the transitional allowance is gone)', async () => {
+    const database = await auditDatabase();
+    expect(() => {
+      append(database, { actorKind: 'preview' as never });
+    }).toThrow(AuditEntryError);
+  });
+});
+
+describe('the 19 actions of spec 6.9.6 (SB-21, SB-30)', () => {
+  const fromSpec = specActions();
+
+  it('are 19 in the spec table and 19 in actions.ts, each declared once', () => {
+    expect(fromSpec).toHaveLength(19);
+    expect(AUDIT_ACTION_NAMES).toHaveLength(19);
+    expect(new Set(AUDIT_ACTION_NAMES).size).toBe(19);
+    expect([...AUDIT_ACTION_NAMES].sort()).toEqual(fromSpec.map((row) => row.name).sort());
+  });
+
+  it.each(fromSpec.map((row) => [row.name, row] as const))(
+    '%s: target, outcomes, actors and detail keys equal the spec row',
+    (name, row) => {
+      const declared = AUDIT_ACTIONS[name as keyof typeof AUDIT_ACTIONS];
+      expect(declared.targetType).toBe(row.targetType);
+      expect([...declared.outcomes].sort()).toEqual([...row.outcomes].sort());
+      expect([...declared.actorKinds].sort()).toEqual([...row.actorKinds].sort());
+      expect([...declared.detailKeys].sort()).toEqual([...row.detailKeys].sort());
+    },
+  );
+
+  it('every detail key an action uses is on the allow-list, and every actor kind is a write kind', () => {
+    for (const declared of Object.values(AUDIT_ACTIONS)) {
+      for (const key of declared.detailKeys) expect(AUDIT_DETAIL_KEYS).toHaveProperty(key);
+      for (const kind of declared.actorKinds) expect(AUDIT_ACTOR_KINDS).toContain(kind);
+    }
+  });
+
+  it('every action matches the grammar of the writer and is accepted by it', async () => {
+    const database = await auditDatabase();
+    for (const name of AUDIT_ACTION_NAMES) {
+      const declared = AUDIT_ACTIONS[name];
+      expect(() => {
+        append(database, {
+          action: name,
+          actorKind: declared.actorKinds[0],
+          actorId: declared.actorKinds[0] === 'user' ? '00000000-0000-4000-8000-000000000001' : 'x',
+          targetType: declared.targetType,
+          targetId: '',
+          outcome: declared.outcomes[0],
+        });
+      }, name).not.toThrow();
+    }
+    expect(verifyChain(database.sqlite)).toMatchObject({ ok: true, checked: 19 });
+  });
+
+  it('the denial reason codes are the Phase A three and the five of Phase B (FR-B-602)', () => {
+    expect([...DENIAL_REASON_CODES].sort()).toEqual(
+      [
+        'csrf_invalid',
+        'escalation_denied',
+        'last_owner_protected',
+        'origin_not_allowed',
+        'permission_denied',
+        'permission_missing',
+        'scope_mismatch',
+        'step_up_required',
+      ].sort(),
+    );
+  });
+
+  it.each([
+    'permission_missing',
+    'scope_mismatch',
+    'step_up_required',
+    'escalation_denied',
+    'last_owner_protected',
+  ])('a denial entry accepts the reason code %s', async (reasonCode) => {
+    const database = await auditDatabase();
+    expect(() => {
+      append(database, {
+        actorKind: 'user',
+        actorId: '00000000-0000-4000-8000-000000000001',
+        action: 'rbac.assignment.create',
+        outcome: 'denied',
+        reasonCode,
+        detail: { method: 'POST', route: '/api/v1/rbac/assignments', permission: 'rbac:manage' },
+      });
+    }).not.toThrow();
+  });
+});
+
+describe('the 38 new detail keys and their value rules (FR-B-601, DM-02)', () => {
+  const GUID = '00000000-0000-4000-8000-0000000000ab';
+  const NEW_KEYS = [
+    'step',
+    'subAction',
+    'status',
+    'attempt',
+    'codes',
+    'mode',
+    'kind',
+    'op',
+    'objectId',
+    'appId',
+    'name',
+    'confirmed',
+    'tid',
+    'fromState',
+    'drift',
+    'checks',
+    'thumbprintSha1',
+    'notAfter',
+    'rows',
+    'fromKeyId',
+    'toKeyId',
+    'reason',
+    'check',
+    'mfa',
+    'groupsResolved',
+    'purpose',
+    'scope',
+    'sessions',
+    'principalType',
+    'principalId',
+    'role',
+    'scopeTargets',
+    'scopeItems',
+    'expiresAt',
+    'source',
+    'assignmentId',
+    'graphChecked',
+    'lockScope',
+  ] as const;
+
+  it('are 38 on top of the 26 Phase A keys: 64 in all', () => {
+    expect(NEW_KEYS).toHaveLength(38);
+    for (const key of NEW_KEYS) expect(AUDIT_DETAIL_KEYS, key).toHaveProperty(key);
+    expect(Object.keys(AUDIT_DETAIL_KEYS)).toHaveLength(64);
+    expect(new Set(Object.keys(AUDIT_DETAIL_KEYS)).size).toBe(64);
+  });
+
+  const VALID: readonly (readonly [key: string, value: unknown])[] = [
+    ['objectId', GUID],
+    ['appId', GUID],
+    ['tid', GUID],
+    ['principalId', GUID],
+    ['assignmentId', GUID],
+    ['thumbprintSha1', 'ab'.repeat(20)],
+    ['fromKeyId', 'c743d54d05bd4d72'],
+    ['toKeyId', '0123456789abcdef'],
+    ['notAfter', '2027-10-10T12:00:00.000Z'],
+    ['expiresAt', '2026-12-31T23:59:59.999Z'],
+    ['attempt', 3],
+    ['rows', 0],
+    ['sessions', 12],
+    ['scopeItems', 7],
+    ['confirmed', true],
+    ['mfa', false],
+    ['groupsResolved', true],
+    ['graphChecked', false],
+    ['codes', ['app_role_missing', 'time_skew_warning']],
+    ['drift', []],
+    ['checks', ['check_v1', 'check_v6']],
+    ['scopeTargets', ['group', 'distributionList']],
+    ['step', 'configure'],
+    ['subAction', 'graph_permissions'],
+    ['status', 'warning'],
+    ['mode', 'manual'],
+    ['kind', 'directory_role_assignment'],
+    ['op', 'adopt'],
+    ['reason', 'token_invalid'],
+    ['check', 'signature'],
+    ['purpose', 'signin'],
+    ['scope', 'all'],
+    ['lockScope', 'client'],
+    ['fromState', 'completed'],
+    ['source', 'break_glass'],
+    ['principalType', 'group'],
+    ['role', 'helpdesk'],
+    ['name', 'M365Portal — Réunion'],
+  ];
+
+  it('are exactly the 38 keys, each with an example', () => {
+    expect(VALID.map(([key]) => key).sort()).toEqual([...NEW_KEYS].sort());
+  });
+
+  it.each(VALID)('accepts %s = %j', (key, value) => {
+    expect(() => buildDetail({ [key]: value })).not.toThrow();
+    expect(JSON.parse(buildDetail({ [key]: value }))).toEqual({ [key]: value });
+  });
+
+  const INVALID: readonly (readonly [label: string, key: string, value: unknown])[] = [
+    ['an upper-case GUID', 'objectId', GUID.toUpperCase()],
+    ['a GUID with braces', 'appId', `{${GUID}}`],
+    ['a 35-character GUID', 'tid', GUID.slice(1)],
+    ['a number for a GUID', 'principalId', 5],
+    [
+      'a non-GUID id (grants have none, the key is omitted instead)',
+      'assignmentId',
+      'directory-role-assignment-1',
+    ],
+    ['an upper-case thumbprint', 'thumbprintSha1', 'AB'.repeat(20)],
+    ['a 39-character thumbprint', 'thumbprintSha1', 'ab'.repeat(20).slice(1)],
+    ['a SHA-256 in the SHA-1 key', 'thumbprintSha1', 'ab'.repeat(32)],
+    ['a 15-character key id', 'fromKeyId', 'c743d54d05bd4d7'],
+    ['an upper-case key id', 'toKeyId', 'C743D54D05BD4D72'],
+    ['a 32-byte key in the key id', 'fromKeyId', 'ab'.repeat(32)],
+    ['an instant without milliseconds', 'notAfter', '2027-10-10T12:00:00Z'],
+    ['an instant with an offset', 'expiresAt', '2027-10-10T12:00:00.000+02:00'],
+    ['a text for an integer', 'attempt', '3'],
+    ['a fraction for an integer', 'rows', 1.5],
+    ['a number beyond the safe range', 'sessions', 2 ** 60],
+    ['a number for a boolean', 'confirmed', 1],
+    ['a text for a boolean', 'mfa', 'true'],
+    ['a text for an array', 'codes', 'app_role_missing'],
+    ['17 items in an array are cut, not refused (see below)', 'drift', 'x'],
+    ['a number in an array', 'checks', [1]],
+    ['an enumeration value with upper case', 'reason', 'Token_Invalid'],
+    ['an enumeration value with a space', 'op', 'a b'],
+    ['an enumeration value of 65 characters', 'purpose', 'a'.repeat(65)],
+    ['an empty enumeration value', 'scope', ''],
+    ['an enumeration value that starts with a digit', 'lockScope', '1client'],
+    ['a step that is not one', 'step', 'launch'],
+    ['a sub-action that is not one', 'subAction', 'make_coffee'],
+    ['a mode that is not one', 'mode', 'semi'],
+    ['a setup state that is not one', 'fromState', 'finished'],
+    ['a source that is not one', 'source', 'import'],
+    ['a principal type that is not one', 'principalType', 'service'],
+    ['a sign-in check that is not one', 'check', 'vibes'],
+    ['a name that is not NFC', 'name', 'Réunion'],
+    ['a name with a control character', 'name', 'Re\u0007union'],
+    ['a name with a newline', 'name', 'line\nbreak'],
+    ['a number for a name', 'name', 7],
+  ];
+
+  it.each(INVALID.filter(([label]) => !label.includes('are cut')))(
+    'rejects %s',
+    (_label, key, value) => {
+      expect(() => buildDetail({ [key]: value })).toThrow(AuditDetailError);
+    },
+  );
+
+  it('cuts an array to 16 items of 64 bytes (DM-02) and a name to 256 bytes on a code point', () => {
+    const items = Array.from({ length: 20 }, (_, index) => `${'x'.repeat(70)}${String(index)}`);
+    const detail = JSON.parse(buildDetail({ codes: items })) as { codes: string[] };
+    expect(detail.codes).toHaveLength(16);
+    for (const item of detail.codes) expect(Buffer.byteLength(item)).toBeLessThanOrEqual(64);
+    const name = JSON.parse(buildDetail({ name: 'é'.repeat(200) })) as { name: string };
+    expect(Buffer.byteLength(name.name)).toBeLessThanOrEqual(256);
+    expect(name.name).toBe('é'.repeat(128));
+  });
+
+  it('never repeats a refused value in the message', () => {
+    const canary = 'CANARY-NOT-A-GUID-7f3a';
+    let thrown: unknown;
+    try {
+      buildDetail({ objectId: canary });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(AuditDetailError);
+    expect((thrown as Error).message).not.toContain('CANARY');
+  });
+
+  it('rejects an unknown key, and a key that is named like a secret, by name', () => {
+    expect(() => buildDetail({ unknownField: 'x' } as never)).toThrow('is not on the allow-list');
+    for (const key of [
+      'secret',
+      'clientSecret',
+      'accessToken',
+      'password',
+      'apiKey',
+      'assertion',
+      'privatePem',
+      'credential',
+      'Token',
+      'KEY',
+    ]) {
+      expect(() => buildDetail({ [key]: 'x' }), key).toThrow(AuditDetailError);
+    }
+    expect(() => buildDetail({ apiKey: 'x' } as never)).toThrow('named like a secret');
+  });
+
+  it('has no secret-named key on the allow-list except the two key ids, by exact name', () => {
+    const SECRET_LIKE = /secret|token|key|password|assertion|pem|credential/i;
+    const named = Object.keys(AUDIT_DETAIL_KEYS).filter((key) => SECRET_LIKE.test(key));
+    expect(named.sort()).toEqual(['fromKeyId', 'toKeyId']);
+  });
+
+  it('an unknown key or a wrong value type fails the surrounding transaction and rolls the change back', async () => {
+    const database = await auditDatabase();
+    for (const detail of [{ unknownField: 'x' }, { objectId: 'not-a-guid' }, { attempt: 'many' }]) {
+      expect(() => {
+        withTransaction(database, (tx) => {
+          tx.sqlite.prepare('UPDATE rbac_epoch SET epoch = 99 WHERE id = 1').run();
+          appendAudit(tx, {
+            ts: TS,
+            actorKind: 'setup',
+            actorId: 'setup',
+            action: 'setup.step.run',
+            outcome: 'success',
+            detail: detail as never,
+          });
+        });
+      }).toThrow();
+      expect(database.sqlite.prepare('SELECT epoch FROM rbac_epoch').get()).toEqual({ epoch: 0 });
+      expect(database.sqlite.prepare('SELECT count(*) AS n FROM audit_log').get()).toEqual({
+        n: 0,
+      });
+    }
+  });
+
+  it('keeps a detail within 4,096 bytes (Phase A) with the new keys', () => {
+    const many = Array.from({ length: 16 }, (_, index) => `code_${String(index)}`);
+    const detail = buildDetail({
+      codes: many,
+      drift: many,
+      checks: many,
+      scopeTargets: many,
+      name: 'n'.repeat(256),
+    });
+    expect(Buffer.byteLength(detail)).toBeLessThanOrEqual(4_096);
+    expect(JSON.parse(detail)).toHaveProperty('codes');
+  });
+
+  // Negative fixtures: the table above is run through a guard, and builders that are wrong in one
+  // way each must fail it (tasks.md section 0.3).
+  function assertDetailRules(build: (detail: Record<string, unknown>) => string): void {
+    for (const [key, value] of VALID) {
+      try {
+        build({ [key]: value });
+      } catch {
+        throw new Error(`${key} was refused though it is valid`);
+      }
+    }
+    for (const [label, key, value] of INVALID) {
+      if (label.includes('are cut')) continue;
+      let refused = false;
+      try {
+        build({ [key]: value });
+      } catch {
+        refused = true;
+      }
+      if (!refused) throw new Error(`${key} was let through: ${label}`);
+    }
+  }
+
+  it('passes the real builder through the guard', () => {
+    expect(() => {
+      assertDetailRules((detail) => buildDetail(detail));
+    }).not.toThrow();
+  });
+
+  it('fails a builder that checks no shape (every value passes)', () => {
+    expectGuardFails(assertDetailRules, () => '{}', {
+      name: 'detail rules',
+      reason: 'was let through',
+    });
+  });
+
+  it('fails a builder that refuses a valid value', () => {
+    const strict = (detail: Record<string, unknown>): string => {
+      if ('notAfter' in detail) throw new Error('no instants');
+      return buildDetail(detail);
+    };
+    expectGuardFails(assertDetailRules, strict, {
+      name: 'detail rules',
+      reason: 'notAfter was refused though it is valid',
+    });
+  });
+
+  it('fails a builder that accepts an upper-case GUID', () => {
+    const loose = (detail: Record<string, unknown>): string => {
+      const lowered = Object.fromEntries(
+        Object.entries(detail).map(([key, value]) => [
+          key,
+          typeof value === 'string' && /^[0-9A-F-]{36}$/.test(value) ? value.toLowerCase() : value,
+        ]),
+      );
+      return buildDetail(lowered);
+    };
+    expectGuardFails(assertDetailRules, loose, {
+      name: 'detail rules',
+      reason: 'was let through: an upper-case GUID',
     });
   });
 });

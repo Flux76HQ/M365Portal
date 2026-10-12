@@ -1,18 +1,22 @@
 import { defineConfig } from '@playwright/test';
 import type { AppOptions } from './fixtures.js';
-import { originOf, previewPort } from './servers.js';
+import { chromiumArgs } from './support/microsoft-hosts.js';
+import { e2ePort, originOf } from './support/ports.js';
 
 // The end-to-end tests run against the PRODUCTION build: `pnpm build` must have been run first
-// (global-setup.ts says so when it did not). Two instances are started by global-setup.ts and
-// stopped by global-teardown.ts (FR-A-157, contract C14):
-//   preview    E2E_PORT      (default 4173)  PREVIEW_MODE=true, SHOWCASE=true
-//   anonymous  E2E_PORT + 1  (default 4174)  neither
-// Both have a fresh temporary DATA_DIR and PUBLIC_BASE_URL=http://localhost:<port>.
+// (support/global-setup.ts says so when it did not). Three processes are started by
+// support/global-setup.ts and stopped by global-teardown.ts (FR-B-708, contracts C14 and CB17):
+//   instance A   E2E_PORT      (default 4173)  configured through the real wizard, SHOWCASE=true
+//   instance B   E2E_PORT + 1  (default 4174)  empty: the setup specs drive the wizard here
+//   fake tenant  E2E_PORT + 2  (default 4175)  the fake Entra, Graph and Exchange over local HTTP
+//                E2E_PORT + 3  (default 4176)  the same fake over TLS, for the browser (microsoft-hosts.ts)
+// Both instances have a fresh temporary DATA_DIR and PUBLIC_BASE_URL=http://localhost:<port>; every
+// spec starts as the `owner` of instance A unless it says otherwise (`principal`).
 // The default is set here, the only file where a literal port may appear (FR-A-016); the runner,
-// the workers and servers.ts all read E2E_PORT.
+// the workers and support/ports.ts all read E2E_PORT.
 const DEFAULT_PORT = '4173';
 process.env.E2E_PORT ??= DEFAULT_PORT;
-previewPort(); // validates E2E_PORT early, with a readable message
+e2ePort(); // validates E2E_PORT early, with a readable message
 
 const DESKTOP = { width: 1440, height: 900 };
 const MOBILE = { width: 390, height: 844 };
@@ -64,7 +68,7 @@ function projectFor(
 
 export default defineConfig({
   testDir: './tests',
-  // One worker: the two servers, the stop/start helper and the service worker tests share state.
+  // One worker: the instances, the fake tenant, the stop/start helper and the service worker tests share state.
   workers: 1,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
@@ -74,13 +78,16 @@ export default defineConfig({
   // Baselines of the visual specs: `visual.spec.ts-snapshots/<page>-<project>-chromium-linux.png`. The
   // project is part of the name the spec passes (desktop-light, mobile-dark, ...).
   snapshotPathTemplate: '{testDir}/{testFileName}-snapshots/{arg}-chromium{-snapshotSuffix}{ext}',
-  globalSetup: './global-setup.ts',
+  globalSetup: './support/global-setup.ts',
   globalTeardown: './global-teardown.ts',
   use: {
-    baseURL: originOf('preview'),
+    baseURL: originOf('a'),
     // The Chromium preinstalled in the image (PLAYWRIGHT_BROWSERS_PATH) is used; nothing is
     // downloaded. Chromium refuses to start its sandbox as root, which is how CI containers run.
-    launchOptions: { args: process.getuid?.() === 0 ? ['--no-sandbox'] : [] },
+    // The three Microsoft host names resolve to the fake tenant's TLS listener and no proxy is used
+    // (support/microsoft-hosts.ts); its certificate is a throwaway one.
+    launchOptions: { args: chromiumArgs() },
+    ignoreHTTPSErrors: true,
     locale: 'en-US',
     timezoneId: 'UTC',
   },

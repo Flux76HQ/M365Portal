@@ -1,10 +1,15 @@
 // Readiness (FR-A-026, PD-24, plan 7.4): is the application able to do its job right now?
 //
-// Three named checks, each with a stable failure code and never an error text:
+// Four named checks, each with a stable failure code and never an error text:
 //
 //   data_dir   a file can be created and removed in `DATA_DIR`        data_dir_not_writable
 //   database   the connection is open and the file answers            database_unavailable | database_corrupt
 //   schema     the applied migrations are the ones this build ships   schema_newer_than_app
+//   secrets    the application key opens the certificate (Phase B)    app_key_missing | app_key_invalid | certificate_unreadable
+//
+// `secrets` (FR-B-108, SB-31) is decided by the secrets module (`secrets/state.ts`), which knows
+// whether the key is required at all: it fails only once setup is completed or a certificate exists.
+// Before that a missing key is the wizard's business and `/readyz` stays 200.
 //
 // When the database is not there (degraded mode) the `schema` check cannot be made and says what the
 // `database` check says: a check only ever fails with one of the four codes of the contract.
@@ -35,7 +40,17 @@ export interface ReadinessOptions {
     Extract<ReadinessFailureCode, 'database_unavailable' | 'database_corrupt'> | undefined;
   /** The folder with the shipped migrations, for the `schema` check. */
   readonly migrationsFolder: string;
+  /**
+   * The failure code of the `secrets` check, or `undefined` when it passes. Omitted: the check
+   * passes (a server without the secrets module, as in the Phase A fixtures).
+   */
+  readonly secrets?: () => SecretsFailureCode | undefined;
 }
+
+type SecretsFailureCode = Extract<
+  ReadinessFailureCode,
+  'app_key_missing' | 'app_key_invalid' | 'certificate_unreadable'
+>;
 
 export interface ReadinessController extends Readiness {
   check(): ReadinessResult;
@@ -93,19 +108,29 @@ export function createReadiness(options: ReadinessOptions): ReadinessController 
     }
   }
 
+  /** The secrets check never throws: a holder that fails is a failing check, not a crash. */
+  function secretsCode(): ReadinessFailureCode | undefined {
+    try {
+      return options.secrets?.();
+    } catch {
+      return 'certificate_unreadable';
+    }
+  }
+
   function fresh(): ReadinessResult {
     const dataDir: ReadinessFailureCode | undefined = options.probe()
       ? undefined
       : 'data_dir_not_writable';
     const { database, schema } = checkDatabase();
     const entry = (
-      name: 'data_dir' | 'database' | 'schema',
+      name: 'data_dir' | 'database' | 'schema' | 'secrets',
       code: ReadinessFailureCode | undefined,
     ) => (code === undefined ? { name, ok: true } : { name, ok: false, code });
     const checks = [
       entry('data_dir', dataDir),
       entry('database', database),
       entry('schema', schema),
+      entry('secrets', secretsCode()),
     ];
     return {
       status: checks.every((check) => check.ok) ? 'ready' : 'unavailable',

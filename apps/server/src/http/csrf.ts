@@ -103,7 +103,11 @@ export function createCsrf(options: CsrfOptions): Csrf {
         return { ok: false, reason: 'missing' };
       }
       if (!TOKEN_SHAPE.test(token)) return { ok: false, reason: 'malformed' };
-      const [, iat = '', exp = '', nonce = '', mac = ''] = token.split('.');
+      // The shape matched, so each replacement picks one captured field of our own token.
+      const iat = token.replace(TOKEN_SHAPE, '$1');
+      const exp = token.replace(TOKEN_SHAPE, '$2');
+      const nonce = token.replace(TOKEN_SHAPE, '$3');
+      const mac = token.replace(TOKEN_SHAPE, '$4');
 
       // The last character of a 32-byte base64url string carries two bits that mean nothing; a
       // string that sets them decodes to the same bytes. Only the canonical spelling is a token.

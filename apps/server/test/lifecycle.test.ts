@@ -1,7 +1,7 @@
 // T-A-044 (in-process part) and T-A-045 (spawn part, further down): the life of the process.
 //
 // What is proven here:
-//   - readiness: `data_dir`, `database` and `schema` as three named checks with stable failure codes,
+//   - readiness: `data_dir`, `database`, `schema` and (Phase B) `secrets` as four named checks with stable failure codes,
 //     the whole result cached for 2 seconds on the injected clock, fixtures that do not rely on
 //     `chmod` (this process is root), a later write failure that flips the answer within 2 seconds,
 //     and never a raw error text in the answer
@@ -73,6 +73,9 @@ import { createCaptureLogger } from './helpers/capture-logger.js';
 import { createLogCapture } from './helpers/log-capture.js';
 import { createTempDataDir } from './helpers/temp-data-dir.js';
 import { unwritableDataDir } from './helpers/unwritable-data-dir.js';
+
+/** The text as a pattern that matches exactly it. */
+const escapeForRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 
 const SERVER_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const MIGRATIONS = join(SERVER_ROOT, 'drizzle');
@@ -176,11 +179,16 @@ describe('readiness (FR-A-026, PD-24)', () => {
     return { dataDir, database, clock, probes, readiness };
   }
 
-  it('is ready with the three checks, in the shape of the schema', async () => {
+  it('is ready with the four checks, in the shape of the schema', async () => {
     const { readiness } = await ready();
     const result = readiness.check();
     expect(result.status).toBe('ready');
-    expect(result.checks.map((check) => check.name)).toEqual(['data_dir', 'database', 'schema']);
+    expect(result.checks.map((check) => check.name)).toEqual([
+      'data_dir',
+      'database',
+      'schema',
+      'secrets',
+    ]);
     expect(ReadyzResponseSchema.safeParse(result).success).toBe(true);
     expect(readiness.storageAvailable()).toBe(true);
   });
@@ -235,6 +243,7 @@ describe('readiness (FR-A-026, PD-24)', () => {
       data_dir: 'ok',
       database: 'database_corrupt',
       schema: 'database_corrupt',
+      secrets: 'ok',
     });
   });
 
@@ -262,6 +271,7 @@ describe('readiness (FR-A-026, PD-24)', () => {
       data_dir: 'data_dir_not_writable',
       database: 'database_unavailable',
       schema: 'database_unavailable',
+      secrets: 'ok',
     });
     expect(ReadyzResponseSchema.safeParse(result).success).toBe(true);
     expect(readiness.storageAvailable()).toBe(false);
@@ -288,6 +298,7 @@ describe('readiness (FR-A-026, PD-24)', () => {
       data_dir: 'ok',
       database: 'database_corrupt',
       schema: 'database_corrupt',
+      secrets: 'ok',
     });
   });
 
@@ -307,6 +318,7 @@ describe('readiness (FR-A-026, PD-24)', () => {
       data_dir: 'ok',
       database: 'ok',
       schema: 'schema_newer_than_app',
+      secrets: 'ok',
     });
   });
 
@@ -344,6 +356,7 @@ describe('readiness (FR-A-026, PD-24)', () => {
           { name: 'data_dir', ok: false, code: 'ENOTDIR: not a directory' },
           { name: 'database', ok: true },
           { name: 'schema', ok: true },
+          { name: 'secrets', ok: true },
         ],
       }).success,
     ).toBe(false);
@@ -784,9 +797,7 @@ describe('the built server (FR-A-012 to FR-A-016, FR-A-163, FR-A-187)', () => {
     it('keeps the dependencies external and inlines the workspace package', () => {
       const index = readFileSync(join(layout.dist, 'index.js'), 'utf8');
       for (const name of ['hono', 'pino', 'better-sqlite3', 'drizzle-orm', 'zod']) {
-        expect(index, name).toMatch(
-          new RegExp(`from ["']${name.replace('/', '\\/')}(/[^"']*)?["']`),
-        );
+        expect(index, name).toMatch(new RegExp(`from ["']${escapeForRegExp(name)}(/[^"']*)?["']`));
       }
       expect(index).not.toContain('@m365portal/shared');
     });
@@ -817,14 +828,18 @@ describe('the built server (FR-A-012 to FR-A-016, FR-A-163, FR-A-187)', () => {
       expect(ready.status).toBe(200);
       expect(ReadyzResponseSchema.parse(JSON.parse(ready.body)).status).toBe('ready');
 
-      const shell = await server.get('/', { accept: 'text/html' });
+      // An unconfigured panel sends a browser to the wizard (FR-B-201, PB-27); that page is the shell.
+      const entry = await server.get('/', { accept: 'text/html' });
+      expect(entry.status).toBe(303);
+      expect(entry.headers.location).toBe('/setup');
+      const shell = await server.get('/setup', { accept: 'text/html' });
       expect(shell.status).toBe(200);
       expect(shell.body).not.toContain('__M365_NONCE__');
       const me = await server.get('/api/v1/me');
       expect(JSON.parse(me.body)).toMatchObject({ storageAvailable: true });
     });
 
-    it('runs the steps in the order of plan 7.1: config, web, storage, database, migrate, modules, routes, listen', async () => {
+    it('runs the steps in the order of plan 7.1: config, web, storage, database, migrate, singletons, modules, routes, listen', async () => {
       const server = await start({
         env: { DATA_DIR: await dataDirectory('order'), LOG_LEVEL: 'debug' },
       });
@@ -838,6 +853,7 @@ describe('the built server (FR-A-012 to FR-A-016, FR-A-163, FR-A-187)', () => {
         'storage',
         'database',
         'migrate',
+        'singletons',
         'modules',
         'routes',
         'listen',
@@ -1031,6 +1047,7 @@ describe('the built server (FR-A-012 to FR-A-016, FR-A-163, FR-A-187)', () => {
         { name: 'data_dir', ok: true },
         { name: 'database', ok: false, code: 'database_corrupt' },
         { name: 'schema', ok: false, code: 'database_corrupt' },
+        { name: 'secrets', ok: true },
       ]);
       expect(ready.body).not.toContain('canary-garbage');
       server.signal('SIGTERM');
@@ -1127,12 +1144,12 @@ describe('the built server (FR-A-012 to FR-A-016, FR-A-163, FR-A-187)', () => {
   // -- the audited denial (gate G1) --------------------------------------------------------------
 
   describe('an anonymous write (FR-A-034, SC-A-009)', () => {
-    it('is refused with 403 and leaves an audit row that `node dist/cli.js verify-audit` accepts', async () => {
+    it('is refused with 401 and leaves an audit row that `node dist/cli.js verify-audit` accepts', async () => {
       const dir = await dataDirectory('denial');
       const server = await start({ entry: 'lifecycle-server.js', env: { DATA_DIR: dir } });
       const response = await writeRequest(server);
-      expect(response.status).toBe(403);
-      expect(JSON.parse(response.body)).toMatchObject({ code: 'permission_denied' });
+      expect(response.status).toBe(401);
+      expect(JSON.parse(response.body)).toMatchObject({ code: 'unauthenticated' });
 
       server.signal('SIGTERM');
       await server.exited;
@@ -1151,7 +1168,7 @@ describe('the built server (FR-A-012 to FR-A-016, FR-A-163, FR-A-187)', () => {
         .prepare('SELECT action, outcome, reason_code AS reason FROM audit_log WHERE outcome = ?')
         .all('denied');
       expect(rows).toEqual([
-        { action: 'fixture.thing.create', outcome: 'denied', reason: 'permission_denied' },
+        { action: 'fixture.thing.create', outcome: 'denied', reason: 'permission_missing' },
       ]);
     });
   });
@@ -1308,6 +1325,7 @@ describe('the start sequence (plan 7.1)', () => {
       'storage',
       'database',
       'migrate',
+      'singletons',
       'modules',
       'routes',
       'listen',

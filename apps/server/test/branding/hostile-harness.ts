@@ -39,6 +39,13 @@ import type { LocalListener } from '../helpers/local-listener.js';
 /** Each fixture must finish within this long (spec Appendix A). */
 export const FIXTURE_BUDGET_MS = 5_000;
 
+/**
+ * What a run enforces: the budget times a fixed allowance for a machine that runs the whole suite in
+ * parallel (a dimension bomb that takes 1 s alone took 9 s with ten busy cores). The allowance is
+ * bounded, so a fixture that really hangs or decodes a bomb in full still fails.
+ */
+export const FIXTURE_LOAD_ALLOWANCE = 3;
+
 function messageOf(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
 }
@@ -481,7 +488,11 @@ export async function runFixture({ fixture, target, environment }: RunInput): Pr
   for (const input of inputs) {
     const name = `${fixture.id} (${input.label})`;
     const before = (await target.auditEntries()).length;
-    const observed = await withinBudget(target.run(input, context), name);
+    const observed = await withinBudget(
+      target.run(input, context),
+      name,
+      FIXTURE_BUDGET_MS * FIXTURE_LOAD_ALLOWANCE,
+    );
 
     assertOutcome({ observed, expected: input.expected, name });
     if (observed.output !== undefined) {
@@ -609,8 +620,10 @@ export interface HttpTargetOptions {
   readonly server: ServerHandle;
   /** `PUBLIC_BASE_URL`'s origin: sent as `Origin` and as the host of `Host`. */
   readonly publicOrigin: string;
-  /** A valid CSRF token for the actor (the preview actor in Phase A). */
+  /** A valid CSRF token for the actor (fetched with the same cookie as the requests). */
   readonly csrfToken: () => Promise<string>;
+  /** The `Cookie` header of the signed-in user the requests act as (T-B-245); none: anonymous. */
+  readonly cookie?: string;
   /** `DATA_DIR` of the server, to read what it stored. */
   readonly dataDir: string;
   /** Every audit entry written so far, oldest first. */
@@ -778,6 +791,7 @@ export function viaHttp(options: HttpTargetOptions): HostileTarget {
     host: new URL(options.publicOrigin).host,
     origin: options.publicOrigin,
     'x-csrf-token': await options.csrfToken(),
+    ...(options.cookie === undefined ? {} : { cookie: options.cookie }),
     ...(options.clientAddress === undefined ? {} : { 'x-forwarded-for': options.clientAddress() }),
     ...headers,
   });

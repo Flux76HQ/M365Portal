@@ -21,6 +21,7 @@ import { startServer, type RunningServer } from '../../src/start.js';
 import { freePort } from '../helpers/built-server.js';
 import { createHttpClient, readJson, type HttpClient } from '../helpers/http-client.js';
 import { createLogCapture } from '../helpers/log-capture.js';
+import { seedSession } from '../helpers/signed-in.js';
 import { createTempDataDir } from '../helpers/temp-data-dir.js';
 import { distinctPng } from './branding-fixture.js';
 
@@ -36,14 +37,15 @@ interface Run {
 
 async function startOn(dataDir: string): Promise<Run> {
   const port = await freePort();
-  const origin = `http://127.0.0.1:${String(port)}`;
+  const socket = `http://127.0.0.1:${String(port)}`;
+  // Phase B: PUBLIC_BASE_URL is https or http://localhost (FR-B-103); the socket stays on 127.0.0.1.
+  const origin = `http://localhost:${String(port)}`;
   const running = await startServer({
     env: {
       PORT: String(port),
       HOST: '127.0.0.1',
       DATA_DIR: dataDir,
       PUBLIC_BASE_URL: origin,
-      PREVIEW_MODE: 'true',
       LOG_LEVEL: 'warn',
     },
     stderr: createLogCapture(),
@@ -60,10 +62,23 @@ async function startOn(dataDir: string): Promise<Run> {
     stopped = true;
     return original(signal);
   };
+  // An administrator signs in: the session is a row the server reads on every request (T-B-245).
+  const database = openDatabase({ path: join(dataDir, DATABASE_FILE_NAME) });
+  let headers: Record<string, string>;
+  try {
+    headers = { ...seedSession(database, origin, { roles: ['admin'] }).headers };
+  } finally {
+    database.close();
+  }
   return {
     running,
     origin,
-    client: createHttpClient({ fetch: (request) => fetch(request), baseUrl: origin, origin }),
+    client: createHttpClient({
+      fetch: (request) => fetch(request),
+      baseUrl: socket,
+      origin,
+      headers,
+    }),
   };
 }
 

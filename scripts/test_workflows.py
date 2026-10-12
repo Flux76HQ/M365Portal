@@ -510,6 +510,9 @@ DEPENDABOT = REPOSITORY / ".github" / "dependabot.yml"
 DEPENDABOT_IGNORED = {
     "typescript": ">=6.1", "eslint": ">=11", "@playwright/test": None, "playwright-core": None,
     "@axe-core/playwright": None, "drizzle-orm": None, "drizzle-kit": None,
+    # Phase B (T-B-354, plan 4.2): the majors of the three libraries on the sign-in and secrets
+    # path are a reviewed upgrade, not a weekly group pull request.
+    "@azure/msal-node": ">=8", "jose": ">=7", "@peculiar/x509": ">=3",
 }
 
 
@@ -926,6 +929,32 @@ class NegativeFixtureTests(unittest.TestCase):
         text = DEPENDABOT.read_text(encoding="utf-8").replace("dependency-name: typescript",
                                                               "dependency-name: tsx")
         self.assertTrue(check_dependabot(text))
+
+    def test_dependabot_without_phase_b_majors_ignore_fails(self):
+        for name in ("@azure/msal-node", "jose", "@peculiar/x509"):
+            text = DEPENDABOT.read_text(encoding="utf-8").replace(
+                f"dependency-name: \"{name}\"", "dependency-name: \"other\"").replace(
+                f"dependency-name: {name}", "dependency-name: other")
+            self.assertTrue(check_dependabot(text), name)
+
+    def test_dependabot_wrong_phase_b_range_fails(self):
+        text = DEPENDABOT.read_text(encoding="utf-8").replace('- ">=7"', '- ">=9"')
+        self.assertTrue(check_dependabot(text))
+
+    def test_dependabot_groups_the_rest_weekly(self):
+        config = yaml.safe_load(DEPENDABOT.read_text(encoding="utf-8"))
+        for update in config["updates"]:
+            self.assertEqual(update["schedule"]["interval"], "weekly")
+            self.assertTrue(update["groups"])
+
+    def test_no_new_workflow_job_in_phase_b(self):
+        jobs = {}
+        for name in ("ci.yml", "image.yml", "version-guardrails.yml", "agent-instructions.yml",
+                     "codeql.yml"):
+            jobs[name] = set(load(name)["jobs"])
+        flat = set().union(*jobs.values())
+        self.assertEqual(flat, {"quality", "e2e", "image", "publish", "enforce-version-bump",
+                                "agent-instructions-lint", "analyze"})
 
     def test_visual_baselines_with_push_trigger_fails(self):
         workflow = copy.deepcopy(load("visual-baselines.yml"))

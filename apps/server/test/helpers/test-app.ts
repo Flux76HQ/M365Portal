@@ -14,9 +14,25 @@ import { createServer, type Server, type ServerOptions } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { getRequestListener } from '@hono/node-server';
 import { DEFAULT_PORT } from '@m365portal/shared/limits';
+import type { Grant } from '@m365portal/shared/rbac/effective';
+import type { DatabaseHandle } from '../../src/db/open.js';
+import { withTransaction } from '../../src/db/tx.js';
+import { hashSessionId } from '../../src/policy/session-hash.js';
+import { insertRole } from '../../src/rbac/repository.js';
 import { createFakeClock, type FakeClock } from './fake-clock.js';
 import { createHttpClient, type FetchLike, type HttpClient } from './http-client.js';
 import { createLogCapture, type LogCapture } from './log-capture.js';
+import {
+  DEFAULT_IDLE_TIMEOUT_MS,
+  newCookieValue,
+  seedSession,
+  sessionCookieName,
+  setupCookieName,
+  type AssignmentSeed,
+  type SeededSession,
+} from './signed-in.js';
+import type { FakeSetupSessions } from './fake-setup-sessions.js';
+import { assign } from './rbac-db.js';
 import { afterCurrentTest, createTempDataDir } from './temp-data-dir.js';
 
 /** The part of an application the harness needs: Hono, `@hono/zod-openapi` and plain objects fit. */
@@ -222,3 +238,158 @@ export async function createTestApp<App extends FetchableApp>(
     close,
   };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Signed-in test actors (T-B-244, CB16, XB21): what replaces the preview actor
+// ---------------------------------------------------------------------------------------------
+
+/** What `signedInAs` needs of the application under test: its database, clock, origin and clients. */
+export interface SignedInTarget {
+  readonly db: DatabaseHandle;
+  readonly clock: FakeClock;
+  readonly publicOrigin: string;
+  readonly setupSessions: FakeSetupSessions;
+  clientFor(options?: ClientOptions): HttpClient;
+}
+
+export interface SignedInOptions {
+  readonly kind: 'user' | 'setup' | 'break_glass';
+  /** The user's `oid`. Default: a new one for every call. */
+  readonly oid?: string;
+  readonly label?: string | null;
+  /** Role keys, each assigned to the user without a scope. */
+  readonly roles?: readonly string[];
+  /** Assignments with a scope, an expiry, or through a group the user is a member of. */
+  readonly assignments?: readonly AssignmentSeed[];
+  /**
+   * Exactly these grants, whatever the built-in roles say: written as custom roles (one for the
+   * unscoped grants, one for each scoped grant) assigned to the user.
+   */
+  readonly grants?: readonly Grant[];
+  /** How old the session is. `'expired'`: idle past the timeout, so every request answers 401. */
+  readonly sessionAge?:
+    | 'expired'
+    | {
+        readonly ageMs?: number;
+        readonly lastSeenAgoMs?: number;
+        readonly stepUpAgoMs?: number | null;
+        readonly absoluteInMs?: number;
+      };
+  /** The user stepped up this long ago (short for `sessionAge.stepUpAgoMs`). */
+  readonly stepUpAgoMs?: number | null;
+  readonly mfa?: boolean;
+  readonly groupsStale?: boolean;
+}
+
+export interface SignedIn {
+  readonly kind: SignedInOptions['kind'];
+  /** The `oid` of a user; empty for the setup and break-glass actors. */
+  readonly oid: string;
+  /** The cookie values by kind: `session` for a user and break-glass, `setup` for the setup actor. */
+  readonly cookies: { readonly session?: string; readonly setup?: string };
+  /** The `Cookie` header a browser holding them would send. */
+  readonly headers: Readonly<Record<string, string>>;
+  readonly session: SeededSession;
+  /** A client that sends the cookies, the `Origin` of `PUBLIC_BASE_URL` and a token bound to them. */
+  readonly client: HttpClient;
+  /** A CSRF token for these cookies, as `GET /api/v1/csrf` issues it. */
+  csrfToken(): Promise<string>;
+  /** End the session the way a sign-out does: the row is deleted, the cookie matches nothing. */
+  revoke(): void;
+}
+
+let userCounter = 0;
+
+function nextOid(): string {
+  userCounter += 1;
+  return `00000000-0000-4000-9000-${userCounter.toString(16).padStart(12, '0')}`;
+}
+
+/** Roles that hold the grants, written as custom roles so that the user has exactly these. */
+function assignGrants(db: DatabaseHandle, oid: string, grants: readonly Grant[], at: string): void {
+  const unscoped = grants.filter((grant) => grant.scope === 'all');
+  if (unscoped.length > 0) {
+    const key = `testall${oid.slice(-6)}`;
+    withTransaction(db, (tx) =>
+      insertRole(tx, {
+        key,
+        createdAt: at,
+        grants: unscoped.map(({ permission, qualifier }) => ({ permission, qualifier })),
+      }),
+    );
+    assign(db, { principalId: oid, role: key, ifMissing: true });
+  }
+  grants
+    .filter((grant) => grant.scope !== 'all')
+    .forEach((grant, index) => {
+      const key = `testscoped${oid.slice(-6)}${String(index)}`;
+      withTransaction(db, (tx) =>
+        insertRole(tx, {
+          key,
+          createdAt: at,
+          grants: [{ permission: grant.permission, qualifier: grant.qualifier }],
+        }),
+      );
+      assign(db, {
+        principalId: oid,
+        role: key,
+        scope: grant.scope === 'all' ? [] : grant.scope,
+      });
+    });
+}
+
+export function signedInAs(target: SignedInTarget, options: SignedInOptions): SignedIn {
+  const now = target.clock.nowMs();
+  const age =
+    options.sessionAge === 'expired'
+      ? { lastSeenAgoMs: DEFAULT_IDLE_TIMEOUT_MS + 1 }
+      : (options.sessionAge ?? {});
+  let session: SeededSession;
+  let oid = '';
+
+  if (options.kind === 'setup') {
+    const value = newCookieValue();
+    const idHash = hashSessionId(value);
+    target.setupSessions.add(idHash);
+    session = {
+      value,
+      idHash,
+      oid: '',
+      headers: { cookie: `${setupCookieName(target.publicOrigin)}=${value}` },
+    };
+  } else {
+    oid = options.kind === 'user' ? (options.oid ?? nextOid()).toLowerCase() : '';
+    session = seedSession(target.db, target.publicOrigin, {
+      kind: options.kind,
+      oid,
+      now,
+      ...(options.label === undefined ? {} : { label: options.label }),
+      ...(options.roles === undefined ? {} : { roles: options.roles }),
+      ...(options.assignments === undefined ? {} : { assignments: options.assignments }),
+      ...(options.stepUpAgoMs === undefined ? {} : { stepUpAgoMs: options.stepUpAgoMs }),
+      ...(options.mfa === undefined ? {} : { mfa: options.mfa }),
+      ...(options.groupsStale === undefined ? {} : { groupsStale: options.groupsStale }),
+      ...age,
+    });
+    if (options.kind === 'user' && options.grants !== undefined) {
+      assignGrants(target.db, oid, options.grants, new Date(now).toISOString());
+    }
+  }
+
+  const client = target.clientFor({ headers: session.headers });
+  return {
+    kind: options.kind,
+    oid,
+    cookies: options.kind === 'setup' ? { setup: session.value } : { session: session.value },
+    headers: session.headers,
+    session,
+    client,
+    csrfToken: () => client.csrfToken(),
+    revoke: () => {
+      if (options.kind === 'setup') target.setupSessions.remove(session.idHash);
+      else target.db.sqlite.prepare('DELETE FROM session WHERE id_hash = ?').run(session.idHash);
+    },
+  };
+}
+
+export { sessionCookieName, setupCookieName };

@@ -3,8 +3,9 @@
 // to over a real socket. Nothing of the server runs in the test process.
 //
 // What the server is told:
-//   PREVIEW_MODE=true, PREVIEW_MODE_ALLOW_REMOTE=true   the preview actor holds `settings:branding`
-//                      (allow-remote because every request carries X-Forwarded-For, see next line)
+//   a signed-in administrator: the session is a row written to the live database after the start
+//                      (`seedSession`, T-B-245), and every request carries its cookie; the actor holds
+//                      `settings:branding` through the built-in role *admin*
 //   TRUST_PROXY=1      each request names a client address of its own (see `clientAddress` in the
 //                      harness): the 3-upload burst of the rate class is per client
 //   DATA_DIR, TMPDIR   the workspace of the fixture, so that "nothing left in /tmp or branding/.tmp"
@@ -14,6 +15,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase, DATABASE_FILE_NAME } from '../../src/db/index.js';
 import { freePort, httpRequest, spawnServer, type BuiltLayout } from '../helpers/built-server.js';
+import { seedSession } from '../helpers/signed-in.js';
 import type { HostileFixture } from '../fixtures/hostile-corpus.js';
 import type { TransportPlan } from '../fixtures/hostile/types.js';
 import {
@@ -64,6 +66,8 @@ export async function startBuiltTarget(options: BuiltTargetOptions): Promise<Hos
   const { layout, workspace, fixture } = options;
   const port = await freePort();
   const origin = `http://127.0.0.1:${String(port)}`;
+  // Phase B: PUBLIC_BASE_URL is https or http://localhost (FR-B-103); the socket stays on 127.0.0.1.
+  const publicOrigin = `http://localhost:${String(port)}`;
   const plan = transportPlanOf(fixture);
   const server = await spawnServer({
     layout,
@@ -71,9 +75,7 @@ export async function startBuiltTarget(options: BuiltTargetOptions): Promise<Hos
     env: {
       DATA_DIR: workspace.dataDir,
       TMPDIR: workspace.tmpDir,
-      PUBLIC_BASE_URL: origin,
-      PREVIEW_MODE: 'true',
-      PREVIEW_MODE_ALLOW_REMOTE: 'true',
+      PUBLIC_BASE_URL: publicOrigin,
       TRUST_PROXY: '1',
       LOG_LEVEL: 'info',
       ...(plan === undefined
@@ -87,10 +89,18 @@ export async function startBuiltTarget(options: BuiltTargetOptions): Promise<Hos
   });
   await server.listening();
 
+  const seeded = openDatabase({ path: join(workspace.dataDir, DATABASE_FILE_NAME) });
+  let cookie: string;
+  try {
+    cookie = seedSession(seeded, publicOrigin, { roles: ['admin'] }).headers.cookie ?? '';
+  } finally {
+    seeded.close();
+  }
+
   let token: string | undefined;
   const csrfToken = async (): Promise<string> => {
     if (token !== undefined) return token;
-    const answer = await httpRequest(port, '/api/v1/csrf');
+    const answer = await httpRequest(port, '/api/v1/csrf', { headers: { cookie } });
     token = (JSON.parse(answer.body) as { token: string }).token;
     return token;
   };
@@ -105,7 +115,8 @@ export async function startBuiltTarget(options: BuiltTargetOptions): Promise<Hos
         await server.exited;
       },
     },
-    publicOrigin: origin,
+    publicOrigin,
+    cookie,
     csrfToken,
     dataDir: workspace.dataDir,
     readAudit: () => Promise.resolve(readAuditRows(workspace.dataDir)),

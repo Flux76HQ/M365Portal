@@ -17,20 +17,25 @@ import { performance } from 'node:perf_hooks';
 import type { AppConfig } from './config/env.js';
 import type { DatabaseHandle } from './db/index.js';
 import { createCsrf } from './http/csrf.js';
-import { createDenialAudit } from './http/denial-audit.js';
+import { createDenialAudit, createPolicyErrorAudit } from './http/denial-audit.js';
 import { createDocumentSource } from './http/openapi.js';
 import { createRateLimiter } from './http/rate-limit.js';
-import { createHttpApp, type HttpApp } from './http/route.js';
+import { createHttpApp, mergeAvailability, type HttpApp } from './http/route.js';
+import { authHoldersOf } from './auth/holders.js';
+import { meSourcesOf } from './auth/me.js';
+import { csrfBindingOfHeaders } from './policy/session-hash.js';
 import { spaFallback } from './http/spa-fallback.js';
 import { serviceWorkerRoute, staticFallback } from './http/static.js';
 import type { ReadinessController } from './lifecycle/readiness.js';
 import type { Logger } from './logging/logger.js';
-import type { AppModule, ModuleDeps } from './module.js';
+import { assertModuleAvailability, type AppModule, type ModuleDeps } from './module.js';
 import { healthRoutes } from './routes/health.js';
 import { metaRoutes } from './routes/meta.js';
 import { robotsRoutes } from './routes/robots.js';
 import { createPlaceholderShell, type ShellRenderer } from './shell-port.js';
 import { APP_VERSION } from './version.js';
+
+export { systemRandom } from './system-random.js';
 
 /** The two clocks of the server. Tests pass fakes; the server passes `systemClock`. */
 export interface ServerClock {
@@ -79,6 +84,7 @@ function assertUniqueModules(modules: readonly AppModule[]): void {
   for (const module of modules) {
     if (seen.has(module.id)) throw new Error(`two modules are named "${module.id}"`);
     seen.add(module.id);
+    assertModuleAvailability(module);
   }
 }
 
@@ -105,12 +111,29 @@ export function buildApp(deps: BuildAppDeps): BuiltApp {
     deps.modules.find((module) => module.shell !== undefined)?.shell ??
     createPlaceholderShell(deps.shellTemplate);
 
+  const pages = deps.modules.find((module) => module.pages !== undefined)?.pages;
+
   const http = createHttpApp({
     config,
     log,
     csrf,
     limiter,
+    availability: mergeAvailability(deps.modules),
+    resolveActor: deps.moduleDeps.resolveActor,
+    slideSession: (actor) => {
+      // The session store throttles its own writes (FR-B-407); a setup session is kept alive too.
+      if (actor.session !== null)
+        deps.moduleDeps.policy.sessions.get()?.touch?.(actor.session.idHash);
+      if (actor.setupSession !== null) {
+        deps.moduleDeps.policy.setupSessions.get()?.touch?.(actor.setupSession.idHash);
+      }
+    },
+    // The auth module sets its revalidation when it is built; before that there is none (FR-B-409).
+    revalidate: (c) =>
+      authHoldersOf(deps.moduleDeps).revalidate.get()?.(c) ?? Promise.resolve(undefined),
+    sessionIdle: { idleTimeoutMs: config.session.idleTimeoutMs, now: () => clock.now() },
     onDenied: createDenialAudit({ database: deps.database, now: () => clock.now() }),
+    onPolicyError: createPolicyErrorAudit({ database: deps.database, now: () => clock.now() }),
     onStorageFailure: (failure) => {
       deps.readiness.reportStorageFailure(failure);
     },
@@ -121,14 +144,23 @@ export function buildApp(deps: BuildAppDeps): BuiltApp {
         publicOrigin: config.publicOrigin,
         showcase: config.showcase,
         storageAvailable: () => deps.readiness.storageAvailable(),
+        me: meSourcesOf(deps.moduleDeps),
         csrf,
+        // The same binding the wrapper checks on a write: the cookies as sent (FR-B-408).
+        binding: (c) => csrfBindingOfHeaders(c.req.raw.headers, config.publicOrigin),
         document,
       }),
       ...robotsRoutes(),
       serviceWorkerRoute({ root: deps.webRoot }),
       ...deps.modules.flatMap((module) => module.routes(deps.moduleDeps)),
     ],
-    fallbacks: [staticFallback({ root: deps.webRoot }), spaFallback({ shell })],
+    fallbacks: [
+      staticFallback({ root: deps.webRoot }),
+      spaFallback({
+        shell,
+        ...(pages === undefined ? {} : { pages }),
+      }),
+    ],
     openApi: { version: APP_VERSION, source: document },
   });
 

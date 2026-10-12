@@ -1,37 +1,58 @@
-// T-A-033: FR-A-032 (preview mode: a warning on the log and on stderr at start, the actor id
-// `preview`, nothing reachable without `PREVIEW_MODE=true`), FR-A-035 (the guard at configuration
-// time, tested in `config.test.ts`) and FR-A-036 (the request-level rule).
+// T-A-033, rewritten by T-B-240 (FR-B-102, FR-B-413): preview mode is gone. Phase A promised it
+// (FR-A-032, FR-A-035, FR-A-036): an actor with every permission for a request on a loopback `Host`
+// without a proxy header, switched on by `PREVIEW_MODE=true`. Phase B removes the variables and the
+// actor; this file keeps the Phase A cases as their Phase B counterparts:
 //
-// FR-A-036. The default `PUBLIC_BASE_URL` (`http://localhost:<PORT>`) is loopback even when the port
-// is published to a network or a proxy forwards to it, so the configured name proves nothing about
-// a request. Unless `PREVIEW_MODE_ALLOW_REMOTE=true` the preview actor is for a request whose `Host`
-// is loopback and that carries no `Forwarded`, `X-Forwarded-*` or `X-Real-IP` header; every other
-// request is anonymous. The rule can only downgrade an actor, never upgrade one. It is not a
-// security boundary (a non-browser client can forge `Host`); publishing the port on loopback only is.
+//   - the Host matrix and the proxy-header list: every request, whatever its `Host` and headers, is
+//     anonymous, and the reusable half of the rule, `carriesForwardingHeader`, now lives in
+//     `http/trust-proxy.ts` for the setup loopback guard (FR-B-206);
+//   - a server started with `PREVIEW_MODE=true` (and with `PREVIEW_MODE_ALLOW_REMOTE=true`) reaches the
+//     same state as one started without them: anonymous, the same answers to the same requests;
+//   - a leftover variable is named once in the log and on stderr, with no value (`announceRemovedVariables`).
 //
-// Negative fixtures (tasks.md section 0.3): `assertHostMatrix` is run on resolvers that are wrong in
-// each way one can be wrong, among them one that ignores `Host`, and must fail on every one.
+// Negative fixtures (tasks.md section 0.3): `assertNoRequestUpgrades` is run on resolvers that bring
+// the old behaviour back in each way it could come back, and must fail on every one.
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { describe, expect, it } from 'vitest';
-import { isLoopbackHost, loadConfigOrThrow } from '../src/config/index.js';
-import { requestHost } from '../src/http/trust-proxy.js';
+import { defineRoute } from '../src/http/route.js';
+import { carriesForwardingHeader } from '../src/http/trust-proxy.js';
+import type { AppModuleFactory } from '../src/module.js';
+import { createLogger } from '../src/logging/logger.js';
+import { PERMISSIONS } from '@m365portal/shared/permissions';
+import type { Grant } from '@m365portal/shared/rbac/effective';
 import {
   ANONYMOUS_ACTOR,
-  PREVIEW_ACTOR,
-  announcePreviewMode,
-  carriesForwardingHeader,
-  createActorResolver,
-  resolveActor,
+  frozenSetOf,
   type Actor,
-  type ActorConfig,
+  type ActorResolver,
 } from '../src/policy/index.js';
+import { startServer, announceRemovedVariables } from '../src/start.js';
+import { freePort } from './helpers/built-server.js';
 import { createLogCapture } from './helpers/log-capture.js';
-import { createLogger } from '../src/logging/logger.js';
+import { createPolicyHarness } from './helpers/policy-harness.js';
+import { createTempDataDir } from './helpers/temp-data-dir.js';
 
-const OFF: ActorConfig = { previewMode: false, previewModeAllowRemote: false };
-const ON: ActorConfig = { previewMode: true, previewModeAllowRemote: false };
-const ON_REMOTE: ActorConfig = { previewMode: true, previewModeAllowRemote: true };
-const OFF_BUT_REMOTE: ActorConfig = { previewMode: false, previewModeAllowRemote: true };
+const GRANTS: readonly Grant[] = Object.freeze(
+  PERMISSIONS.map(
+    (permission) => Object.freeze({ permission, qualifier: 'full', scope: 'all' }) as Grant,
+  ),
+);
+
+/** A stand-in for the removed preview actor: the negative fixtures below say what a guard must refuse. */
+const LEGACY_PREVIEW_ACTOR: Actor = Object.freeze({
+  kind: 'preview',
+  id: 'preview',
+  label: 'Preview mode',
+  permissions: frozenSetOf(PERMISSIONS),
+  grants: GRANTS,
+  csrfBinding: '',
+  credential: 'valid',
+  session: null,
+  setupSession: null,
+  stepUpFresh: false,
+}) as unknown as Actor;
 
 function requestWith(
   host: string | null,
@@ -128,84 +149,37 @@ const FORWARDING_HEADERS: readonly (readonly [string, string])[] = [
   ['x-forwarded', '1'],
 ];
 
-describe('resolveActor: preview mode on, a loopback Host, no forwarding header (FR-A-036)', () => {
-  it.each(LOOPBACK_HOSTS)('gives the preview actor for Host: %s', (host) => {
-    expect(resolveActor(ON, requestWith(host))).toBe(PREVIEW_ACTOR);
+describe('every request is anonymous, whatever its Host and headers (FR-B-102, was FR-A-036)', () => {
+  it.each([...LOOPBACK_HOSTS, ...OTHER_HOSTS])('Host: %j', async (host) => {
+    const harness = await createPolicyHarness();
+    expect(harness.resolve(requestWith(host))).toBe(ANONYMOUS_ACTOR);
   });
 
-  it('has the actor id "preview" (FR-A-032), which is what the audit entries name', () => {
-    const actor = resolveActor(ON, requestWith('localhost:9300'));
-    expect(actor.id).toBe('preview');
-    expect(actor.kind).toBe('preview');
+  it.each(FORWARDING_HEADERS)('a loopback Host with %s', async (name, value) => {
+    const harness = await createPolicyHarness();
+    expect(harness.resolve(requestWith('localhost:9300', { [name]: value }))).toBe(ANONYMOUS_ACTOR);
   });
 
-  it('does not care what else the request says: only the downgrade rule can change the answer', () => {
-    for (const path of [
-      '/',
-      '/api/v1/me',
-      '/api/v1/branding?actor=anonymous',
-      '/x?preview=false',
-    ]) {
-      expect(resolveActor(ON, requestWith('localhost:9300', {}, path))).toBe(PREVIEW_ACTOR);
-    }
-    const noise = {
-      'x-actor': 'anonymous',
-      'x-preview': 'false',
-      authorization: 'Bearer anonymous',
-      cookie: 'actor=anonymous; preview=off',
-      origin: 'https://evil.example',
-      'sec-fetch-site': 'cross-site',
-      'user-agent': 'curl/8',
-      accept: 'text/html',
-      'content-type': 'application/json',
-      'x-csrf-token': 'v1.1.2.3.4',
-    };
-    expect(resolveActor(ON, requestWith('localhost:9300', noise))).toBe(PREVIEW_ACTOR);
+  it('gives the anonymous actor when there is no Host header at all', async () => {
+    const harness = await createPolicyHarness();
+    expect(harness.resolve(requestWith(null))).toBe(ANONYMOUS_ACTOR);
+  });
+
+  it('holds no permission at all', async () => {
+    const harness = await createPolicyHarness();
+    const actor = harness.resolve(requestWith('localhost:9300'));
+    expect(actor.permissions.size).toBe(0);
+    expect(actor.grants).toEqual([]);
+  });
+
+  it('is a function of the request alone: the same request gets the same actor every time', async () => {
+    const harness = await createPolicyHarness();
+    const request = requestWith('localhost:9300');
+    expect(harness.resolve(request)).toBe(harness.resolve(request));
   });
 });
 
-describe('resolveActor: every other request is anonymous (FR-A-036)', () => {
-  it.each(OTHER_HOSTS)('gives the anonymous actor for Host: %j', (host) => {
-    expect(resolveActor(ON, requestWith(host))).toBe(ANONYMOUS_ACTOR);
-  });
-
-  it('gives the anonymous actor when there is no Host header at all', () => {
-    expect(resolveActor(ON, requestWith(null))).toBe(ANONYMOUS_ACTOR);
-  });
-
-  it.each(FORWARDING_HEADERS)(
-    'gives the anonymous actor for a loopback Host with %s: %j (the request came through a proxy)',
-    (name, value) => {
-      expect(resolveActor(ON, requestWith('localhost:9300', { [name]: value }))).toBe(
-        ANONYMOUS_ACTOR,
-      );
-      expect(resolveActor(ON, requestWith('[::1]:9300', { [name]: value }))).toBe(ANONYMOUS_ACTOR);
-    },
-  );
-
-  it('gives the anonymous actor when several forwarding headers come together', () => {
-    const all = Object.fromEntries(
-      FORWARDING_HEADERS.map(([name, value], i) => [`${name}-${String(i)}`, value]),
-    );
-    const headers = {
-      'X-Forwarded-For': '1.2.3.4',
-      Forwarded: 'for=1.2.3.4',
-      'X-Real-IP': '1.2.3.4',
-      ...all,
-    };
-    expect(resolveActor(ON, requestWith('localhost:9300', headers))).toBe(ANONYMOUS_ACTOR);
-  });
-
-  it('does not take a header that only resembles a forwarding header for one', () => {
-    for (const name of ['x-forward', 'forwarded-for', 'x-real', 'x-real-ip-x', 'x-original-host']) {
-      expect(resolveActor(ON, requestWith('localhost:9300', { [name]: '1' })), name).toBe(
-        PREVIEW_ACTOR,
-      );
-    }
-  });
-});
-
-describe('carriesForwardingHeader', () => {
+describe('carriesForwardingHeader (moved to http/trust-proxy.ts for the setup loopback guard)', () => {
   it.each(FORWARDING_HEADERS)('is true for %s', (name, value) => {
     expect(carriesForwardingHeader(new Headers({ [name]: value }))).toBe(true);
   });
@@ -216,193 +190,221 @@ describe('carriesForwardingHeader', () => {
   });
 });
 
-describe('PREVIEW_MODE_ALLOW_REMOTE=true lifts the rule (FR-A-036)', () => {
-  it.each([...LOOPBACK_HOSTS, ...OTHER_HOSTS])('gives the preview actor for Host: %j', (host) => {
-    expect(resolveActor(ON_REMOTE, requestWith(host))).toBe(PREVIEW_ACTOR);
-  });
+// ---------------------------------------------------------------------------------------------
+// FR-B-102: the variables are gone; a leftover one is named once and changes nothing
+// ---------------------------------------------------------------------------------------------
 
-  it('gives the preview actor with no Host and with forwarding headers', () => {
-    expect(resolveActor(ON_REMOTE, requestWith(null))).toBe(PREVIEW_ACTOR);
-    for (const [name, value] of FORWARDING_HEADERS) {
-      expect(resolveActor(ON_REMOTE, requestWith('panel.example.com', { [name]: value }))).toBe(
-        PREVIEW_ACTOR,
-      );
-    }
-  });
-});
-
-describe('without PREVIEW_MODE=true nothing is reachable (FR-A-032, FR-A-036: never an upgrade)', () => {
-  const requests: Request[] = [
-    ...[...LOOPBACK_HOSTS, ...OTHER_HOSTS].map((host) => requestWith(host)),
-    requestWith(null),
-    ...FORWARDING_HEADERS.map(([name, value]) => requestWith('localhost:9300', { [name]: value })),
-    requestWith('localhost:9300', {
-      'x-actor': 'preview',
-      'x-preview': 'true',
-      'x-preview-mode': '1',
-      authorization: 'Bearer preview',
-      cookie: 'actor=preview; preview=1',
-    }),
-    requestWith('localhost:9300', {}, '/api/v1/me?actor=preview&preview=true&kind=preview'),
-  ];
+describe('announceRemovedVariables: one warning for a leftover PREVIEW_MODE* (FR-B-102)', () => {
+  function removed(env: Record<string, string | undefined>): {
+    stderr: string;
+    lines: Record<string, unknown>[];
+    raw: string;
+  } {
+    const capture = createLogCapture();
+    const log = createLogger({ level: 'info', destination: capture });
+    let stderr = '';
+    announceRemovedVariables(env, {
+      log,
+      stderr: {
+        write: (text: string) => {
+          stderr += text;
+          return true;
+        },
+      },
+    });
+    return { stderr, lines: capture.lines(), raw: capture.text() };
+  }
 
   it.each([
-    ['off', OFF],
-    ['off with the remote override alone', OFF_BUT_REMOTE],
-  ])('gives the anonymous actor to %s, whatever the request is', (_name, config) => {
-    for (const request of requests) {
-      expect(resolveActor(config, request)).toBe(ANONYMOUS_ACTOR);
-    }
-  });
-
-  it('is the anonymous configuration: Host is ignored, never read as an upgrade', () => {
-    expect(resolveActor(OFF, requestWith('localhost:9300'))).toBe(ANONYMOUS_ACTOR);
-    expect(resolveActor(OFF, requestWith('127.0.0.1'))).toBe(ANONYMOUS_ACTOR);
-  });
-
-  it('gives an actor with no permission at all', () => {
-    const actor = resolveActor(OFF, requestWith('localhost:9300'));
-    expect(actor.permissions.size).toBe(0);
-  });
-});
-
-describe('nothing in a request chooses or upgrades the actor (FR-A-032)', () => {
-  it('returns one of the two actors, by identity, for every request in this file', () => {
-    const everything: Request[] = [
-      ...[...LOOPBACK_HOSTS, ...OTHER_HOSTS].map((host) => requestWith(host)),
-      ...FORWARDING_HEADERS.map(([name, value]) =>
-        requestWith('localhost:9300', { [name]: value }),
-      ),
-    ];
-    for (const config of [OFF, ON, ON_REMOTE, OFF_BUT_REMOTE]) {
-      for (const request of everything) {
-        const actor = resolveActor(config, request);
-        expect([ANONYMOUS_ACTOR, PREVIEW_ACTOR]).toContain(actor);
-      }
-    }
-  });
-
-  it('can only lower what the configuration would give: a request never gets more than preview mode allows', () => {
-    // With the override, the configuration hands out the preview actor to everyone; with the rule it
-    // hands it to loopback requests only. Every request of the second kind is also one of the first.
-    const all = [...LOOPBACK_HOSTS, ...OTHER_HOSTS].map((host) => requestWith(host));
-    for (const request of all) {
-      const withRule = resolveActor(ON, request);
-      const withOverride = resolveActor(ON_REMOTE, request);
-      if (withRule === PREVIEW_ACTOR) expect(withOverride).toBe(PREVIEW_ACTOR);
-    }
-  });
-
-  it('is a function of the request alone: the same request gets the same actor every time', () => {
-    const request = requestWith('localhost:9300');
-    expect(resolveActor(ON, request)).toBe(resolveActor(ON, request));
-  });
-
-  it('is built once from the configuration by createActorResolver', () => {
-    const resolve = createActorResolver(ON);
-    expect(resolve(requestWith('localhost:9300'))).toBe(PREVIEW_ACTOR);
-    expect(resolve(requestWith('192.168.1.10'))).toBe(ANONYMOUS_ACTOR);
-    expect(createActorResolver(OFF)(requestWith('localhost:9300'))).toBe(ANONYMOUS_ACTOR);
-  });
-
-  it('works on the real configuration object too', () => {
-    const config = loadConfigOrThrow({ PREVIEW_MODE: 'true' });
-    expect(resolveActor(config, requestWith('localhost:9300'))).toBe(PREVIEW_ACTOR);
-    expect(resolveActor(config, requestWith('192.168.1.10:9300'))).toBe(ANONYMOUS_ACTOR);
-  });
-});
-
-// ---------------------------------------------------------------------------------------------
-// The warning at start (FR-A-032)
-// ---------------------------------------------------------------------------------------------
-
-function announce(config: ActorConfig): {
-  stderr: string;
-  lines: Record<string, unknown>[];
-  raw: string;
-} {
-  const capture = createLogCapture();
-  const log = createLogger({ level: 'info', destination: capture });
-  let stderr = '';
-  announcePreviewMode(config, {
-    log,
-    stderr: {
-      write: (text: string) => {
-        stderr += text;
-        return true;
-      },
-    },
-  });
-  return { stderr, lines: capture.lines(), raw: capture.text() };
-}
-
-describe('announcePreviewMode: a warning on the log and on stderr at start (FR-A-032)', () => {
-  it('writes one warning to the log and one to stderr when preview mode is on', () => {
-    const { stderr, lines } = announce(ON);
-
+    [{ PREVIEW_MODE: 'true' }, ['PREVIEW_MODE']],
+    [{ PREVIEW_MODE: 'false' }, ['PREVIEW_MODE']],
+    [{ PREVIEW_MODE_ALLOW_REMOTE: 'true' }, ['PREVIEW_MODE_ALLOW_REMOTE']],
+    [
+      { PREVIEW_MODE: 'true', PREVIEW_MODE_ALLOW_REMOTE: 'true' },
+      ['PREVIEW_MODE', 'PREVIEW_MODE_ALLOW_REMOTE'],
+    ],
+    [{ PREVIEW_MODE: '' }, ['PREVIEW_MODE']],
+  ])('%j: exactly one warning, preview_mode_removed, naming %j', (env, names) => {
+    const { stderr, lines } = removed(env);
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ level: 'warn', event: 'preview_mode', mode: 'loopback-only' });
-    expect(stderr.endsWith('\n')).toBe(true);
+    expect(lines[0]).toMatchObject({
+      level: 'warn',
+      event: 'preview_mode_removed',
+      msg: 'preview_mode_removed',
+      variables: names,
+    });
     expect(stderr.trim().split('\n')).toHaveLength(1);
+    expect(stderr.startsWith('preview_mode_removed: ')).toBe(true);
+    for (const name of names) expect(stderr).toContain(name);
   });
 
-  it('says on both that a non-loopback Host or a forwarding header makes a request anonymous', () => {
-    const { stderr, lines } = announce(ON);
-    const logged = String(lines[0]?.msg);
-
-    for (const text of [stderr, logged]) {
-      expect(text).toMatch(/PREVIEW_MODE/);
-      expect(text).toMatch(/loopback/i);
-      expect(text).toMatch(/Forwarded/);
-      expect(text).toMatch(/X-Forwarded-\*/);
-      expect(text).toMatch(/X-Real-IP/);
-      expect(text).toMatch(/anonymous/i);
-      expect(text).toMatch(/not a security boundary/i);
-      expect(text).toMatch(/127\.0\.0\.1/);
-    }
-  });
-
-  it('says so with the same words on stderr as in the log, so one cannot be read without the other', () => {
-    const { stderr, lines } = announce(ON);
-    expect(stderr.trim()).toContain(String(lines[0]?.msg));
-  });
-
-  it('says that every request is an administrator when the override is on', () => {
-    const { stderr, lines } = announce(ON_REMOTE);
-
-    expect(lines[0]).toMatchObject({ level: 'warn', event: 'preview_mode', mode: 'any-host' });
-    expect(stderr).toMatch(/PREVIEW_MODE_ALLOW_REMOTE/);
-    expect(stderr).toMatch(/every request/i);
-    expect(stderr).not.toMatch(/treated as anonymous/i);
-  });
-
-  it('writes nothing at all when preview mode is off, with or without the override', () => {
-    for (const config of [OFF, OFF_BUT_REMOTE]) {
-      const { stderr, lines, raw } = announce(config);
+  it('says nothing when neither variable is set', () => {
+    for (const env of [{}, { SHOWCASE: 'true' }, { PREVIEW: 'true' }]) {
+      const { stderr, lines, raw } = removed(env);
       expect(stderr).toBe('');
       expect(lines).toEqual([]);
       expect(raw).toBe('');
     }
   });
 
-  it('holds no value of the configuration: no address, no port, no host name', () => {
-    const { stderr, raw } = announce(loadConfigOrThrow({ PREVIEW_MODE: 'true', PORT: '12345' }));
-    expect(stderr).not.toContain('12345');
-    expect(raw).not.toContain('12345');
+  it('never repeats a value', () => {
+    const { stderr, raw } = removed({
+      PREVIEW_MODE: 'canary-7f3a',
+      PREVIEW_MODE_ALLOW_REMOTE: 'canary-9b1c',
+    });
+    expect(stderr).not.toContain('canary');
+    expect(raw).not.toContain('canary');
   });
 
-  it('does not fail when stderr cannot be written', () => {
-    const log = createLogger({ level: 'info', destination: createLogCapture() });
+  it('does not fail when stderr cannot be written, and the log line is kept', () => {
+    const capture = createLogCapture();
+    const log = createLogger({ level: 'info', destination: capture });
     expect(() => {
-      announcePreviewMode(ON, {
-        log,
-        stderr: {
-          write: () => {
-            throw new Error('closed');
+      announceRemovedVariables(
+        { PREVIEW_MODE: 'true' },
+        {
+          log,
+          stderr: {
+            write: () => {
+              throw new Error('closed');
+            },
           },
         },
-      });
+      );
     }).not.toThrow();
+    expect(capture.lines()).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// A server started with the old variables (FR-B-102)
+// ---------------------------------------------------------------------------------------------
+
+const SERVER_ROOT = fileURLToPath(new URL('../', import.meta.url));
+const WEB = join(SERVER_ROOT, 'test', 'fixtures', 'web-dist');
+const MIGRATIONS = join(SERVER_ROOT, 'drizzle');
+
+/** A module with one permissioned write and one permissioned read, to ask a started server about. */
+const probeModule: AppModuleFactory = () => ({
+  id: 'probe',
+  routes: () => [
+    defineRoute({
+      id: 'probe.write',
+      method: 'POST',
+      path: '/api/v1/probe/write',
+      access: { permission: 'settings:branding' },
+      rateLimit: 'write',
+      responses: { 200: { description: 'ok' } },
+      handler: (c) => c.json({ ok: true }, 200),
+    }),
+    defineRoute({
+      id: 'probe.read',
+      method: 'GET',
+      path: '/api/v1/probe/read',
+      access: { permission: 'audit:read' },
+      rateLimit: 'read',
+      responses: { 200: { description: 'ok' } },
+      handler: (c) => c.json({ ok: true }, 200),
+    }),
+  ],
+});
+
+interface Answer {
+  readonly status: number;
+  readonly body: Record<string, unknown>;
+}
+
+describe('a server started with PREVIEW_MODE=true is the same as one started without it (FR-B-102)', () => {
+  async function answers(env: Record<string, string>): Promise<{
+    me: Answer;
+    write: Answer;
+    secret: Answer;
+    logs: ReturnType<typeof createLogCapture>;
+  }> {
+    const dataDir = (await createTempDataDir()).path;
+    const port = await freePort();
+    const logs = createLogCapture();
+    const running = await startServer({
+      env: {
+        PORT: String(port),
+        HOST: '127.0.0.1',
+        DATA_DIR: dataDir,
+        PUBLIC_BASE_URL: `http://localhost:${String(port)}`,
+        ...env,
+      },
+      stderr: createLogCapture(),
+      logDestination: logs,
+      modules: [probeModule],
+      paths: { webRoot: WEB, migrationsFolder: MIGRATIONS },
+      umask: () => undefined,
+    });
+    try {
+      const base = `http://localhost:${String(port)}`;
+      const read = async (path: string, init?: RequestInit): Promise<Answer> => {
+        const response = await fetch(`${base}${path}`, init);
+        const body = (await response.json()) as Record<string, unknown>;
+        return { status: response.status, body };
+      };
+      const csrf = (await (await fetch(`${base}/api/v1/csrf`)).json()) as { token: string };
+      // The request id and the port (the server picks a free one) differ between two starts.
+      const stable = (answer: Answer): Answer => ({
+        status: answer.status,
+        body: { ...answer.body, requestId: '-', publicOrigin: '-', expectedOrigin: '-' },
+      });
+      return {
+        me: stable(await read('/api/v1/me')),
+        write: stable(
+          await read('/api/v1/probe/write', {
+            method: 'POST',
+            headers: {
+              origin: base,
+              'x-csrf-token': csrf.token,
+              'content-type': 'application/json',
+            },
+            body: '{}',
+          }),
+        ),
+        secret: stable(await read('/api/v1/probe/read')),
+        logs,
+      };
+    } finally {
+      await running.stop();
+    }
+  }
+
+  it.each([
+    ['PREVIEW_MODE=true', { PREVIEW_MODE: 'true' }],
+    [
+      'PREVIEW_MODE=true and PREVIEW_MODE_ALLOW_REMOTE=true',
+      { PREVIEW_MODE: 'true', PREVIEW_MODE_ALLOW_REMOTE: 'true' },
+    ],
+  ])('%s: the same answers as without, and no preview anywhere', async (_name, env) => {
+    const without = await answers({});
+    const withVariables = await answers(env);
+    expect(withVariables.me).toEqual(without.me);
+    expect(withVariables.write).toEqual(without.write);
+    expect(withVariables.secret).toEqual(without.secret);
+    expect(withVariables.me.body).toMatchObject({ actor: { kind: 'anonymous' }, permissions: [] });
+    expect(withVariables.me.body.features).toEqual({ showcase: false, breakGlass: false });
+    expect(JSON.stringify(withVariables.me.body)).not.toContain('preview');
+    expect(withVariables.write.status).toBeGreaterThanOrEqual(401);
+    expect(withVariables.write.status).toBeLessThanOrEqual(403);
+  });
+
+  it('logs preview_mode_removed once, naming the variable and no value', async () => {
+    const { logs } = await answers({
+      PREVIEW_MODE: 'true',
+      PREVIEW_MODE_ALLOW_REMOTE: 'canary-5c1e',
+    });
+    const lines = logs.lines().filter((line) => line.event === 'preview_mode_removed');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.variables).toEqual(['PREVIEW_MODE', 'PREVIEW_MODE_ALLOW_REMOTE']);
+    expect(logs.text()).not.toContain('canary-5c1e');
+  });
+
+  it('writes no preview_mode_removed when the variables are absent', async () => {
+    const { logs } = await answers({});
+    expect(logs.lines().some((line) => line.event === 'preview_mode_removed')).toBe(false);
   });
 });
 
@@ -410,113 +412,63 @@ describe('announcePreviewMode: a warning on the log and on stderr at start (FR-A
 // The guard, and the resolvers that must fail it
 // ---------------------------------------------------------------------------------------------
 
-type Resolver = (config: ActorConfig, request: Request) => Actor;
-
-/** Throws unless `resolve` gives the answers FR-A-036 lists, in both directions. */
-function assertHostMatrix(resolve: Resolver): void {
+/** Throws unless the resolver gives the anonymous actor to every request of the old matrix. */
+function assertNoRequestUpgrades(resolve: ActorResolver): void {
   const fail = (message: string): never => {
     throw new Error(message);
   };
-  for (const host of ['localhost:9300', '127.0.0.2:9300', '[::1]:9300']) {
-    if (resolve(ON, requestWith(host)) !== PREVIEW_ACTOR)
-      fail(`a loopback Host is refused: ${host}`);
-  }
-  for (const host of [
-    '192.168.1.10:9300',
-    'panel.example.com',
-    'localhost.attacker.example',
-    '127.0.0.1.nip.io',
-  ]) {
-    if (resolve(ON, requestWith(host)) !== ANONYMOUS_ACTOR)
-      fail(`a non-loopback Host is let in: ${host}`);
-  }
-  if (resolve(ON, requestWith(null)) !== ANONYMOUS_ACTOR) fail('a request with no Host is let in');
-  for (const [name, value] of [
-    ['X-Forwarded-For', '203.0.113.5'],
-    ['X-Forwarded-Host', 'localhost'],
-    ['X-Forwarded-Proto', 'https'],
-    ['Forwarded', 'for=203.0.113.5'],
-    ['X-Real-IP', '203.0.113.5'],
-  ] as const) {
-    if (resolve(ON, requestWith('localhost:9300', { [name]: value })) !== ANONYMOUS_ACTOR) {
-      fail(`a forwarded request is let in: ${name}`);
+  for (const host of [...LOOPBACK_HOSTS, ...OTHER_HOSTS]) {
+    const actor: Actor = resolve(requestWith(host));
+    if (actor.permissions.size > 0 || actor.kind !== 'anonymous') {
+      fail(`Host ${JSON.stringify(host)} was given an actor with permissions`);
     }
   }
-  if (resolve(ON_REMOTE, requestWith('192.168.1.10:9300')) !== PREVIEW_ACTOR)
-    fail('the override does not lift the rule');
-  if (resolve(OFF, requestWith('localhost:9300')) !== ANONYMOUS_ACTOR)
-    fail('preview is reachable with preview mode off');
-  if (resolve(OFF_BUT_REMOTE, requestWith('192.168.1.10')) !== ANONYMOUS_ACTOR) {
-    fail('the override alone enables preview mode');
+  for (const [name, value] of FORWARDING_HEADERS) {
+    if (resolve(requestWith('localhost:9300', { [name]: value })).kind !== 'anonymous') {
+      fail(`the header ${name} changed the actor`);
+    }
   }
-  if (resolve(OFF, requestWith('localhost:9300', { 'x-actor': 'preview' })) !== ANONYMOUS_ACTOR) {
-    fail('a header selects the actor');
+  if (
+    resolve(requestWith('localhost:9300', { 'x-actor': 'preview', authorization: 'Bearer x' }))
+      .kind !== 'anonymous'
+  ) {
+    fail('a header chose the actor');
   }
 }
 
-describe('the Host matrix guard', () => {
-  it('passes for the real resolver', () => {
+describe('the matrix guard', () => {
+  it('passes for the real resolver', async () => {
+    const harness = await createPolicyHarness();
     expect(() => {
-      assertHostMatrix(resolveActor);
+      assertNoRequestUpgrades(harness.resolve);
     }).not.toThrow();
   });
 
-  it('fails for a resolver that ignores Host', () => {
-    const ignoresHost: Resolver = (config) =>
-      config.previewMode ? PREVIEW_ACTOR : ANONYMOUS_ACTOR;
-    expectGuardFails(assertHostMatrix, ignoresHost, { reason: 'non-loopback Host is let in' });
+  it('fails for a resolver that brings preview mode back for a loopback Host', () => {
+    const loopbackIsRoot: ActorResolver = (request) =>
+      (request.headers.get('host') ?? '').startsWith('localhost')
+        ? LEGACY_PREVIEW_ACTOR
+        : ANONYMOUS_ACTOR;
+    expectGuardFails(assertNoRequestUpgrades, loopbackIsRoot, { reason: 'was given an actor' });
   });
 
-  it('fails for a resolver that ignores the forwarding headers', () => {
-    const ignoresForwarding: Resolver = (config, request) =>
-      config.previewMode &&
-      (config.previewModeAllowRemote || isLoopbackHost(requestHost(request) ?? ''))
-        ? PREVIEW_ACTOR
-        : ANONYMOUS_ACTOR;
-    expectGuardFails(assertHostMatrix, ignoresForwarding, {
-      reason: 'forwarded request is let in',
+  it('fails for a resolver that brings it back for every Host', () => {
+    expectGuardFails(assertNoRequestUpgrades, () => LEGACY_PREVIEW_ACTOR, {
+      reason: 'was given an actor',
     });
-  });
-
-  it('fails for a resolver that matches the start of the host name instead of the whole of it', () => {
-    const prefix: Resolver = (config, request) =>
-      config.previewMode && /^(localhost|127\.|\[::1\])/i.test(request.headers.get('host') ?? '')
-        ? PREVIEW_ACTOR
-        : ANONYMOUS_ACTOR;
-    expectGuardFails(assertHostMatrix, prefix, { reason: 'non-loopback Host is let in' });
   });
 
   it('fails for a resolver that lets a header choose the actor', () => {
-    const header: Resolver = (config, request) =>
-      request.headers.get('x-actor') === 'preview' ||
-      (config.previewMode && request.headers.get('host') === 'localhost:9300')
-        ? PREVIEW_ACTOR
-        : ANONYMOUS_ACTOR;
-    expectGuardFails(assertHostMatrix, header, {});
-  });
-
-  it('fails for a resolver that never gives the preview actor', () => {
-    expectGuardFails(assertHostMatrix, () => ANONYMOUS_ACTOR, {
-      reason: 'loopback Host is refused',
+    const headerChooses: ActorResolver = (request) =>
+      request.headers.has('x-actor') ? LEGACY_PREVIEW_ACTOR : ANONYMOUS_ACTOR;
+    expectGuardFails(assertNoRequestUpgrades, headerChooses, {
+      reason: 'a header chose the actor',
     });
   });
 
-  it('fails for a resolver that lets the override alone enable preview mode', () => {
-    const overrideAlone: Resolver = (config, request) =>
-      config.previewModeAllowRemote ||
-      (config.previewMode && (request.headers.get('host') ?? '').startsWith('localhost'))
-        ? PREVIEW_ACTOR
-        : ANONYMOUS_ACTOR;
-    expectGuardFails(assertHostMatrix, overrideAlone, {});
-  });
-
-  it('fails for a resolver that does not lift the rule for the override', () => {
-    const neverLifts: Resolver = (config, request) =>
-      config.previewMode &&
-      isLoopbackHost(requestHost(request) ?? '') &&
-      !carriesForwardingHeader(request.headers)
-        ? PREVIEW_ACTOR
-        : ANONYMOUS_ACTOR;
-    expectGuardFails(assertHostMatrix, neverLifts, { reason: 'override does not lift the rule' });
+  it('fails for a resolver that lets a forwarding header change the actor', () => {
+    const proxyIsRoot: ActorResolver = (request) =>
+      carriesForwardingHeader(request.headers) ? LEGACY_PREVIEW_ACTOR : ANONYMOUS_ACTOR;
+    expectGuardFails(assertNoRequestUpgrades, proxyIsRoot, { reason: 'changed the actor' });
   });
 });

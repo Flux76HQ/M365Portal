@@ -276,12 +276,13 @@ describe('schema.ts declares exactly the tables of data-model section 4 (FR-A-06
     if (is(value, SQLiteTable)) tables.push(value);
   }
 
-  it('declares branding, branding_asset and audit_log and nothing else', () => {
-    expect(tables.map((table) => getTableConfig(table).name).sort()).toEqual([
-      'audit_log',
-      'branding',
-      'branding_asset',
-    ]);
+  // Phase B adds the 17 tables of `schema/phase-b.ts` (T-B-010); `db-check-macros.test.ts` names them.
+  const PHASE_A_TABLES = ['audit_log', 'branding', 'branding_asset'];
+
+  it('declares branding, branding_asset and audit_log, and beyond them only the 17 tables of Phase B', () => {
+    const names = tables.map((table) => getTableConfig(table).name).sort();
+    expect(names.filter((name) => PHASE_A_TABLES.includes(name))).toEqual(PHASE_A_TABLES);
+    expect(names).toHaveLength(PHASE_A_TABLES.length + 17);
     // The migration bookkeeping belongs to the Drizzle migrator, not to the schema (data-model 1).
     expect(tables.map((table) => getTableConfig(table).name)).not.toContain('__drizzle_migrations');
   });

@@ -13,12 +13,13 @@
 // Negative fixtures (tasks.md section 0.3): every table rule is run through `expectGuardFails` with
 // an entry that breaks it, and the order matrix is run on pipelines built in the wrong order.
 import { LIMITS } from '@m365portal/shared/limits';
-import { PERMISSIONS } from '@m365portal/shared/permissions';
+import { PERMISSIONS, PERMISSION_RESOURCE } from '@m365portal/shared/permissions';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { Hono, type MiddlewareHandler } from 'hono';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { z } from 'zod';
 import { loadConfig } from '../src/config/index.js';
+import { testActor } from './helpers/test-actor.js';
 import { createCsrf, csrfGuard } from '../src/http/csrf.js';
 import { originGuard } from '../src/http/origin.js';
 import { bodyLimit } from '../src/http/body-limit.js';
@@ -42,10 +43,13 @@ import {
   validateRouteTable,
   type RouteTableEntry,
 } from '../src/http/route-table.js';
-import { authorize, createActorResolver } from '../src/policy/index.js';
+import { assertOpenApiParity, checkOpenApiParity } from '../src/http/openapi.js';
+import { mergeAvailability } from '../src/http/route.js';
+import { ANONYMOUS_ACTOR, authorize, type Actor } from '../src/policy/index.js';
 import { createFakeClock } from './helpers/fake-clock.js';
 import { createHttpClient, readJson, type HttpClient } from './helpers/http-client.js';
 import {
+  ADMIN,
   FIXTURE_PERMISSION,
   createFixtureApp,
   createFixtureCalls,
@@ -276,6 +280,170 @@ const TABLE_RULES: readonly {
     reason: /thing\.list.*catalogue/,
   },
   {
+    name: 'two access words',
+    entries: [entry({ access: { authenticated: true, setup: true } })],
+    reason: /thing\.list.*exactly one/,
+  },
+  {
+    name: 'authenticated access with a permission',
+    entries: [entry({ access: { authenticated: true, permission: 'audit:read' } })],
+    reason: /thing\.list.*exactly one/,
+  },
+  {
+    name: 'actorKinds on public access',
+    entries: [entry({ access: { public: true, actorKinds: ['user'] } })],
+    reason: /thing\.list.*actorKinds/,
+  },
+  {
+    name: 'actorKinds that names the anonymous actor',
+    entries: [entry({ access: { authenticated: true, actorKinds: ['anonymous'] } })],
+    reason: /thing\.list.*actorKinds/,
+  },
+  {
+    name: 'an empty actorKinds list',
+    entries: [entry({ access: { authenticated: true, actorKinds: [] } })],
+    reason: /thing\.list.*actorKinds/,
+  },
+  {
+    name: 'an unknown actor kind',
+    entries: [entry({ access: { authenticated: true, actorKinds: ['admin'] } })],
+    reason: /thing\.list.*actorKinds/,
+  },
+  {
+    name: 'stepUp on authenticated access',
+    entries: [entry({ access: { authenticated: true, stepUp: true } })],
+    reason: /thing\.list.*stepUp/,
+  },
+  {
+    name: 'a stepUp that is not true',
+    entries: [entry({ access: { permission: 'audit:read', stepUp: 'yes' } })],
+    reason: /thing\.list.*stepUp/,
+  },
+  {
+    name: 'scoped on a global-only permission',
+    entries: [entry({ access: { permission: 'audit:read', scoped: 'user' } })],
+    reason: /thing\.list.*scoped/,
+  },
+  {
+    name: 'scoped with another resource type than the permission has',
+    entries: [entry({ access: { permission: 'users:read', scoped: 'group' } })],
+    reason: /thing\.list.*scoped/,
+  },
+  {
+    name: 'both scoped and unscopedReason',
+    entries: [
+      entry({ access: { permission: 'users:read', scoped: 'user', unscopedReason: 'because' } }),
+    ],
+    reason: /thing\.list.*scoped/,
+  },
+  {
+    name: 'a permission with a resource type and neither scoped nor unscopedReason',
+    entries: [entry({ access: { permission: 'groups:read' } })],
+    reason: /thing\.list.*groups:read.*scoped or unscopedReason/,
+  },
+  {
+    name: 'an empty unscopedReason',
+    entries: [entry({ access: { permission: 'groups:read', unscopedReason: '' } })],
+    reason: /thing\.list.*scoped or unscopedReason/,
+  },
+  {
+    name: 'an availability gate that does not exist',
+    entries: [entry({ availability: 'always' })],
+    reason: /thing\.list.*availability/,
+  },
+  {
+    name: 'secFetch on a route that is not auth.callback',
+    entries: [entry({ secFetch: 'cross-site-allowed' })],
+    reason: /thing\.list.*secFetch/,
+  },
+  {
+    name: 'secFetch with another value',
+    entries: [entry({ id: 'auth.callback', paths: ['/auth/callback'], secFetch: 'any' })],
+    reason: /auth\.callback.*secFetch/,
+  },
+  {
+    name: 'secFetch on a write route',
+    entries: [
+      entry({
+        id: 'auth.callback',
+        methods: ['POST'],
+        paths: ['/api/v1/auth/callback'],
+        rateLimit: 'auth',
+        secFetch: 'cross-site-allowed',
+      }),
+    ],
+    reason: /auth\.callback.*secFetch/,
+  },
+  {
+    name: 'slidesSession false on a write route',
+    entries: [
+      entry({
+        id: 'connection.log',
+        methods: ['POST'],
+        paths: ['/api/v1/connection/log'],
+        rateLimit: 'write',
+        access: { connection: true },
+        slidesSession: false,
+      }),
+    ],
+    reason: /connection\.log.*slidesSession/,
+  },
+  {
+    name: 'slidesSession false on a GET route that is not polled',
+    entries: [entry({ slidesSession: false })],
+    reason: /thing\.list.*slidesSession/,
+  },
+  {
+    name: 'a slidesSession that is not a boolean',
+    entries: [entry({ slidesSession: 'no' })],
+    reason: /thing\.list.*slidesSession/,
+  },
+  {
+    name: 'a setup route without the gate or the setup or connection access',
+    entries: [entry({ id: 'setup.status', paths: ['/api/v1/setup/status'], rateLimit: 'setup' })],
+    reason: /setup\.status.*gate/,
+  },
+  {
+    name: 'a connection route without the gate or the setup or connection access',
+    entries: [
+      entry({
+        id: 'connection.get',
+        paths: ['/api/v1/connection'],
+        access: { permission: 'settings:connection' },
+      }),
+    ],
+    reason: /connection\.get.*gate/,
+  },
+  {
+    name: 'the auth class outside the sign-in paths',
+    entries: [entry({ rateLimit: 'auth' })],
+    reason: /thing\.list.*auth/,
+  },
+  {
+    name: 'the setup class on a route other than setup.status and setup.unlock',
+    entries: [
+      entry({
+        id: 'setup.state',
+        paths: ['/api/v1/setup/state'],
+        access: { setup: true },
+        rateLimit: 'setup',
+      }),
+    ],
+    reason: /setup\.state.*setup class/,
+  },
+  {
+    name: 'a write route in the setup class outside setup.unlock',
+    entries: [
+      entry({
+        id: 'thing.make',
+        methods: ['POST'],
+        paths: ['/api/v1/things'],
+        rateLimit: 'setup',
+      }),
+    ],
+    reason: /thing\.make.*setup class/,
+  },
+  {
     name: 'a missing id',
     entries: [entry({ id: undefined })],
     reason: /id/,
@@ -349,12 +517,12 @@ const TABLE_RULES: readonly {
         rateLimit: 'read',
       }),
     ],
-    reason: /thing\.make.*write or upload/,
+    reason: /thing\.make.*write, upload, auth or setup/,
   },
   {
     name: 'a read route in the upload class',
     entries: [entry({ rateLimit: 'upload' })],
-    reason: /thing\.list.*read or exempt/,
+    reason: /thing\.list.*read, exempt, auth or setup/,
   },
   {
     name: 'an unknown rate class',
@@ -404,7 +572,7 @@ describe('validateRouteTable and assertRouteTable', () => {
         id: 'thing.make',
         methods: ['POST'],
         paths: ['/api/v1/things'],
-        access: { permission: 'contacts:create' },
+        access: { permission: 'contacts:create', unscopedReason: 'fixture: no resource yet' },
         rateLimit: 'write',
       }),
       entry({ id: 'health.live', paths: ['/healthz'], rateLimit: 'exempt' }),
@@ -429,7 +597,10 @@ describe('validateRouteTable and assertRouteTable', () => {
           entry({
             id: `thing.get${String(index)}`,
             paths: [`/api/v1/things${String(index)}`],
-            access: { permission },
+            access:
+              PERMISSION_RESOURCE[permission] === null
+                ? { permission }
+                : { permission, unscopedReason: 'fixture: no resource yet' },
           }),
         ]),
       ).toEqual([]);
@@ -526,7 +697,7 @@ describe('RouteTable: which methods a path answers', () => {
 // The fixed guard order
 // ---------------------------------------------------------------------------------------------
 
-type Mode = 'anonymous' | 'preview';
+type Mode = 'anonymous' | 'admin';
 
 interface Probe {
   readonly client: HttpClient;
@@ -618,19 +789,19 @@ const ORDER_CASES: readonly OrderCase[] = [
     name: 'authorisation comes before validation',
     mode: 'anonymous',
     send: (client) => client.post(THINGS, { json: {} }),
-    status: 403,
-    code: 'permission_denied',
+    status: 401,
+    code: 'unauthenticated',
   },
   {
     name: 'validation comes before the handler',
-    mode: 'preview',
+    mode: 'admin',
     send: (client) => client.post(THINGS, { json: {} }),
     status: 422,
     code: 'validation_failed',
   },
   {
     name: 'a request that passes every guard reaches the handler',
-    mode: 'preview',
+    mode: 'admin',
     send: (client) => client.post(THINGS, { json: VALID_BODY }),
     status: 201,
     code: '',
@@ -669,7 +840,7 @@ async function assertOrderMatrix(
 /** The real pipeline: `createHttpApp` over the fixture routes. */
 async function realPipeline(mode: Mode, tight: boolean): Promise<Probe> {
   const app = await createFixtureApp({
-    env: mode === 'preview' ? { PREVIEW_MODE: 'true' } : {},
+    ...(mode === 'admin' ? { signedIn: ADMIN } : {}),
     ...(tight ? { rules: TIGHT_WRITE } : {}),
   });
   return { client: app.client, handlerCalls: () => app.calls.of('fixture.create') };
@@ -683,11 +854,11 @@ function referencePipeline(
 ): (mode: Mode, tight: boolean) => Promise<Probe> {
   return (mode, tight) => {
     const clock = createFakeClock();
-    const loaded = loadConfig({
+    const env = {
       DATA_DIR: '/tmp/unused',
       PUBLIC_BASE_URL: ORIGIN,
-      ...(mode === 'preview' ? { PREVIEW_MODE: 'true' } : {}),
-    });
+    };
+    const loaded = loadConfig(env);
     if (!loaded.ok) throw new Error('configuration refused');
     const { config } = loaded;
     const csrf = createCsrf({ now: () => clock.nowMs() });
@@ -695,7 +866,10 @@ function referencePipeline(
       now: () => clock.nowMs(),
       ...(tight ? { rules: TIGHT_WRITE } : {}),
     });
-    const resolve = createActorResolver(config);
+    // The hand-built pipeline needs no database: its administrator is a value.
+    const actor =
+      mode === 'admin' ? testActor('user', { permissions: [FIXTURE_PERMISSION] }) : ANONYMOUS_ACTOR;
+    const resolve = (): Actor => actor;
     let handled = 0;
 
     const guards: Record<GuardName, MiddlewareHandler<AppEnv>> = {
@@ -709,7 +883,7 @@ function referencePipeline(
       csrf: csrfGuard({ csrf }),
       authz: async (c, next) => {
         const decision = authorize(c.get('actor'), FIXTURE_PERMISSION);
-        if (!decision.allow) return problemResponse(c, 'permission_denied');
+        if (!decision.allow) return problemResponse(c, 'unauthenticated');
         await next();
         return undefined;
       },
@@ -729,7 +903,7 @@ function referencePipeline(
     const log = createCaptureLogger(createLogCapture());
     app.use(requestContext({ config, now: () => clock.nowMs() }));
     app.use(async (c, next) => {
-      c.set('actor', resolve(c.req.raw));
+      c.set('actor', resolve());
       await next();
     });
     app.onError(createErrorHandler({ log }));
@@ -820,7 +994,7 @@ describe('the fixed guard order (PD-22, plan 7.2)', () => {
 
   it('answers a cross-site request the same way whether or not the actor holds the permission', async () => {
     const anonymous = await createFixtureApp();
-    const preview = await createFixtureApp({ env: { PREVIEW_MODE: 'true' } });
+    const admin = await createFixtureApp({ signedIn: ADMIN });
     const attempt = async (client: HttpClient): Promise<Record<string, unknown>> => {
       const response = await client.post(THINGS, { json: VALID_BODY, origin: FOREIGN });
       const body = await readJson<Record<string, unknown>>(response);
@@ -828,13 +1002,13 @@ describe('the fixed guard order (PD-22, plan 7.2)', () => {
       return { ...body, requestId: 'x' };
     };
     const forAnonymous = await attempt(anonymous.client);
-    const forPreview = await attempt(preview.client);
-    expect(forAnonymous).toEqual(forPreview);
+    const forAdmin = await attempt(admin.client);
+    expect(forAnonymous).toEqual(forAdmin);
     expect(forAnonymous.code).toBe('origin_not_allowed');
     expect(forAnonymous.expectedOrigin).toBe(ORIGIN);
     expect(JSON.stringify(forAnonymous)).not.toContain(FIXTURE_PERMISSION);
     expect(anonymous.calls.of('fixture.create')).toBe(0);
-    expect(preview.calls.of('fixture.create')).toBe(0);
+    expect(admin.calls.of('fixture.create')).toBe(0);
   });
 });
 
@@ -931,7 +1105,7 @@ describe('a GET route that declares an audit action applies the Sec-Fetch-Site r
     ['same-origin', 200],
     ['none', 200],
   ])('Sec-Fetch-Site %j gives %i', async (value, status) => {
-    const app = await createFixtureApp({ env: { PREVIEW_MODE: 'true' } });
+    const app = await createFixtureApp({ signedIn: ADMIN });
     const response = await app.client.get(EXPORT, { headers: { 'sec-fetch-site': value } });
     expect(response.status).toBe(status);
     if (status === 403) {
@@ -945,7 +1119,7 @@ describe('a GET route that declares an audit action applies the Sec-Fetch-Site r
   });
 
   it('lets a request without Sec-Fetch-Site through (a client that does not send it)', async () => {
-    const app = await createFixtureApp({ env: { PREVIEW_MODE: 'true' } });
+    const app = await createFixtureApp({ signedIn: ADMIN });
     expect((await app.client.get(EXPORT)).status).toBe(200);
   });
 
@@ -966,12 +1140,492 @@ describe('a GET route that declares an audit action applies the Sec-Fetch-Site r
   it('does not report a refused read to the denial hook: a refused GET is not audited', async () => {
     const denials: string[] = [];
     const app = await createFixtureApp({
-      env: { PREVIEW_MODE: 'true' },
+      signedIn: ADMIN,
       onDenied: (_c, denial) => {
         denials.push(denial.code);
       },
     });
     await app.client.get(EXPORT, { headers: { 'sec-fetch-site': 'cross-site' } });
     expect(denials).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Phase B: the access union, the gate, the classes (T-B-237, FR-B-505, CB9)
+// ---------------------------------------------------------------------------------------------
+
+describe('the access union of Phase B (T-B-237)', () => {
+  const ok = { 200: { description: 'ok' } } as const;
+
+  it('accepts every shape the contract names, and nothing else', () => {
+    const shapes = [
+      defineRoute({
+        id: 'a.one',
+        method: 'GET',
+        path: '/api/v1/a/one',
+        access: { authenticated: true },
+        rateLimit: 'read',
+        responses: ok,
+        handler: noop,
+      }),
+      defineRoute({
+        id: 'a.two',
+        method: 'POST',
+        path: '/api/v1/auth/two',
+        access: { authenticated: true, actorKinds: ['user'] },
+        rateLimit: 'auth',
+        responses: ok,
+        handler: noop,
+      }),
+      defineRoute({
+        id: 'a.three',
+        method: 'POST',
+        path: '/api/v1/a/three',
+        access: {
+          permission: 'rbac:manage',
+          stepUp: true,
+          actorKinds: ['user', 'break_glass'],
+          unscopedReason: 'global-only permission',
+        },
+        rateLimit: 'write',
+        responses: ok,
+        handler: noop,
+      }),
+      defineRoute({
+        id: 'a.four',
+        method: 'GET',
+        path: '/api/v1/a/four',
+        access: { permission: 'users:read', scoped: 'user' },
+        rateLimit: 'read',
+        responses: ok,
+        handler: noop,
+      }),
+      defineRoute({
+        id: 'a.five',
+        method: 'GET',
+        path: '/api/v1/setup/five',
+        access: { setup: true },
+        rateLimit: 'read',
+        responses: ok,
+        handler: noop,
+      }),
+      defineRoute({
+        id: 'a.six',
+        method: 'POST',
+        path: '/api/v1/connection/six',
+        access: { connection: true, stepUp: true },
+        rateLimit: 'write',
+        responses: ok,
+        handler: noop,
+      }),
+      defineRoute({
+        id: 'a.seven',
+        method: 'POST',
+        path: '/api/v1/setup/seven',
+        access: { public: true },
+        availability: 'setupOpen',
+        rateLimit: 'setup',
+        responses: ok,
+        handler: noop,
+      }),
+    ];
+    expect(shapes).toHaveLength(7);
+  });
+
+  it('is a type error to mix words, or to attach a modifier to the wrong word', () => {
+    const bad = [
+      defineRoute({
+        id: 'b.one',
+        method: 'GET',
+        path: '/api/v1/b/one',
+        // @ts-expect-error -- `authenticated` and a permission are two words
+        access: { authenticated: true, permission: 'audit:read' },
+        rateLimit: 'read',
+        responses: ok,
+        handler: noop,
+      }),
+      defineRoute({
+        id: 'b.two',
+        method: 'GET',
+        path: '/api/v1/b/two',
+        // @ts-expect-error -- `stepUp` belongs to a permission or to `connection`
+        access: { public: true, stepUp: true },
+        rateLimit: 'read',
+        responses: ok,
+        handler: noop,
+      }),
+      defineRoute({
+        id: 'b.three',
+        method: 'GET',
+        path: '/api/v1/b/three',
+        // @ts-expect-error -- the anonymous actor is not a kind a route can require
+        access: { authenticated: true, actorKinds: ['anonymous'] },
+        rateLimit: 'read',
+        responses: ok,
+        handler: noop,
+      }),
+      defineRoute({
+        id: 'b.four',
+        method: 'GET',
+        path: '/api/v1/b/four',
+        // @ts-expect-error -- `setup` takes no modifier
+        access: { setup: true, stepUp: true },
+        rateLimit: 'read',
+        responses: ok,
+        handler: noop,
+      }),
+      defineRoute({
+        id: 'b.five',
+        method: 'GET',
+        path: '/api/v1/b/five',
+        access: { public: true },
+        // @ts-expect-error -- only the two gates of the contract exist
+        availability: 'whenever',
+        rateLimit: 'read',
+        responses: ok,
+        handler: noop,
+      }),
+      defineRoute({
+        id: 'b.six',
+        method: 'GET',
+        path: '/api/v1/b/six',
+        access: { public: true },
+        // @ts-expect-error -- the one value there is
+        secFetch: 'any',
+        rateLimit: 'read',
+        responses: ok,
+        handler: noop,
+      }),
+    ];
+    expect(bad).toHaveLength(6);
+  });
+
+  it('accepts the new shapes in the table check', () => {
+    const entries = [
+      entry({ id: 'me.access', paths: ['/api/v1/me/access'], access: { authenticated: true } }),
+      entry({
+        id: 'auth.logout',
+        methods: ['POST'],
+        paths: ['/api/v1/auth/logout'],
+        access: { authenticated: true },
+        rateLimit: 'auth',
+      }),
+      entry({
+        id: 'auth.logout.all',
+        methods: ['POST'],
+        paths: ['/api/v1/auth/logout-all'],
+        access: { authenticated: true, actorKinds: ['user'] },
+        rateLimit: 'auth',
+      }),
+      entry({ id: 'auth.login', paths: ['/auth/login'], rateLimit: 'auth' }),
+      entry({
+        id: 'auth.callback',
+        paths: ['/auth/callback'],
+        rateLimit: 'auth',
+        audit: 'auth.signin',
+        secFetch: 'cross-site-allowed',
+      }),
+      entry({
+        id: 'auth.breakglass',
+        methods: ['POST'],
+        paths: ['/api/v1/auth/break-glass'],
+        rateLimit: 'auth',
+        availability: 'breakGlass',
+      }),
+      entry({
+        id: 'setup.status',
+        paths: ['/api/v1/setup/status'],
+        rateLimit: 'setup',
+        availability: 'setupOpen',
+      }),
+      entry({
+        id: 'setup.unlock',
+        methods: ['POST'],
+        paths: ['/api/v1/setup/unlock'],
+        rateLimit: 'setup',
+        availability: 'setupOpen',
+      }),
+      entry({
+        id: 'setup.state',
+        paths: ['/api/v1/setup/state'],
+        access: { setup: true },
+      }),
+      entry({
+        id: 'connection.get',
+        paths: ['/api/v1/connection'],
+        access: { connection: true },
+      }),
+      entry({
+        id: 'connection.log',
+        paths: ['/api/v1/connection/log'],
+        access: { connection: true },
+        slidesSession: false,
+      }),
+      entry({
+        id: 'connection.runs.current',
+        paths: ['/api/v1/connection/runs/current'],
+        access: { connection: true },
+        slidesSession: false,
+      }),
+      entry({
+        id: 'connection.runs.start',
+        methods: ['POST'],
+        paths: ['/api/v1/connection/runs'],
+        access: { connection: true, stepUp: true },
+        rateLimit: 'write',
+      }),
+      entry({
+        id: 'rbac.restore.owner',
+        methods: ['POST'],
+        paths: ['/api/v1/rbac/restore-owner'],
+        access: {
+          permission: 'rbac:manage',
+          actorKinds: ['break_glass'],
+          unscopedReason: 'global-only permission',
+        },
+        rateLimit: 'write',
+      }),
+      entry({
+        id: 'thing.scoped',
+        paths: ['/api/v1/groups'],
+        access: { permission: 'groups:read', scoped: 'group' },
+      }),
+    ];
+    expect(validateRouteTable(entries)).toEqual([]);
+  });
+});
+
+describe('the availability gate needs a predicate (T-B-237)', () => {
+  it('refuses to boot a route whose gate no module offers', async () => {
+    const gated = defineRoute({
+      id: 'gated.read',
+      method: 'GET',
+      path: '/api/v1/gated/read',
+      access: { public: true },
+      availability: 'breakGlass',
+      rateLimit: 'read',
+      responses: { 200: { description: 'ok' } },
+      handler: noop,
+    });
+    await expect(createFixtureApp({ routes: () => [gated] })).rejects.toThrow(
+      /gated\.read.*breakGlass.*predicate/,
+    );
+  });
+
+  it('boots when the predicate is offered', async () => {
+    const gated = defineRoute({
+      id: 'gated.read',
+      method: 'GET',
+      path: '/api/v1/gated/read',
+      access: { public: true },
+      availability: 'breakGlass',
+      rateLimit: 'read',
+      responses: { 200: { description: 'ok' } },
+      handler: noop,
+    });
+    const app = await createFixtureApp({
+      routes: () => [gated],
+      availability: { breakGlass: () => true },
+    });
+    expect(app.http.table.routes.map((route) => route.id)).toContain('gated.read');
+  });
+});
+
+describe('the OpenAPI extensions come from the definition that enforces them (T-B-237, SB-03)', () => {
+  const ok = { 200: { description: 'ok' } } as const;
+  const routes = (): RouteDefinition[] => [
+    defineRoute({
+      id: 'x.public',
+      method: 'GET',
+      path: '/api/v1/x/public',
+      access: { public: true },
+      rateLimit: 'read',
+      responses: ok,
+      handler: noop,
+    }),
+    defineRoute({
+      id: 'x.authenticated',
+      method: 'GET',
+      path: '/api/v1/x/authenticated',
+      access: { authenticated: true, actorKinds: ['user', 'break_glass'] },
+      rateLimit: 'read',
+      responses: ok,
+      handler: noop,
+    }),
+    defineRoute({
+      id: 'x.permission',
+      method: 'POST',
+      path: '/api/v1/x/permission',
+      access: {
+        permission: 'rbac:manage',
+        stepUp: true,
+        actorKinds: ['user'],
+        unscopedReason: 'global-only permission',
+      },
+      rateLimit: 'write',
+      audit: 'x.permission',
+      responses: ok,
+      handler: noop,
+    }),
+    defineRoute({
+      id: 'x.scoped',
+      method: 'GET',
+      path: '/api/v1/x/scoped',
+      access: { permission: 'users:read', scoped: 'user' },
+      rateLimit: 'read',
+      responses: ok,
+      handler: noop,
+    }),
+    defineRoute({
+      id: 'setup.state',
+      method: 'GET',
+      path: '/api/v1/setup/state',
+      access: { setup: true },
+      availability: 'setupOpen',
+      rateLimit: 'read',
+      responses: ok,
+      handler: noop,
+    }),
+    defineRoute({
+      id: 'connection.runs.start',
+      method: 'POST',
+      path: '/api/v1/connection/runs',
+      access: { connection: true, stepUp: true },
+      rateLimit: 'write',
+      responses: ok,
+      handler: noop,
+    }),
+  ];
+
+  async function build(): Promise<Awaited<ReturnType<typeof createFixtureApp>>> {
+    return await createFixtureApp({
+      routes: routes,
+      availability: { setupOpen: () => true },
+    });
+  }
+
+  function operation(
+    app: Awaited<ReturnType<typeof createFixtureApp>>,
+    method: string,
+    path: string,
+  ): Record<string, unknown> {
+    const item = app.http.document.paths?.[path] as Record<string, unknown> | undefined;
+    return (item?.[method] ?? {}) as Record<string, unknown>;
+  }
+
+  it('writes x-access on every operation, and the other words only where they apply', async () => {
+    const app = await build();
+    expect(operation(app, 'get', '/api/v1/x/public')).toMatchObject({
+      'x-access': 'public',
+      'x-public': true,
+    });
+    expect(operation(app, 'get', '/api/v1/x/public')).not.toHaveProperty('x-permission');
+    expect(operation(app, 'get', '/api/v1/x/authenticated')).toMatchObject({
+      'x-access': 'authenticated',
+      'x-actor-kinds': ['user', 'break_glass'],
+    });
+    expect(operation(app, 'get', '/api/v1/x/authenticated')).not.toHaveProperty('x-public');
+    expect(operation(app, 'post', '/api/v1/x/permission')).toMatchObject({
+      'x-access': 'permission',
+      'x-permission': 'rbac:manage',
+      'x-step-up': true,
+      'x-actor-kinds': ['user'],
+      'x-audit': 'x.permission',
+    });
+    expect(operation(app, 'get', '/api/v1/x/scoped')).toMatchObject({
+      'x-permission': 'users:read',
+      'x-scoped': 'user',
+    });
+    expect(operation(app, 'get', '/api/v1/x/scoped')).not.toHaveProperty('x-step-up');
+    expect(operation(app, 'get', '/api/v1/setup/state')).toMatchObject({
+      'x-access': 'setup',
+      'x-availability': 'setupOpen',
+    });
+    expect(operation(app, 'post', '/api/v1/connection/runs')).toMatchObject({
+      'x-access': 'connection',
+      'x-step-up': true,
+    });
+  });
+
+  it('keeps the parity check honest in both directions', async () => {
+    const app = await build();
+    const registered = registeredRoutesOf(app.http.app);
+    const input = { document: app.http.document, table: app.http.table, registered };
+    expect(checkOpenApiParity(input)).toEqual([]);
+
+    const tampered = structuredClone(app.http.document);
+    const item = tampered.paths?.['/api/v1/x/permission'] as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const post = item.post!;
+    Reflect.deleteProperty(post, 'x-step-up');
+    expect(checkOpenApiParity({ ...input, document: tampered }).join('\n')).toMatch(
+      /x\.permission.*x-step-up/,
+    );
+  });
+
+  describe.each([
+    ['x-step-up removed', 'post', '/api/v1/x/permission', 'x-step-up', undefined, /x-step-up/],
+    ['x-access changed', 'get', '/api/v1/x/authenticated', 'x-access', 'public', /x-access/],
+    [
+      'x-actor-kinds widened',
+      'get',
+      '/api/v1/x/authenticated',
+      'x-actor-kinds',
+      ['user', 'break_glass', 'setup'],
+      /x-actor-kinds/,
+    ],
+    ['x-scoped removed', 'get', '/api/v1/x/scoped', 'x-scoped', undefined, /x-scoped/],
+    [
+      'x-availability removed',
+      'get',
+      '/api/v1/setup/state',
+      'x-availability',
+      undefined,
+      /x-availability/,
+    ],
+  ] as const)('negative fixture: %s', (_name, method, path, key, value, reason) => {
+    it('makes the parity check fail on purpose', async () => {
+      const app = await build();
+      const tampered = structuredClone(app.http.document);
+      const item = tampered.paths?.[path] as Record<string, Record<string, unknown>>;
+      const target = item[method]!;
+      if (value === undefined) Reflect.deleteProperty(target, key);
+      else target[key] = value;
+      expectGuardFails(
+        assertOpenApiParity,
+        {
+          document: tampered,
+          table: app.http.table,
+          registered: registeredRoutesOf(app.http.app),
+        },
+        { reason },
+      );
+    });
+  });
+});
+
+describe('mergeAvailability (T-B-237)', () => {
+  it('merges the predicates the modules offer, one per gate', () => {
+    const yes = (): boolean => true;
+    const no = (): boolean => false;
+    const merged = mergeAvailability([
+      { id: 'setup', availability: { setupOpen: yes } },
+      { id: 'auth', availability: { breakGlass: no } },
+      { id: 'branding' },
+    ]);
+    expect(merged.setupOpen).toBe(yes);
+    expect(merged.breakGlass).toBe(no);
+  });
+
+  it('refuses a gate that two modules offer', () => {
+    const yes = (): boolean => true;
+    expect(() =>
+      mergeAvailability([
+        { id: 'setup', availability: { setupOpen: yes } },
+        { id: 'connection', availability: { setupOpen: yes } },
+      ]),
+    ).toThrow(/setupOpen.*more than one module/);
   });
 });

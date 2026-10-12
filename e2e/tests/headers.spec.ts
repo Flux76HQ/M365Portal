@@ -2,7 +2,8 @@
 // FR-A-041, FR-A-047, FR-A-049, FR-A-050; spec section 6.3). The server-side unit tests assert the
 // same on the handler; this spec reads the headers the browser itself got over a real socket.
 import type { Page, Response } from '@playwright/test';
-import { expect, test } from '../fixtures.js';
+import { expect, fakeOf, test } from '../fixtures.js';
+import { loginPath } from '../support/sign-in.js';
 
 // Without the service worker the page reads the network's own response (a worker-answered response
 // has no body the test runner can fetch, and its headers are the worker's).
@@ -239,5 +240,158 @@ test.describe('other response types', () => {
     const response = await fetchInPage(page, '/robots.txt');
     expect(response.status()).toBe(200);
     expect(response.bodyText).toMatch(/User-agent: \*\s+Disallow: \//);
+  });
+});
+
+// ---- Phase B (T-B-377): the sign-in responses and the new API responses ------------------------------
+
+test.describe('sign-in responses', () => {
+  test.use({ principal: 'anonymous' });
+
+  test('the interstitial is HTML with a nonce, no-store, and has no script and no style', async ({
+    page,
+    app,
+  }) => {
+    let callback: Response | undefined;
+    let callbackBody = '';
+    let login: Response | undefined;
+    page.on('response', (response) => {
+      const path = new URL(response.url()).pathname;
+      if (path === '/auth/callback') {
+        callback = response;
+        // The body is gone once the page has navigated on: read it now.
+        void response.text().then((text) => {
+          callbackBody = text;
+        });
+      }
+      if (path === '/auth/login') login ??= response;
+    });
+    await fakeOf().nextSignIn('helpdesk');
+    await page.goto(app.url(loginPath({ returnTo: '/' })));
+    await page.waitForURL((url) => url.pathname === '/');
+    await app.ready();
+
+    expect(callback, 'the callback was answered').toBeDefined();
+    const headers = await expectUniversalHeaders(callback!);
+    expect(callback!.status()).toBe(200);
+    expect(headers['content-type']).toMatch(/^text\/html/);
+    expect(headers['cache-control']).toBe('no-store');
+    const csp = headers['content-security-policy'] ?? '';
+    expect(csp).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]{22,}'/);
+    expect(csp).toContain("require-trusted-types-for 'script'");
+    const body = callbackBody;
+    expect(body).not.toMatch(/<script|<style|\sstyle=|\sonclick=/i);
+    expect(body).toContain('http-equiv="refresh"');
+    // The session cookie: HttpOnly, Strict, the whole site, no Domain, no Expires (a browser-session cookie).
+    const cookies = (await callback!.headersArray())
+      .filter((header) => header.name.toLowerCase() === 'set-cookie')
+      .map((header) => header.value);
+    const session = cookies.find((cookie) => cookie.startsWith('m365portal_session='));
+    expect(session).toBeDefined();
+    expect(session).toMatch(/HttpOnly/i);
+    expect(session).toMatch(/SameSite=Strict/i);
+    expect(session).toMatch(/Path=\//);
+    expect(session).not.toMatch(/Domain=|Expires=|Max-Age=/i);
+    expect(
+      cookies.find((cookie) => cookie.startsWith('m365portal_oidc=')),
+      'the login transaction cookie is cleared',
+    ).toMatch(/Max-Age=0|Expires=/i);
+
+    // The start of the sign-in: a redirect that is never cached and sets the transaction cookie (Lax, 10 min).
+    const start = login!;
+    const startHeaders = await start.allHeaders();
+    expect(start.status()).toBe(303);
+    expect(startHeaders['cache-control']).toBe('no-store');
+    expect(startHeaders.location).toMatch(
+      /^https:\/\/login\.microsoftonline\.com\/[0-9a-f-]{36}\/oauth2\/v2\.0\/authorize\?/,
+    );
+    expect(startHeaders.location).toContain('code_challenge_method=S256');
+    const oidc = (await start.headersArray())
+      .filter((header) => header.name.toLowerCase() === 'set-cookie')
+      .map((header) => header.value)
+      .find((cookie) => cookie.startsWith('m365portal_oidc='));
+    expect(oidc).toMatch(/HttpOnly/i);
+    expect(oidc).toMatch(/SameSite=Lax/i);
+    expect(oidc).toMatch(/Max-Age=600/);
+  });
+
+  test('a sign-in error page and /no-access carry the HTML profile', async ({ page, app }) => {
+    for (const route of [
+      '/signin?error=mfa_required',
+      '/no-access?reason=no_role',
+      '/break-glass',
+    ]) {
+      const response = await page.goto(app.url(route));
+      const headers = await expectUniversalHeaders(response!);
+      expect(headers['content-security-policy'], route).toContain(
+        "require-trusted-types-for 'script'",
+      );
+      expect(headers['cache-control'], route).toBe('no-store');
+      expect(headers['x-frame-options'], route).toBe('DENY');
+    }
+  });
+});
+
+test.describe('the new API responses, as a browser receives them', () => {
+  for (const path of [
+    '/api/v1/me/access',
+    '/api/v1/connection',
+    '/api/v1/rbac/roles',
+    '/api/v1/rbac/assignments',
+    '/api/v1/csrf',
+  ]) {
+    test(`${path}: generic profile, no-store, JSON`, async ({ page, app }) => {
+      await app.goto('/');
+      const response = await fetchInPage(page, path);
+      expect(response.status(), path).toBe(200);
+      const headers = await expectUniversalHeaders(response);
+      expect(headers['content-security-policy']).toBe(GENERIC_CSP);
+      expect(headers['cache-control']).toBe('no-store');
+      expect(headers['content-type']).toMatch(/^application\/json/);
+      expect(headers['set-cookie'], 'no route here sets a cookie').toBeUndefined();
+    });
+  }
+
+  test.describe('refusals', () => {
+    test.use({ principal: 'reader' });
+    test('a 403 is a problem document with the same profile and the id of the request', async ({
+      page,
+      app,
+      guard,
+    }) => {
+      guard.allowResponse({ status: 403, url: '/api/v1/connection' });
+      await app.goto('/');
+      const response = await fetchInPage(page, '/api/v1/connection');
+      expect(response.status()).toBe(403);
+      const headers = await expectUniversalHeaders(response);
+      expect(headers['content-type']).toMatch(/^application\/problem\+json/);
+      expect(headers['content-security-policy']).toBe(GENERIC_CSP);
+      expect(headers['cache-control']).toBe('no-store');
+      const body = JSON.parse(response.bodyText) as { requestId: string };
+      expect(body.requestId).toBe(headers['x-request-id']);
+    });
+  });
+
+  test.describe('after the setup', () => {
+    test('/setup and /api/v1/setup/status are the 404 of any unknown address, with the same profile', async ({
+      page,
+      app,
+      guard,
+    }) => {
+      guard.allowResponse({ status: 404, url: /\/setup/ });
+      await app.goto('/');
+      const document = await page.goto(app.url('/setup'));
+      expect(document!.status()).toBe(404);
+      const documentHeaders = await expectUniversalHeaders(document!);
+      expect(documentHeaders['content-security-policy']).toContain(
+        "require-trusted-types-for 'script'",
+      );
+      expect(documentHeaders['content-type']).toMatch(/^text\/html/);
+      const status = await fetchInPage(page, '/api/v1/setup/status');
+      expect(status.status()).toBe(404);
+      const headers = await expectUniversalHeaders(status);
+      expect(headers['content-type']).toMatch(/^application\/problem\+json/);
+      expect(headers['content-security-policy']).toBe(GENERIC_CSP);
+    });
   });
 });

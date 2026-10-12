@@ -16,9 +16,9 @@ import { readJson } from '../helpers/http-client.js';
 import { distinctPng, type BrandingStorage } from './branding-fixture.js';
 import { createOutputsApp } from './outputs-fixture.js';
 
-const app = (preview = true) =>
+const app = (signedIn = true) =>
   createOutputsApp({
-    preview,
+    signedIn,
     routes: (storage) =>
       assetServingRoutes({ requireDatabase: storage.requireDatabase, assets: storage.store }),
   });
@@ -177,7 +177,7 @@ describe('R12 assets the applied branding does not reference', () => {
         logos: { light: staged, dark: null, compact: null },
       },
       current.revision,
-      { actor: { kind: 'preview', id: 'preview' } },
+      { actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa' } },
     );
     const response = await storage.app.client.get(`/branding/${staged}.png`);
     expect(response.status).toBe(200);

@@ -17,14 +17,25 @@ import type { z } from 'zod';
 
 const TEMPLATE = readFileSync(new URL('../fixtures/shell-template.html', import.meta.url), 'utf8');
 const REQUEST = new Request('http://localhost:9300/users');
-const STAFF = { actor: { kind: 'preview', id: 'preview' } } as const;
+const STAFF = { actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa' } } as const;
 
 type Me = z.infer<typeof MeResponseSchema>;
 
 const me = (storageAvailable = true): Me => ({
-  actor: { kind: 'preview', id: 'preview', label: 'Preview' },
+  actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa', label: 'Alex' },
   permissions: ['settings:branding'],
-  features: { showcase: false, preview: true },
+  roles: [{ key: 'admin' }],
+  session: {
+    expiresAt: '2026-10-12T18:00:00.000Z',
+    idleExpiresAt: '2026-10-12T10:30:00.000Z',
+    mfa: true,
+    stepUpValidUntil: null,
+    groupsStale: false,
+  },
+  setup: { state: 'completed' },
+  features: { showcase: false, breakGlass: false },
+  adminConsentUrl: null,
+  defaultLanguage: null,
   version: '1.2.3-test',
   publicOrigin: 'http://localhost:9300',
   storageAvailable,

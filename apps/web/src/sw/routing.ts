@@ -3,16 +3,19 @@
 //
 //   cache-first   `GET /assets/<name>`, `GET /branding/<64 hex>.png` and the two files of the offline page
 //                 (`/offline.css`, `/offline.js`), same origin, nothing else
-//   navigate      a same-origin `GET` navigation that is not the API and not the worker itself
+//   navigate      a same-origin `GET` navigation that is not the API, not the sign-in flow and not the
+//                 worker itself; the worker answers it network-first and stores nothing, which is also
+//                 what happens to `/signin`, `/setup`, `/no-access` and `/break-glass` (FR-B-417)
 //   pass          everything else, which the worker does not touch: the browser fetches it as if there
-//                 were no worker (so `/api` is never served from a cache, in any encoding)
+//                 were no worker (so `/api` is never served from a cache, in any encoding, and neither is
+//                 `/auth`: its redirects and cookies never go through a service-worker `fetch`, AM-12)
 //
 // The cache patterns are matched against the path exactly as the URL parser normalised it, and a path
 // that contains a percent sign is never cache-first: the server serves only plain file names
 // (apps/server/src/http/static.ts), so an encoded spelling is a 404 there and must not become a cache
 // key here. The API check is separate and paranoid: it decodes repeatedly and removes backslashes,
 // doubled slashes, dot segments, case and trailing dots before it looks, so no spelling of the prefix
-// reaches a handler that could cache it.
+// reaches a handler that could cache it. `/auth` is checked the same way as `/api`.
 
 export type RouteDecision = 'cache-first' | 'navigate' | 'pass';
 
@@ -75,6 +78,15 @@ export function looksLikeApi(pathname: string): boolean {
   return canonicalSegments(fullyDecoded(pathname))[0]?.startsWith('api') ?? false;
 }
 
+/**
+ * True when any spelling of the path could be taken for the sign-in routes (`/auth...`) by a server or a
+ * proxy. A navigation to `/auth/login` or `/auth/callback` is answered with a redirect and a cookie, and
+ * a worker that handled it could not be sure to pass either on untouched (T-B-299).
+ */
+export function looksLikeAuth(pathname: string): boolean {
+  return canonicalSegments(fullyDecoded(pathname))[0]?.startsWith('auth') ?? false;
+}
+
 /** The worker script itself is never part of a navigation or a cache. */
 function isWorkerScript(pathname: string): boolean {
   return canonicalSegments(fullyDecoded(pathname)).join('/') === 'sw.js';
@@ -93,7 +105,7 @@ export function decideRoute(request: RoutedRequest, origin: string): RouteDecisi
   if (url.origin !== origin) return 'pass';
 
   const { pathname } = url;
-  if (looksLikeApi(pathname) || isWorkerScript(pathname)) return 'pass';
+  if (looksLikeApi(pathname) || looksLikeAuth(pathname) || isWorkerScript(pathname)) return 'pass';
   if (request.mode === 'navigate') return 'navigate';
 
   if (pathname.includes('%')) return 'pass';

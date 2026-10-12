@@ -93,8 +93,8 @@ function assertProblemBody(body: unknown, code: ProblemCode): void {
 // ---------------------------------------------------------------------------------------------
 
 describe('problem bodies (FR-A-022)', () => {
-  it('has the registry the shared package defines: 34 codes', () => {
-    expect(CODES).toHaveLength(34);
+  it('has the registry the shared package defines: 34 codes of Phase A and 19 of Phase B', () => {
+    expect(CODES).toHaveLength(53);
   });
 
   it.each(CODES)('builds a correct body for %s', (code) => {
@@ -244,8 +244,13 @@ describe('problem headers', () => {
     expect(PROBLEM_CONTENT_TYPE).toBe('application/problem+json');
   });
 
-  it('sends Retry-After: 1 with storage_busy and 5 with shutting_down (contract section 6)', () => {
-    expect(RETRY_AFTER_SECONDS).toEqual({ storage_busy: 1, shutting_down: 5 });
+  it('sends Retry-After: 1 with storage_busy, 5 with shutting_down and 30 with graph_unavailable (contract sections 6 and 9.1)', () => {
+    expect(RETRY_AFTER_SECONDS).toEqual({
+      storage_busy: 1,
+      shutting_down: 5,
+      graph_unavailable: 30,
+    });
+    expect(describeProblem('graph_unavailable', REQUEST_ID).headers['Retry-After']).toBe('30');
     expect(describeProblem('storage_busy', REQUEST_ID).headers['Retry-After']).toBe('1');
     expect(describeProblem('shutting_down', REQUEST_ID).headers['Retry-After']).toBe('5');
   });
@@ -290,7 +295,13 @@ describe('problem headers', () => {
   it('sends no Retry-After with any other code', () => {
     for (const code of CODES) {
       if (
-        ['storage_busy', 'shutting_down', 'rate_limited', 'image_processing_busy'].includes(code)
+        [
+          'storage_busy',
+          'shutting_down',
+          'graph_unavailable',
+          'rate_limited',
+          'image_processing_busy',
+        ].includes(code)
       ) {
         continue;
       }
