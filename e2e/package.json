@@ -18,6 +18,7 @@
     "@types/node": "catalog:",
     "lighthouse": "catalog:",
     "msw": "catalog:",
-    "sharp": "catalog:"
+    "sharp": "catalog:",
+    "tsx": "catalog:"
   }
 }
