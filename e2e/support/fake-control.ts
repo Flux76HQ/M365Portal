@@ -179,6 +179,15 @@ export class FakeControl {
     return this.call('graph.replicationDelay', { calls });
   }
 
+  /** The next `times` Graph calls whose `METHOD /path` matches (a regular expression source) answer `status`. */
+  failGraph(times: number, status: 500 | 502 | 503 | 504, match?: string): Promise<void> {
+    return this.call('graph.failWith', {
+      times,
+      status,
+      ...(match === undefined ? {} : { match }),
+    });
+  }
+
   addForeignApplication(displayName: string): Promise<{ objectId: string; appId: string }> {
     return this.call('addForeignApplication', { displayName });
   }

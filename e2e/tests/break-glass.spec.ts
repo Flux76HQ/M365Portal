@@ -118,7 +118,7 @@ test('the only successful write is "Restore the Owner"; every other write is ref
   for (const [path, operations] of Object.entries(document.paths)) {
     for (const method of ['post', 'put', 'patch', 'delete']) {
       if (operations[method] === undefined) continue;
-      if (/^\/api\/v1\/auth\//.test(path) || path === '/api/v1/rbac/restore-owner') continue;
+      if (path.startsWith('/api/v1/auth/') || path === '/api/v1/rbac/restore-owner') continue;
       writes.push({ method: method.toUpperCase(), path: path.replace(/\{[^}]+\}/g, zero) });
     }
   }

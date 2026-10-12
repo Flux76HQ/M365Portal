@@ -10,7 +10,16 @@ import { AxeBuilder } from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { isWaived, loadWaivers, readWaiverFile, todayUtc } from '../axe-waivers.js';
-import { ROUTES } from '../routes.js';
+import {
+  NO_ACCESS_STATES,
+  ROUTES,
+  SETTINGS_STATES,
+  SIGNIN_ERROR_STATES,
+  WIZARD_STATES,
+} from '../routes.js';
+import { readState } from '../servers.js';
+import { allowStaleCsrfAfterUnlock } from '../support/wizard-page.js';
+import { reachWizardState } from '../support/wizard-states.js';
 import {
   allowLockedSetup,
   cssColourBrightness,
@@ -96,6 +105,86 @@ test.describe('axe on every route', () => {
       }
     });
   }
+});
+
+// ---- Phase B (T-B-378): every new route and wizard state, light and dark, desktop and phone -------------------
+
+test.describe('axe on the new routes and states', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+  });
+
+  test.describe('/setup and the wizard (empty instance B)', () => {
+    test.use({ principal: 'anonymous', ownClientAddress: false });
+    for (const state of WIZARD_STATES) {
+      test(`/setup in the state "${state}" has no violations`, async ({ page, app, guard }) => {
+        test.setTimeout(240_000);
+        allowStaleCsrfAfterUnlock(guard);
+        guard.allowResponse({ status: 429, url: '/api/v1/setup/unlock' });
+        await reachWizardState(page, state);
+        await app.ready();
+        await settle(page, `/setup#${state}`);
+        // A running state is moving on its own: scan what is on screen now.
+        expect(await scan(page, `/setup#${state}`)).toEqual([]);
+        guard.take('console');
+      });
+    }
+  });
+
+  test.describe('the sign-in pages (visitor)', () => {
+    test.use({ principal: 'anonymous' });
+    for (const code of SIGNIN_ERROR_STATES) {
+      test(`/signin?error=${code} has no violations`, async ({ page, app }) => {
+        await app.goto(`/signin?error=${code}`);
+        await settle(page, '/signin');
+        expect(await scan(page, '/signin')).toEqual([]);
+      });
+    }
+    test('/signin?signedout=1 has no violations', async ({ page, app }) => {
+      await app.goto('/signin?signedout=1');
+      await settle(page, '/signin');
+      expect(await scan(page, '/signin')).toEqual([]);
+    });
+    for (const reason of NO_ACCESS_STATES) {
+      test(`/no-access?reason=${reason} has no violations`, async ({ page, app }) => {
+        await app.goto(`/no-access?reason=${reason}&ref=0123456789abcdef`);
+        await settle(page, '/no-access');
+        expect(await scan(page, '/no-access')).toEqual([]);
+      });
+    }
+    test('/break-glass has no violations', async ({ page, app }) => {
+      await app.goto('/break-glass');
+      await settle(page, '/break-glass');
+      expect(await scan(page, '/break-glass')).toEqual([]);
+    });
+  });
+
+  test.describe('the Settings pages (owner)', () => {
+    for (const route of SETTINGS_STATES) {
+      test(`${route} has no violations`, async ({ page, app }) => {
+        await app.goto(route);
+        await settle(page, route);
+        expect(await scan(page, route)).toEqual([]);
+      });
+    }
+  });
+
+  test.describe('break-glass session', () => {
+    test.use({ principal: 'anonymous' });
+    test('the banner and /settings/restore-access have no violations', async ({ page, app }) => {
+      test.slow();
+      const { breakGlass } = readState().secrets;
+      await app.goto('/break-glass');
+      await page.getByLabel('Username').fill(breakGlass.username);
+      await page.getByLabel('Password').fill(breakGlass.password);
+      await page.getByRole('button', { name: 'Sign in with break-glass access' }).click();
+      await page.waitForURL(/\/settings\/restore-access$/);
+      await app.ready();
+      await settle(page, '/settings/restore-access');
+      await expect(page.getByTestId('break-glass-banner')).toBeVisible();
+      expect(await scan(page, '/settings/restore-access')).toEqual([]);
+    });
+  });
 });
 
 test.describe('axe on open overlays', () => {

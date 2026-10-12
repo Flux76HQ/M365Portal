@@ -8,6 +8,7 @@
 // with its own listener, so a weakened fixture cannot make it vacuous.
 import type { Page, Request } from '@playwright/test';
 import { ROUTES } from '../routes.js';
+import { allowStaleCsrfAfterUnlock, passEnvironment, unlock } from '../support/wizard-page.js';
 import {
   allowLockedSetup,
   expect,
@@ -130,3 +131,69 @@ test('the document names no third-party host in a link, script or style', async 
   hosts.delete('http://www.w3.org');
   expect([...hosts]).toEqual([]);
 });
+
+// ---- Phase B (T-B-377): sign-in and sign-out go to Microsoft by navigation and by nothing else -----------
+
+test.describe('sign-in and sign-out', () => {
+  test.use({ principal: 'anonymous' });
+
+  function foreignRequests(requests: Request[], origin: string): Request[] {
+    return requests.filter((request) => {
+      const url = request.url();
+      return /^https?:/.test(url) && new URL(url).origin !== origin;
+    });
+  }
+
+  test('a whole sign-in and sign-out: every request but the navigations to Microsoft is same-origin', async ({
+    page,
+    app,
+  }) => {
+    const requests = collect(page);
+    await app.signInAs('leaver');
+    await app.ready();
+    await page.getByRole('button', { name: 'Account menu of Lena Leaver' }).click();
+    await page.getByRole('menuitem', { name: 'Sign out', exact: true }).click();
+    await page.waitForURL(/\/signin\?signedout=1$/);
+    await app.ready();
+
+    const foreign = foreignRequests(requests, app.origin());
+    expect(foreign.length, 'the browser went to Microsoft').toBeGreaterThanOrEqual(2);
+    for (const request of foreign) {
+      expect(new URL(request.url()).hostname, request.url()).toBe('login.microsoftonline.com');
+      expect(
+        request.isNavigationRequest(),
+        `${request.method()} ${new URL(request.url()).pathname}`,
+      ).toBe(true);
+      expect(request.resourceType()).toBe('document');
+    }
+    // The sign-in, and the sign-out, one navigation each.
+    const paths = foreign.map((request) => new URL(request.url()).pathname);
+    expect(paths.some((path) => path.endsWith('/oauth2/v2.0/authorize'))).toBe(true);
+    expect(paths.some((path) => path.endsWith('/oauth2/v2.0/logout'))).toBe(true);
+  });
+});
+
+test.describe('the wizard on the empty instance', () => {
+  test.use({ principal: 'anonymous', ownClientAddress: false });
+
+  test('the token form, the environment and the sign-in step ask for nothing from another origin', async ({
+    page,
+    app,
+    guard,
+  }) => {
+    allowStaleCsrfAfterUnlock(guard);
+    await app.servers.resetEmpty();
+    const requests = collect(page);
+    await app.goto('/setup', { instance: 'b' });
+    await unlock(page);
+    await passEnvironment(page);
+    await expect(page.getByRole('button', { name: 'Sign in with Microsoft' })).toBeVisible();
+    expect(foreignOnly(requests, app.origin('b'))).toEqual([]);
+  });
+});
+
+function foreignOnly(requests: Request[], origin: string): string[] {
+  return requests
+    .map((request) => request.url())
+    .filter((url) => /^https?:/.test(url) && new URL(url).origin !== origin);
+}

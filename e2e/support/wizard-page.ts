@@ -5,7 +5,7 @@ import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import { fakeControl } from './fake-control.js';
 import { portOf } from './ports.js';
-import type { PrincipalName } from './principals.js';
+import { PRINCIPALS, type PrincipalName } from './principals.js';
 import type { Guard } from '../fixtures.js';
 import { readState } from '../servers.js';
 
@@ -160,4 +160,48 @@ export async function expectNoRawKeys(page: Page): Promise<void> {
     /\b(setup|connection|session|signin|noaccess|access|breakglass|appearance|role|permission|scope|origin|qualifier|resource|nav|pages|common|errors|problem|a11y|shell|palette|dashboard)\.[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+/g,
   );
   expect(raw ?? [], 'a catalogue key is shown instead of its text').toEqual([]);
+}
+
+/** The checklist as the page shows it: label to values. */
+export async function readChecklist(page: Page): Promise<Map<string, string[]>> {
+  const items: Locator = page.getByRole('list', { name: 'Checklist' }).locator('> li');
+  const count = await items.count();
+  const checklist = new Map<string, string[]>();
+  for (let index = 0; index < count; index += 1) {
+    const item = items.nth(index);
+    const label = (await item.locator('> p').innerText()).trim();
+    checklist.set(label, await item.locator('code').allInnerTexts());
+  }
+  return checklist;
+}
+
+export const EXCHANGE_ADMINISTRATOR_TEMPLATE = '29232cdf-9323-42fd-ade2-1d097af3e4de';
+
+/**
+ * Does by hand what the checklist says, in the fake tenant of instance B, and hands the three values over.
+ * The certificate is downloaded as a person would. Returns when "Check" has been pressed.
+ */
+export async function handOverManualApplication(page: Page): Promise<void> {
+  const checklist = await readChecklist(page);
+  const values = (label: string): string[] => checklist.get(label) ?? [];
+  const download = await page.request.get(`${bOrigin()}/api/v1/setup/certificate.cer`);
+  expect(download.status()).toBe(200);
+  const made = await fakeControl('b').seedManualApplication({
+    displayName: values('Application name')[0] ?? '',
+    description: values('Application description (exactly this text)')[0] ?? '',
+    tags: values('Tags (both, exactly as written)'),
+    redirectUris: values('Redirect addresses (web)'),
+    optionalClaimNames: values('Optional claims in the ID token'),
+    graphRoles: values('Application permissions of Microsoft Graph'),
+    exchangeRoles: [
+      ...values('Application permissions of Exchange Online'),
+      'Exchange.ManageAsAppV2',
+    ],
+    entraRoleTemplateId: EXCHANGE_ADMINISTRATOR_TEMPLATE,
+    certificateBase64: Buffer.from(await download.body()).toString('base64'),
+  });
+  await page.getByLabel('Application (client) ID').fill(made.appId);
+  await page.getByLabel('Tenant ID').fill(made.tenantId);
+  await page.getByLabel('First Owner (user ID or user principal name)').fill(PRINCIPALS.owner.oid);
+  await page.getByRole('button', { name: 'Check', exact: true }).click();
 }

@@ -9,9 +9,7 @@ test.describe('the owner', () => {
   test('sees the tenant, the application, the certificate, the proof list and the log', async ({
     page,
     app,
-    guard,
   }) => {
-    void guard;
     const application = await fakeOf('a').panelApplication();
     const tenantId = await fakeOf('a').tenantId();
     await app.goto('/settings/connection');

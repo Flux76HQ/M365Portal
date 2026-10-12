@@ -8,7 +8,7 @@
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { createMemoryHistory } from '@tanstack/react-router';
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROUTES, ROUTES, UNKNOWN_ROUTE } from '../../../e2e/routes';
+import { CLIENT_ROUTES, ROUTES, SETTINGS_STATES, UNKNOWN_ROUTE } from '../../../e2e/routes';
 import { createAppRouter } from '../src/router';
 
 /** `/settings/` and `/settings` are the same page. */
@@ -48,6 +48,26 @@ describe('e2e/routes.ts against the route tree', () => {
     expect(new Set(ROUTES).size).toBe(ROUTES.length);
   });
 
+  it('the Phase B routes are in the router and in the list (T-B-381)', () => {
+    const phaseB = [
+      '/signin',
+      '/no-access',
+      '/setup',
+      '/break-glass',
+      '/settings/connection',
+      '/settings/access',
+      '/settings/restore-access',
+    ];
+    for (const path of phaseB) {
+      expect(routerPaths(), `the router has ${path}`).toContain(path);
+      expect(CLIENT_ROUTES, `e2e/routes.ts lists ${path}`).toContain(path);
+    }
+  });
+
+  it('every page of the state lists is a listed route', () => {
+    for (const path of SETTINGS_STATES) expect(CLIENT_ROUTES).toContain(path);
+  });
+
   it('every listed path is absolute and without a trailing slash', () => {
     for (const path of ROUTES) {
       expect(path).toMatch(/^\/([^/\s]+(\/[^/\s]+)*)?$/);
@@ -76,6 +96,21 @@ describe('e2e/routes.ts against the route tree', () => {
         {
           name: 'assertSameRoutes (listed route does not exist)',
           reason: 'e2e/routes.ts lists /ghost, the router has no such route',
+        },
+      );
+    });
+
+    it('a Phase B route missing from the list fails, naming it', () => {
+      expectGuardFails(
+        () => {
+          assertSameRoutes(
+            CLIENT_ROUTES.filter((path) => path !== '/break-glass'),
+            routerPaths(),
+          );
+        },
+        {
+          name: 'assertSameRoutes (missing Phase B entry)',
+          reason: 'the router has /break-glass, e2e/routes.ts does not list it',
         },
       );
     });

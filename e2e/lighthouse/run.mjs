@@ -1,27 +1,26 @@
-// The Lighthouse harness (T-A-330, FR-A-154, SC-A-003; baseline section 8). `pnpm lighthouse`.
+// The Lighthouse harness (T-A-330, T-B-380, FR-A-154, SC-A-003; baseline section 8). `pnpm lighthouse`.
 //
-// It starts the PRODUCTION build (apps/server/dist, which serves apps/web/dist) on free ports, runs the
-// Lighthouse CLI 13.5.0 against every route of e2e/routes.ts with the mobile and the desktop preset,
-// on two instances:
-//   preview   PREVIEW_MODE=true, SHOWCASE=true: the instance every end-to-end spec uses, where the
-//             targets of the spec apply as written (Performance, Accessibility, Best Practices >= 95,
-//             LCP < 2.0 s, CLS <= 0.01).
-//   default   neither: what a real deployment shows. Mobile LCP there is gated by the plan 14.3 rule
-//             recorded in judge.mjs (gate note G4, OP-1), with the real numbers printed.
+// It starts the e2e topology (e2e/lighthouse/topology.ts runs the e2e global setup: the fake tenant,
+// instance A configured, instance B empty, the Owner signed in), runs the Lighthouse CLI 13.5.0 with
+// the mobile and the desktop preset against the PRODUCTION build, in three groups:
+//   a-public  A, no session: /signin, /no-access?reason=no_role, /break-glass and the Not-found page.
+//   b-setup   B, unconfigured: the token form of /setup.
+//             Both groups are GATED with the targets of the spec (Performance, Accessibility, Best
+//             Practices >= 95, LCP < 2.0 s, CLS <= 0.01).
+//   a-owner   A with the Owner's session cookie (sent as a header): every signed-in page. REPORTED,
+//             not gated: the numbers are printed and kept, a miss is a note and never a failure.
 // A cell is measured once; ONLY a timing miss is measured again (at most three runs in all), every
 // measurement is kept as an artefact, and judge.mjs decides (first run for status, payload and the
-// category scores, the cleanest run for LCP and CLS). Exit code 1 when a cell fails.
+// category scores, the cleanest run for LCP and CLS). Exit code 1 when a gated cell fails.
 //
-// Usage: node e2e/lighthouse/run.mjs [--instances=preview,default] [--presets=mobile,desktop]
-//                                     [--routes=/,/users] [--always-repeat] [--out=<dir>]
+// Usage: node e2e/lighthouse/run.mjs [--groups=a-public,b-setup,a-owner] [--presets=mobile,desktop]
+//                                     [--routes=/signin,/users] [--always-repeat] [--out=<dir>]
 //   --always-repeat   measure every cell three times (the spread of a whole pass, not a gate)
-// Environment: E2E_PORT (first port tried; the next one is used by the second instance; default 18080,
-// so the e2e suite's own ports are not touched), CHROME_PATH (default: the Chromium of Playwright).
-// Needs `pnpm build` first and Node 22.19 or newer (Lighthouse 13.5).
+// Environment: E2E_PORT (first of five ports; default 18080, so the e2e suite's own ports are not
+// touched), CHROME_PATH (default: the Chromium of Playwright). Needs `pnpm build` first, openssl and
+// Node 22.19 or newer (Lighthouse 13.5).
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:net';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MAX_RUNS, formatReport, judge, needsRepeat } from './judge.mjs';
@@ -31,12 +30,14 @@ const e2eRoot = join(here, '..');
 const repoRoot = join(e2eRoot, '..');
 const lighthouseCli = join(e2eRoot, 'node_modules/lighthouse/cli/index.js');
 const serverEntry = join(repoRoot, 'apps/server/dist/index.js');
+const tsxCli = join(repoRoot, 'node_modules/tsx/dist/cli.mjs');
+const GROUPS = ['a-public', 'b-setup', 'a-owner'];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function parseArgs(argv) {
   const options = {
-    instances: ['preview', 'default'],
+    groups: [...GROUPS],
     presets: ['mobile', 'desktop'],
     routes: null,
     always: false,
@@ -44,15 +45,15 @@ function parseArgs(argv) {
   };
   for (const arg of argv) {
     const [key, value = ''] = arg.split('=');
-    if (key === '--instances') options.instances = value.split(',');
+    if (key === '--groups') options.groups = value.split(',');
     else if (key === '--presets') options.presets = value.split(',');
     else if (key === '--routes') options.routes = value.split(',');
     else if (key === '--always-repeat') options.always = true;
     else if (key === '--out') options.out = value;
     else throw new Error(`unknown argument ${arg}`);
   }
-  for (const name of options.instances) {
-    if (!['preview', 'default'].includes(name)) throw new Error(`unknown instance ${name}`);
+  for (const name of options.groups) {
+    if (!GROUPS.includes(name)) throw new Error(`unknown group ${name}`);
   }
   for (const name of options.presets) {
     if (!['mobile', 'desktop'].includes(name)) throw new Error(`unknown preset ${name}`);
@@ -60,68 +61,37 @@ function parseArgs(argv) {
   return options;
 }
 
-function portFree(port) {
-  return new Promise((resolve) => {
-    const server = createServer();
-    server.once('error', () => resolve(false));
-    server.listen(port, '127.0.0.1', () => server.close(() => resolve(true)));
-  });
-}
-
-/** The first port at or above E2E_PORT (default 18080) where this port and the next one are free. */
-async function findPorts() {
-  const raw = process.env.E2E_PORT ?? '18080';
-  const base = Number(raw);
-  if (!/^\d{1,5}$/.test(raw) || base < 1024 || base > 65400) {
-    throw new Error('E2E_PORT must be an integer between 1024 and 65400');
-  }
-  for (let port = base; port < base + 100; port += 1) {
-    if ((await portFree(port)) && (await portFree(port + 1)))
-      return { preview: port, default: port + 1 };
-  }
-  throw new Error(`no two free ports found from ${String(base)}`);
-}
-
-async function healthy(port) {
-  try {
-    const response = await fetch(`http://127.0.0.1:${String(port)}/healthz`, {
-      signal: AbortSignal.timeout(1000),
+/** Starts the e2e topology; resolves with its origins and the Owner's cookie header. */
+function startTopology() {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [tsxCli, join(here, 'topology.ts')], {
+      cwd: repoRoot,
+      env: { ...process.env, E2E_PORT: process.env.E2E_PORT ?? '18080' },
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-function startServer(name, port, dataDir, logFile) {
-  const env = {
-    ...process.env,
-    PORT: String(port),
-    HOST: '127.0.0.1',
-    PUBLIC_BASE_URL: `http://localhost:${String(port)}`,
-    DATA_DIR: dataDir,
-  };
-  delete env.PREVIEW_MODE;
-  delete env.SHOWCASE;
-  if (name === 'preview') {
-    env.PREVIEW_MODE = 'true';
-    env.SHOWCASE = 'true';
-  }
-  const child = spawn(process.execPath, [serverEntry], {
-    cwd: repoRoot,
-    env,
-    stdio: ['ignore', 'ignore', 'ignore'],
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (chunk) => {
+      out += String(chunk);
+      const line = out.split('\n')[0];
+      if (out.includes('\n')) resolve({ child, ...JSON.parse(line) });
+    });
+    child.stderr.on('data', (chunk) => {
+      err += String(chunk);
+    });
+    child.once('error', reject);
+    child.once('exit', (code) => {
+      reject(new Error(`the topology ended with ${String(code)} before it was ready: ${err.slice(-1500)}`));
+    });
   });
-  writeFileSync(logFile, `started ${name} pid ${String(child.pid)} on port ${String(port)}\n`);
-  return child;
 }
 
-async function stop(child) {
+async function stopTopology(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
-  child.kill('SIGTERM');
-  const deadline = Date.now() + 10_000;
+  child.stdin.end();
+  const deadline = Date.now() + 20_000;
   while (Date.now() < deadline && child.exitCode === null && child.signalCode === null) {
-    await sleep(50);
+    await sleep(100);
   }
   if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
 }
@@ -134,7 +104,7 @@ async function chromePath() {
 
 const slugOf = (route) => (route === '/' ? 'root' : route.replace(/^\//, '').replace(/\//g, '_'));
 
-function runLighthouse({ url, preset, outputFile, chrome }) {
+function runLighthouse({ url, preset, outputFile, chrome, headers }) {
   return new Promise((resolve, reject) => {
     const args = [
       lighthouseCli,
@@ -145,6 +115,7 @@ function runLighthouse({ url, preset, outputFile, chrome }) {
       '--only-categories=performance,accessibility,best-practices',
       '--chrome-flags=--headless=new --no-sandbox',
       ...(preset === 'desktop' ? ['--preset=desktop'] : []),
+      ...(headers ? [`--extra-headers=${JSON.stringify(headers)}`] : []),
     ];
     const child = spawn(process.execPath, args, {
       env: { ...process.env, CHROME_PATH: chrome },
@@ -209,11 +180,36 @@ export function measurementFrom(lhr, run) {
   };
 }
 
+/** The cells of each group: [path, query]. The paths are the ones of e2e/routes.ts. */
+function groupsOf(topology, routesOf, UNKNOWN_ROUTE) {
+  const signedIn = routesOf.filter(
+    (route) => !['/signin', '/setup', '/break-glass', '/no-access'].includes(route),
+  );
+  return {
+    'a-public': {
+      origin: topology.a,
+      gated: true,
+      pages: [
+        ['/signin', ''],
+        ['/no-access', '?reason=no_role'],
+        ['/break-glass', ''],
+        [UNKNOWN_ROUTE, ''],
+      ],
+    },
+    'b-setup': { origin: topology.b, gated: true, pages: [['/setup', '']] },
+    'a-owner': {
+      origin: topology.a,
+      gated: false,
+      headers: { Cookie: topology.ownerCookie },
+      pages: signedIn.filter((route) => route !== UNKNOWN_ROUTE).map((route) => [route, '']),
+    },
+  };
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const { ROUTES } = await import('../routes.ts');
-  const routes = options.routes ?? [...ROUTES];
-  for (const file of [serverEntry, join(repoRoot, 'apps/web/dist/index.html'), lighthouseCli]) {
+  const { ROUTES, UNKNOWN_ROUTE } = await import('../routes.ts');
+  for (const file of [serverEntry, join(repoRoot, 'apps/web/dist/index.html'), lighthouseCli, tsxCli]) {
     if (!existsSync(file)) {
       throw new Error(
         `${file} is missing: run pnpm install and pnpm build first (Lighthouse judges the production build)`,
@@ -221,34 +217,20 @@ async function main() {
     }
   }
   const chrome = await chromePath();
-  const ports = await findPorts();
-  const runDir = mkdtempSync(join(tmpdir(), 'm365portal-lighthouse-'));
-  const servers = [];
+  const topology = await startTopology();
+  const groups = groupsOf(topology, [...ROUTES], UNKNOWN_ROUTE);
   const cells = [];
   try {
-    for (const name of options.instances) {
-      const dataDir = join(runDir, `data-${name}`);
-      mkdirSync(dataDir);
-      const child = startServer(name, ports[name], dataDir, join(runDir, `server-${name}.log`));
-      servers.push(child);
-      const deadline = Date.now() + 30_000;
-      while (!(await healthy(ports[name]))) {
-        if (child.exitCode !== null || Date.now() > deadline) {
-          throw new Error(
-            `the ${name} server did not become healthy on port ${String(ports[name])}`,
-          );
-        }
-        await sleep(100);
-      }
-    }
     rmSync(options.out, { recursive: true, force: true });
-    for (const instance of options.instances) {
+    for (const name of options.groups) {
+      const group = groups[name];
       for (const preset of options.presets) {
-        mkdirSync(join(options.out, instance, preset), { recursive: true });
-        for (const route of routes) {
-          const cell = { instance, preset, route, measurements: [] };
+        mkdirSync(join(options.out, name, preset), { recursive: true });
+        for (const [route, query] of group.pages) {
+          if (options.routes !== null && !options.routes.includes(route)) continue;
+          const cell = { instance: name, preset, route, reportOnly: !group.gated, measurements: [] };
           cells.push(cell);
-          const url = `http://localhost:${String(ports[instance])}${route}`;
+          const url = `${group.origin}${route}${query}`;
           while (
             cell.measurements.length === 0 ||
             (cell.measurements.length < MAX_RUNS && needsRepeat(cell, { always: options.always }))
@@ -256,15 +238,15 @@ async function main() {
             const run = cell.measurements.length + 1;
             const outputFile = join(
               options.out,
-              instance,
+              name,
               preset,
               `${slugOf(route)}-run${String(run)}.json`,
             );
-            await runLighthouse({ url, preset, outputFile, chrome });
+            await runLighthouse({ url, preset, outputFile, chrome, headers: group.headers });
             const measurement = measurementFrom(JSON.parse(readFileSync(outputFile, 'utf8')), run);
             cell.measurements.push(measurement);
             process.stderr.write(
-              `${instance} ${preset} ${route} run ${String(run)}: perf ${String(measurement.scores.performance)} ` +
+              `${name} ${preset} ${route} run ${String(run)}: perf ${String(measurement.scores.performance)} ` +
                 `LCP ${String(Math.round(measurement.lcpMs ?? -1))} ms\n`,
             );
           }
@@ -272,8 +254,7 @@ async function main() {
       }
     }
   } finally {
-    for (const child of servers) await stop(child);
-    rmSync(runDir, { recursive: true, force: true });
+    await stopTopology(topology.child);
   }
   const verdicts = judge(cells);
   const report = formatReport(cells, verdicts);

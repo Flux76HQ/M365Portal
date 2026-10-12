@@ -8,7 +8,6 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Locator, Page } from '@playwright/test';
 import { expect, fakeOf, test } from '../fixtures.js';
 import { PRINCIPALS } from '../support/principals.js';
 import {
@@ -17,6 +16,7 @@ import {
   expectNoSecrets,
   passEnvironment,
   proofStatuses,
+  readChecklist,
   setupTokenOfB,
   unlock,
 } from '../support/wizard-page.js';
@@ -25,19 +25,6 @@ import { readState } from '../servers.js';
 test.use({ principal: 'anonymous', ownClientAddress: false });
 
 const EXCHANGE_ADMINISTRATOR_TEMPLATE = '29232cdf-9323-42fd-ade2-1d097af3e4de';
-
-/** The checklist as the page shows it: label to values. */
-async function readChecklist(page: Page): Promise<Map<string, string[]>> {
-  const items: Locator = page.getByRole('list', { name: 'Checklist' }).locator('> li');
-  const count = await items.count();
-  const checklist = new Map<string, string[]>();
-  for (let index = 0; index < count; index += 1) {
-    const item = items.nth(index);
-    const label = (await item.locator('> p').innerText()).trim();
-    checklist.set(label, await item.locator('code').allInnerTexts());
-  }
-  return checklist;
-}
 
 function openssl(args: string[], input?: Buffer): string {
   const result = spawnSync('openssl', args, {

@@ -15,6 +15,9 @@
 import type { Page, TestInfo } from '@playwright/test';
 import { expect, test } from '../fixtures.js';
 import { restoreDefaults } from '../branding-helpers.js';
+import { NO_ACCESS_STATES, SIGNIN_ERROR_STATES, WIZARD_STATES } from '../routes.js';
+import { allowStaleCsrfAfterUnlock } from '../support/wizard-page.js';
+import { reachWizardState } from '../support/wizard-states.js';
 
 test.beforeEach(async ({ app, request }) => {
   // The Appearance page shows the saved values: other specs leave the defaults, but make sure.
@@ -109,4 +112,107 @@ test('the stored theme really paints the page (the dark baselines are dark)', as
   await prepare(page, '/', app);
   const dark = testInfo.project.name.endsWith('dark');
   await app.expectTheme(dark ? 'dark' : 'light');
+});
+
+// ---- Phase B (T-B-379): the new routes and states ----------------------------------------------------------
+// The same rules as above (threshold 0, animations off, reduced motion, UTC, fixed locale, the font awaited),
+// and the parts that change between runs are masked: times, codes and thumbprints, the activity log,
+// the countdowns. Baselines for these are NOT made here: text rendering of the sandbox differs from the
+// runner image, so they are taken from the artefact of the first CI run (`*-actual.png` of the failed
+// `e2e` job, as in Phase A) and committed after the owner has looked at them. Until then each of these
+// tests fails with "A snapshot doesn't exist".
+
+/** What differs from run to run on the new pages. */
+const MOVING = (page: Page) => [
+  ...MASKS(page),
+  page.locator('time'),
+  page.locator('code'),
+  page.locator('[role="log"]'),
+  page.locator('[role="timer"]'),
+  page.locator('[data-slot="token-locked"]'),
+  page.locator('[data-slot="device-code-panel"] p', { hasText: /expires in/ }),
+  page.getByText(/Next attempt in \d+ s/),
+  page.getByText(/Trying again in \d+ s/),
+  page.getByText(/\b(359|360) days\b/),
+  page.locator('[data-slot="proof-list"] p', { hasText: /Generated at/ }),
+];
+
+async function shoot(
+  page: Page,
+  slug: string,
+  testInfo: TestInfo,
+  options: { fullPage?: boolean } = {},
+): Promise<void> {
+  await page.waitForFunction(() => document.getAnimations().length === 0);
+  await pinVersionText(page);
+  await page.mouse.move(0, 0);
+  await expect(page).toHaveScreenshot(nameOf(slug, testInfo), {
+    ...SHOT,
+    fullPage: options.fullPage ?? true,
+    mask: MOVING(page),
+  });
+}
+
+test.describe('Phase B: the sign-in pages', () => {
+  test.use({ principal: 'anonymous' });
+
+  for (const code of SIGNIN_ERROR_STATES) {
+    test(`signin-${code}`, async ({ page, app }, testInfo) => {
+      test.skip(testInfo.project.name === 'ultrawide', 'one ultrawide screenshot: the Dashboard');
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await app.goto(`/signin?error=${code}`);
+      await assertSelfHostedFont(page);
+      await shoot(page, `signin-${code}`, testInfo);
+    });
+  }
+
+  test('signin-plain', async ({ page, app }, testInfo) => {
+    test.skip(testInfo.project.name === 'ultrawide', 'one ultrawide screenshot: the Dashboard');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await app.goto('/signin');
+    await shoot(page, 'signin-plain', testInfo);
+  });
+
+  for (const reason of NO_ACCESS_STATES) {
+    test(`no-access-${reason}`, async ({ page, app }, testInfo) => {
+      test.skip(testInfo.project.name === 'ultrawide', 'one ultrawide screenshot: the Dashboard');
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await app.goto(`/no-access?reason=${reason}&ref=0123456789abcdef`);
+      await shoot(page, `no-access-${reason}`, testInfo);
+    });
+  }
+});
+
+test.describe('Phase B: the Settings pages (owner)', () => {
+  for (const [slug, path] of [
+    ['connection', '/settings/connection'],
+    ['access', '/settings/access'],
+  ] as const) {
+    test(`settings-${slug}`, async ({ page, app }, testInfo) => {
+      test.skip(testInfo.project.name === 'ultrawide', 'one ultrawide screenshot: the Dashboard');
+      await prepare(page, path, app);
+      await page.waitForLoadState('networkidle');
+      await shoot(page, `settings-${slug}`, testInfo);
+    });
+  }
+});
+
+test.describe('Phase B: /setup (empty instance B)', () => {
+  test.use({ principal: 'anonymous', ownClientAddress: false });
+
+  // The token form, and one state per status of a step.
+  for (const state of WIZARD_STATES.filter((entry) => entry !== 'finish')) {
+    test(`setup-${state}`, async ({ page, app, guard }, testInfo) => {
+      test.skip(testInfo.project.name === 'ultrawide', 'one ultrawide screenshot: the Dashboard');
+      test.setTimeout(240_000);
+      allowStaleCsrfAfterUnlock(guard);
+      guard.allowResponse({ status: 429, url: '/api/v1/setup/unlock' });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await reachWizardState(page, state);
+      guard.take('console');
+      guard.take('status');
+      await app.ready();
+      await shoot(page, `setup-${state}`, testInfo);
+    });
+  }
 });
