@@ -77,6 +77,8 @@ import {
 
 type Check = (tree: Tree) => string[];
 
+const escapeForRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // ---------------------------------------------------------------------------------------------
 // The real tree
 // ---------------------------------------------------------------------------------------------
@@ -1330,7 +1332,7 @@ describe('single implementation: the detector bites on every row of the table', 
     expectGuardFails(asGuard(checkSecondDefinitions), tree, {
       name,
       reason: new RegExp(
-        `apps/web/src/lib/second\\.ts:1: second definition of ${name} \\(function\\); the one implementation is ${home.replace(/\./g, '\\.')}`,
+        `apps/web/src/lib/second\\.ts:1: second definition of ${name} \\(function\\); the one implementation is ${escapeForRegExp(home)}`,
       ),
     });
   });
