@@ -2788,7 +2788,7 @@ describe('repository conventions: the preview mode is gone (FR-B-102, T-B-393)',
     expectGuardFails(asGuard(checkPreviewRemoval), mounted.tree, {
       name: fixture,
       reason: new RegExp(
-        `${path.replace(/\./g, '\\.')}:\\d+: .*the preview mode was removed in Phase B`,
+        `${path.replace(/[\\.]/g, '\\$&')}:\\d+: .*the preview mode was removed in Phase B`,
       ),
     });
   });

@@ -19,7 +19,7 @@ const dataModel = readFileSync(
 
 /** The right-hand side of a line `NAME(args)   <sql>` in the text block of data-model section 4. */
 function documentedFragment(head: string): string {
-  const escaped = head.replace(/[()]/g, '\\$&');
+  const escaped = head.replace(/[\\()]/g, '\\$&');
   const match = new RegExp(`^${escaped}\\s+(.+)$`, 'm').exec(dataModel);
   if (match?.[1] === undefined) throw new Error(`data-model.md has no definition line for ${head}`);
   return match[1].trim();

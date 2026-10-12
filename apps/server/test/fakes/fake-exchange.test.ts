@@ -479,7 +479,7 @@ describe('DistributionGroupMember (T-B-066; admin-api-endpoints-distribution-gro
       'PrimarySmtpAddress',
     ]);
     const next = String(field(first.body, '@odata.nextLink'));
-    expect(next).toContain('%24select=DisplayName%2CPrimarySmtpAddress'.replace('%24', '$'));
+    expect(next).toContain('$select=DisplayName%2CPrimarySmtpAddress');
     const second = await call(tenant, token(), 'DistributionGroupMember', body, { url: next });
     expect(Object.keys(field(second.body, 'value', 0) as object).sort()).toEqual([
       'DisplayName',

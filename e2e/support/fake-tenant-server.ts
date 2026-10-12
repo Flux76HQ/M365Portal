@@ -418,7 +418,8 @@ async function forward(
       request.socket.destroy();
       return;
     }
-    send(response, 500, { error: 'fake_crashed', message: String(failure) });
+    process.stderr.write(`fake tenant crashed: ${String(failure)}\n`);
+    send(response, 500, { error: 'fake_crashed' });
   }
 }
 
@@ -477,7 +478,8 @@ const server = createServer((request, response) => {
         }
         send(response, 200, { result: operation(scene, payload.args ?? {}) ?? null });
       } catch (failure) {
-        send(response, 400, { error: String(failure) });
+        process.stderr.write(`fake tenant operation failed: ${String(failure)}\n`);
+        send(response, 400, { error: 'operation_failed' });
       }
       return;
     }

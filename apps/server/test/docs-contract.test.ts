@@ -1459,7 +1459,7 @@ describe('docs/operations.md: Phase B content and the limits sentences (FR-B-703
       ],
       [
         'the outbound host outlook.office365.com',
-        (t) => everywhere(t, 'outlook.office365.com', 'example.com'),
+        (t) => everywhere(t, /outlook\.office365\.com/, 'example.com'),
         /outlook\.office365\.com/,
       ],
       [

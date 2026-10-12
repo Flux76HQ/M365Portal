@@ -391,7 +391,7 @@ describe('isAllowedVerificationUri (FR-B-214, U43)', () => {
 
   it('negative: a check that only tests the host suffix lets a look-alike through', () => {
     const suffixOnly = (uri: string): void => {
-      if (!new URL(uri).hostname.includes('login.microsoft.com')) throw new Error('rejected');
+      if (/login\.microsoft\.com/.exec(new URL(uri).hostname) === null) throw new Error('rejected');
     };
     suffixOnly('https://login.microsoft.com/device');
     // The wrong guard accepts the look-alike, which is the point of the fixture: the real one throws.
