@@ -51,11 +51,9 @@ export function createActorResolver(deps: ActorResolverDeps): ActorResolver {
     }
 
     const bySession = (): Actor | 'expired' | undefined => {
-      // No store has registered and there is no database (degraded mode): this process cannot judge
-      // a session cookie, so it neither accepts nor clears it (FR-A-013).
-      if (deps.ports.sessions.get() === undefined && deps.database() === undefined) {
-        return undefined;
-      }
+      // There is no database (degraded mode, FR-A-013): this process cannot judge a session cookie,
+      // so it neither accepts nor clears it, whichever reader would have been asked.
+      if (deps.database() === undefined) return undefined;
       const result = resolveSessionActor(
         {
           sessions: deps.ports.sessions.get() ?? defaultSessions,

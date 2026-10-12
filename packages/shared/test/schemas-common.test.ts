@@ -4,7 +4,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { PERMISSIONS } from '../src/permissions.js';
 import * as common from '../src/schemas/common.js';
 import * as health from '../src/schemas/health.js';
 import * as meta from '../src/schemas/meta.js';
@@ -26,7 +25,7 @@ const {
   pageLimitOf,
 } = common;
 const { HealthzResponseSchema, ReadinessCheckSchema, ReadyzResponseSchema } = health;
-const { ActorSummarySchema, CsrfResponseSchema, FeaturesSchema, MeResponseSchema } = meta;
+const { CsrfResponseSchema } = meta;
 
 /** Parse and report only whether it passed; the failure tests look at the messages separately. */
 const accepts = (schema: z.ZodType, value: unknown): boolean => schema.safeParse(value).success;
@@ -305,86 +304,7 @@ describe('ReadinessCheckSchema and ReadyzResponseSchema (R2, FR-A-026)', () => {
   });
 });
 
-describe('MeResponseSchema and its parts (R4, FR-A-027)', () => {
-  const anonymous = {
-    actor: { kind: 'anonymous', id: 'anonymous', label: 'Anonymous' },
-    permissions: [],
-    features: { showcase: false, preview: false },
-    version: '0.2.1',
-    publicOrigin: 'http://localhost:9300',
-    storageAvailable: true,
-  };
-  const preview = {
-    ...anonymous,
-    actor: { kind: 'preview', id: 'preview', label: 'Preview' },
-    permissions: [...PERMISSIONS],
-    features: { showcase: true, preview: true },
-  };
-
-  it('accepts the anonymous actor with no permissions', () => {
-    expect(accepts(MeResponseSchema, anonymous)).toBe(true);
-  });
-
-  it('accepts the preview actor with every catalogue permission', () => {
-    expect(accepts(MeResponseSchema, preview)).toBe(true);
-  });
-
-  it('accepts an https origin, a custom port and an IPv6 host as the public origin', () => {
-    for (const publicOrigin of [
-      'https://panel.example.org',
-      'http://localhost:18080',
-      'http://[::1]:18080',
-    ]) {
-      expect(accepts(MeResponseSchema, { ...anonymous, publicOrigin }), publicOrigin).toBe(true);
-    }
-  });
-
-  it('accepts storageAvailable false (degraded mode)', () => {
-    expect(accepts(MeResponseSchema, { ...anonymous, storageAvailable: false })).toBe(true);
-  });
-
-  it.each([
-    ['an unknown actor kind', { actor: { kind: 'user', id: 'u1', label: 'U' } }],
-    ['an actor without a label', { actor: { kind: 'anonymous', id: 'anonymous' } }],
-    ['a permission outside the catalogue', { permissions: ['users:write'] }],
-    ['a wildcard permission', { permissions: ['*'] }],
-    ['a repeated permission', { permissions: ['users:read', 'users:read'] }],
-    ['permissions as a set-like object', { permissions: { 'users:read': true } }],
-    ['features without preview', { features: { showcase: false } }],
-    ['features with a non-boolean', { features: { showcase: 'no', preview: false } }],
-    ['an origin with a path', { publicOrigin: 'http://localhost:9300/panel' }],
-    ['an origin with a trailing slash', { publicOrigin: 'http://localhost:9300/' }],
-    ['an origin that is not a URL', { publicOrigin: 'localhost' }],
-    ['a script URL as origin', { publicOrigin: 'javascript:alert(1)' }],
-    ['an origin with credentials', { publicOrigin: 'http://user:pw@localhost:9300' }],
-    ['an empty version', { version: '' }],
-    ['storageAvailable as text', { storageAvailable: 'yes' }],
-    ['an extra member', { token: 'x' }],
-  ])('rejects %s', (_label, change) => {
-    expect(accepts(MeResponseSchema, { ...anonymous, ...change })).toBe(false);
-  });
-
-  it.each([
-    ['actor', 'actor'],
-    ['permissions', 'permissions'],
-    ['features', 'features'],
-    ['version', 'version'],
-    ['publicOrigin', 'publicOrigin'],
-    ['storageAvailable', 'storageAvailable'],
-  ])('rejects a response without %s', (_label, key) => {
-    const rest = Object.fromEntries(Object.entries(anonymous).filter(([name]) => name !== key));
-    expect(accepts(MeResponseSchema, rest)).toBe(false);
-  });
-
-  it('describes the actor and the features on their own', () => {
-    expect(accepts(ActorSummarySchema, { kind: 'preview', id: 'preview', label: 'Preview' })).toBe(
-      true,
-    );
-    expect(accepts(ActorSummarySchema, { kind: 'admin', id: 'a', label: 'A' })).toBe(false);
-    expect(accepts(FeaturesSchema, { showcase: true, preview: false })).toBe(true);
-    expect(accepts(FeaturesSchema, { showcase: true })).toBe(false);
-  });
-});
+// MeResponseSchema moved to schemas-meta.test.ts with the Phase B shape (T-B-194).
 
 describe('CsrfResponseSchema (R5)', () => {
   const example = {
@@ -581,6 +501,8 @@ describe('every schema is an OpenAPI component and has no transform (contract 8.
         'ReadinessCheckSchema',
         'ReadyzResponseSchema',
         'RequestIdSchema',
+        'SessionSummarySchema',
+        'SetupSummarySchema',
         'Sha256HexSchema',
       ].sort(),
     );

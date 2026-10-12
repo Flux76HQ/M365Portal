@@ -26,8 +26,8 @@
 // session at all, `step_up_required` for a stale step-up. If the hook throws, the request fails closed
 // with 503 `storage_unavailable` instead of the denial. An anonymous read is a 401 that is not audited
 // (attacker-reachable volume); a 429 is never audited.
-import { serializeCookieDeletion } from '@m365portal/shared/auth/cookies';
 import type { MiddlewareHandler } from 'hono';
+import { clearCookie } from '../auth/cookies.js';
 import type { Actor } from '../policy/actor.js';
 import { authorize } from '../policy/authorize.js';
 import { isWriteMethod } from './csrf.js';
@@ -160,7 +160,7 @@ export function accessGuard(options: AccessGuardOptions): MiddlewareHandler<AppE
     if (verdict.status === 401) {
       response.headers.set('WWW-Authenticate', WWW_AUTHENTICATE);
       if (verdict.problem === 'session_expired') {
-        response.headers.append('Set-Cookie', serializeCookieDeletion('session', publicOrigin));
+        clearCookie(response.headers, 'session', publicOrigin);
       }
     }
     return response;

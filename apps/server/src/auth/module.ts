@@ -1,13 +1,22 @@
-// STUB-MODULE (T-B-014): The auth module: OIDC sign-in, sessions, step-up, logout, break-glass and `me` (T-B-181 and following).
+// The auth module (owner: S-B4, Sign-in and sessions; taken over from the stub at GB0): OIDC sign-in, sessions, step-up, logout, break-glass and `me` (S-B4, T-B-181 and
+// following). This part: the session store is built and handed to the policy layer (T-B-184); the
+// routes (T-B-196) follow with the identity client.
 //
-// Owner: S-B4 (Sign-in and sessions).
-// Created by S-B1 at T-B-014 and handed over to S-B4 (Sign-in and sessions) at gate GB0 (tasks.md section 1.3).
-// The owner replaces this file and removes the marker on the first line; `test/modules.test.ts`
-// asserts "no routes, no hooks, no availability" only for a file that still carries it. The module is
-// already in `appModules` (`modules.ts`), after branding, in the order secrets, setup, connection,
-// auth, rbac, which fixes the order of routes, `start` hooks and `stop` hooks.
-import type { AppModule } from '../module.js';
+//   factory  the session store, registered through `ModuleDeps.policy.sessions` (the resolver reads it)
+//   start    the hourly purge of expired sessions (not in degraded mode: it needs the database)
+import type { AppModule, ModuleDeps } from '../module.js';
+import { createSessions, registerSessionPurge } from './sessions.js';
 
-export function authModule(): AppModule {
-  return { id: 'auth', routes: () => [] };
+export const AUTH_MODULE_ID = 'auth';
+
+export function authModule(deps: ModuleDeps): AppModule {
+  const sessions = createSessions(deps);
+  return {
+    id: AUTH_MODULE_ID,
+    routes: () => [],
+    start: () => {
+      registerSessionPurge(deps, sessions);
+      return Promise.resolve();
+    },
+  };
 }

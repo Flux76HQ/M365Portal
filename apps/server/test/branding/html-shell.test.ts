@@ -22,10 +22,19 @@ const STAFF = { actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa
 type Me = z.infer<typeof MeResponseSchema>;
 
 const me = (storageAvailable = true): Me => ({
-  // MeResponse still has the Phase A shape until T-B-194 (S-B4); the shell only embeds it.
-  actor: { kind: 'preview', id: 'preview', label: 'Preview' },
+  actor: { kind: 'user', id: '00000000-0000-4000-8000-0000000000aa', label: 'Alex' },
   permissions: ['settings:branding'],
-  features: { showcase: false, preview: true },
+  roles: [{ key: 'admin' }],
+  session: {
+    expiresAt: '2026-10-12T18:00:00.000Z',
+    idleExpiresAt: '2026-10-12T10:30:00.000Z',
+    mfa: true,
+    stepUpValidUntil: null,
+    groupsStale: false,
+  },
+  setup: { state: 'completed' },
+  features: { showcase: false, breakGlass: false },
+  adminConsentUrl: null,
   version: '1.2.3-test',
   publicOrigin: 'http://localhost:9300',
   storageAvailable,

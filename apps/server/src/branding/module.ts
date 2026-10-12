@@ -14,11 +14,8 @@
 //
 // Nothing here has a rule of its own. A factory takes the dependencies of the server (`ModuleDeps`)
 // and, optionally, a stand-in image runner for tests.
-import { PERMISSIONS, type Permission } from '@m365portal/shared/permissions';
-import type { MeResponseSchema } from '@m365portal/shared/schemas/meta';
-import type { z } from 'zod';
+import { createMeBuilder, meSourcesOf } from '../auth/me.js';
 import type { AppModule, ModuleDeps } from '../module.js';
-import { APP_VERSION } from '../version.js';
 import { createAssetStore } from './asset-store.js';
 import { exportImportRoutes } from './routes/export-import.js';
 import { assetsUploadRoutes } from './routes/assets-upload.js';
@@ -35,8 +32,6 @@ import {
   type SweepDependencies,
 } from './sweepers.js';
 
-type MeResponse = z.infer<typeof MeResponseSchema>;
-
 export const BRANDING_MODULE_ID = 'branding';
 
 export interface BrandingModuleOptions {
@@ -44,32 +39,13 @@ export interface BrandingModuleOptions {
   readonly images?: ImageJobRunner;
 }
 
-/**
- * The `me` of one request, built exactly as `GET /api/v1/me` builds it: the actor from the same
- * resolver the pipeline uses (nothing in the request selects it beyond the configuration and the
- * `Host` rules of preview mode), the permissions in catalogue order, the preview flag only for the
- * preview actor. `module.test.ts` pins that the two never differ.
- */
-function meOf(deps: ModuleDeps, request: Request): MeResponse {
-  const actor = deps.resolveActor(request);
-  const held: Permission[] = PERMISSIONS.filter((candidate) => actor.permissions.has(candidate));
-  return {
-    // TRANSITIONAL: the wire enum is Phase A's until T-B-194 replaces the shape of `me` (S-B4).
-    actor: { kind: actor.kind as MeResponse['actor']['kind'], id: actor.id, label: actor.label },
-    permissions: held,
-    // TRANSITIONAL: `preview` leaves the wire shape with T-B-194 (S-B4); it is never true any more.
-    features: { showcase: deps.config.showcase, preview: false },
-    version: APP_VERSION,
-    publicOrigin: deps.config.publicOrigin,
-    storageAvailable: deps.storageAvailable(),
-  };
-}
-
 export function createBrandingModule(
   deps: ModuleDeps,
   options: BrandingModuleOptions = {},
 ): AppModule {
   const log = deps.log.child({ module: BRANDING_MODULE_ID });
+  // The boot data is the answer of `GET /api/v1/me`, built by the same function (SB-38).
+  const buildMe = createMeBuilder(meSourcesOf(deps));
   const assets = createAssetStore({ dataDir: deps.config.dataDir, now: deps.now });
   const images = options.images ?? createImageJobRunner();
   const service = createBrandingService({
@@ -109,7 +85,7 @@ export function createBrandingModule(
     shell: createBrandingShell({
       template: deps.shellTemplate,
       service,
-      me: (request) => meOf(deps, request),
+      me: (request) => buildMe(deps.resolveActor(request)),
     }),
     start: async () => {
       await assets.ensureDirectories();

@@ -952,13 +952,13 @@ describe('GET /api/v1/me (R4, FR-A-027)', () => {
   interface Me {
     actor: { kind: string; id: string; label: string };
     permissions: string[];
-    features: { showcase: boolean; preview: boolean };
+    features: { showcase: boolean; breakGlass: boolean };
     version: string;
     publicOrigin: string;
     storageAvailable: boolean;
   }
 
-  it('gives the anonymous actor an empty permission list and no preview feature', async () => {
+  it('gives the anonymous actor an empty permission list and no break-glass feature', async () => {
     const app = await createFixtureApp({ system: {} });
     const response = await app.client.get(ME);
     expect(response.status).toBe(200);
@@ -966,10 +966,10 @@ describe('GET /api/v1/me (R4, FR-A-027)', () => {
     expect(MeResponseSchema.safeParse(me).success).toBe(true);
     expect(me.actor).toMatchObject({ kind: 'anonymous', id: 'anonymous' });
     expect(me.permissions).toEqual([]);
-    expect(me.features).toEqual({ showcase: false, preview: false });
+    expect(me.features).toEqual({ showcase: false, breakGlass: false });
   });
 
-  it('reports the permissions of the actor in catalogue order, whoever the actor is', async () => {
+  it('reports the permissions of the actor sorted, whoever the actor is (T-B-194)', async () => {
     const app = await createFixtureApp({
       system: {},
       resolveActor: () =>
@@ -977,10 +977,9 @@ describe('GET /api/v1/me (R4, FR-A-027)', () => {
     });
     const me = await readJson<Me>(await app.client.get(ME));
     expect(me.actor).toMatchObject({ id: guid(5) });
-    expect(me.permissions).toEqual([...PERMISSIONS]);
+    expect(me.permissions).toEqual([...PERMISSIONS].sort());
     expect(me.permissions).toHaveLength(15);
-    // `features.preview` stays on the wire until T-B-194 changes the shape (S-B4); it is never true.
-    expect(me.features.preview).toBe(false);
+    expect(JSON.stringify(me)).not.toContain('preview');
   });
 
   it.each([
@@ -997,7 +996,7 @@ describe('GET /api/v1/me (R4, FR-A-027)', () => {
       const me = await readJson<Me>(await app.client.get(ME, options));
       expect(me.actor.kind).toBe('anonymous');
       expect(me.permissions).toEqual([]);
-      expect(me.features.preview).toBe(false);
+      expect(JSON.stringify(me)).not.toContain('preview');
     },
   );
 
@@ -1046,9 +1045,13 @@ describe('GET /api/v1/me (R4, FR-A-027)', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(Object.keys(await readJson<Me>(response)).sort()).toEqual([
       'actor',
+      'adminConsentUrl',
       'features',
       'permissions',
       'publicOrigin',
+      'roles',
+      'session',
+      'setup',
       'storageAvailable',
       'version',
     ]);

@@ -385,7 +385,8 @@ describe('a server started with PREVIEW_MODE=true is the same as one started wit
     expect(withVariables.write).toEqual(without.write);
     expect(withVariables.secret).toEqual(without.secret);
     expect(withVariables.me.body).toMatchObject({ actor: { kind: 'anonymous' }, permissions: [] });
-    expect(withVariables.me.body.features).toMatchObject({ preview: false });
+    expect(withVariables.me.body.features).toEqual({ showcase: false, breakGlass: false });
+    expect(JSON.stringify(withVariables.me.body)).not.toContain('preview');
     expect(withVariables.write.status).toBeGreaterThanOrEqual(401);
     expect(withVariables.write.status).toBeLessThanOrEqual(403);
   });

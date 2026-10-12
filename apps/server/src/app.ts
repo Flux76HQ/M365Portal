@@ -21,6 +21,7 @@ import { createDenialAudit, createPolicyErrorAudit } from './http/denial-audit.j
 import { createDocumentSource } from './http/openapi.js';
 import { createRateLimiter } from './http/rate-limit.js';
 import { createHttpApp, mergeAvailability, type HttpApp } from './http/route.js';
+import { meSourcesOf } from './auth/me.js';
 import { csrfBindingOfHeaders } from './policy/session-hash.js';
 import { spaFallback } from './http/spa-fallback.js';
 import { serviceWorkerRoute, staticFallback } from './http/static.js';
@@ -124,6 +125,7 @@ export function buildApp(deps: BuildAppDeps): BuiltApp {
         deps.moduleDeps.policy.setupSessions.get()?.touch?.(actor.setupSession.idHash);
       }
     },
+    sessionIdle: { idleTimeoutMs: config.session.idleTimeoutMs, now: () => clock.now() },
     onDenied: createDenialAudit({ database: deps.database, now: () => clock.now() }),
     onPolicyError: createPolicyErrorAudit({ database: deps.database, now: () => clock.now() }),
     onStorageFailure: (failure) => {
@@ -136,6 +138,7 @@ export function buildApp(deps: BuildAppDeps): BuiltApp {
         publicOrigin: config.publicOrigin,
         showcase: config.showcase,
         storageAvailable: () => deps.readiness.storageAvailable(),
+        me: meSourcesOf(deps.moduleDeps),
         csrf,
         // The same binding the wrapper checks on a write: the cookies as sent (FR-B-408).
         binding: (c) => csrfBindingOfHeaders(c.req.raw.headers, config.publicOrigin),

@@ -11,6 +11,7 @@
 // Negative fixtures (tasks.md section 0.3): `assertCacheRules` and `assertCompressionRules` are run
 // on middleware that is wrong in each way this kind of middleware can be wrong, and must fail on
 // every one.
+import { cookieNames } from '@m365portal/shared/auth/cookies';
 import { brotliCompressSync, brotliDecompressSync, constants as zlib, gunzipSync } from 'node:zlib';
 import { request as httpRequest } from 'node:http';
 import { expectGuardFails } from '@m365portal/shared/testing';
@@ -21,7 +22,9 @@ import {
   cacheHeaders,
   CACHE_CONTROL,
   defaultCacheControl,
+  isNoStorePath,
   replaceResponse,
+  setCookieDiscipline,
 } from '../src/http/cache-headers.js';
 import { compress, COMPRESS_MIN_BYTES } from '../src/http/compress.js';
 import { type AppEnv } from '../src/http/request-context.js';
@@ -1156,5 +1159,144 @@ describe('the compression guard', () => {
     ['encodes an encoded response again', { encoded: true }, 'encoded twice'],
   ] as const)('fails for a compressor that %s', async (_name, options, reason) => {
     await expectGuardFails(assertCompressionRules, () => naiveCompress(options), { reason });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Phase B (T-B-195, FR-B-417, XB18): the sign-in and setup surface is never stored
+// ---------------------------------------------------------------------------------------------
+
+const NO_STORE_PATHS = [
+  '/auth/login',
+  '/auth/callback',
+  '/auth/logged-out',
+  '/api/v1/auth/logout',
+  '/api/v1/auth/logout/all',
+  '/api/v1/setup/status',
+  '/api/v1/setup/unlock',
+  '/api/v1/connection',
+  '/api/v1/connection/runs/current',
+  '/api/v1/me',
+  '/api/v1/me/access',
+  '/api/v1/rbac/roles',
+  '/api/v1/rbac',
+] as const;
+
+/** Paths that look similar and are not part of the list: they keep the header their route set. */
+const OTHER_PATHS = [
+  '/api/v1/own',
+  '/api/v1/meta',
+  '/api/v1/members',
+  '/authx/login',
+  '/api/v1/authz',
+];
+
+describe('the paths of FR-B-417 are no-store whatever the route says', () => {
+  it.each(NO_STORE_PATHS)(
+    '%s answers no-store even when its route sets another header',
+    async (path) => {
+      const app = new Hono<AppEnv>();
+      app.use(cacheHeaders());
+      app.get('*', (c) => c.json({ ok: true }, 200, { 'Cache-Control': 'public, max-age=600' }));
+      const harness = await createTestApp({ buildApp: () => app });
+      const response = await harness.client.get(path);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+    },
+  );
+
+  it.each(OTHER_PATHS)('%s is not on the list and keeps the header of its route', async (path) => {
+    expect(isNoStorePath(path)).toBe(false);
+    const app = new Hono<AppEnv>();
+    app.use(cacheHeaders());
+    app.get('*', (c) => c.json({ ok: true }, 200, { 'Cache-Control': 'private, max-age=5' }));
+    const harness = await createTestApp({ buildApp: () => app });
+    expect((await harness.client.get(path)).headers.get('cache-control')).toBe(
+      'private, max-age=5',
+    );
+  });
+
+  it('the HTML shell is no-store whatever the route says, but the offline page revalidates', async () => {
+    const app = new Hono<AppEnv>();
+    app.use(cacheHeaders());
+    app.get('/signin', (c) =>
+      c.html('<p>sign in</p>', 200, { 'Cache-Control': 'public, max-age=60' }),
+    );
+    app.get('/offline.html', (c) => c.html('<p>offline</p>'));
+    const harness = await createTestApp({ buildApp: () => app });
+    expect((await harness.client.get('/signin')).headers.get('cache-control')).toBe('no-store');
+    expect((await harness.client.get('/offline.html')).headers.get('cache-control')).toBe(
+      'no-cache',
+    );
+  });
+
+  it('a HEAD request and an error answer the same', async () => {
+    const app = new Hono<AppEnv>();
+    app.use(cacheHeaders());
+    app.get('/api/v1/me', (c) => c.json({ title: 'x' }, 500, { 'Cache-Control': 'public' }));
+    const harness = await createTestApp({ buildApp: () => app });
+    expect((await harness.client.get('/api/v1/me')).headers.get('cache-control')).toBe('no-store');
+    expect((await harness.client.request('HEAD', '/api/v1/me')).headers.get('cache-control')).toBe(
+      'no-store',
+    );
+  });
+
+  it('the guard fails on middleware that lets a route override the rule (negative)', () => {
+    const guard = (cacheControl: string | null): void => {
+      if (cacheControl !== 'no-store') throw new Error(`stored: ${String(cacheControl)}`);
+    };
+    expectGuardFails(guard, 'public, max-age=600');
+    expectGuardFails(guard, null);
+  });
+});
+
+describe('Set-Cookie discipline (FR-B-417, XB18)', () => {
+  const names = cookieNames('https://panel.example.test');
+  const VALUE = 'A'.repeat(43);
+  const good = (name: string): string =>
+    `${name}=${VALUE}; Path=/; HttpOnly; Secure; SameSite=Strict`;
+
+  async function answers(setCookies: readonly string[], refused: string[] = []): Promise<string[]> {
+    const app = new Hono<AppEnv>();
+    app.use(cacheHeaders());
+    app.use(setCookieDiscipline({ names, onRefused: (name) => refused.push(name) }));
+    app.get('/x', () => {
+      const headers = new Headers({ 'Content-Type': 'application/json' });
+      for (const cookie of setCookies) headers.append('Set-Cookie', cookie);
+      return new Response('{}', { status: 200, headers });
+    });
+    const harness = await createTestApp({ buildApp: () => app });
+    return (await harness.client.get('/x')).headers.getSetCookie();
+  }
+
+  it('lets the three panel cookies through, set or cleared', async () => {
+    const cookies = [
+      good(names.session),
+      `${names.oidc}=${VALUE}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+      `${names.setup}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`,
+    ];
+    expect(await answers(cookies)).toEqual(cookies);
+  });
+
+  it.each([
+    ['a cookie of another name', 'tracking=1; Path=/; HttpOnly'],
+    [
+      'a panel cookie with a Domain',
+      `${names.session}=${VALUE}; Path=/; Domain=example.test; HttpOnly; Secure`,
+    ],
+    ['a panel cookie without HttpOnly', `${names.session}=${VALUE}; Path=/; Secure`],
+    ['a panel cookie on another path', `${names.session}=${VALUE}; Path=/api; HttpOnly; Secure`],
+    [
+      'the plain name on an https deployment',
+      `m365portal_session=${VALUE}; Path=/; HttpOnly; Secure`,
+    ],
+  ])('removes %s and reports its name, never its value', async (_label, cookie) => {
+    const refused: string[] = [];
+    expect(await answers([cookie, good(names.session)], refused)).toEqual([good(names.session)]);
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).not.toContain(VALUE);
+  });
+
+  it('adds nothing to a response that sets no cookie', async () => {
+    expect(await answers([])).toEqual([]);
   });
 });

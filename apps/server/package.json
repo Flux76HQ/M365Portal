@@ -14,6 +14,7 @@
     "schema:check": "tsx scripts/check-schema.ts"
   },
   "dependencies": {
+    "@azure/msal-node": "catalog:",
     "@hono/node-server": "catalog:",
     "@hono/zod-openapi": "catalog:",
     "@peculiar/x509": "catalog:",

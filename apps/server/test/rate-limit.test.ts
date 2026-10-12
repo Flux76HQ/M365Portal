@@ -10,6 +10,7 @@
 import { LIMITS } from '@m365portal/shared/limits';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { Hono } from 'hono';
+import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
 import { loadConfigOrThrow } from '../src/config/index.js';
 import { createErrorHandler, errorBoundary, notFoundHandler } from '../src/http/error-handler.js';
@@ -22,9 +23,12 @@ import {
   type RateDecision,
   type RateLimiter,
   type RateLimiterOptions,
+  type RateRule,
 } from '../src/http/rate-limit.js';
+import { defineRoute, type RouteDefinition } from '../src/http/route.js';
 import { requestContext, type AppEnv } from '../src/http/request-context.js';
 import { createFakeClock, type FakeClock } from './helpers/fake-clock.js';
+import { createFixtureApp, fixtureRoutes } from './helpers/http-app.js';
 import { createTestApp, type TestAppContext } from './helpers/test-app.js';
 
 const CLASSES: readonly RateClass[] = ['read', 'write', 'upload'];
@@ -1108,5 +1112,114 @@ describe('the spoofing guard', () => {
     };
 
     await expectGuardFails(assertSpoofIgnored, naive, { reason: 'bucket per request' });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Phase B (T-B-195, FR-B-415, XB18): the classes auth and setup in the pipeline
+// ---------------------------------------------------------------------------------------------
+
+describe('rate classes auth and setup in the route pipeline (FR-B-415)', () => {
+  const ok = {
+    200: {
+      description: 'Done',
+      content: { 'application/json': { schema: z.strictObject({ ok: z.literal(true) }) } },
+    },
+  } as const;
+
+  async function appWith(rules: Readonly<Partial<Record<'read' | 'auth' | 'setup', RateRule>>>) {
+    const denials: string[] = [];
+    const routes: RouteDefinition[] = [
+      defineRoute({
+        id: 'auth.login',
+        method: 'GET',
+        path: '/auth/login',
+        access: { public: true },
+        rateLimit: 'auth',
+        responses: ok,
+        handler: (c) => c.json({ ok: true }, 200),
+      }),
+      defineRoute({
+        id: 'setup.status',
+        method: 'GET',
+        path: '/api/v1/setup/status',
+        access: { public: true },
+        availability: 'setupOpen',
+        rateLimit: 'setup',
+        responses: ok,
+        handler: (c) => c.json({ ok: true }, 200),
+      }),
+      defineRoute({
+        id: 'thing.list',
+        method: 'GET',
+        path: '/api/v1/thing',
+        access: { public: true },
+        rateLimit: 'read',
+        responses: ok,
+        handler: (c) => c.json({ ok: true }, 200),
+      }),
+    ];
+    const app = await createFixtureApp({
+      rules,
+      availability: { setupOpen: () => true, breakGlass: () => true },
+      routes: ({ calls, csrf }) => [
+        ...fixtureRoutes(calls, csrf, { withCsrf: true }).filter((r) => r.id === 'fixture.csrf'),
+        ...routes,
+      ],
+      onDenied: (_c, denial) => {
+        denials.push(denial.code);
+      },
+    });
+    return { app, denials };
+  }
+
+  it('answers 429 with an integer Retry-After once the bucket is empty, and audits nothing', async () => {
+    const { app, denials } = await appWith({ auth: { capacity: 2, refillIntervalMs: 5_000 } });
+    expect((await app.client.get('/auth/login')).status).toBe(200);
+    expect((await app.client.get('/auth/login')).status).toBe(200);
+    const limited = await app.client.get('/auth/login');
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('retry-after')).toMatch(/^[1-9][0-9]*$/);
+    expect(denials).toEqual([]);
+  });
+
+  it('keeps the buckets apart: an exhausted auth class leaves read and setup alone', async () => {
+    const { app } = await appWith({
+      auth: { capacity: 1, refillIntervalMs: 5_000 },
+      setup: { capacity: 1, refillIntervalMs: 5_000 },
+    });
+    expect((await app.client.get('/auth/login')).status).toBe(200);
+    expect((await app.client.get('/auth/login')).status).toBe(429);
+    expect((await app.client.get('/api/v1/thing')).status).toBe(200);
+    expect((await app.client.get('/api/v1/setup/status')).status).toBe(200);
+    expect((await app.client.get('/api/v1/setup/status')).status).toBe(429);
+    expect((await app.client.get('/auth/login')).status).toBe(429);
+  });
+
+  it('refills auth at 0.2 per second: one more request after five seconds', async () => {
+    const { app } = await appWith({});
+    const { capacity } = LIMITS.rateLimit.auth;
+    for (let index = 0; index < capacity; index += 1) {
+      expect((await app.client.get('/auth/login')).status).toBe(200);
+    }
+    expect((await app.client.get('/auth/login')).status).toBe(429);
+    app.clock.advance(5_000);
+    expect((await app.client.get('/auth/login')).status).toBe(200);
+    expect((await app.client.get('/auth/login')).status).toBe(429);
+  });
+
+  it('the unknown-path fallback of a sign-in path is rated by method (read), not auth (SB-29)', () => {
+    expect(classifyRequest({ method: 'GET', path: '/auth/unknown' })).toBe('read');
+    expect(classifyRequest({ method: 'POST', path: '/api/v1/auth/unknown' })).toBe('write');
+    expect(classifyRequest({ method: 'GET', path: '/api/v1/setup/status' })).toBe('read');
+  });
+
+  it('a wizard poll at one request per second stays inside the read class for ten minutes', () => {
+    const clock = createFakeClock();
+    const limiter = limiterWith(clock);
+    for (let second = 0; second < 600; second += 1) {
+      expect(limiter.take('read', 'client').allowed, `second ${String(second)}`).toBe(true);
+      clock.advance(1_000);
+    }
   });
 });

@@ -14,10 +14,18 @@
 // is `no-store` whatever the path: a 404 for `/assets/app.js` cached for a year would keep a missing
 // file missing after it is deployed.
 //
+// Phase B (FR-B-417, T-B-195): the sign-in and setup surface is never stored, whatever a route says.
+// `/auth/*`, `/api/v1/auth/*`, `/api/v1/setup/*`, `/api/v1/connection/*`, `/api/v1/me` (and
+// `/api/v1/me/access`), `/api/v1/rbac/*` and every HTML page answer `no-store`; a header such as
+// `public, max-age=600` set by one of those routes is replaced. `setCookieDiscipline` is the last
+// word on `Set-Cookie`: only the three panel cookies, built as `auth/cookies.ts` builds them, leave
+// the process.
+//
 // The ETag is a hash of the bytes, weak. It is added to the worker, the offline files and
 // `robots.txt` when the file has none (static serving does not send one), and used for the 304. The
 // manifest comes with the ETag of its revision from its route; that tag is kept and used for the 304.
 import { createHash } from 'node:crypto';
+import type { CookieKind } from '@m365portal/shared/auth/cookies';
 import type { Context, MiddlewareHandler } from 'hono';
 import { setResponseHeaders, type AppEnv } from './request-context.js';
 
@@ -145,10 +153,32 @@ async function settleEtag(c: Context<AppEnv>): Promise<void> {
   replaceResponse(c, new Response(null, { status: 304, headers }));
 }
 
+/** The paths of FR-B-417 that no route may make cacheable. */
+const NO_STORE_PATHS: readonly RegExp[] = [
+  /^\/auth\//,
+  /^\/api\/v1\/auth\//,
+  /^\/api\/v1\/setup(?:\/|$)/,
+  /^\/api\/v1\/connection(?:\/|$)/,
+  /^\/api\/v1\/me(?:\/|$)/,
+  /^\/api\/v1\/rbac(?:\/|$)/,
+];
+
+/** Is this path one that must be `no-store` whatever its route says (FR-B-417)? */
+export function isNoStorePath(path: string): boolean {
+  return NO_STORE_PATHS.some((pattern) => pattern.test(path));
+}
+
 export function cacheHeaders(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     await next();
     const path = c.req.path;
+
+    // The sign-in surface and the pages (the shell holds the boot data) are never stored; the offline
+    // page is the one HTML file that revalidates.
+    const isPage = (c.res.headers.get('Content-Type') ?? '').startsWith('text/html');
+    if (c.res.status !== 304 && (isNoStorePath(path) || (isPage && !REVALIDATED.has(path)))) {
+      setResponseHeaders(c, { 'Cache-Control': CACHE_CONTROL.noStore });
+    }
 
     if (!c.res.headers.has('Cache-Control')) {
       setResponseHeaders(c, { 'Cache-Control': defaultCacheControl(path, c.res.status) });
@@ -156,5 +186,54 @@ export function cacheHeaders(): MiddlewareHandler<AppEnv> {
 
     const readsOnly = c.req.method === 'GET' || c.req.method === 'HEAD';
     if (readsOnly && c.res.status === 200 && WITH_ETAG.has(path)) await settleEtag(c);
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Set-Cookie discipline (FR-B-417)
+// ---------------------------------------------------------------------------------------------
+
+export interface SetCookieDisciplineOptions {
+  /** The cookie names of the deployment (`cookieNames(PUBLIC_BASE_URL)`). */
+  readonly names: Readonly<Record<CookieKind, string>>;
+  /** Told the NAME of a cookie that was removed; never its value. */
+  readonly onRefused?: (name: string) => void;
+}
+
+/** A cookie header the panel may send: one of its names, `HttpOnly`, `Path=/`, no `Domain`. */
+function isPanelCookie(header: string, names: ReadonlySet<string>): boolean {
+  const [pair = '', ...attributes] = header.split(';').map((part) => part.trim());
+  const name = pair.slice(0, Math.max(0, pair.indexOf('=')));
+  if (!names.has(name)) return false;
+  const lower = attributes.map((attribute) => attribute.toLowerCase());
+  return (
+    lower.includes('httponly') &&
+    lower.includes('path=/') &&
+    !lower.some((attribute) => attribute.startsWith('domain='))
+  );
+}
+
+/**
+ * `Set-Cookie` appears only on responses that set or clear a session, transaction or setup cookie:
+ * anything else a route (or a library under it) attached is removed, and the refusal is reported by
+ * name.
+ */
+export function setCookieDiscipline(
+  options: SetCookieDisciplineOptions,
+): MiddlewareHandler<AppEnv> {
+  const names = new Set<string>(Object.values(options.names));
+  return async (c, next) => {
+    await next();
+    const cookies = c.res.headers.getSetCookie();
+    if (cookies.length === 0) return;
+    const kept = cookies.filter((cookie) => isPanelCookie(cookie, names));
+    if (kept.length === cookies.length) return;
+    for (const cookie of cookies) {
+      if (!kept.includes(cookie)) {
+        options.onRefused?.(cookie.slice(0, Math.max(0, cookie.indexOf('='))));
+      }
+    }
+    c.res.headers.delete('Set-Cookie');
+    for (const cookie of kept) c.res.headers.append('Set-Cookie', cookie);
   };
 }

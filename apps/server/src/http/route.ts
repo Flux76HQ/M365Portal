@@ -54,7 +54,9 @@ import { createLazyActor } from './lazy-actor.js';
 import type { AvailabilityGate, ModuleAvailability } from '../module.js';
 import { accessGuard } from './access-guard.js';
 import { bodyLimit, type BodyClass } from './body-limit.js';
-import { cacheHeaders } from './cache-headers.js';
+import { cookieNames } from '@m365portal/shared/auth/cookies';
+import { cacheHeaders, setCookieDiscipline } from './cache-headers.js';
+import { idleExpiryHeader, markSlid, type IdleHeaderOptions } from './idle-header.js';
 import { compress } from './compress.js';
 import { requireContentType } from './content-type.js';
 import { isWriteMethod, type Csrf } from './csrf.js';
@@ -319,6 +321,7 @@ interface GuardContext {
 function slideGuard(slide: SessionSlider): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     slide(c.get('actor'));
+    markSlid(c.req.raw);
     await next();
   };
 }
@@ -566,6 +569,11 @@ export interface HttpAppDeps {
   readonly resolveActor?: ActorResolver;
   /** Extends the idle deadline of a session for a request that passed every guard (FR-B-407). */
   readonly slideSession?: SessionSlider;
+  /**
+   * Adds `X-Session-Idle-Expires` to the API and sign-in responses of a valid session (FR-B-413).
+   * Absent in a test that does not care: no header is added.
+   */
+  readonly sessionIdle?: Omit<IdleHeaderOptions, 'publicOrigin'>;
   /** The predicates of the availability gates, merged from the modules (`mergeAvailability`). */
   readonly availability?: ModuleAvailability;
   readonly onStorageFailure?: ErrorHandlerOptions['onStorageFailure'];
@@ -672,11 +680,23 @@ export function createHttpApp(deps: HttpAppDeps): HttpApp {
     );
     await next();
   });
+  if (deps.sessionIdle !== undefined) {
+    app.use(idleExpiryHeader({ ...deps.sessionIdle, publicOrigin: config.publicOrigin }));
+  }
   app.use(
     createRequestLogger({ log: deps.log, ...(deps.now === undefined ? {} : { now: deps.now }) }),
   );
   app.use(compress());
   app.use(cacheHeaders());
+  // Only the three panel cookies ever leave in a Set-Cookie header (FR-B-417).
+  app.use(
+    setCookieDiscipline({
+      names: cookieNames(config.publicOrigin),
+      onRefused: (name) => {
+        deps.log.warn({ event: 'set_cookie_refused', cookie: name }, 'set_cookie_refused');
+      },
+    }),
+  );
   // An OPTIONS request is rated like any other (stage 6) before it is refused (stage 7).
   const rateOptions = rateLimit({ limiter: deps.limiter });
   app.use(async (c, next) => {
