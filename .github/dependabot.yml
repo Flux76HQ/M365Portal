@@ -72,6 +72,14 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    ignore:
+      # Node 23 and later: the runtime is Node 22, the LTS line named by `.nvmrc` and by the
+      # `engines` range (NODE_ENGINES_RANGE). Node 25 images no longer ship corepack, which the
+      # build stage needs, and the odd-numbered lines are never LTS. A move to the next LTS
+      # (Node 24) is a deliberate change of `.nvmrc`, `engines` and the digests together.
+      - dependency-name: node
+        versions:
+          - ">=23"
     groups:
       docker-weekly:
         patterns:
