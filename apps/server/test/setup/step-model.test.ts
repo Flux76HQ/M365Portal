@@ -121,7 +121,7 @@ describe('the detail is written only through the secret-free schema', () => {
       { name: { nested: 'x' } },
       { name: 'x'.repeat(257) },
       { objectId: 'not-a-guid' },
-      { objectId: GUID.toUpperCase() },
+      { objectId: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA' },
       { thumbprint8: 'ABCDEF12' },
       { attempt: -1 },
       { host: 'bad host' },
