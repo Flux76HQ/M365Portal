@@ -179,7 +179,12 @@ export async function applyManualInputs(
     services.state.setDesignatedOwner(tx, user.id.toLowerCase());
     services.steps.ensureRows(tx, 'manual');
     services.connections.ensure(tx);
-    services.connections.update(tx, { appId: input.applicationClientId.toLowerCase() });
+    // The checklist asks for the Exchange permissions and the Entra role (`manualChecklist`, default true),
+    // so Exchange is part of what was handed over: verification runs V5, as FR-B-218 and OV-21 say.
+    services.connections.update(tx, {
+      appId: input.applicationClientId.toLowerCase(),
+      exchangeEnabled: true,
+    });
     services.steps.write(tx, 'connect', 'manual_inputs', {
       status: 'succeeded',
       attempt: 1,
