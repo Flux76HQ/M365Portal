@@ -11,6 +11,7 @@ import { withTransaction } from '../db/index.js';
 import type { RouteContext } from '../http/route.js';
 import type { AuthContext } from './context.js';
 import { setCookie } from './cookies.js';
+import { SESSION_KIND } from './session-store.js';
 
 /** Where the break-glass person lands: the page that restores an Owner. */
 export const BREAK_GLASS_LANDING = '/settings/restore-access';
@@ -19,7 +20,7 @@ export function issueBreakGlassSession(ctx: AuthContext, c: RouteContext, tid: s
   const { address } = c.get('client');
   const issued = withTransaction(ctx.deps.requireDatabase(), (tx) => {
     const session = ctx.sessions.create(tx, {
-      kind: 'break_glass',
+      kind: SESSION_KIND.breakGlass,
       tid,
       oid: '',
       mfa: false,

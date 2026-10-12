@@ -58,9 +58,20 @@ export function isShellRequest(request: ShellRequest): boolean {
   return !lastSegment(path).includes('.');
 }
 
+/**
+ * What a page navigation gets before the shell is rendered (XB20, FR-B-201, FR-B-207): the setup
+ * module decides. `shell` is the normal answer, `not_found` is HTTP 404 with the shell (the client
+ * renders Not-found), a redirect is a 303.
+ */
+export interface PagePolicy {
+  decide(request: Request, path: string): 'shell' | 'not_found' | { readonly redirect: string };
+}
+
 export interface SpaFallbackOptions {
   /** Renders the page. Until the branding module is registered: `createPlaceholderShell`. */
   readonly shell: ShellRenderer;
+  /** Optional rule applied to every page navigation (the setup pages and the redirect to `/setup`). */
+  readonly pages?: PagePolicy;
 }
 
 export function spaFallback(options: SpaFallbackOptions): FallbackDefinition {
@@ -77,9 +88,13 @@ export function spaFallback(options: SpaFallbackOptions): FallbackDefinition {
       ) {
         return undefined;
       }
+      const verdict = options.pages?.decide(c.req.raw, c.req.path) ?? 'shell';
+      if (typeof verdict === 'object') {
+        return c.redirect(verdict.redirect, 303);
+      }
       // The same value the security headers put in the CSP of this response.
       const html = await options.shell.render({ nonce: c.get('nonce')(), request: c.req.raw });
-      return c.html(html, 200, { 'Cache-Control': 'no-store' });
+      return c.html(html, verdict === 'not_found' ? 404 : 200, { 'Cache-Control': 'no-store' });
     },
   });
 }

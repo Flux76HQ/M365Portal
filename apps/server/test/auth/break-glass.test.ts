@@ -97,7 +97,7 @@ describe('the verification', () => {
     expect(Math.max(...seen)).toBeLessThanOrEqual(LIMITS.breakGlass.scrypt.maxMemoryBytes + 4096);
   });
 
-  it('refuses a hash below the floors or above the memory limit at creation', async () => {
+  it('refuses a hash below the floors or above the memory limit at creation', () => {
     expect(() =>
       createBreakGlassVerifier({ username: USERNAME, passwordHash: 'scrypt:8192:8:1:AAAAAAAAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }),
     ).toThrow();
@@ -252,8 +252,8 @@ describe('POST /api/v1/auth/break-glass', () => {
       expect(await code(response.clone())).toBe('unauthenticated');
     }
     const strip = async (response: Response): Promise<unknown> => {
-      const { requestId: _requestId, ...rest } = await readJson<Record<string, unknown>>(response);
-      return rest;
+      const body = await readJson<Record<string, unknown>>(response);
+      return Object.fromEntries(Object.entries(body).filter(([name]) => name !== 'requestId'));
     };
     expect(await strip(wrongPassword)).toEqual(await strip(unknownUser));
     expect(server.sessionCount()).toBe(0);

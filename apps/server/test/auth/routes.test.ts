@@ -20,7 +20,9 @@ interface Operation extends Record<string, unknown> {
   responses: Record<string, unknown>;
 }
 
-type Document = { paths: Record<string, Record<string, Operation>> };
+interface Document {
+  paths: Record<string, Record<string, Operation>>;
+}
 
 const EXPECTED = [
   { id: 'auth.login', method: 'get', path: '/auth/login', access: 'public', audit: undefined },
@@ -100,7 +102,7 @@ describe('the module', () => {
     const seen: { name: string; intervalMs: number | undefined }[] = [];
     const spy: AppModuleFactory = (deps) => {
       const original = deps.sweepers.register.bind(deps.sweepers);
-      (deps.sweepers as { register: typeof original }).register = (sweeper) => {
+      deps.sweepers.register = (sweeper) => {
         seen.push({ name: sweeper.name, intervalMs: sweeper.intervalMs });
         original(sweeper);
       };

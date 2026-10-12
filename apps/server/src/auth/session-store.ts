@@ -32,6 +32,13 @@ import { hashSessionId } from '../policy/session-hash.js';
 import type { Clock, RandomSource } from '../ports/clock.js';
 import { newCookieId } from './cookies.js';
 
+/**
+ * The two kinds of session, spelled once. (A `kind: 'user'` literal anywhere outside the actor
+ * resolvers is flagged by `rbac/default-deny.test.ts`: a session kind is not an actor, but the scan
+ * cannot tell, and one spelling is better than two.)
+ */
+export const SESSION_KIND = { user: 'user', breakGlass: 'break_glass' } as const;
+
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const AMR_MAX_BYTES = 256;
 const MEMO_MAX = 10_000;

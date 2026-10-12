@@ -156,7 +156,7 @@ export function createRevalidator(options: RevalidatorOptions): Revalidator {
     if (db === undefined) return undefined;
     const now = options.now();
     const record = options.sessions.find(hashSessionId(cookie));
-    if (record === undefined || record.kind !== 'user') return undefined;
+    if (record?.kind !== 'user') return undefined;
     if (!isLiveUserSession(record, now, options.idleTimeoutMs)) return undefined;
 
     const key = keyOf(record.tid, record.oid);

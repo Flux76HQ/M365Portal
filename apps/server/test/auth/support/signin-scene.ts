@@ -268,14 +268,15 @@ export async function startSignInScene(options: SceneOptions = {}): Promise<Sign
  */
 export async function pump<T>(scene: SignInScene, work: Promise<T>, maxSeconds = 15): Promise<T> {
   const baseline = scene.scheduler.pending();
-  let done = false;
+  let finished = false;
+  const isDone = (): boolean => finished;
   const tracked = work.finally(() => {
-    done = true;
+    finished = true;
   });
   let advanced = 0;
-  while (!done && advanced < maxSeconds) {
+  while (!isDone() && advanced < maxSeconds) {
     await new Promise<void>((resolve) => setImmediate(resolve));
-    if (!done && scene.scheduler.pending() > baseline) {
+    if (!isDone() && scene.scheduler.pending() > baseline) {
       scene.scheduler.advance(1000);
       advanced += 1;
     }

@@ -57,7 +57,7 @@ export function createBreakGlassVerifier(options: BreakGlassVerifierOptions): Br
   const expectedHash = Buffer.from(hash);
   const expectedUser = digest(options.username);
   const maxmem = 128 * r * (n + p + 2);
-  const derive = options.scrypt ?? (nodeScrypt as ScryptFunction);
+  const derive = options.scrypt ?? nodeScrypt;
 
   function derived(password: string): Promise<Buffer> {
     return new Promise((resolve, reject) => {

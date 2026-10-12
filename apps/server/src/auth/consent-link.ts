@@ -15,6 +15,7 @@
 // all of which every authorize redirect already reveals. The page shows it for the codes of
 // `SIGNIN_CONSENT_LINK_CODES` only; no other error gets a link.
 import { redirectUris } from '@m365portal/shared/auth/redirect-uri';
+import { ENTRA_LOGIN_HOST } from '@m365portal/shared/schemas/auth';
 import {
   SIGNIN_CONSENT_LINK_CODES,
   type SigninErrorCode,
@@ -22,7 +23,7 @@ import {
 import { readTenantPin, type TenantPin } from '../integrations/tenant-pin.js';
 import type { ModuleDeps } from '../module.js';
 
-const ENTRA = 'https://login.microsoftonline.com';
+const ENTRA = `https://${ENTRA_LOGIN_HOST}`;
 
 /** The consent URL of a pinned tenant. `publicBaseUrl` is the configured `PUBLIC_BASE_URL`. */
 export function adminConsentUrl(pin: TenantPin, publicBaseUrl: string): string {

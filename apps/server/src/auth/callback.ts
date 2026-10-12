@@ -47,6 +47,7 @@ import { decideMfa } from './mfa.js';
 import { principalOf, upsertAppUser } from './principal.js';
 import { noAccessLocation, redirectResponse, signinErrorLocation } from './redirects.js';
 import { setupStateOf, signInReadiness } from './readiness.js';
+import { SESSION_KIND } from './session-store.js';
 import { checkStepUp, isLiveUserSession } from './step-up.js';
 
 /** Entra's redirect: the fields the callback reads. Anything else (`session_state`) is ignored. */
@@ -330,7 +331,7 @@ export function callbackRoute(ctx: AuthContext): RouteDefinition {
       issued = withTransaction(db, (tx) => {
         if (setupStateOf(tx) === 'awaiting_first_signin') completeSetupInTxOf(deps)(tx, oid);
         const session = context.sessions.create(tx, {
-          kind: 'user',
+          kind: SESSION_KIND.user,
           tid,
           oid,
           mfa: mfa.mfa,

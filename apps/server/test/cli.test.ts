@@ -1,7 +1,7 @@
 // T-B-021, FR-B-110, TB-06, plan 7.7: the command line of the image, proven on the BUILT `cli.js`
 // as a real process: output shape, exit codes (0 success, 1 refusal, 2 bad usage), standard output
-// only, no extra output, no secret in any stream. `setup-token` and `setup-reopen` belong to S-B3 and
-// answer "not implemented in this build" with exit 2 until `T-B-124`.
+// only, no extra output, no secret in any stream. `setup-token` and `setup-reopen` belong to S-B3; their
+// own tests are `server/setup/cli-setup.test.ts` (TB-06).
 //
 // Every password and key in this file is generated for the run or is an obvious canary.
 import { spawn } from 'node:child_process';
@@ -277,15 +277,15 @@ describe('usage, stubs and verify-audit', () => {
     }
   });
 
-  it.each(['setup-token', 'setup-reopen'])(
-    '%s answers "not implemented in this build" and exits 2 until the setup engine lands (T-B-124)',
-    async (command) => {
-      const run = await cli([command]);
-      expect(run.code).toBe(2);
-      expect(run.stdout).toBe('');
-      expect(run.stderr).toContain('not implemented in this build');
-    },
-  );
+  it('setup-token and setup-reopen are real commands now (TB-06: their tests are server/setup/cli-setup.test.ts)', async () => {
+    const { dataDir } = await migratedDatabase({ setupState: false });
+    const token = await cli(['setup-token'], { env: { DATA_DIR: dataDir } });
+    expect(token.code).toBe(1);
+    expect(token.stderr).not.toContain('not implemented');
+    const reopen = await cli(['setup-reopen'], { env: { DATA_DIR: dataDir } });
+    expect(reopen.code).toBe(1);
+    expect(reopen.stderr).toContain('--confirm');
+  });
 
   it('verify-audit still works through the dispatcher', async () => {
     const { database, dataDir } = await migratedDatabase();

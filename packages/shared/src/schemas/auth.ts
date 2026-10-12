@@ -73,7 +73,9 @@ export function loginQueryOf(query: {
 /** The local landing page of a break-glass sign-out, which has no Entra session (CD-02). */
 export const LOCAL_SIGNED_OUT_PATH = '/signin?signedout=1';
 
-const ENTRA_HOST = 'login.microsoftonline.com';
+/** The host of the Entra sign-in service: the only host a sign-out redirect or a consent link names. */
+export const ENTRA_LOGIN_HOST = 'login.microsoftonline.com';
+const ENTRA_HOST = ENTRA_LOGIN_HOST;
 const LOGGED_OUT_SUFFIX = '/auth/logged-out';
 
 /**

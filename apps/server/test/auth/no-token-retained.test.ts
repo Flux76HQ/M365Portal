@@ -40,7 +40,7 @@ describe('after 200 sign-ins (FR-B-418)', () => {
     const fragments: Buffer[] = [];
     let responsesWithAccessToken = 0;
     const original = globalThis.fetch;
-    globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    globalThis.fetch = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const response = await original(input, init);
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url.includes('/oauth2/v2.0/token') && response.status === 200) {
@@ -51,7 +51,7 @@ describe('after 200 sign-ins (FR-B-418)', () => {
         }
       }
       return response;
-    }) as typeof fetch;
+    };
 
     try {
       for (let index = 0; index < SIGN_INS; index += 1) {

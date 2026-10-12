@@ -12,6 +12,7 @@ import { SIGNIN_CHECKS } from '@m365portal/shared/auth/signin-errors';
 import { describe, expect, it } from 'vitest';
 import { HOSTILE_DESCRIPTION, type SignInSpec } from '../fakes/fake-tenant/entra/index.js';
 import { assign } from '../helpers/rbac-db.js';
+import { fake, testClock } from '../support/msw.js';
 import type { FakeBrowser, Navigation } from './support/fake-browser.js';
 import { pump, startSignInScene, type SceneOptions, type SignInScene } from './support/signin-scene.js';
 
@@ -542,6 +543,60 @@ describe('F-42 the amr variants (EB-26, EB-27)', () => {
     expect(outcome.target).toBe('interstitial');
     expect(scene.query('SELECT mfa FROM session')).toEqual([{ mfa: 0 }]);
     expect(auditOf(scene)[0]?.detail.mfa).toBe(false);
+  });
+});
+
+describe('what the fixtures leave in the log and the world', () => {
+  it('F-39: an invalid_client answer is logged as signin_denied with its code, and the person sees signin_failed', async () => {
+    const scene = await startSignInScene();
+    scene.world.entra.control.failToken({
+      times: 1,
+      answer: { status: 401, error: 'invalid_client', aadsts: 700027 },
+    });
+    const outcome = await standardFlow(scene, { id: 'x', target: '', audit: null, sessions: 0 });
+    expect(outcome.target).toBe(SIGNIN_FAILED);
+    const denied = scene.logs.lines().filter((line) => line.event === 'signin_denied');
+    expect(denied).toHaveLength(1);
+    expect(denied[0]).toMatchObject({ code: 'invalid_client' });
+  });
+
+  it('F-20: the URL of a jku header is never fetched', async () => {
+    const scene = await startSignInScene();
+    await standardFlow(scene, {
+      id: 'x',
+      spec: { header: { jku: 'https://attacker.example/keys' } },
+      target: '',
+      audit: null,
+      sessions: 0,
+    });
+    expect(fake.calls.all().filter((call) => call.host.includes('attacker'))).toEqual([]);
+    expect(scene.logs.text()).not.toContain('attacker.example');
+  });
+
+  it('F-44a: the ref of /no-access is the request id of the callback', async () => {
+    const scene = await startSignInScene({ role: false });
+    const browser = scene.browser();
+    const started = await startFlow(browser);
+    const result = await browser.request(started.callbackUrl, { from: 'microsoft' });
+    const ref = new URL(result.headers.get('location') ?? '', 'http://x').searchParams.get('ref');
+    expect(ref).toBe(result.headers.get('x-request-id'));
+  });
+
+  it('F-01: the first sign-in writes the app_user row with the labels and the time', async () => {
+    const scene = await startSignInScene();
+    await standardFlow(scene, { id: 'x', target: '', audit: null, sessions: 0 });
+    const [row] = scene.query<{ oid: string; upn_label: string | null; last_signin_at: string }>(
+      'SELECT oid, upn_label, last_signin_at FROM app_user',
+    );
+    expect(row?.oid).toBe(scene.userId);
+    expect(row?.upn_label).toBe('alice@contoso-fake.example');
+    expect(row?.last_signin_at).toBe(new Date(testClock.nowMs()).toISOString());
+  });
+
+  it('F-44: a person with no role leaves no app_user row behind', async () => {
+    const scene = await startSignInScene({ role: false });
+    await standardFlow(scene, { id: 'x', target: '', audit: null, sessions: 0 });
+    expect(scene.query('SELECT 1 FROM app_user')).toEqual([]);
   });
 });
 
