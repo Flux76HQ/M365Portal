@@ -93,9 +93,6 @@ export async function signClientAssertion(
     typ: 'JWT',
     'x5t#S256': createHash('sha256').update(der).digest('base64url'),
   };
-  if (context.includeX5t === true) {
-    header.x5t = createHash('sha1').update(der).digest('base64url');
-  }
   const now = Math.floor(context.clock.now() / 1000);
   const claims = {
     aud: audience,
