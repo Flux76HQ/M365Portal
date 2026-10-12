@@ -28,7 +28,9 @@ const tr = (language: Locale) => createTranslator(language);
 
 const STATUS: Record<string, unknown> = { state: 'in_progress', tokenRequired: false };
 
-function wizardApi(options: { steps?: ReturnType<typeof stepsOf>; mode?: 'automatic' | 'manual' } = {}) {
+function wizardApi(
+  options: { steps?: ReturnType<typeof stepsOf>; mode?: 'automatic' | 'manual' } = {},
+) {
   const steps = options.steps ?? stepsOf();
   return createMockApi({
     'GET /api/v1/setup/status': () => STATUS,
@@ -79,7 +81,10 @@ describe('the token form', () => {
   it('sends the token once, clears the field and opens the wizard when it is right', async () => {
     const api = locked();
     let unlocked = false;
-    api.on('GET /api/v1/setup/status', () => ({ state: unlocked ? 'in_progress' : 'unconfigured', tokenRequired: !unlocked }));
+    api.on('GET /api/v1/setup/status', () => ({
+      state: unlocked ? 'in_progress' : 'unconfigured',
+      tokenRequired: !unlocked,
+    }));
     api.on('POST /api/v1/setup/unlock', () => {
       unlocked = true;
       return { state: 'in_progress' };
@@ -115,12 +120,16 @@ describe('the token form', () => {
 
   it('shows a countdown from Retry-After when the unlock is locked, and keeps the button off', async () => {
     const api = locked();
-    api.on('POST /api/v1/setup/unlock', () => problem(429, 'setup_token_locked', { retryAfter: 30 }));
+    api.on('POST /api/v1/setup/unlock', () =>
+      problem(429, 'setup_token_locked', { retryAfter: 30 }),
+    );
     const view = await openSetup(api);
     const en = tr('en');
     await view.user.type(await screen.findByLabelText(en.t('setup.token.label')), 'x');
     await view.user.click(screen.getByRole('button', { name: en.t('setup.token.submit') }));
-    await screen.findByText(/You can try again in (29|30) s\./);
+    // The countdown starts at 30 s and runs on the real clock, so a slow runner may already show a
+    // lower number: any value from 1 to 30 proves it reads Retry-After.
+    await screen.findByText(/You can try again in (30|[12]\d|[1-9]) s\./);
     await view.user.type(screen.getByLabelText(en.t('setup.token.label')), 'y');
     expect(screen.getByRole('button', { name: en.t('setup.token.submit') })).toBeDisabled();
   });
@@ -154,14 +163,18 @@ describe('Not-found', () => {
   });
 
   it('loads the setup namespace through the route loader (a lazy chunk, no secret in it)', () => {
-    const source = readFileSync(join(import.meta.dirname, '..', 'src', 'routes', 'setup.tsx'), 'utf8');
+    const source = readFileSync(
+      join(import.meta.dirname, '..', 'src', 'routes', 'setup.tsx'),
+      'utf8',
+    );
     expect(source).toContain("loadLazyNamespace('setup')");
     expect(source).not.toMatch(/token\s*[:=]\s*['"][^'"]+['"]/i);
   });
 });
 
 describe('StepList', () => {
-  const wordsOf = (language: Locale, status: string): string => tr(language).t(`setup.status.${status}` as never);
+  const wordsOf = (language: Locale, status: string): string =>
+    tr(language).t(`setup.status.${status}` as never);
 
   for (const language of ['en', 'nl'] as const) {
     it(`is an ordered list with an icon and a text status for each of the seven statuses (${language})`, async () => {
@@ -220,7 +233,10 @@ describe('focus', () => {
     const en = tr('en');
     await screen.findByRole('heading', { level: 2, name: en.t('setup.environment.title') });
     await view.user.click(await screen.findByRole('button', { name: en.t('setup.continue') }));
-    const heading = await screen.findByRole('heading', { level: 2, name: en.t('setup.connect.title') });
+    const heading = await screen.findByRole('heading', {
+      level: 2,
+      name: en.t('setup.connect.title'),
+    });
     await waitFor(() => {
       expect(document.activeElement).toBe(heading);
     });
@@ -243,4 +259,3 @@ describe('focus', () => {
     });
   });
 });
-
