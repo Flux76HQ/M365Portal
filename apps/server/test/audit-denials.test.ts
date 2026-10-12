@@ -320,7 +320,8 @@ describe('the table walked: answers and audit entries (FR-B-414, FR-B-602)', () 
   it.each(cases)('$name $verb as $caller', async ({ name, caller, verb }) => {
     const { app, callers, audit } = await rig();
     const id = `deny.${name}.${verb}`;
-    const expected = EXPECTED[name]?.[caller] as Expected;
+    const expected = EXPECTED[name]?.[caller];
+    if (expected === undefined) throw new Error(`no expectation for ${name} / ${caller}`);
     const client = app.clientFor({ headers: headersOf(callers[caller]) });
     const path = app.http.table.routes.find((route) => route.id === id)?.paths[0] ?? '';
 
@@ -346,7 +347,7 @@ describe('the table walked: answers and audit entries (FR-B-414, FR-B-602)', () 
       return;
     }
     expect(rows).toHaveLength(1);
-    const row = rows[0] as AuditRow;
+    const row = rows[0]!;
     expect(row).toMatchObject({
       action: id,
       outcome: 'denied',

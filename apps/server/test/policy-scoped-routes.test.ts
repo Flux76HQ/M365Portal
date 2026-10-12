@@ -393,7 +393,7 @@ describe('the capabilities cannot be built outside the policy layer (plan 11.9)'
   });
 
   it('is a compile error to hand a service the capability of another type', () => {
-    const takesGroup = (_group: AuthorizedResource<'group'>): void => undefined;
+    const takesGroup = (group: AuthorizedResource<'group'>): unknown => group;
     const contact = undefined as unknown as AuthorizedResource<'contact'>;
     // @ts-expect-error -- a contact is not a group
     takesGroup(contact);
