@@ -1327,7 +1327,7 @@ Built mechanically from the requirement IDs in the task titles of this file. `to
   - Files: `e2e/lighthouse/{run.mjs,judge.mjs,judge.test.mjs}`; results are written under `e2e/test-results/lighthouse/` (already ignored).
   - Needs: T-A-320, T-A-164, T-A-092.
   - Test first: `e2e/lighthouse/judge.test.mjs` (`node --test`, + negative): a pure `judge(results)` requires Performance, Accessibility and Best Practices of at least 95 on the **first run**, and LCP below 2.0 s and CLS at most 0.01 on the **best of three**; all three runs are kept and the spread is printed; SEO is not gated; a category score below 95 on the first run fails even when the other runs pass; a timing miss on the first run that passes on a later one passes and says so; negative fixtures fail.
-  - Done when: `pnpm lighthouse` starts the production server, runs every route of `routes.ts` with the mobile and desktop presets three times (`CHROME_PATH`, `--chrome-flags="--headless=new --no-sandbox"`), keeps every result as an artefact and prints the table; the note names the sensitivity lost by best-of-3 (a regression smaller than the runner spread can pass).
+  - Done when: `pnpm lighthouse` starts the production server, runs every route of `routes.ts` with the mobile and desktop presets three times (`CHROME_PATH`, `--chrome-flags="--headless=new --no-sandbox --disable-dev-shm-usage"`), keeps every result as an artefact and prints the table; the note names the sensitivity lost by best-of-3 (a regression smaller than the runner spread can pass).
 
 - [ ] **T-A-331** Performance spike (plan 14.3; PR-01; M5)
   - Files: none (measurement; numbers go in the gate note and the report).
