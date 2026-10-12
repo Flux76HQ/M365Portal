@@ -26,6 +26,8 @@ import {
 
 beforeAll(async () => {
   await loadAllLazyNamespaces();
+  // The wizard is a lazy chunk of the page; with the module already loaded it resolves without a timer.
+  await import('../src/features/setup/Wizard');
 });
 
 beforeEach(() => {

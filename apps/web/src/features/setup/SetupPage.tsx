@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { lazy, Suspense } from 'react';
 import { NotFound } from '../../components/pages/NotFound';
 import { PageHeader } from '../../components/pages/PageHeader';
 import { Skeleton } from '../../components/ui/skeleton';
@@ -7,8 +8,19 @@ import { useTranslator } from '../../lib/locale';
 import { useRouterContext } from '../../lib/router-context';
 import { LoadError } from './LoadError';
 import { TokenForm } from './TokenForm';
-import { Wizard } from './Wizard';
 import { setupApi, setupKeys } from './setup-api';
+
+// The wizard is a chunk of its own: the token form, which is what the first visitor sees, does not
+// download or run the wizard's steps, the device code panel and the log region (largest contentful paint
+// of the first screen, gate note G4).
+const Wizard = lazy(() => import('./Wizard').then((module) => ({ default: module.Wizard })));
+
+const loadingFallback = (label: string) => (
+  <div aria-busy="true" aria-label={label} className="flex flex-col gap-4">
+    <Skeleton height={64} />
+    <Skeleton height={240} />
+  </div>
+);
 
 /**
  * `/setup` (T-B-300; FR-B-207, FR-B-221): public, and not gated by the client at all. The server decides who
@@ -22,7 +34,8 @@ export function SetupPage() {
   const status = useQuery({
     queryKey: setupKeys.status,
     queryFn: ({ signal }) => setupApi(api).status(signal),
-    staleTime: 0,
+    // The route loader has just asked; only a later invalidation (the token was accepted) asks again.
+    staleTime: 10_000,
     refetchOnWindowFocus: false,
   });
   if (status.error instanceof ApiError && status.error.status === 404) return <NotFound />;
@@ -37,7 +50,9 @@ export function SetupPage() {
         }}
       />
     ) : (
-      <Wizard api={api} />
+      <Suspense fallback={loadingFallback(t('setup.loading'))}>
+        <Wizard api={api} />
+      </Suspense>
     );
   } else if (status.isError) {
     content = (
@@ -51,12 +66,7 @@ export function SetupPage() {
       />
     );
   } else {
-    content = (
-      <div aria-busy="true" aria-label={t('setup.loading')} className="flex flex-col gap-4">
-        <Skeleton height={64} />
-        <Skeleton height={240} />
-      </div>
-    );
+    content = loadingFallback(t('setup.loading'));
   }
   return (
     <>
