@@ -11,6 +11,7 @@ import { PRINCIPALS } from '../support/principals.js';
 import {
   allowStaleCsrfAfterUnlock,
   approveDevice,
+  expectNoRawKeys,
   expectNoSecrets,
   finishSetup,
   logLines,
@@ -65,6 +66,7 @@ test('the whole wizard: unlock, environment, device code, configure with the liv
   expect(Object.keys(proof).sort()).toEqual([...PROOF_KEYS].sort());
   expect(proof).toEqual(Object.fromEntries(PROOF_KEYS.map((key) => [key, 'ok'])));
 
+  await expectNoRawKeys(page);
   await finishSetup(page, { skipAppearance: true });
   await expectNoSecrets(page, NO_PAGE_SECRETS());
   expect(console_.join('\n')).not.toContain(setupTokenOfB());

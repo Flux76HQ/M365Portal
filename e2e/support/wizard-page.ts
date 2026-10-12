@@ -149,3 +149,15 @@ export async function finishSetup(
   await page.getByRole('button', { name: 'Finish', exact: true }).click();
   await expect(page.getByText('The setup is ready')).toBeVisible();
 }
+
+/**
+ * No catalogue key shows through as text: a namespace that was not loaded makes the page print the key
+ * (`connection.proof.check_v5`) instead of the words. Every namespace of the panel is named here.
+ */
+export async function expectNoRawKeys(page: Page): Promise<void> {
+  const text = await page.locator('body').innerText();
+  const raw = text.match(
+    /\b(setup|connection|session|signin|noaccess|access|breakglass|appearance|role|permission|scope|origin|qualifier|resource|nav|pages|common|errors|problem|a11y|shell|palette|dashboard)\.[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+/g,
+  );
+  expect(raw ?? [], 'a catalogue key is shown instead of its text').toEqual([]);
+}

@@ -3,7 +3,7 @@
 // activity; a reader gets the No-access content at the same address. What the page says is compared
 // with what the fake tenant holds, so a page that invented a value would fail.
 import { expect, fakeOf, test } from '../fixtures.js';
-import { PROOF_KEYS, proofStatuses } from '../support/wizard-page.js';
+import { expectNoRawKeys, PROOF_KEYS, proofStatuses } from '../support/wizard-page.js';
 
 test.describe('the owner', () => {
   test('sees the tenant, the application, the certificate, the proof list and the log', async ({
@@ -48,6 +48,7 @@ test.describe('the owner', () => {
     );
 
     // The latest activity: lines from the setup run, in the panel's words.
+    await expectNoRawKeys(page);
     const log = page.getByRole('region', { name: 'Latest activity' });
     await expect(log).toBeVisible();
     await expect(
