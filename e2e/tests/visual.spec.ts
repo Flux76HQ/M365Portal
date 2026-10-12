@@ -241,6 +241,15 @@ test.describe('Phase B: /setup (empty instance B)', () => {
       await app.ready();
       // The wizard runs live against the fake tenant, so the length of the page (log lines, retries) and the
       // attempt counter differ from run to run: the picture is the viewport, with the counters masked.
+      // The wizard moves focus when a step changes, and the browser may scroll the page by a pixel or two
+      // to show it: the viewport shot starts from the top every time (a shift of one pixel is what turned
+      // a whole mobile page red).
+      await page.evaluate(() => {
+        for (const element of [document.scrollingElement, ...document.querySelectorAll('*')]) {
+          if (element !== null && element.scrollTop !== 0) element.scrollTop = 0;
+        }
+      });
+      await page.waitForFunction(() => document.getAnimations().length === 0);
       // Owner decision of 2026-10-12: the live wizard states may differ by a few anti-aliased corner pixels of
       // the cards between runs (up to 108 pixels measured over three runner artefacts, in places that no
       // content change touches). The per-pixel threshold stays 0, and 120 stays below the 132 pixels of the
