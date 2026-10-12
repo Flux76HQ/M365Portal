@@ -33,7 +33,9 @@ async function run(
   return { code, stdout, stderr };
 }
 
-async function scene(state: 'unconfigured' | 'completed' | 'in_progress' | 'awaiting_first_signin') {
+async function scene(
+  state: 'unconfigured' | 'completed' | 'in_progress' | 'awaiting_first_signin',
+) {
   const { dataDir, database } = await migratedDatabase({
     setupState: state === 'completed' ? 'completed' : 'unconfigured',
   });
@@ -95,7 +97,10 @@ describe('setup-token', () => {
   it('exits 1 when the server has never started (no database), 2 for an argument', async () => {
     const dir = await migratedDatabase({ setupState: false });
     dir.database.close();
-    const none = await run(['setup-token'], { DATA_DIR: dir.dataDir, PUBLIC_BASE_URL: 'http://localhost:9300' });
+    const none = await run(['setup-token'], {
+      DATA_DIR: dir.dataDir,
+      PUBLIC_BASE_URL: 'http://localhost:9300',
+    });
     expect(none.code).toBe(1);
     expect(none.stderr).toContain('start the server once first');
     const usage = await run(['setup-token', '--x'], { DATA_DIR: dir.dataDir });
@@ -192,7 +197,11 @@ describe('the built cli.js', () => {
   it('prints the token through a real process', async () => {
     const { dataDir } = await scene('unconfigured');
     const child = spawn(process.execPath, [join(layout.dist, 'cli.js'), 'setup-token'], {
-      env: { PATH: process.env.PATH ?? '', DATA_DIR: dataDir, PUBLIC_BASE_URL: 'http://localhost:9300' },
+      env: {
+        PATH: process.env.PATH ?? '',
+        DATA_DIR: dataDir,
+        PUBLIC_BASE_URL: 'http://localhost:9300',
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';

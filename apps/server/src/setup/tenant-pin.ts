@@ -37,7 +37,12 @@ export function confirmTenant(
   const proposed = state.proposedTenantId;
   if (proposed === null || proposed !== seen) {
     withTransaction(db, (tx) => {
-      auditTenantPin(tx, { now: deps.now(), tenantId: seen, mode: state.mode, outcome: 'rejected' });
+      auditTenantPin(tx, {
+        now: deps.now(),
+        tenantId: seen,
+        mode: state.mode,
+        outcome: 'rejected',
+      });
     });
     return { kind: 'mismatch', reason: 'organization_mismatch' };
   }

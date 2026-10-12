@@ -31,6 +31,17 @@ export interface AuthEffects {
 export const SIGNIN_PATH = '/signin';
 export const LOGIN_PATH = '/auth/login';
 
+/**
+ * The pages whose own requests may be answered `unauthenticated` without the page being the problem: the
+ * sign-in page, the break-glass form (a wrong password is a 401) and the setup wizard (the setup session has
+ * ended; the wizard shows its token form). The browser does not leave them for the sign-in page.
+ */
+const OWN_AUTH_PATHS = ['/signin', '/break-glass', '/setup'] as const;
+
+function staysOnPage(pathname: string): boolean {
+  return OWN_AUTH_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+}
+
 /** The error values `/signin?error=` accepts from the client side of the flow. */
 export type SignInErrorParam = 'session_expired';
 
@@ -99,7 +110,7 @@ export interface AuthEffectsOptions {
 export function createAuthEffects({ location, store }: AuthEffectsOptions): AuthEffects {
   let leaving = false;
   function leave(error: SignInErrorParam | undefined): void {
-    if (leaving || location.pathname.startsWith(SIGNIN_PATH)) return;
+    if (leaving || staysOnPage(location.pathname)) return;
     leaving = true;
     const options: { returnTo: string; error?: SignInErrorParam } = {
       returnTo: currentReturnTo(location),

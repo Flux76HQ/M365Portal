@@ -70,7 +70,7 @@ function insertWizardAssignment(
   deps: FinishDeps,
   audit: FinishAudit,
   input: { principalType: 'user' | 'group'; principalId: string; role: string },
-): boolean {
+): void {
   const { services, actor } = deps;
   const role = findRoleByKey(tx, input.role);
   if (role === undefined) throw new Error(`the built-in role ${input.role} is missing`);
@@ -93,7 +93,7 @@ function insertWizardAssignment(
       scope: [],
     }) !== undefined
   ) {
-    return false;
+    return;
   }
   const id = uuidV4(services.deps.random);
   const createdAt = new Date(services.deps.now()).toISOString();
@@ -127,7 +127,6 @@ function insertWizardAssignment(
       source: 'wizard',
     },
   });
-  return true;
 }
 
 function checkPreconditions(
@@ -182,19 +181,18 @@ export async function finishSetup(
           errors: [{ pointer: '/confirmOwnerOid', code: 'owner_changed' }],
         });
       }
-      const created = insertWizardAssignment(tx, deps, audit, {
+      insertWizardAssignment(tx, deps, audit, {
         principalType: 'user',
         principalId: owner,
         role: OWNER_ROLE,
       });
-      const groupCreated =
-        groupId === null
-          ? false
-          : insertWizardAssignment(tx, deps, audit, {
-              principalType: 'group',
-              principalId: groupId,
-              role: BEHEERDER_ROLE,
-            });
+      if (groupId !== null) {
+        insertWizardAssignment(tx, deps, audit, {
+          principalType: 'group',
+          principalId: groupId,
+          role: BEHEERDER_ROLE,
+        });
+      }
       if (input.language !== undefined) services.state.setLanguage(tx, input.language);
 
       const row = (sub: string, status: 'succeeded' | 'skipped'): void => {
@@ -207,13 +205,14 @@ export async function finishSetup(
           detail: {},
         });
       };
-      row('branding', brandingName !== null && brandingName !== DEFAULT_ORG_NAME ? 'succeeded' : 'skipped');
+      row(
+        'branding',
+        brandingName !== null && brandingName !== DEFAULT_ORG_NAME ? 'succeeded' : 'skipped',
+      );
       row('owner', 'succeeded');
       row('beheerder_group', groupId === null ? 'skipped' : 'succeeded');
       row('language', input.language === undefined ? 'skipped' : 'succeeded');
       row('handover', 'succeeded');
-      void created;
-      void groupCreated;
       services.wizardLog.append(tx, {
         step: 'finish',
         level: 'info',

@@ -2,7 +2,8 @@
 // its service principals, the redirect URIs and the proof list. One row, created by the first step that
 // learns an id; `tenant_id` is set once (the trigger forbids changing or deleting it afterwards). Only
 // the setup engine and repair write it, always inside the transaction that records the change.
-import type { DatabaseHandle } from '../db/index.js';
+import { eq } from 'drizzle-orm';
+import { tenantConnection, type DatabaseHandle } from '../db/index.js';
 import type { Tx } from '../db/tx.js';
 
 export interface TenantConnectionRow {
@@ -59,22 +60,6 @@ interface Raw {
   updated_at: string;
 }
 
-const COLUMNS: Readonly<Record<keyof TenantConnectionPatch, string>> = {
-  tenantName: 'tenant_name',
-  initialDomain: 'initial_domain',
-  appObjectId: 'app_object_id',
-  appId: 'app_id',
-  spObjectId: 'sp_object_id',
-  graphSpId: 'graph_sp_id',
-  exchangeSpId: 'exchange_sp_id',
-  exchangeEnabled: 'exchange_enabled',
-  exchangeRoleTemplateId: 'exchange_role_template_id',
-  permissionSetVersion: 'permission_set_version',
-  redirectUris: 'redirect_uris',
-  certificateId: 'certificate_id',
-  verifiedAt: 'verified_at',
-};
-
 export class TenantConnectionRepository {
   readonly #now: () => number;
 
@@ -84,8 +69,7 @@ export class TenantConnectionRepository {
 
   read(db: DatabaseHandle): TenantConnectionRow | undefined {
     const raw = db.sqlite.prepare('SELECT * FROM tenant_connection WHERE id = 1').get() as
-      | Raw
-      | undefined;
+      Raw | undefined;
     if (raw === undefined) return undefined;
     return {
       tenantId: raw.tenant_id,
@@ -117,19 +101,18 @@ export class TenantConnectionRepository {
   /** Set the given fields (creating the row first). Absent fields stay as they are. */
   update(tx: Tx, patch: TenantConnectionPatch): void {
     this.ensure(tx);
-    const sets: string[] = [];
-    const values: unknown[] = [];
+    const values: Partial<typeof tenantConnection.$inferInsert> = {
+      updatedAt: new Date(this.#now()).toISOString(),
+    };
     for (const key of Object.keys(patch) as (keyof TenantConnectionPatch)[]) {
       const value = patch[key];
       if (value === undefined) continue;
-      sets.push(`${COLUMNS[key]} = ?`);
-      if (key === 'exchangeEnabled') values.push(value === true ? 1 : 0);
-      else if (key === 'redirectUris') values.push(JSON.stringify(value));
-      else values.push(value);
+      if (key === 'exchangeEnabled') values.exchangeEnabled = value === true ? 1 : 0;
+      else if (key === 'redirectUris') values.redirectUris = JSON.stringify(value);
+      else if (key === 'permissionSetVersion') values.permissionSetVersion = Number(value);
+      else values[key] = value as string | null;
     }
-    sets.push('updated_at = ?');
-    values.push(new Date(this.#now()).toISOString());
-    tx.sqlite.prepare(`UPDATE tenant_connection SET ${sets.join(', ')} WHERE id = 1`).run(...values);
+    tx.orm.update(tenantConnection).set(values).where(eq(tenantConnection.id, 1)).run();
   }
 
   /** Pin the tenant. The trigger refuses a change of a pinned id; the same id again is a no-op. */

@@ -40,16 +40,30 @@ describe('the private key', () => {
 
     // Fragments of the key in every encoding that could carry it.
     const middle = key.subarray(200, 248);
-    const needles = [middle.toString('base64'), middle.toString('hex'), middle.toString('base64url'), key.toString('base64').slice(0, 64)];
+    const needles = [
+      middle.toString('base64'),
+      middle.toString('hex'),
+      middle.toString('base64url'),
+      key.toString('base64').slice(0, 64),
+    ];
     const tables = scene
-      .rows<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+      .rows<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+      )
       .map(({ name }) => ({
         name,
-        text: JSON.stringify(scene.rows(`SELECT * FROM "${name}"`, ), (_k, v: unknown) =>
-          v !== null && typeof v === 'object' && (v as { type?: string }).type === 'Buffer' ? Buffer.from((v as { data: number[] }).data).toString('latin1') : v,
+        text: JSON.stringify(scene.rows(`SELECT * FROM "${name}"`), (_k, v: unknown) =>
+          v !== null && typeof v === 'object' && (v as { type?: string }).type === 'Buffer'
+            ? Buffer.from((v as { data: number[] }).data).toString('latin1')
+            : v,
         ),
       }));
-    const text = [...bodies, scene.logs.text(), JSON.stringify(scene.engine.snapshot(0)), ...tables.map((table) => table.text)].join('\n');
+    const text = [
+      ...bodies,
+      scene.logs.text(),
+      JSON.stringify(scene.engine.snapshot(0)),
+      ...tables.map((table) => table.text),
+    ].join('\n');
     for (const needle of needles) expect(text).not.toContain(needle);
     // The raw bytes are in no table either (the sealed blob is ciphertext).
     for (const table of tables) {
@@ -57,7 +71,9 @@ describe('the private key', () => {
     }
 
     // The sealed row exists and is not the plaintext key.
-    const sealed = scene.rows<{ purpose: string; blob: Buffer }>("SELECT purpose, blob FROM secret WHERE purpose = 'certificate_key'");
+    const sealed = scene.rows<{ purpose: string; blob: Buffer }>(
+      "SELECT purpose, blob FROM secret WHERE purpose = 'certificate_key'",
+    );
     expect(sealed).toHaveLength(1);
     expect(Buffer.from(sealed[0]?.blob ?? []).includes(middle)).toBe(false);
   });
@@ -72,8 +88,12 @@ describe('the private key', () => {
     });
     const scene = await tenantScene();
     await scene.run(['connect', 'configure']);
-    const [row] = scene.rows<{ thumbprint_sha1: string; public_der: Buffer }>('SELECT thumbprint_sha1, public_der FROM certificate');
-    const sent = JSON.parse(bodies.find((body) => body.includes('keyCredentials')) ?? '{}') as { keyCredentials: { key: string }[] };
+    const [row] = scene.rows<{ thumbprint_sha1: string; public_der: Buffer }>(
+      'SELECT thumbprint_sha1, public_der FROM certificate',
+    );
+    const sent = JSON.parse(bodies.find((body) => body.includes('keyCredentials')) ?? '{}') as {
+      keyCredentials: { key: string }[];
+    };
     const der = Buffer.from(sent.keyCredentials[0]?.key ?? '', 'base64');
     expect(der.equals(Buffer.from(row?.public_der ?? []))).toBe(true);
     expect(createHash('sha1').update(der).digest('hex')).toBe(row?.thumbprint_sha1);

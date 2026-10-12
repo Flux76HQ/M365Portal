@@ -17,11 +17,18 @@ describe('the order of the calls', () => {
     const scene = await tenantScene();
     await scene.run(['connect', 'configure', 'verify']);
     const calls = fake.calls.all();
-    const patch = calls.findIndex((call) => call.method === 'PATCH' && /\/v1\.0\/applications\/[^/]+$/.test(call.path) && call.status === 204);
+    const patch = calls.findIndex(
+      (call) =>
+        call.method === 'PATCH' &&
+        /\/v1\.0\/applications\/[^/]+$/.test(call.path) &&
+        call.status === 204,
+    );
     const keyPatch = calls.findIndex((call, index) => index >= patch && call.method === 'PATCH');
     expect(keyPatch).toBeGreaterThan(-1);
     // The tokens with the certificate are the client_credentials requests of the Entra fake.
-    const credentials = scene.world.entra.control.tokenRequests().filter((request) => request.grantType === 'client_credentials');
+    const credentials = scene.world.entra.control
+      .tokenRequests()
+      .filter((request) => request.grantType === 'client_credentials');
     expect(credentials.length).toBeGreaterThanOrEqual(4);
     const tokenCalls = calls
       .map((call, index) => ({ call, index }))
@@ -29,7 +36,10 @@ describe('the order of the calls', () => {
     // The first token request after the credential PATCH comes after a read of the application.
     const firstToken = tokenCalls.find(({ index }) => index > keyPatch);
     const readBack = calls.findIndex(
-      (call, index) => index > keyPatch && call.method === 'GET' && /\/v1\.0\/applications\/[^/]+$/.test(call.path),
+      (call, index) =>
+        index > keyPatch &&
+        call.method === 'GET' &&
+        /\/v1\.0\/applications\/[^/]+$/.test(call.path),
     );
     expect(readBack).toBeGreaterThan(keyPatch);
     expect(firstToken?.index).toBeGreaterThan(readBack);
@@ -42,6 +52,10 @@ describe('the order of the calls', () => {
     const scene = await tenantScene();
     await scene.run(['connect', 'configure']);
     expect(scene.rows('SELECT state FROM certificate')).toEqual([{ state: 'active' }]);
-    expect(scene.world.entra.control.tokenRequests().filter((request) => request.grantType === 'client_credentials')).toHaveLength(0);
+    expect(
+      scene.world.entra.control
+        .tokenRequests()
+        .filter((request) => request.grantType === 'client_credentials'),
+    ).toHaveLength(0);
   });
 });

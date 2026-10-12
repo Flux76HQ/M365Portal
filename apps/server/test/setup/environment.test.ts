@@ -30,7 +30,9 @@ async function run(options: Partial<EnvironmentOptions> & { skewMs?: number } = 
     nodeVersion: NODE_OK,
     storageProbe: () => true,
     ping: pinger(
-      options.skewMs === undefined ? {} : { 'login.microsoftonline.com': { dateMs: now + options.skewMs } },
+      options.skewMs === undefined
+        ? {}
+        : { 'login.microsoftonline.com': { dateMs: now + options.skewMs } },
       now,
     ),
     appKey: { status: 'ok', selfTest: () => true },
@@ -48,7 +50,11 @@ describe('the result', () => {
     expect(result.checks.map((entry) => entry.key)).toEqual([...ENVIRONMENT_CHECK_KEYS]);
     expect(result).toMatchObject({ status: 'ok', blocking: false });
     expect(EnvironmentResultSchema.safeParse(result).success).toBe(true);
-    const rows = h.db.sqlite.prepare("SELECT sub_action, status FROM setup_step WHERE step = 'environment' ORDER BY sub_action").all();
+    const rows = h.db.sqlite
+      .prepare(
+        "SELECT sub_action, status FROM setup_step WHERE step = 'environment' ORDER BY sub_action",
+      )
+      .all();
     expect(rows).toHaveLength(6);
     expect(rows.every((row) => (row as { status: string }).status === 'succeeded')).toBe(true);
   });
@@ -62,17 +68,28 @@ describe('the result', () => {
 
   it('writes one setup.step.run entry for the step, with the status and the codes', async () => {
     const { h } = await run({ nodeVersion: '20.0.0' });
-    const rows = h.db.sqlite.prepare("SELECT actor_kind, outcome, detail FROM audit_log WHERE action = 'setup.step.run'").all() as { actor_kind: string; outcome: string; detail: string }[];
+    const rows = h.db.sqlite
+      .prepare("SELECT actor_kind, outcome, detail FROM audit_log WHERE action = 'setup.step.run'")
+      .all() as { actor_kind: string; outcome: string; detail: string }[];
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ actor_kind: 'setup', outcome: 'success' });
-    expect(JSON.parse(rows[0]?.detail ?? '{}')).toEqual({ step: 'environment', status: 'warning', attempt: 1, codes: ['node_version_unsupported'], mode: 'automatic' });
+    expect(JSON.parse(rows[0]?.detail ?? '{}')).toEqual({
+      step: 'environment',
+      status: 'warning',
+      attempt: 1,
+      codes: ['node_version_unsupported'],
+      mode: 'automatic',
+    });
   });
 });
 
 describe('public_base_url', () => {
   it('fails with public_base_url_invalid for an origin FR-B-103 refuses', async () => {
     const { result } = await run({ publicOrigin: 'http://panel.example' });
-    expect(check(result, 'public_base_url')).toMatchObject({ status: 'fail', code: 'public_base_url_invalid' });
+    expect(check(result, 'public_base_url')).toMatchObject({
+      status: 'fail',
+      code: 'public_base_url_invalid',
+    });
     expect(result).toMatchObject({ status: 'failed', blocking: true });
   });
 });
@@ -80,14 +97,21 @@ describe('public_base_url', () => {
 describe('data_dir', () => {
   it('fails with data_dir_not_writable when a file cannot be written', async () => {
     const { result } = await run({ storageProbe: () => false });
-    expect(check(result, 'data_dir')).toMatchObject({ status: 'fail', code: 'data_dir_not_writable' });
+    expect(check(result, 'data_dir')).toMatchObject({
+      status: 'fail',
+      code: 'data_dir_not_writable',
+    });
   });
 });
 
 describe('app_key', () => {
   it('fails app_key_missing and app_key_invalid by the secrets state', async () => {
-    expect(check((await run({ appKey: { status: 'key_missing' } })).result, 'app_key')).toMatchObject({ status: 'fail', code: 'app_key_missing' });
-    expect(check((await run({ appKey: { status: 'key_invalid' } })).result, 'app_key')).toMatchObject({ status: 'fail', code: 'app_key_invalid' });
+    expect(
+      check((await run({ appKey: { status: 'key_missing' } })).result, 'app_key'),
+    ).toMatchObject({ status: 'fail', code: 'app_key_missing' });
+    expect(
+      check((await run({ appKey: { status: 'key_invalid' } })).result, 'app_key'),
+    ).toMatchObject({ status: 'fail', code: 'app_key_invalid' });
   });
 
   it('needs the seal-and-open round trip to hold', async () => {
@@ -101,11 +125,17 @@ describe('app_key', () => {
 });
 
 describe('node_version', () => {
-  it.each(['20.18.0', '22.18.9', '23.0.0', 'v22.19.0-rc.1', 'nonsense'])('warns for %s', async (version) => {
-    const { result } = await run({ nodeVersion: version });
-    expect(check(result, 'node_version')).toMatchObject({ status: 'warn', code: 'node_version_unsupported' });
-    expect(result).toMatchObject({ status: 'warning', blocking: false });
-  });
+  it.each(['20.18.0', '22.18.9', '23.0.0', 'v22.19.0-rc.1', 'nonsense'])(
+    'warns for %s',
+    async (version) => {
+      const { result } = await run({ nodeVersion: version });
+      expect(check(result, 'node_version')).toMatchObject({
+        status: 'warn',
+        code: 'node_version_unsupported',
+      });
+      expect(result).toMatchObject({ status: 'warning', blocking: false });
+    },
+  );
 
   it.each(['22.19.0', '22.99.1', 'v22.20.3'])('passes for %s', async (version) => {
     expect(check((await run({ nodeVersion: version })).result, 'node_version')?.status).toBe('ok');
@@ -115,7 +145,12 @@ describe('node_version', () => {
 describe('network', () => {
   it('any HTTP answer is reachable, even 401, 404 and 500', async () => {
     for (const httpStatus of [200, 401, 404, 500]) {
-      const { result } = await run({ ping: pinger({ 'graph.microsoft.com': { httpStatus }, 'login.microsoftonline.com': { httpStatus } }) });
+      const { result } = await run({
+        ping: pinger({
+          'graph.microsoft.com': { httpStatus },
+          'login.microsoftonline.com': { httpStatus },
+        }),
+      });
       expect(check(result, 'network')?.status).toBe('ok');
     }
   });
@@ -123,16 +158,30 @@ describe('network', () => {
   it('a connection error to the sign-in or Graph host fails, naming the hosts', async () => {
     const down = { reachable: false, httpStatus: null, dateMs: null };
     const login = (await run({ ping: pinger({ 'login.microsoftonline.com': down }) })).result;
-    expect(check(login, 'network')).toMatchObject({ status: 'fail', code: 'network_unreachable', params: { host: 'login.microsoftonline.com' } });
-    const both = (await run({ ping: pinger({ 'login.microsoftonline.com': down, 'graph.microsoft.com': down }) })).result;
-    expect(check(both, 'network')?.params).toEqual({ host: 'login.microsoftonline.com,graph.microsoft.com' });
+    expect(check(login, 'network')).toMatchObject({
+      status: 'fail',
+      code: 'network_unreachable',
+      params: { host: 'login.microsoftonline.com' },
+    });
+    const both = (
+      await run({
+        ping: pinger({ 'login.microsoftonline.com': down, 'graph.microsoft.com': down }),
+      })
+    ).result;
+    expect(check(both, 'network')?.params).toEqual({
+      host: 'login.microsoftonline.com,graph.microsoft.com',
+    });
     expect(both.blocking).toBe(true);
   });
 
   it('Exchange being unreachable only warns', async () => {
     const down = { reachable: false, httpStatus: null, dateMs: null };
     const { result } = await run({ ping: pinger({ 'outlook.office365.com': down }) });
-    expect(check(result, 'network')).toMatchObject({ status: 'warn', code: 'network_exchange_unreachable', params: { host: 'outlook.office365.com' } });
+    expect(check(result, 'network')).toMatchObject({
+      status: 'warn',
+      code: 'network_exchange_unreachable',
+      params: { host: 'outlook.office365.com' },
+    });
     expect(result.blocking).toBe(false);
   });
 });
@@ -156,11 +205,14 @@ describe('time_skew (our thresholds, U35)', () => {
       expect(entry?.code).toBe('time_skew_excessive');
       expect(result.blocking).toBe(true);
     }
-    if (expected !== 'ok') expect(entry?.params).toEqual({ skewSeconds: Math.round(skewMs / 1000) });
+    if (expected !== 'ok')
+      expect(entry?.params).toEqual({ skewSeconds: Math.round(skewMs / 1000) });
   });
 
   it('cannot be measured without a Date header, so it does not block', async () => {
-    const { result } = await run({ ping: pinger({ 'login.microsoftonline.com': { dateMs: null } }) });
+    const { result } = await run({
+      ping: pinger({ 'login.microsoftonline.com': { dateMs: null } }),
+    });
     expect(check(result, 'time_skew')?.status).toBe('ok');
   });
 });
@@ -168,12 +220,19 @@ describe('time_skew (our thresholds, U35)', () => {
 describe('a failed check blocks step 2', () => {
   it('connect is refused with setup_step_not_ready until the environment passes', async () => {
     const { h } = await run({ storageProbe: () => false });
-    expect(() => h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR)).toThrow(ProblemError);
+    expect(() =>
+      h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR),
+    ).toThrow(ProblemError);
     // Fixing the problem and running the checks again unblocks it.
     await runEnvironmentChecks(h.services, SETUP_ACTOR, {
-      nodeVersion: NODE_OK, storageProbe: () => true, ping: pinger(), appKey: { status: 'ok', selfTest: () => true },
+      nodeVersion: NODE_OK,
+      storageProbe: () => true,
+      ping: pinger(),
+      appKey: { status: 'ok', selfTest: () => true },
     });
-    expect(() => h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR)).not.toThrow();
+    expect(() =>
+      h.engine.start({ steps: ['connect'], kind: 'setup', mode: 'continue' }, SETUP_ACTOR),
+    ).not.toThrow();
     await h.engine.idle();
   });
 });

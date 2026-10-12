@@ -21,6 +21,7 @@ export interface SetupCommandScene {
 export function openSetupScene(
   command: string,
   io: CommandIo,
+  now: () => number,
 ): { readonly scene: SetupCommandScene } | { readonly exit: number } {
   const loaded = loadConfig(io.env);
   if (!loaded.ok) {
@@ -43,7 +44,7 @@ export function openSetupScene(
     return refuse();
   }
   const repository = new SetupStateRepository({
-    now: io.now ?? (() => Date.now()),
+    now,
     random: io.random ?? systemRandom,
   });
   try {

@@ -26,7 +26,13 @@ afterEach(() => {
 });
 
 const ALL = ['connect', 'configure', 'verify'] as const;
-const mutations = (): string[] => fake.calls.mutating().map((call) => `${call.method} ${call.host}${call.path.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, '{id}')}`);
+const mutations = (): string[] =>
+  fake.calls
+    .mutating()
+    .map(
+      (call) =>
+        `${call.method} ${call.host}${call.path.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, '{id}')}`,
+    );
 
 /** What the tenant holds that the wizard put there. */
 function tenantState(scene: TenantScene) {
@@ -37,8 +43,13 @@ function tenantState(scene: TenantScene) {
     applications: applications.length,
     servicePrincipals: mine === undefined ? 0 : 1,
     keyCredentials: applications[0]?.keyCredentials.length ?? 0,
-    appRoleAssignments: scene.rows('SELECT 1 FROM setup_object WHERE kind = ?', 'app_role_assignment').length,
-    objects: scene.rows<{ kind: string; n: number }>('SELECT kind, count(*) AS n FROM setup_object GROUP BY kind ORDER BY kind'),
+    appRoleAssignments: scene.rows(
+      'SELECT 1 FROM setup_object WHERE kind = ?',
+      'app_role_assignment',
+    ).length,
+    objects: scene.rows<{ kind: string; n: number }>(
+      'SELECT kind, count(*) AS n FROM setup_object GROUP BY kind ORDER BY kind',
+    ),
   };
 }
 
@@ -54,8 +65,12 @@ describe('a clean run', () => {
       'POST graph.microsoft.com/v1.0/applications',
       'POST graph.microsoft.com/v1.0/servicePrincipals',
       'PATCH graph.microsoft.com/v1.0/applications/{id}',
-      ...Array<string>(4).fill('POST graph.microsoft.com/v1.0/servicePrincipals/{id}/appRoleAssignedTo'),
-      ...Array<string>(2).fill('POST graph.microsoft.com/v1.0/servicePrincipals/{id}/appRoleAssignedTo'),
+      ...Array<string>(4).fill(
+        'POST graph.microsoft.com/v1.0/servicePrincipals/{id}/appRoleAssignedTo',
+      ),
+      ...Array<string>(2).fill(
+        'POST graph.microsoft.com/v1.0/servicePrincipals/{id}/appRoleAssignedTo',
+      ),
       'POST graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments',
     ]);
   });
@@ -72,8 +87,12 @@ describe('a clean run', () => {
     await scene.run(ALL, { mode: 'reconcile' });
     expect(scene.engine.current()?.status).toBe('succeeded');
     expect(fake.calls.mutating()).toEqual([]);
-    expect(scene.rows('SELECT * FROM setup_object ORDER BY kind, tenant_object_id')).toEqual(before.objects);
-    expect(scene.rows("SELECT 1 FROM audit_log WHERE action = 'setup.object.change'")).toHaveLength(before.audit);
+    expect(scene.rows('SELECT * FROM setup_object ORDER BY kind, tenant_object_id')).toEqual(
+      before.objects,
+    );
+    expect(scene.rows("SELECT 1 FROM audit_log WHERE action = 'setup.object.change'")).toHaveLength(
+      before.audit,
+    );
     expect(tenantState(scene)).toEqual(before.state);
   });
 
@@ -94,7 +113,7 @@ const CLEAN_RUN_CALLS = 10;
 const EVERY_N = Array.from({ length: CLEAN_RUN_CALLS }, (_, index) => index + 1);
 
 describe('a run that is killed after the n-th mutating call', () => {
-  async function resumeWithNewEngine(scene: TenantScene): Promise<{ engine: SetupEngine; approve: () => void }> {
+  function resumeWithNewEngine(scene: TenantScene): { engine: SetupEngine; approve: () => void } {
     const services = createSetupServices(scene.deps, {});
     const engine = createSetupEngine({ services, registry: subActionRegistry() });
     return {
@@ -122,32 +141,47 @@ describe('a run that is killed after the n-th mutating call', () => {
     expect(fake.control.pendingCrash).toBeNull();
     expect(scene.engine.current()?.status).toBe('succeeded');
     expect(mutations()).toHaveLength(CLEAN_RUN_CALLS);
-    expect(tenantState(scene)).toMatchObject({ applications: 1, servicePrincipals: 1, keyCredentials: 1 });
+    expect(tenantState(scene)).toMatchObject({
+      applications: 1,
+      servicePrincipals: 1,
+      keyCredentials: 1,
+    });
   });
 
-  it.each(EVERY_N)('after call %i a rebuilt server over the same data finishes with no duplicate and no second call', async (n) => {
-    const scene = await tenantScene();
-    fake.control.crashAfterMutating(n);
-    fake.calls.clear();
-    scene.startRun(ALL);
-    await scene.drive({ until: () => fake.control.pendingCrash === null && fake.calls.mutating().length >= n });
-    // The server dies here: the run is cancelled, the bootstrap object is gone, rows go back to pending.
-    scene.engine.cancel();
-    await scene.engine.idle();
-    scene.services.bootstrap.discard('exit');
+  it.each(EVERY_N)(
+    'after call %i a rebuilt server over the same data finishes with no duplicate and no second call',
+    async (n) => {
+      const scene = await tenantScene();
+      fake.control.crashAfterMutating(n);
+      fake.calls.clear();
+      scene.startRun(ALL);
+      await scene.drive({
+        until: () => fake.control.pendingCrash === null && fake.calls.mutating().length >= n,
+      });
+      // The server dies here: the run is cancelled, the bootstrap object is gone, rows go back to pending.
+      scene.engine.cancel();
+      await scene.engine.idle();
+      scene.services.bootstrap.discard('exit');
 
-    // What the start of the next process does before any module runs: interrupted rows and the lease.
-    recoverInterruptedSetup(scene.db, { now: scene.deps.now });
-    const { engine, approve } = await resumeWithNewEngine(scene);
-    engine.start({ steps: ALL, kind: 'setup', mode: 'continue' }, SETUP_ACTOR);
-    for (let second = 0; second < 1_500 && engine.busy(); second += 1) {
-      approve();
-      await scene.elapse(1_000);
-    }
-    await engine.idle();
-    expect(engine.current()?.status).toBe('succeeded');
-    expect(mutations()).toHaveLength(CLEAN_RUN_CALLS);
-    expect(tenantState(scene)).toMatchObject({ applications: 1, servicePrincipals: 1, keyCredentials: 1 });
-    expect(scene.rows("SELECT 1 FROM setup_step WHERE status IN ('running', 'waiting', 'failed')")).toEqual([]);
-  });
+      // What the start of the next process does before any module runs: interrupted rows and the lease.
+      recoverInterruptedSetup(scene.db, { now: scene.deps.now });
+      const { engine, approve } = resumeWithNewEngine(scene);
+      engine.start({ steps: ALL, kind: 'setup', mode: 'continue' }, SETUP_ACTOR);
+      for (let second = 0; second < 1_500 && engine.busy(); second += 1) {
+        approve();
+        await scene.elapse(1_000);
+      }
+      await engine.idle();
+      expect(engine.current()?.status).toBe('succeeded');
+      expect(mutations()).toHaveLength(CLEAN_RUN_CALLS);
+      expect(tenantState(scene)).toMatchObject({
+        applications: 1,
+        servicePrincipals: 1,
+        keyCredentials: 1,
+      });
+      expect(
+        scene.rows("SELECT 1 FROM setup_step WHERE status IN ('running', 'waiting', 'failed')"),
+      ).toEqual([]);
+    },
+  );
 });

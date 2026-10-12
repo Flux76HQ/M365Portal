@@ -4,10 +4,9 @@ import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { Button } from '../../components/ui/button';
 import { ApiError } from '../../lib/api';
 import { useLanguage } from '../../lib/locale';
-import { messageForError } from '../../lib/problem';
 import { useMe } from '../../lib/router-context';
 import { useSecondsLeft } from '../auth/use-seconds-left';
-import { hintText, resultText } from './hints';
+import { errorText, hintText, resultText } from './hints';
 import { StatusMark } from './StatusMark';
 import type { StepState, SubActionState } from './setup-api';
 import { stepOf, type WizardContext } from './wizard-context';
@@ -165,6 +164,8 @@ export interface StepFrameProps {
   readonly recovery?: ReactNode;
   /** The sub-action rows; a step with its own display hides them. */
   readonly subActions?: boolean;
+  /** The error summary of a failed step; a step that lists its failures itself turns it off. */
+  readonly errorSummary?: boolean;
   readonly children?: ReactNode;
 }
 
@@ -172,12 +173,12 @@ export interface StepFrameProps {
  * The frame of one step: the heading that takes the focus when the step changes, the line of help, the
  * error summary of a failed step, then the step's own content and its sub-actions.
  */
-export function StepFrame({ step, context, focus, title, recovery, subActions = true, children }: StepFrameProps) {
+export function StepFrame({ step, context, focus, title, recovery, subActions = true, errorSummary = true, children }: StepFrameProps) {
   const { t } = useLanguage().translator;
   const id = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const state = stepOf(context, step);
-  const failed = state.status === 'failed';
+  const failed = state.status === 'failed' && errorSummary;
   useEffect(() => {
     if (focus && !failed) heading.current?.focus();
   }, [focus, failed]);
@@ -204,7 +205,8 @@ export function StepFrame({ step, context, focus, title, recovery, subActions = 
 
 /** A request of the wizard that the server refused: the translated reason. */
 export function ActionError({ error }: { readonly error: unknown }) {
-  const { t } = useLanguage().translator;
+  const { translator } = useLanguage();
+  const { t } = translator;
   const me = useMe();
   return (
     <div
@@ -214,7 +216,7 @@ export function ActionError({ error }: { readonly error: unknown }) {
     >
       <CircleAlertIcon aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-danger" />
       <div className="flex flex-col gap-1">
-        <p className="text-fg">{messageForError({ t }, error, { publicOrigin: me.publicOrigin })}</p>
+        <p className="text-fg">{errorText(translator, error, me.publicOrigin)}</p>
         {error instanceof ApiError && error.requestId !== null ? (
           <p className="text-caption text-fg-muted">
             {t('common.table.requestId')}: <code className="font-mono select-all">{error.requestId}</code>

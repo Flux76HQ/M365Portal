@@ -3,7 +3,11 @@
 // that records a tenant-changing result (plan 9.5): the `setup_object` row, the `tenant_connection`
 // field, the step hint, the log line and the audit entry `setup.object.change` in ONE transaction
 // that runs after the call returned and never contains a network call.
-import { buildDesiredState, INSTALL_TAG_PREFIX, type DesiredState } from '@m365portal/shared/setup/desired-state';
+import {
+  buildDesiredState,
+  INSTALL_TAG_PREFIX,
+  type DesiredState,
+} from '@m365portal/shared/setup/desired-state';
 import type { LogKey } from '@m365portal/shared/setup/log-keys';
 import type { RollbackHintKey, SetupObjectKind } from '@m365portal/shared/setup/steps';
 import type { TenantProvisioner } from '../../../ports/provisioner.js';
@@ -79,7 +83,10 @@ export interface ChangeRecord {
  * of what the panel put in the tenant and are never deleted); a change that was already recorded writes
  * neither a second row nor a second audit entry unless it is an `update`.
  */
-export function recordChange(ctx: SubActionContext, change: ChangeRecord): { readonly inserted: boolean } {
+export function recordChange(
+  ctx: SubActionContext,
+  change: ChangeRecord,
+): { readonly inserted: boolean } {
   return ctx.transact(({ tx, services, log, step }) => {
     const inserted =
       tx.sqlite
@@ -96,7 +103,10 @@ export function recordChange(ctx: SubActionContext, change: ChangeRecord): { rea
         ).changes === 1;
     if (change.tenantFields !== undefined) services.connections.update(tx, change.tenantFields);
     if (change.hintKey !== undefined) {
-      step({ hintKey: change.hintKey, ...(change.hintDetail === undefined ? {} : { detail: change.hintDetail }) });
+      step({
+        hintKey: change.hintKey,
+        ...(change.hintDetail === undefined ? {} : { detail: change.hintDetail }),
+      });
     }
     if (inserted || change.op === 'update') {
       auditObjectChange(tx, {
@@ -104,7 +114,10 @@ export function recordChange(ctx: SubActionContext, change: ChangeRecord): { rea
         actor: ctx.run.actor,
         kind: change.kind,
         op: change.op,
-        objectId: change.kind === 'application' || change.kind === 'service_principal' ? change.tenantObjectId : undefined,
+        objectId:
+          change.kind === 'application' || change.kind === 'service_principal'
+            ? change.tenantObjectId
+            : undefined,
         appId: change.appId,
         name: change.name,
         confirmed: change.confirmed,
@@ -116,7 +129,11 @@ export function recordChange(ctx: SubActionContext, change: ChangeRecord): { rea
 }
 
 /** Is the object already recorded in `setup_object`? */
-export function isRecorded(ctx: SubActionContext, kind: SetupObjectKind, tenantObjectId: string): boolean {
+export function isRecorded(
+  ctx: SubActionContext,
+  kind: SetupObjectKind,
+  tenantObjectId: string,
+): boolean {
   return (
     ctx.db.sqlite
       .prepare('SELECT 1 AS found FROM setup_object WHERE kind = ? AND tenant_object_id = ?')

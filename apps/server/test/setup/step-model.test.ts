@@ -3,10 +3,7 @@
 import { STEPS, STEP_KEYS } from '@m365portal/shared/setup/steps';
 import { describe, expect, it } from 'vitest';
 import { withTransaction } from '../../src/db/tx.js';
-import {
-  SetupStepRepository,
-  StepWriteError,
-} from '../../src/setup/step-repository.js';
+import { SetupStepRepository, StepWriteError } from '../../src/setup/step-repository.js';
 import { createFakeClock } from '../helpers/fake-clock.js';
 import { createMigratedDatabase } from '../helpers/rbac-db.js';
 
@@ -25,7 +22,9 @@ const GUID = '11111111-1111-4111-8111-111111111111';
 describe('the rows', () => {
   it('ensureRows creates one pending row per sub-action of the mode, once', async () => {
     const { db, steps } = await make();
-    const rows = db.sqlite.prepare('SELECT step, sub_action, status, attempt FROM setup_step').all();
+    const rows = db.sqlite
+      .prepare('SELECT step, sub_action, status, attempt FROM setup_step')
+      .all();
     // environment 6, connect 1 (device_code), configure 7, verify 5, finish 5.
     expect(rows).toHaveLength(24);
     expect(rows.every((row) => (row as { status: string }).status === 'pending')).toBe(true);
@@ -74,45 +73,54 @@ describe('the rows', () => {
       { errorCode: 'AADSTS65001' },
       { hintKey: 'setup.hint.invented' },
     ] as const) {
-      expect(() =>
+      expect(() => {
         withTransaction(db, (tx) => {
           steps.write(tx, 'configure', 'application', patch as never);
-        }),
-      ).toThrow(StepWriteError);
+        });
+      }).toThrow(StepWriteError);
     }
     expect(steps.get(db, 'configure', 'application')?.errorCode).toBeNull();
   });
 
   it('rejects an unknown step or sub-action', async () => {
     const { db, steps } = await make();
-    expect(() =>
+    expect(() => {
       withTransaction(db, (tx) => {
         steps.write(tx, 'configure', 'nonexistent', { status: 'running' });
-      }),
-    ).toThrow(StepWriteError);
+      });
+    }).toThrow(StepWriteError);
   });
 });
 
 describe('the detail is written only through the secret-free schema', () => {
   const CANARY = 'canary-value-that-must-never-reach-the-table-0123456789';
 
-  it.each(['secret', 'token', 'key', 'password', 'assertion', 'pem', 'credential', 'Secret', 'ACCESS_TOKEN', 'clientKey', 'privatePem'])(
-    'rejects a key named %s and the canary never reaches the table',
-    async (name) => {
-      const { db, steps } = await make();
-      expect(() =>
-        withTransaction(db, (tx) => {
-          steps.write(tx, 'configure', 'certificate', {
-            status: 'running',
-            detail: { [name]: CANARY } as never,
-          });
-        }),
-      ).toThrow(StepWriteError);
-      const all = JSON.stringify(db.sqlite.prepare('SELECT * FROM setup_step').all());
-      expect(all).not.toContain(CANARY);
-      expect(steps.get(db, 'configure', 'certificate')?.status).toBe('pending');
-    },
-  );
+  it.each([
+    'secret',
+    'token',
+    'key',
+    'password',
+    'assertion',
+    'pem',
+    'credential',
+    'Secret',
+    'ACCESS_TOKEN',
+    'clientKey',
+    'privatePem',
+  ])('rejects a key named %s and the canary never reaches the table', async (name) => {
+    const { db, steps } = await make();
+    expect(() => {
+      withTransaction(db, (tx) => {
+        steps.write(tx, 'configure', 'certificate', {
+          status: 'running',
+          detail: { [name]: CANARY },
+        });
+      });
+    }).toThrow(StepWriteError);
+    const all = JSON.stringify(db.sqlite.prepare('SELECT * FROM setup_step').all());
+    expect(all).not.toContain(CANARY);
+    expect(steps.get(db, 'configure', 'certificate')?.status).toBe('pending');
+  });
 
   it('rejects keys off the list, nested values, long strings, malformed ids and an oversized object', async () => {
     const { db, steps } = await make();
@@ -127,11 +135,11 @@ describe('the detail is written only through the secret-free schema', () => {
       { host: 'bad host' },
     ];
     for (const detail of bad) {
-      expect(() =>
+      expect(() => {
         withTransaction(db, (tx) => {
-          steps.write(tx, 'verify', 'organization', { status: 'running', detail: detail as never });
-        }),
-      ).toThrow(StepWriteError);
+          steps.write(tx, 'verify', 'organization', { status: 'running', detail: detail });
+        });
+      }).toThrow(StepWriteError);
     }
   });
 
@@ -146,7 +154,7 @@ describe('the detail is written only through the secret-free schema', () => {
       });
       throw new Error('should have thrown');
     } catch (failure) {
-      expect(String((failure as Error).message)).not.toContain(CANARY);
+      expect((failure as Error).message).not.toContain(CANARY);
       expect(JSON.stringify(failure)).not.toContain(CANARY);
     }
   });
@@ -158,7 +166,11 @@ describe('the wire form', () => {
     withTransaction(db, (tx) => {
       steps.write(tx, 'environment', 'public_base_url', { status: 'succeeded' });
       steps.write(tx, 'configure', 'application', { status: 'succeeded' });
-      steps.write(tx, 'configure', 'service_principal', { status: 'waiting', attempt: 2, detail: { attempt: 2, max: 40, nextAttemptAt: '2026-10-10T12:00:10.000Z' } });
+      steps.write(tx, 'configure', 'service_principal', {
+        status: 'waiting',
+        attempt: 2,
+        detail: { attempt: 2, max: 40, nextAttemptAt: '2026-10-10T12:00:10.000Z' },
+      });
       steps.write(tx, 'verify', 'users', { status: 'failed', errorCode: 'users_unreadable' });
     });
     const states = steps.stepStates(db, 'automatic');
@@ -172,14 +184,17 @@ describe('the wire form', () => {
       status: 'waiting',
       waiting: { attempt: 2, max: 40, nextAttemptAt: '2026-10-10T12:00:10.000Z' },
     });
-    expect(byStep.configure?.subActions.map((sub) => sub.key)).toEqual([...STEPS.configure.subActions]);
+    expect(byStep.configure?.subActions.map((sub) => sub.key)).toEqual([
+      ...STEPS.configure.subActions,
+    ]);
     expect(byStep.connect?.subActions.map((sub) => sub.key)).toEqual(['device_code']);
   });
 
   it('a skipped Exchange sub-action flagged as a warning makes the step a warning, and manual skips do not', async () => {
     const { db, steps } = await make();
     withTransaction(db, (tx) => {
-      for (const key of STEPS.configure.subActions) steps.write(tx, 'configure', key, { status: 'succeeded' });
+      for (const key of STEPS.configure.subActions)
+        steps.write(tx, 'configure', key, { status: 'succeeded' });
       steps.write(tx, 'configure', 'exchange_permissions', {
         status: 'skipped',
         errorCode: 'exchange_service_principal_missing',
@@ -191,13 +206,21 @@ describe('the wire form', () => {
         detail: { exchangeEnabled: false },
       });
     });
-    expect(steps.stepStates(db, 'automatic').find((s) => s.step === 'configure')?.status).toBe('warning');
+    expect(steps.stepStates(db, 'automatic').find((s) => s.step === 'configure')?.status).toBe(
+      'warning',
+    );
     withTransaction(db, (tx) => {
       for (const key of STEPS.configure.subActions) {
-        steps.write(tx, 'configure', key, { status: 'skipped', errorCode: null, detail: { manual: true } });
+        steps.write(tx, 'configure', key, {
+          status: 'skipped',
+          errorCode: null,
+          detail: { manual: true },
+        });
       }
     });
-    expect(steps.stepStates(db, 'manual').find((s) => s.step === 'configure')?.status).toBe('succeeded');
+    expect(steps.stepStates(db, 'manual').find((s) => s.step === 'configure')?.status).toBe(
+      'succeeded',
+    );
     const manual = steps.stepStates(db, 'manual').find((s) => s.step === 'configure');
     expect(manual?.subActions.every((sub) => sub.manual)).toBe(true);
   });

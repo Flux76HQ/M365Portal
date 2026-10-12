@@ -30,7 +30,9 @@ export const applicationSubAction: SubActionDefinition = {
 
     const connection = services.connections.read(ctx.db);
     const recorded = ctx.db.sqlite
-      .prepare("SELECT tenant_object_id FROM setup_object WHERE kind = 'application' ORDER BY created_at DESC LIMIT 1")
+      .prepare(
+        "SELECT tenant_object_id FROM setup_object WHERE kind = 'application' ORDER BY created_at DESC LIMIT 1",
+      )
       .get() as { tenant_object_id: string } | undefined;
     const storedObjectId = connection?.appObjectId ?? recorded?.tenant_object_id ?? null;
 
@@ -44,12 +46,11 @@ export const applicationSubAction: SubActionDefinition = {
     });
     ctx.checkpoint();
 
-    const done = (id: string, appId: string, name: string) =>
-      ({
-        status: 'succeeded' as const,
-        detail: { name, objectId: id, appId },
-        hintKey: 'setup.hint.application' as const,
-      });
+    const done = (id: string, appId: string, name: string) => ({
+      status: 'succeeded' as const,
+      detail: { name, objectId: id, appId },
+      hintKey: 'setup.hint.application' as const,
+    });
 
     if (found.kind === 'stored' || found.kind === 'ours') {
       const { app } = found;
@@ -84,7 +85,11 @@ export const applicationSubAction: SubActionDefinition = {
         if (adoption?.prompt.candidate.objectId !== prompt.candidate.objectId) {
           run.adoption = { prompt, confirmed: false, acknowledgedForeign: false };
         }
-        ctx.log('setup.log.found', { kind: 'application', name: prompt.candidate.displayName }, 'warn');
+        ctx.log(
+          'setup.log.found',
+          { kind: 'application', name: prompt.candidate.displayName },
+          'warn',
+        );
         return {
           status: 'waiting',
           code: 'application_adoption_required',
@@ -137,10 +142,16 @@ export const applicationSubAction: SubActionDefinition = {
       },
       requiredResourceAccess: desired.requiredResourceAccess.map((resource) => ({
         resourceAppId: resource.resourceAppId,
-        resourceAccess: resource.resourceAccess.map((entry) => ({ id: entry.id, type: entry.type })),
+        resourceAccess: resource.resourceAccess.map((entry) => ({
+          id: entry.id,
+          type: entry.type,
+        })),
       })),
       optionalClaims: {
-        idToken: desired.optionalClaims.idToken.map((claim) => ({ name: claim.name, essential: claim.essential })),
+        idToken: desired.optionalClaims.idToken.map((claim) => ({
+          name: claim.name,
+          essential: claim.essential,
+        })),
       },
       tags: [...desired.tags],
     };
@@ -162,4 +173,3 @@ export const applicationSubAction: SubActionDefinition = {
     return done(created.id, created.appId, name);
   },
 };
-

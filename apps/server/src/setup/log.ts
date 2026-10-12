@@ -70,7 +70,8 @@ export class SetupLog {
 
   /** Append one line inside the caller's transaction; returns its `seq`. */
   append(tx: Tx, entry: LogEntryInput): number {
-    if (!(STEP_KEYS as readonly string[]).includes(entry.step)) throw new LogWriteError('step_invalid');
+    if (!(STEP_KEYS as readonly string[]).includes(entry.step))
+      throw new LogWriteError('step_invalid');
     if (!LEVELS.includes(entry.level)) throw new LogWriteError('level_invalid');
     if (!isLogKey(entry.messageKey)) throw new LogWriteError('key_unknown');
     const checked = LogParamsSchema.safeParse(entry.params);
@@ -80,8 +81,9 @@ export class SetupLog {
       throw new LogWriteError('params_invalid');
     }
     const next =
-      ((tx.sqlite.prepare('SELECT MAX(seq) AS high FROM setup_log').get() as { high: number | null })
-        .high ?? 0) + 1;
+      ((
+        tx.sqlite.prepare('SELECT MAX(seq) AS high FROM setup_log').get() as { high: number | null }
+      ).high ?? 0) + 1;
     tx.sqlite
       .prepare(
         'INSERT INTO setup_log (seq, ts, step, level, message_key, params) VALUES (?, ?, ?, ?, ?, ?)',
@@ -94,16 +96,15 @@ export class SetupLog {
         entry.messageKey,
         JSON.stringify(checked.data),
       );
-    tx.sqlite
-      .prepare('DELETE FROM setup_log WHERE seq <= ?')
-      .run(next - LIMITS.setup.logRetained);
+    tx.sqlite.prepare('DELETE FROM setup_log WHERE seq <= ?').run(next - LIMITS.setup.logRetained);
     return next;
   }
 
   /** Lines with `seq > after`, at most `limit` (1 to 200), in order. */
   read(db: DatabaseHandle, options: { readonly after: number; readonly limit: number }): LogWindow {
     const { after, limit } = options;
-    if (!Number.isSafeInteger(after) || after < 0) throw new RangeError('after is a whole number from 0');
+    if (!Number.isSafeInteger(after) || after < 0)
+      throw new RangeError('after is a whole number from 0');
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > LIMITS.setup.logPageMax) {
       throw new RangeError(`limit is a whole number from 1 to ${String(LIMITS.setup.logPageMax)}`);
     }
@@ -111,16 +112,14 @@ export class SetupLog {
       .prepare('SELECT * FROM setup_log WHERE seq > ? ORDER BY seq LIMIT ?')
       .all(after, limit + 1) as RawLine[];
     const page = raws.slice(0, limit);
-    const lines = page.map(
-      (raw): LogLineWire => ({
-        seq: raw.seq,
-        ts: raw.ts,
-        step: raw.step,
-        level: raw.level,
-        messageKey: raw.message_key,
-        params: JSON.parse(raw.params) as LogParams,
-      }),
-    );
+    const lines = page.map((raw): LogLineWire => ({
+      seq: raw.seq,
+      ts: raw.ts,
+      step: raw.step,
+      level: raw.level,
+      messageKey: raw.message_key,
+      params: JSON.parse(raw.params) as LogParams,
+    }));
     const oldest = (
       db.sqlite.prepare('SELECT MIN(seq) AS low FROM setup_log').get() as { low: number | null }
     ).low;

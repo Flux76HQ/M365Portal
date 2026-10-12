@@ -3,6 +3,7 @@
   "breakglass.form.normalSignIn": "Back to the normal sign-in",
   "breakglass.form.password": "Password",
   "breakglass.form.required": "Fill in this field.",
+  "breakglass.form.retryIn": "You can try again in {seconds} s.",
   "breakglass.form.submit": "Sign in with break-glass access",
   "breakglass.form.submitting": "Signing in",
   "breakglass.form.title": "Break-glass access",

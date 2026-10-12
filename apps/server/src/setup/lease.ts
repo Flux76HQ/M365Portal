@@ -45,8 +45,7 @@ export function createRunnerLease(options: RunnerLeaseOptions): RunnerLease {
   }
   const read = (db: DatabaseHandle): Row | undefined =>
     db.sqlite.prepare('SELECT holder, expires_at FROM runner_lease WHERE id = 1').get() as
-      | Row
-      | undefined;
+      Row | undefined;
   const live = (row: Row | undefined, now: number): row is Row =>
     row !== undefined && Date.parse(row.expires_at) > now;
 
@@ -81,7 +80,9 @@ export function createRunnerLease(options: RunnerLeaseOptions): RunnerLease {
           const now = options.now();
           const changed = options
             .database()
-            .sqlite.prepare('UPDATE runner_lease SET heartbeat_at = ?, expires_at = ? WHERE id = 1 AND holder = ?')
+            .sqlite.prepare(
+              'UPDATE runner_lease SET heartbeat_at = ?, expires_at = ? WHERE id = 1 AND holder = ?',
+            )
             .run(iso(now), iso(now + expiryMs), mine).changes;
           if (changed === 0) options.onLost?.();
         } catch {

@@ -42,7 +42,12 @@ import { withTransaction } from '../db/index.js';
 import { ProblemError } from '../http/problem.js';
 import { uuidV4 } from '../ports/clock.js';
 import { auditStepRun } from './audit.js';
-import { backoffDelay, expectedTries, replicationWindowEnded, windowSecondsFor } from './backoff.js';
+import {
+  backoffDelay,
+  expectedTries,
+  replicationWindowEnded,
+  windowSecondsFor,
+} from './backoff.js';
 import { classifyFailure, type FailureContext, type FailureVerdict } from './classify.js';
 import {
   RunCancelled,
@@ -57,7 +62,7 @@ import { createRunnerLease, type RunnerLease } from './lease.js';
 import type { LogLevel, LogParams } from './log.js';
 import { RunContext, type RunActor, type RunRequest, type RunStep } from './run-context.js';
 import type { StepDetail, StepPatch } from './step-repository.js';
-import type { AdoptionPrompt, DeviceCodePanel, RunSnapshotWire, RunStatusWire } from './wire.js';
+import type { AdoptionPrompt, RunSnapshotWire, RunStatusWire } from './wire.js';
 
 const SECOND_MS = 1000;
 const DEFAULT_APPLICATION_NAME = 'M365Portal';
@@ -167,7 +172,9 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
   function defaultApplicationName(): string {
     const row = deps
       .requireDatabase()
-      .sqlite.prepare("SELECT name FROM setup_object WHERE kind = 'application' ORDER BY created_at LIMIT 1")
+      .sqlite.prepare(
+        "SELECT name FROM setup_object WHERE kind = 'application' ORDER BY created_at LIMIT 1",
+      )
       .get() as { name: string } | undefined;
     return row?.name ?? DEFAULT_APPLICATION_NAME;
   }
@@ -202,8 +209,12 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
     };
   }
 
-  function logLine(run: RunContext, step: StepKey, key: LogKey, params: LogParams = {}, level: LogLevel = 'info'): void {
-    void run;
+  function logLine(
+    step: StepKey,
+    key: LogKey,
+    params: LogParams = {},
+    level: LogLevel = 'info',
+  ): void {
     withTransaction(deps.requireDatabase(), (tx) => {
       services.wizardLog.append(tx, { step, level, messageKey: key, params });
     });
@@ -242,7 +253,13 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
   // One sub-action
   // -------------------------------------------------------------------------------------------
 
-  function contextFor(run: RunContext, step: StepKey, sub: string, attempt: number, setupMode: SetupMode): SubActionContext {
+  function contextFor(
+    run: RunContext,
+    step: StepKey,
+    sub: string,
+    attempt: number,
+    setupMode: SetupMode,
+  ): SubActionContext {
     const db = deps.requireDatabase();
     return {
       services,
@@ -255,7 +272,7 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
       now: () => deps.now(),
       iso: () => iso(deps.now()),
       log: (key, params, level) => {
-        logLine(run, step, key, params, level);
+        logLine(step, key, params, level);
       },
       transact: (work) => withTransaction(db, (tx) => work(writerFor(tx, step, sub))),
       checkpoint: () => {
@@ -277,8 +294,7 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
     return known.length === 0 ? undefined : Math.max(...known);
   };
 
-  function failureContextOf(run: RunContext, setupMode: SetupMode): FailureContext {
-    void setupMode;
+  function failureContextOf(run: RunContext): FailureContext {
     const now = deps.now();
     const objectWindowMs = windowSecondsFor('objects', 0) * SECOND_MS;
     const propagationMs = deps.config.setup.propagationTimeoutMs;
@@ -350,9 +366,14 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
       } catch (failure) {
         if (failure instanceof RunCancelled) throw failure;
         if (failure instanceof SetupFailure) {
-          return { status: 'failed', code: failure.code, detail: failure.detail, attempts: attempt };
+          return {
+            status: 'failed',
+            code: failure.code,
+            detail: failure.detail,
+            attempts: attempt,
+          };
         }
-        const context = windowContext ?? failureContextOf(run, setupMode);
+        const context = windowContext ?? failureContextOf(run);
         const verdict = classifyFailure(failure, context);
         if (verdict.klass === 'permanent') {
           if (!isIntegrationFailure(failure)) throw failure;
@@ -403,12 +424,15 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
           ...(remaining === undefined ? {} : { remainingWindowMs: remaining }),
         });
         if (delay === null) {
-          return { status: 'failed', code: 'graph_error', detail: detailForError(verdict), attempts: attempt };
+          return {
+            status: 'failed',
+            code: 'graph_error',
+            detail: detailForError(verdict),
+            attempts: attempt,
+          };
         }
         const max =
-          klass === 'replication'
-            ? expectedTries(windowSeconds)
-            : SETUP_TRANSIENT_MAX_TRIES;
+          klass === 'replication' ? expectedTries(windowSeconds) : SETUP_TRANSIENT_MAX_TRIES;
         const tries = klass === 'replication' ? replicationTries : transientTries;
         const seconds = Math.max(1, Math.round(delay / SECOND_MS));
         const nextAttemptAt = iso(deps.now() + delay);
@@ -443,7 +467,12 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
     const delegated = step === 'configure' || step === 'connect';
     const status = (failure as { status?: unknown } | null)?.status;
     const name = (failure as { name?: unknown } | null)?.name;
-    if (delegated && (status === 403 || status === 401) && typeof name === 'string' && name.startsWith('Graph')) {
+    if (
+      delegated &&
+      (status === 403 || status === 401) &&
+      typeof name === 'string' &&
+      name.startsWith('Graph')
+    ) {
       return 'bootstrap_role_insufficient';
     }
     return 'graph_error';
@@ -466,7 +495,8 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
     setupMode: SetupMode,
   ): void {
     const status = outcome.status as 'succeeded' | 'warning' | 'failed' | 'skipped';
-    const code: ResultCode | null = 'code' in outcome && outcome.code !== undefined ? outcome.code : null;
+    const code: ResultCode | null =
+      'code' in outcome && outcome.code !== undefined ? outcome.code : null;
     const hintKey = 'hintKey' in outcome ? outcome.hintKey : undefined;
     const drift = 'drift' in outcome ? outcome.drift : undefined;
     withTransaction(deps.requireDatabase(), (tx) => {
@@ -515,20 +545,25 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
     const db = deps.requireDatabase();
     const setupMode = mode();
     try {
-      logLine(run, run.steps[0] ?? 'connect', 'setup.log.run_started', {
+      logLine(run.steps[0] ?? 'connect', 'setup.log.run_started', {
         mode: run.mode,
         steps: run.steps.join(','),
       });
       let failed = false;
       for (const step of run.steps) {
         if (run.cancelRequested) throw new RunCancelled();
-        logLine(run, step, 'setup.log.step_started', { step });
+        logLine(step, 'setup.log.step_started', { step });
         for (const sub of subActionsOf(step, setupMode)) {
           const def = registry.get(`${step}/${sub}`);
           if (def === undefined) continue;
           if (run.mode === 'continue') {
             const row = services.steps.get(db, step, sub);
-            if (row !== undefined && (row.status === 'succeeded' || row.status === 'skipped')) continue;
+            const done =
+              row !== undefined && (row.status === 'succeeded' || row.status === 'skipped');
+            // The sign-in lives in memory only: a result from before a failure, a cancel or a restart
+            // has no bootstrap object behind it any more, and the steps after it need one.
+            const signedInAgain = sub !== 'device_code' || services.bootstrap.live();
+            if (done && signedInAgain) continue;
           }
           const outcome = await runSub(run, def, setupMode);
           finishSub(run, def, outcome, setupMode);
@@ -541,7 +576,7 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
       }
       run.status = failed ? 'failed' : derivedStatus(run, setupMode);
       if (run.status === 'failed') services.bootstrap.discard('failure');
-      logLine(run, run.steps[run.steps.length - 1] ?? 'connect', 'setup.log.run_finished', {
+      logLine(run.steps[run.steps.length - 1] ?? 'connect', 'setup.log.run_finished', {
         status: run.status,
       });
     } catch (failure) {
@@ -559,7 +594,8 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
         run.status = 'cancelled';
       } else {
         const code = (failure as { code?: unknown } | null)?.code;
-        const safe = typeof code === 'string' && /^[a-z0-9_]{1,64}$/i.test(code) ? code : 'unexpected';
+        const safe =
+          typeof code === 'string' && /^[a-z0-9_]{1,64}$/i.test(code) ? code : 'unexpected';
         try {
           withTransaction(deps.requireDatabase(), (tx) => {
             services.steps.resetRunning(tx);
@@ -575,7 +611,11 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
         }
         services.bootstrap.discard('failure');
         services.log.error(
-          { event: 'setup_run_crashed', error: failure instanceof Error ? failure.name : 'unknown', code: safe },
+          {
+            event: 'setup_run_crashed',
+            error: failure instanceof Error ? failure.name : 'unknown',
+            code: safe,
+          },
           'setup_run_crashed',
         );
         run.status = 'failed';
@@ -655,10 +695,10 @@ export function createSetupEngine(options: EngineOptions): SetupEngine {
       return {
         serverTime: iso(deps.now()),
         run: run === undefined ? null : statusOf(run),
-        steps: services.steps.stepStates(db, setupMode) as RunSnapshotWire['steps'],
-        deviceCode: services.bootstrap.panel() as DeviceCodePanel | null,
+        steps: services.steps.stepStates(db, setupMode),
+        deviceCode: services.bootstrap.panel(),
         adoption: active?.adoption?.prompt ?? null,
-        log: window as RunSnapshotWire['log'],
+        log: window,
       };
     },
 

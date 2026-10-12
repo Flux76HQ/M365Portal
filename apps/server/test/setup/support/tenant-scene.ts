@@ -38,6 +38,37 @@ export function useWizardTimers(): void {
   vi.setSystemTime(testClock.nowMs());
 }
 
+const realSetTimeout = globalThis.setTimeout;
+
+/** A pause of real time (the global timers are fake in a wizard test). */
+export function realPause(milliseconds: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    realSetTimeout(resolve, milliseconds);
+  });
+}
+
+/**
+ * Counts the work that takes real time and no fake second can hurry (RSA key generation): `drive` waits
+ * for it before it lets the next fake second pass, so the pace of a run never depends on how long
+ * the machine takes to find two primes.
+ */
+export function trackRealWork(secrets: SecretsRuntime): { inflight(): number } {
+  let inflight = 0;
+  const services = secrets.services();
+  if (services !== undefined) {
+    const create = services.certificates.create.bind(services.certificates);
+    services.certificates.create = async (...args: Parameters<typeof create>) => {
+      inflight += 1;
+      try {
+        return await create(...args);
+      } finally {
+        inflight -= 1;
+      }
+    };
+  }
+  return { inflight: () => inflight };
+}
+
 async function settle(rounds = 6): Promise<void> {
   for (let round = 0; round < rounds; round += 1) {
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -64,13 +95,25 @@ export interface TenantScene {
   /** Start a run as the setup actor. */
   startRun(
     steps: readonly ('connect' | 'configure' | 'verify')[],
-    options?: { mode?: 'continue' | 'reconcile'; kind?: 'setup' | 'repair'; exchangeRole?: 'exchange_administrator' | 'exchange_recipient_administrator'; tenantHint?: string; applicationName?: string },
+    options?: {
+      mode?: 'continue' | 'reconcile';
+      kind?: 'setup' | 'repair';
+      exchangeRole?: 'exchange_administrator' | 'exchange_recipient_administrator';
+      tenantHint?: string;
+      applicationName?: string;
+    },
   ): ReturnType<SetupEngine['start']>;
   /**
    * Drive a started run to its end: approve the device sign-in when it is shown, then let time pass in
    * one-second steps (at most `maxSeconds`) until the run is over or `until` says stop.
    */
-  drive(options?: { stepMs?: number; approve?: boolean; maxSeconds?: number; until?: () => boolean; user?: string }): Promise<void>;
+  drive(options?: {
+    stepMs?: number;
+    approve?: boolean;
+    maxSeconds?: number;
+    until?: () => boolean;
+    user?: string;
+  }): Promise<void>;
   /** Start a run and drive it to its end. */
   run(
     steps: readonly ('connect' | 'configure' | 'verify')[],
@@ -139,6 +182,7 @@ export async function tenantScene(
   } as unknown as ModuleDeps;
 
   await secretsModule(deps).start?.(deps);
+  const realWork = trackRealWork(secrets);
   const holder: { engine?: SetupEngine } = {};
   const services = createSetupServices(deps, {
     onSessionsEmpty: () => {
@@ -178,9 +222,13 @@ export async function tenantScene(
           steps,
           kind: runOptions.kind ?? 'setup',
           mode: runOptions.mode ?? 'continue',
-          ...(runOptions.exchangeRole === undefined ? {} : { exchangeRole: runOptions.exchangeRole }),
+          ...(runOptions.exchangeRole === undefined
+            ? {}
+            : { exchangeRole: runOptions.exchangeRole }),
           ...(runOptions.tenantHint === undefined ? {} : { tenantHint: runOptions.tenantHint }),
-          ...(runOptions.applicationName === undefined ? {} : { applicationName: runOptions.applicationName }),
+          ...(runOptions.applicationName === undefined
+            ? {}
+            : { applicationName: runOptions.applicationName }),
         },
         SETUP_ACTOR,
       );
@@ -200,6 +248,7 @@ export async function tenantScene(
         // Let the requests in flight finish before the next fake second: the run's pace must not
         // depend on how many macrotasks a fake round trip takes.
         await settle(40);
+        while (realWork.inflight() > 0) await realPause(5);
         if (driveOptions.until?.() === true) break;
         await elapse(driveOptions.stepMs ?? 1_000);
       }
@@ -216,9 +265,9 @@ export async function tenantScene(
     },
     rows: <T>(sql: string, ...params: unknown[]) => db.sqlite.prepare(sql).all(...params) as T[],
     auditActions: () =>
-      (db.sqlite.prepare('SELECT action FROM audit_log ORDER BY seq').all() as { action: string }[]).map(
-        (row) => row.action,
-      ),
+      (
+        db.sqlite.prepare('SELECT action FROM audit_log ORDER BY seq').all() as { action: string }[]
+      ).map((row) => row.action),
   };
   return scene;
 }

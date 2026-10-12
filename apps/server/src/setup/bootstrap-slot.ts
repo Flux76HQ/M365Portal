@@ -7,20 +7,18 @@
 // allow-listed https link, the verification link (`isAllowedVerificationUri`; the authenticator already
 // passes an empty string for a link it does not trust, and that maps to `null`).
 import { isAllowedVerificationUri } from '@m365portal/shared/setup/steps';
-import type { BootstrapAuthenticator, BootstrapIdentity, DeviceCodeInfo } from '../ports/identity.js';
+import type {
+  BootstrapAuthenticator,
+  BootstrapIdentity,
+  DeviceCodeInfo,
+} from '../ports/identity.js';
 import type { TenantProvisioner } from '../ports/provisioner.js';
 import type { DeviceCodePanel } from './wire.js';
 
 export type PanelState = DeviceCodePanel['state'];
 
 export type DiscardReason =
-  | 'audit_reads_done'
-  | 'failure'
-  | 'cancel'
-  | 'timeout'
-  | 'session_end'
-  | 'exit'
-  | 'finish';
+  'audit_reads_done' | 'failure' | 'cancel' | 'timeout' | 'session_end' | 'exit' | 'finish';
 
 export interface BootstrapSlot {
   /** Is there a signed-in bootstrap whose delegated calls can still be made? */

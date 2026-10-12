@@ -95,9 +95,9 @@ export interface TxWriters {
   readonly tx: Tx;
   readonly services: SetupServices;
   /** Append a line to the wizard log inside this transaction. */
-  log(key: LogKey, params?: LogParams, level?: LogLevel): void;
+  readonly log: (key: LogKey, params?: LogParams, level?: LogLevel) => void;
   /** Update this sub-action's step row inside this transaction. */
-  step(patch: Parameters<SetupStepRepository['write']>[3]): void;
+  readonly step: (patch: Parameters<SetupStepRepository['write']>[3]) => void;
 }
 
 export interface SubActionContext {

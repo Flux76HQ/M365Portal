@@ -37,6 +37,8 @@ export interface RunPoller {
   readonly stop: () => void;
   /** A run was just started or changed: ask now and keep asking while it is active. */
   readonly poke: () => void;
+  /** Ask once now (the page changed something that shows in the snapshot) without assuming a run. */
+  readonly refresh: () => void;
 }
 
 export interface RunPollerOptions {
@@ -145,6 +147,11 @@ export function createRunPoller(options: RunPollerOptions): RunPoller {
       timer = undefined;
       controller?.abort();
     },
+    refresh() {
+      if (!running) return;
+      clearTimeout(timer);
+      void poll();
+    },
     poke() {
       if (!running) return;
       wasActive = true;
@@ -157,6 +164,7 @@ export function createRunPoller(options: RunPollerOptions): RunPoller {
 export interface UseRunPolling {
   readonly state: RunPollState;
   readonly poke: () => void;
+  readonly refresh: () => void;
 }
 
 /** The run snapshot of the page, polled while something is going on. */
@@ -176,7 +184,7 @@ export function useRunPolling(options: RunPollerOptions): UseRunPolling {
     };
   }, [poller]);
   const state = useSyncExternalStore(poller.subscribe, poller.getState);
-  return { state, poke: poller.poke };
+  return { state, poke: poller.poke, refresh: poller.refresh };
 }
 
 // The number the page and the server agree on, so a page never asks for more lines than a window holds.

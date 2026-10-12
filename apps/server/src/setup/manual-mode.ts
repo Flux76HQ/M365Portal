@@ -121,9 +121,10 @@ export function manualCertificateFile(services: SetupServices): CertificateFile 
   const current = runtime.certificates.current(db);
   const certificate = current.pending ?? current.active;
   if (certificate === undefined) return undefined;
-  const der = db.sqlite.prepare('SELECT public_der FROM certificate WHERE id = ?').pluck().get(certificate.id) as
-    | Buffer
-    | undefined;
+  const der = db.sqlite
+    .prepare('SELECT public_der FROM certificate WHERE id = ?')
+    .pluck()
+    .get(certificate.id) as Buffer | undefined;
   if (der === undefined) return undefined;
   return {
     der: Buffer.from(der),
@@ -131,7 +132,10 @@ export function manualCertificateFile(services: SetupServices): CertificateFile 
   };
 }
 
-export async function applyManualInputs(deps: ManualDeps, input: ManualInput): Promise<ManualResult> {
+export async function applyManualInputs(
+  deps: ManualDeps,
+  input: ManualInput,
+): Promise<ManualResult> {
   const { services, actor } = deps;
   const db = services.deps.requireDatabase();
   const state = services.state.read(db);
@@ -141,11 +145,13 @@ export async function applyManualInputs(deps: ManualDeps, input: ManualInput): P
   const current = certificateServices(services).certificates.current(db);
   if ((current.pending ?? current.active) === undefined) throw notReady();
   const secrets = services.deps.secrets.state();
-  if (secrets.status !== 'ok' || secrets.holder === undefined) throw new ProblemError('secrets_unavailable');
+  if (secrets.status !== 'ok' || secrets.holder === undefined)
+    throw new ProblemError('secrets_unavailable');
 
   const pinned = services.connections.read(db)?.tenantId ?? null;
   const tenantId = input.tenantId.toLowerCase();
-  if (pinned !== null && pinned.toLowerCase() !== tenantId) throw new ProblemError('tenant_mismatch');
+  if (pinned !== null && pinned.toLowerCase() !== tenantId)
+    throw new ProblemError('tenant_mismatch');
 
   // The first Owner is resolved with the application's own token: this is also the first proof that the
   // portal tasks were done. A failure to obtain it is "not yet" (503), not a verdict.

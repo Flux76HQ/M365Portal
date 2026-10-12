@@ -55,7 +55,8 @@ export function createUnlockLimiter(options: UnlockLimiterOptions): UnlockLimite
 
   const within = (times: readonly number[], windowMs: number, now: number): number[] =>
     times.filter((time) => now - time < windowMs);
-  const seconds = (until: number, now: number): number => Math.max(1, Math.ceil((until - now) / 1000));
+  const seconds = (until: number, now: number): number =>
+    Math.max(1, Math.ceil((until - now) / 1000));
 
   function check(clientKey: string): LockState {
     const now = options.now();

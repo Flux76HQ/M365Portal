@@ -29,7 +29,9 @@ export interface SetupSessions extends SetupSessionReader {
   /** Slide the idle deadline of a live session. */
   touch(idHash: string): void;
   /** The two deadlines of a live session. */
-  info(idHash: string): { readonly idleExpiresAt: string; readonly absoluteExpiresAt: string } | undefined;
+  info(
+    idHash: string,
+  ): { readonly idleExpiresAt: string; readonly absoluteExpiresAt: string } | undefined;
   /** End one session at once. `last` is true when it was the last live one. */
   end(idHash: string): { readonly ended: boolean; readonly last: boolean };
   /** End every session (the state became `completed`, or setup was reopened). */

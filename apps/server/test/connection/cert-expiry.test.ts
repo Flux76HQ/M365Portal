@@ -23,12 +23,20 @@ describe('the level', () => {
   });
 
   it('counts a started day as a day left (one hour left is 1 day and critical, not 0 and expired)', () => {
-    expect(certificateExpiry(new Date(NOW + 3_600_000).toISOString(), NOW)).toEqual({ daysLeft: 1, level: 'critical' });
-    expect(certificateExpiry(new Date(NOW - 3_600_000).toISOString(), NOW)).toEqual({ daysLeft: 0, level: 'expired' });
+    expect(certificateExpiry(new Date(NOW + 3_600_000).toISOString(), NOW)).toEqual({
+      daysLeft: 1,
+      level: 'critical',
+    });
+    expect(certificateExpiry(new Date(NOW - 3_600_000).toISOString(), NOW)).toEqual({
+      daysLeft: 0,
+      level: 'expired',
+    });
   });
 
   it('is the boundary of the day, not of the hour: 60 days and one hour is still ok', () => {
-    expect(certificateExpiry(new Date(NOW + 60 * DAY + 3_600_000).toISOString(), NOW).level).toBe('ok');
+    expect(certificateExpiry(new Date(NOW + 60 * DAY + 3_600_000).toISOString(), NOW).level).toBe(
+      'ok',
+    );
   });
 
   it('treats an unreadable date as expired (+ negative: a readable one is not)', () => {
@@ -47,6 +55,10 @@ describe('the start posture', () => {
     [14, 'critical'],
     [0, 'expired'],
   ] as const)('warns at %i days with the level and the days, and nothing else', (days, level) => {
-    expect(expiryWarningOf(inDays(days), NOW)).toEqual({ event: 'certificate_expiry', level, daysLeft: days });
+    expect(expiryWarningOf(inDays(days), NOW)).toEqual({
+      event: 'certificate_expiry',
+      level,
+      daysLeft: days,
+    });
   });
 });

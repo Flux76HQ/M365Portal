@@ -46,7 +46,9 @@ export async function ensureGrants(ctx: SubActionContext, plan: GrantPlan): Prom
     run.roleNames[assignment.appRoleId] ?? assignment.appRoleId;
   const heldNames = (): string[] => held.map(nameOf);
 
-  const forbidden = heldNames().filter((name) => (FORBIDDEN_APP_ROLES as readonly string[]).includes(name));
+  const forbidden = heldNames().filter((name) =>
+    (FORBIDDEN_APP_ROLES as readonly string[]).includes(name),
+  );
   if (forbidden.length > 0) {
     throw new SetupFailure('forbidden_permission_present', { count: forbidden.length });
   }
@@ -75,7 +77,8 @@ export async function ensureGrants(ctx: SubActionContext, plan: GrantPlan): Prom
       assignment = await provisioner.grantAppRole(plan.resourceSpId, runtimeSpId, roleId);
     } catch (failure) {
       // U31: Graph may answer a duplicate with 400 or 409; reading again tells a duplicate from a refusal.
-      if (!(failure instanceof GraphConflictError || failure instanceof GraphBadRequestError)) throw failure;
+      if (!(failure instanceof GraphConflictError || failure instanceof GraphBadRequestError))
+        throw failure;
       held = await load();
       assignment = held.find((candidate) => candidate.appRoleId === roleId);
       if (assignment === undefined) throw failure;

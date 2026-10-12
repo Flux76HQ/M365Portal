@@ -51,6 +51,7 @@
   "connection.proofDetail.foreignWarning": "The application has credentials or owners that the panel did not add. Review them in Microsoft Entra: whoever holds them can act with the permissions of the panel.",
   "connection.proofDetail.graph_roles": "Granted: {roles}",
   "connection.proofDetail.notChecked": "Not checked. This needs a fresh sign-in at Microsoft.",
+  "connection.proofDetail.roleCounts": "{count} held, {missing} missing, {extra} extra",
   "connection.proofDetail.service_principal": "Object ID {objectId}",
   "connection.proofEmpty": "There is no proof yet. Verify the connection first.",
   "connection.proofGeneratedAt": "Generated at {time}",

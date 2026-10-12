@@ -18,7 +18,7 @@ const clip = (value: string | null | undefined): string | null =>
 export async function ownerLabelsOf(services: SetupServices, oid: string): Promise<OwnerLabels> {
   const key = oid.toLowerCase();
   const identity = services.bootstrap.identity();
-  if (identity !== undefined && identity.oid.toLowerCase() === key) {
+  if (identity?.oid.toLowerCase() === key) {
     return { upnLabel: clip(identity.upnLabel), nameLabel: clip(identity.nameLabel) };
   }
   let cache = caches.get(services);

@@ -129,7 +129,8 @@ export function buildApp(deps: BuildAppDeps): BuiltApp {
       }
     },
     // The auth module sets its revalidation when it is built; before that there is none (FR-B-409).
-    revalidate: (c) => authHoldersOf(deps.moduleDeps).revalidate.get()?.(c) ?? Promise.resolve(undefined),
+    revalidate: (c) =>
+      authHoldersOf(deps.moduleDeps).revalidate.get()?.(c) ?? Promise.resolve(undefined),
     sessionIdle: { idleTimeoutMs: config.session.idleTimeoutMs, now: () => clock.now() },
     onDenied: createDenialAudit({ database: deps.database, now: () => clock.now() }),
     onPolicyError: createPolicyErrorAudit({ database: deps.database, now: () => clock.now() }),

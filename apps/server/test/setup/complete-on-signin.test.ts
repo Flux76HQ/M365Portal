@@ -18,7 +18,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function awaitingFirstSignin(): Promise<{ scene: TenantScene; owner: string; hook: ReturnType<typeof createCompleteSetupInTx> }> {
+async function awaitingFirstSignin(): Promise<{
+  scene: TenantScene;
+  owner: string;
+  hook: ReturnType<typeof createCompleteSetupInTx>;
+}> {
   const scene = await tenantScene();
   await scene.run(['connect', 'configure', 'verify']);
   await runEnvironmentChecks(scene.services, SETUP_ACTOR, {
@@ -28,13 +32,18 @@ async function awaitingFirstSignin(): Promise<{ scene: TenantScene; owner: strin
     appKey: { status: 'ok', selfTest: () => true },
   });
   const owner = scene.services.state.read(scene.db).designatedOwnerOid ?? '';
-  await finishSetup({ services: scene.services, busy: () => false, actor: SETUP_ACTOR }, { confirmOwnerOid: owner }, { requestId: 'req-complete-test' });
+  await finishSetup(
+    { services: scene.services, busy: () => false, actor: SETUP_ACTOR },
+    { confirmOwnerOid: owner },
+    { requestId: 'req-complete-test' },
+  );
   scene.services.token.ensureFile();
   return { scene, owner, hook: createCompleteSetupInTx(scene.services) };
 }
 
 const stateOf = (scene: TenantScene) => scene.services.state.read(scene.db);
-const completions = (scene: TenantScene) => scene.rows("SELECT actor_kind, actor_id, detail FROM audit_log WHERE action = 'setup.complete'");
+const completions = (scene: TenantScene) =>
+  scene.rows("SELECT actor_kind, actor_id, detail FROM audit_log WHERE action = 'setup.complete'");
 
 describe('the designated Owner signs in', () => {
   it('completes in the same transaction: state, completed_at, the audit entry (actor user); the token file goes after the commit', async () => {
@@ -50,8 +59,13 @@ describe('the designated Owner signs in', () => {
       expect(scene.services.sessions.count()).toBe(1);
     });
 
-    expect(stateOf(scene)).toMatchObject({ state: 'completed', completedAt: expect.any(String) as string });
-    expect(completions(scene)).toEqual([{ actor_kind: 'user', actor_id: owner, detail: JSON.stringify({ mode: 'automatic' }) }]);
+    expect(stateOf(scene)).toMatchObject({
+      state: 'completed',
+      completedAt: expect.any(String) as string,
+    });
+    expect(completions(scene)).toEqual([
+      { actor_kind: 'user', actor_id: owner, detail: JSON.stringify({ mode: 'automatic' }) },
+    ]);
     expect(existsSync(tokenFile)).toBe(false);
     expect(scene.services.sessions.count()).toBe(0);
     expect(scene.services.gate.stateOpen()).toBe(false);
@@ -85,7 +99,9 @@ describe('the designated Owner signs in', () => {
 describe('someone else signs in', () => {
   it('does not complete anything (+ negative: the designated Owner does)', async () => {
     const { scene, owner, hook } = await awaitingFirstSignin();
-    const other = scene.world.graph.directory.addUser({ userPrincipalName: 'other@contoso-fake.example' });
+    const other = scene.world.graph.directory.addUser({
+      userPrincipalName: 'other@contoso-fake.example',
+    });
     scene.services.sessions.create();
     withTransaction(scene.db, (tx) => {
       hook(tx, other.id);
@@ -106,7 +122,9 @@ describe('in any other state', () => {
   it('does nothing while the wizard is still open (in_progress)', async () => {
     const scene = await tenantScene();
     const hook = createCompleteSetupInTx(scene.services);
-    scene.db.sqlite.prepare('UPDATE setup_state SET designated_owner_oid = ? WHERE id = 1').run(scene.world.admin.id);
+    scene.db.sqlite
+      .prepare('UPDATE setup_state SET designated_owner_oid = ? WHERE id = 1')
+      .run(scene.world.admin.id);
     withTransaction(scene.db, (tx) => {
       hook(tx, scene.world.admin.id);
     });

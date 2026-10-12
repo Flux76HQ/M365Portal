@@ -5,9 +5,12 @@
 // (`thumbprint`, `appObjectId`, `roles`, `role`), so this module maps one to the other and fills what the
 // server does not send from what the page knows. A parameter nobody can fill reads as a dash, never as a
 // placeholder in curly braces.
+import { errorDetailMessageKey } from '@m365portal/shared/i18n/detail-codes';
 import type { MessageKey, Translator } from '@m365portal/shared/i18n';
 import { EXCHANGE_APP_ROLES, GRAPH_APP_ROLES, isExchangeRoleKey } from '@m365portal/shared/setup/graph-roles';
 import { isResultCode } from '@m365portal/shared/setup/result-codes';
+import { ApiError } from '../../lib/api';
+import { messageForError } from '../../lib/problem';
 import { ROLLBACK_HINT_KEYS, type RollbackHintKey } from '@m365portal/shared/setup/steps';
 
 type Scalar = string | number | boolean;
@@ -86,4 +89,19 @@ export function resultText(translator: Translator, code: string): ResultText {
     };
   }
   return { message: t('setup.unknownResult', { code }), remedy: t('setup.unknownRemedy') };
+}
+
+/**
+ * The message for an error of a request: when the problem carries an `errors[]` detail code that has a
+ * message of its own (`owner_changed`, `principal_disabled`, `privileged_role_group`), that message; otherwise
+ * the message of the problem code. Never the server's text.
+ */
+export function errorText(translator: Translator, error: unknown, publicOrigin: string | null): string {
+  if (error instanceof ApiError) {
+    for (const detail of error.errors) {
+      const key = errorDetailMessageKey(detail.code);
+      if (key !== undefined) return translator.t(key as MessageKey);
+    }
+  }
+  return messageForError(translator, error, { publicOrigin });
 }

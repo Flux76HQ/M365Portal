@@ -51,6 +51,7 @@
   "connection.proofDetail.foreignWarning": "De applicatie heeft inloggegevens of eigenaren die het paneel niet heeft toegevoegd. Bekijk ze in Microsoft Entra: wie ze heeft, kan handelen met de rechten van het paneel.",
   "connection.proofDetail.graph_roles": "Verleend: {roles}",
   "connection.proofDetail.notChecked": "Niet gecontroleerd. Hiervoor is een nieuwe aanmelding bij Microsoft nodig.",
+  "connection.proofDetail.roleCounts": "{count} toegekend, {missing} ontbrekend, {extra} extra",
   "connection.proofDetail.service_principal": "Object-ID {objectId}",
   "connection.proofEmpty": "Er is nog geen bewijs. Controleer eerst de verbinding.",
   "connection.proofGeneratedAt": "Gemaakt op {time}",

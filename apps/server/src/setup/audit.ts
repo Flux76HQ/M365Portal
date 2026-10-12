@@ -96,7 +96,9 @@ export function auditObjectChange(tx: Tx, entry: ObjectChangeAudit): void {
     detail: {
       kind: entry.kind,
       op: entry.op,
-      ...(entry.objectId !== undefined && GUID.test(entry.objectId) ? { objectId: entry.objectId } : {}),
+      ...(entry.objectId !== undefined && GUID.test(entry.objectId)
+        ? { objectId: entry.objectId }
+        : {}),
       ...(entry.appId !== undefined && GUID.test(entry.appId) ? { appId: entry.appId } : {}),
       name: entry.name,
       ...(entry.confirmed === undefined ? {} : { confirmed: entry.confirmed }),

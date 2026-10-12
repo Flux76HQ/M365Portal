@@ -112,13 +112,7 @@ export async function runEnvironmentChecks(
   else if (key.status === 'key_invalid') checks.push(entry('app_key', 'fail', 'app_key_invalid'));
   else {
     const roundTrip = key.selfTest?.() ?? false;
-    checks.push(
-      key.status !== 'ok' && key.status !== 'no_certificate' && key.status !== 'certificate_unreadable'
-        ? entry('app_key', 'fail', 'app_key_invalid')
-        : roundTrip
-          ? entry('app_key', 'ok')
-          : entry('app_key', 'fail', 'app_key_invalid'),
-    );
+    checks.push(roundTrip ? entry('app_key', 'ok') : entry('app_key', 'fail', 'app_key_invalid'));
   }
 
   // 4. node_version
@@ -182,7 +176,9 @@ export async function runEnvironmentChecks(
         finishedAt: now,
         errorCode: check.code,
         detail:
-          check.params.host === undefined ? {} : { host: String(check.params.host).split(',')[0] ?? '' },
+          check.params.host === undefined
+            ? {}
+            : { host: String(check.params.host).split(',')[0] ?? '' },
       });
     }
     const status: AuditedStatus = failed ? 'failed' : warned ? 'warning' : 'succeeded';

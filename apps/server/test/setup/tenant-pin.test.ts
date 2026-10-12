@@ -19,7 +19,9 @@ describe('the pin', () => {
     expect(scene.services.connections.read(scene.db)?.tenantId ?? null).toBeNull();
     await scene.run(['verify'], { mode: 'continue' });
     expect(scene.services.connections.read(scene.db)?.tenantId).toBe(scene.world.tenantId);
-    expect(scene.rows("SELECT outcome FROM audit_log WHERE action = 'setup.tenant.pin'")).toEqual([{ outcome: 'success' }]);
+    expect(scene.rows("SELECT outcome FROM audit_log WHERE action = 'setup.tenant.pin'")).toEqual([
+      { outcome: 'success' },
+    ]);
     // The runtime clients exist for the pinned tenant now.
     expect((await scene.clients.graph().getOrganization()).id).toBe(scene.world.tenantId);
   });
@@ -27,8 +29,14 @@ describe('the pin', () => {
   it('the trigger forbids changing or deleting the pinned tenant', async () => {
     const scene = await tenantScene();
     await scene.run(['connect', 'configure', 'verify']);
-    expect(() => scene.db.sqlite.prepare('UPDATE tenant_connection SET tenant_id = ?').run('99999999-9999-4999-8999-999999999999')).toThrow(/pinned/);
-    expect(() => scene.db.sqlite.prepare('UPDATE tenant_connection SET tenant_id = NULL').run()).toThrow(/pinned/);
+    expect(() =>
+      scene.db.sqlite
+        .prepare('UPDATE tenant_connection SET tenant_id = ?')
+        .run('99999999-9999-4999-8999-999999999999'),
+    ).toThrow(/pinned/);
+    expect(() =>
+      scene.db.sqlite.prepare('UPDATE tenant_connection SET tenant_id = NULL').run(),
+    ).toThrow(/pinned/);
     expect(() => scene.db.sqlite.prepare('DELETE FROM tenant_connection').run()).toThrow(/pinned/);
     expect(scene.services.connections.read(scene.db)?.tenantId).toBe(scene.world.tenantId);
   });
@@ -39,9 +47,9 @@ describe('the pin', () => {
     scene.world.graph.directory.organization.id = '99999999-9999-4999-8999-999999999999';
     scene.services.bootstrap.discard('exit');
     await scene.run(['verify'], { mode: 'reconcile' });
-    expect(scene.rows("SELECT status, error_code FROM setup_step WHERE sub_action = 'organization'")).toEqual([
-      { status: 'failed', error_code: 'tenant_mismatch' },
-    ]);
+    expect(
+      scene.rows("SELECT status, error_code FROM setup_step WHERE sub_action = 'organization'"),
+    ).toEqual([{ status: 'failed', error_code: 'tenant_mismatch' }]);
     expect(scene.services.connections.read(scene.db)?.tenantId).toBe(scene.world.tenantId);
   });
 
@@ -62,6 +70,10 @@ describe('the first Owner', () => {
     expect(scene.services.state.read(scene.db).designatedOwnerOid).toBe(scene.world.admin.id);
     expect(scene.services.state.read(scene.db).proposedTenantId).toBe(scene.world.tenantId);
     // What the wizard keeps of the identity: tid, oid and two labels; no `sub`.
-    expect(Object.keys(scene.services.bootstrap.identity() ?? { oid: 1, tid: 1, upnLabel: 1, nameLabel: 1 }).sort()).toEqual(['nameLabel', 'oid', 'tid', 'upnLabel']);
+    expect(
+      Object.keys(
+        scene.services.bootstrap.identity() ?? { oid: 1, tid: 1, upnLabel: 1, nameLabel: 1 },
+      ).sort(),
+    ).toEqual(['nameLabel', 'oid', 'tid', 'upnLabel']);
   });
 });

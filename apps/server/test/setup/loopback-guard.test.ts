@@ -13,7 +13,11 @@ const PROXY_HEADERS = [
   'X-Real-IP',
 ] as const;
 
-function input(host: string | null, extra: Record<string, string> = {}, https = false): LoopbackInput {
+function input(
+  host: string | null,
+  extra: Record<string, string> = {},
+  https = false,
+): LoopbackInput {
   const headers = new Headers(extra);
   if (host !== null) headers.set('host', host);
   return { publicIsHttps: https, headers };
@@ -77,8 +81,7 @@ describe('the guard', () => {
 
   it('a guard that ignores Host fails the matrix (negative)', () => {
     const ignoresHost: Guard = (candidate) =>
-      candidate.publicIsHttps ||
-      PROXY_HEADERS.every((header) => !candidate.headers.has(header));
+      candidate.publicIsHttps || PROXY_HEADERS.every((header) => !candidate.headers.has(header));
     expectGuardFails(matrix, ignoresHost, { reason: 'the guard opened for the host' });
   });
 

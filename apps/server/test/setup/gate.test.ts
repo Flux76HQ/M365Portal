@@ -19,7 +19,11 @@ const SETUP_ROUTES = [
   ['POST', '/api/v1/setup/finish'],
 ] as const;
 
-async function call(client: ReturnType<Awaited<ReturnType<typeof startWizardServer>>['client']>, method: string, path: string): Promise<Response> {
+async function call(
+  client: ReturnType<Awaited<ReturnType<typeof startWizardServer>>['client']>,
+  method: string,
+  path: string,
+): Promise<Response> {
   switch (method) {
     case 'GET':
       return client.get(path);
@@ -33,24 +37,34 @@ async function call(client: ReturnType<Awaited<ReturnType<typeof startWizardServ
 }
 
 describe('once the state is completed', () => {
-  it.each(SETUP_ROUTES)('%s %s answers the standard 404, the same as an unknown path', async (method, path) => {
-    const server = await startWizardServer();
-    const { client } = await server.unlock();
-    server.exec("UPDATE setup_state SET state = 'awaiting_first_signin'");
-    server.exec("UPDATE setup_state SET state = 'completed', completed_at = '2026-10-12T00:00:00.000Z'");
-    const unknown = await server.client().get('/api/v1/setup/nothing-here');
-    const response = await call(client, method, path);
-    expect(response.status).toBe(404);
-    const body = (await response.json()) as { code: string; type: string };
-    const reference = (await unknown.json()) as { code: string; type: string };
-    expect({ code: body.code, type: body.type }).toEqual({ code: reference.code, type: reference.type });
-  });
+  it.each(SETUP_ROUTES)(
+    '%s %s answers the standard 404, the same as an unknown path',
+    async (method, path) => {
+      const server = await startWizardServer();
+      const { client } = await server.unlock();
+      server.exec("UPDATE setup_state SET state = 'awaiting_first_signin'");
+      server.exec(
+        "UPDATE setup_state SET state = 'completed', completed_at = '2026-10-12T00:00:00.000Z'",
+      );
+      const unknown = await server.client().get('/api/v1/setup/nothing-here');
+      const response = await call(client, method, path);
+      expect(response.status).toBe(404);
+      const body = (await response.json()) as { code: string; type: string };
+      const reference = (await unknown.json()) as { code: string; type: string };
+      expect({ code: body.code, type: body.type }).toEqual({
+        code: reference.code,
+        type: reference.type,
+      });
+    },
+  );
 
   it('the live setup session is gone with the state: its cookie opens nothing', async () => {
     const server = await startWizardServer();
     const { headers } = await server.unlock();
     server.exec("UPDATE setup_state SET state = 'awaiting_first_signin'");
-    server.exec("UPDATE setup_state SET state = 'completed', completed_at = '2026-10-12T00:00:00.000Z'");
+    server.exec(
+      "UPDATE setup_state SET state = 'completed', completed_at = '2026-10-12T00:00:00.000Z'",
+    );
     expect((await server.client(headers).get('/api/v1/connection')).status).toBe(401);
   });
 });
@@ -61,7 +75,12 @@ describe('over a plain-http base URL (FR-B-206)', () => {
     // fetch does not let a caller choose the Host header; a raw request does.
     const status = await new Promise<number>((resolve, reject) => {
       const outgoing = request(
-        { host: '127.0.0.1', port: new URL(server.socket).port, path: '/api/v1/setup/status', headers: { host: 'panel.example.test' } },
+        {
+          host: '127.0.0.1',
+          port: new URL(server.socket).port,
+          path: '/api/v1/setup/status',
+          headers: { host: 'panel.example.test' },
+        },
         (incoming) => {
           incoming.resume();
           resolve(incoming.statusCode ?? 0);
@@ -100,7 +119,9 @@ describe('without storage (EB-33)', () => {
       expect(response.status).toBe(503);
       expect(((await response.json()) as { code: string }).code).toBe('storage_unavailable');
     }
-    const unlock = await server.client().post('/api/v1/setup/unlock', { json: { token: 'anything' } });
+    const unlock = await server
+      .client()
+      .post('/api/v1/setup/unlock', { json: { token: 'anything' } });
     expect(unlock.status).toBe(503);
     expect(existsSync(join(blocker, 'data', 'setup-token'))).toBe(false);
   });

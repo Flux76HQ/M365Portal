@@ -47,7 +47,9 @@ function everything(scene: TenantScene): string {
   const tables = scene.rows<{ name: string }>(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
   );
-  const database = tables.map(({ name }) => JSON.stringify(scene.rows(`SELECT * FROM "${name}"`))).join('\n');
+  const database = tables
+    .map(({ name }) => JSON.stringify(scene.rows(`SELECT * FROM "${name}"`)))
+    .join('\n');
   const snapshot = JSON.stringify(scene.engine.snapshot(0));
   return `${database}\n${scene.logs.text()}\n${snapshot}`;
 }
@@ -72,7 +74,11 @@ describe('a signed-in bootstrap', () => {
     for (const token of seen.tokens) expect(text).not.toContain(token);
     // The provisioner makes its delegated calls with it.
     expect(scene.services.bootstrap.live()).toBe(true);
-    expect(await scene.services.bootstrap.provisioner()?.findServicePrincipalByAppId('00000003-0000-0000-c000-000000000000')).not.toBeNull();
+    expect(
+      await scene.services.bootstrap
+        .provisioner()
+        ?.findServicePrincipalByAppId('00000003-0000-0000-c000-000000000000'),
+    ).not.toBeNull();
   });
 });
 

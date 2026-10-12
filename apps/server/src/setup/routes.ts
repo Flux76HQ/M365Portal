@@ -41,7 +41,11 @@ import { runEnvironmentChecks } from './environment.js';
 import { finishSetup } from './finish.js';
 import { appGraphOf, searchBeheerderGroups } from './groups.js';
 import { auditContextOf, problemAnswer, runActorOf, withHeader } from './http-support.js';
-import { applyManualInputs, manualCertificateFile, prepareManualCertificate } from './manual-mode.js';
+import {
+  applyManualInputs,
+  manualCertificateFile,
+  prepareManualCertificate,
+} from './manual-mode.js';
 import type { SetupRuntime } from './runtime.js';
 import { setupStateView } from './view.js';
 
@@ -143,7 +147,10 @@ export function setupRoutes(runtime: SetupRuntime): RouteDefinition[] {
                 detail: { reason: 'setup_token_locked', lockScope: start.scope },
               });
             });
-            services.log.warn({ event: 'setup_unlock_locked', lockScope: start.scope }, 'setup_unlock_locked');
+            services.log.warn(
+              { event: 'setup_unlock_locked', lockScope: start.scope },
+              'setup_unlock_locked',
+            );
           }
           return problemResponse(c, 'setup_token_invalid');
         }
@@ -259,7 +266,7 @@ export function setupRoutes(runtime: SetupRuntime): RouteDefinition[] {
       audit: 'setup.step.run',
       summary: 'Manual provisioning mode',
       description:
-        'Stores the application id, the tenant id and the first Owner of a tenant a person configured by hand. The first Owner is resolved with the application\'s own token.',
+        "Stores the application id, the tenant id and the first Owner of a tenant a person configured by hand. The first Owner is resolved with the application's own token.",
       request: { body: body(ManualRequestSchema) },
       responses: {
         200: {
@@ -268,10 +275,15 @@ export function setupRoutes(runtime: SetupRuntime): RouteDefinition[] {
         },
         409: problemAnswer('Not ready, busy, or another tenant is pinned.'),
         422: problemAnswer('The values are not valid, or the first Owner does not exist.'),
-        503: problemAnswer('The application could not get a token yet, or storage or secrets are unavailable.'),
+        503: problemAnswer(
+          'The application could not get a token yet, or storage or secrets are unavailable.',
+        ),
       },
       handler: async (c, input) => {
-        const result = await applyManualInputs({ services, busy, actor: runActorOf(c) }, input.body);
+        const result = await applyManualInputs(
+          { services, busy, actor: runActorOf(c) },
+          input.body,
+        );
         return c.json(result, 200);
       },
     }),
@@ -289,7 +301,9 @@ export function setupRoutes(runtime: SetupRuntime): RouteDefinition[] {
       responses: {
         200: {
           description: 'The certificate.',
-          content: { 'application/x-x509-ca-cert': { schema: z.string().meta({ format: 'binary' }) } },
+          content: {
+            'application/x-x509-ca-cert': { schema: z.string().meta({ format: 'binary' }) },
+          },
         },
         409: problemAnswer('The wizard is not at the point where a certificate exists.'),
         ...secretsProblems,
@@ -320,7 +334,8 @@ export function setupRoutes(runtime: SetupRuntime): RouteDefinition[] {
       rateLimit: 'read',
       ...gate,
       summary: 'Search Entra groups',
-      description: 'For the optional Beheerder group: groups whose name starts with `q`, at most 25.',
+      description:
+        'For the optional Beheerder group: groups whose name starts with `q`, at most 25.',
       request: { query: GroupSearchQuerySchema },
       responses: {
         200: {
@@ -332,7 +347,11 @@ export function setupRoutes(runtime: SetupRuntime): RouteDefinition[] {
         503: problemAnswer('Graph or the secrets are unavailable.'),
       },
       handler: async (c, input) => {
-        const found = await searchBeheerderGroups(appGraphOf(deps), input.query.q, GROUP_SEARCH_MAX_RESULTS);
+        const found = await searchBeheerderGroups(
+          appGraphOf(deps),
+          input.query.q,
+          GROUP_SEARCH_MAX_RESULTS,
+        );
         const groups = found.flatMap((group) =>
           group.displayName === null || group.displayName === ''
             ? []
@@ -359,7 +378,9 @@ export function setupRoutes(runtime: SetupRuntime): RouteDefinition[] {
           description: 'Finished.',
           content: { 'application/json': { schema: FinishResponseSchema } },
         },
-        409: problemAnswer('A step has not ended well, a run is active, or the wizard already finished.'),
+        409: problemAnswer(
+          'A step has not ended well, a run is active, or the wizard already finished.',
+        ),
         422: problemAnswer('The confirmation names someone else, or the group is unknown.'),
         503: problemAnswer('Graph, storage or the secrets are unavailable.'),
       },

@@ -59,7 +59,10 @@ export async function setupStateView(
   return {
     state: state.state,
     mode: state.mode,
-    defaultLanguage: state.defaultLanguage === 'nl' || state.defaultLanguage === 'en' ? state.defaultLanguage : null,
+    defaultLanguage:
+      state.defaultLanguage === 'nl' || state.defaultLanguage === 'en'
+        ? state.defaultLanguage
+        : null,
     steps: services.steps.stepStates(db, state.mode),
     tenant: {
       proposedTenantId: state.proposedTenantId,
@@ -76,7 +79,8 @@ export async function setupStateView(
             notAfter: shown.notAfter,
             state: shown === certificate.pending ? 'pending' : 'active',
           },
-    designatedOwner: owner === null ? null : { oid: owner, ...(await ownerLabelsOf(services, owner)) },
+    designatedOwner:
+      owner === null ? null : { oid: owner, ...(await ownerLabelsOf(services, owner)) },
     exchangeEnabled: connection?.exchangeEnabled ?? false,
     proof: readProof(services.connections, db),
     publicBaseUrl: services.deps.config.publicOrigin,
@@ -114,7 +118,10 @@ export function connectionView(services: SetupServices, runActive: boolean): Con
     pendingCertificate:
       certificate.pending === undefined
         ? null
-        : { thumbprintSha1: certificate.pending.thumbprintSha1, notAfter: certificate.pending.notAfter },
+        : {
+            thumbprintSha1: certificate.pending.thumbprintSha1,
+            notAfter: certificate.pending.notAfter,
+          },
     exchange: { enabled: connection?.exchangeEnabled ?? false },
     permissionSetVersion: connection?.permissionSetVersion ?? 1,
     redirectUris: [...(connection?.redirectUris ?? [])],

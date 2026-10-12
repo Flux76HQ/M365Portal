@@ -95,7 +95,10 @@ export function connectionRoutes(runtime: SetupRuntime): RouteDefinition[] {
         'Starts a background run in this process and answers at once. `steps` is an ordered subset of connect, configure and verify, or the word repair.',
       request: { body: body(StartRunRequestSchema) },
       responses: {
-        202: { description: 'Started.', content: { 'application/json': { schema: RunStatusSchema } } },
+        202: {
+          description: 'Started.',
+          content: { 'application/json': { schema: RunStatusSchema } },
+        },
         409: problemAnswer('A run is active, a step has not succeeded, or the tenant differs.'),
         422: problemAnswer('The request is not valid.'),
         503: problemAnswer('Storage or the secrets are unavailable.'),
@@ -138,7 +141,10 @@ export function connectionRoutes(runtime: SetupRuntime): RouteDefinition[] {
         'The one polled channel. With no run since the process began the answer is 200 with run: null.',
       request: { query: RunSnapshotQuerySchema },
       responses: {
-        200: { description: 'The snapshot.', content: { 'application/json': { schema: RunSnapshotSchema } } },
+        200: {
+          description: 'The snapshot.',
+          content: { 'application/json': { schema: RunSnapshotSchema } },
+        },
         422: problemAnswer('The query is not valid.'),
         503: problemAnswer('Storage is unavailable.'),
       },
@@ -155,7 +161,10 @@ export function connectionRoutes(runtime: SetupRuntime): RouteDefinition[] {
       description: 'Wakes the current wait at once; the attempt counts.',
       request: { body: body(EmptyBodySchema) },
       responses: {
-        202: { description: 'Woken.', content: { 'application/json': { schema: RunStatusSchema } } },
+        202: {
+          description: 'Woken.',
+          content: { 'application/json': { schema: RunStatusSchema } },
+        },
         409: problemAnswer('No run, or none is waiting.'),
       },
       handler: (c) => c.json(engine.retryNow(), 202),
@@ -172,7 +181,10 @@ export function connectionRoutes(runtime: SetupRuntime): RouteDefinition[] {
         'Sets the cancel flag; the runner stops at its next checkpoint, discards the bootstrap object and releases the lease.',
       request: { body: body(EmptyBodySchema) },
       responses: {
-        202: { description: 'Cancelling.', content: { 'application/json': { schema: RunStatusSchema } } },
+        202: {
+          description: 'Cancelling.',
+          content: { 'application/json': { schema: RunStatusSchema } },
+        },
         409: problemAnswer('No run.'),
       },
       handler: (c) => c.json(engine.cancel(), 202),
@@ -186,10 +198,13 @@ export function connectionRoutes(runtime: SetupRuntime): RouteDefinition[] {
       rateLimit: 'write',
       summary: 'Adopt an existing application',
       description:
-        'Explicit confirmation to adopt an application that has the wizard\'s name but not our install tag. Valid only while the current run waits for it.',
+        "Explicit confirmation to adopt an application that has the wizard's name but not our install tag. Valid only while the current run waits for it.",
       request: { body: body(AdoptRequestSchema) },
       responses: {
-        200: { description: 'The run continues.', content: { 'application/json': { schema: RunStatusSchema } } },
+        200: {
+          description: 'The run continues.',
+          content: { 'application/json': { schema: RunStatusSchema } },
+        },
         409: problemAnswer('Nothing to adopt.'),
         422: problemAnswer('The confirmation is not valid.'),
       },
@@ -215,11 +230,15 @@ export function connectionRoutes(runtime: SetupRuntime): RouteDefinition[] {
         'Re-runs the app-only checks with fresh tokens, in 60 seconds at most, and replaces the app-only items of the proof.',
       request: { body: body(EmptyBodySchema) },
       responses: {
-        200: { description: 'The proof.', content: { 'application/json': { schema: ProofSchema } } },
+        200: {
+          description: 'The proof.',
+          content: { 'application/json': { schema: ProofSchema } },
+        },
         409: problemAnswer('A run is active, or the connection is not set up.'),
         503: problemAnswer('Graph throttles, or storage or the secrets are unavailable.'),
       },
-      handler: async (c) => c.json(await verifyConnection(runtime, runActorOf(c), auditContextOf(c)), 200),
+      handler: async (c) =>
+        c.json(await verifyConnection(runtime, runActorOf(c), auditContextOf(c)), 200),
     }),
   ];
 }

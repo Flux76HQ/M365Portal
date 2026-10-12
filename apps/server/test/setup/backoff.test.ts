@@ -16,11 +16,7 @@ import {
   DeviceCodeError,
   SecretsUnavailableError,
 } from '../../src/ports/errors.js';
-import {
-  backoffDelay,
-  replicationWindowEnded,
-  windowSecondsFor,
-} from '../../src/setup/backoff.js';
+import { backoffDelay, replicationWindowEnded, windowSecondsFor } from '../../src/setup/backoff.js';
 import { classifyFailure } from '../../src/setup/classify.js';
 
 const fixed = (value: number): { float(): number } => ({ float: () => value });
@@ -34,7 +30,9 @@ describe('backoffDelay: transient', () => {
         cap * 0.999999,
         3,
       );
-      expect(backoffDelay({ klass: 'transient', attempt, random: fixed(0.5) })).toBe(cap / 2 < 500 ? 500 : cap / 2);
+      expect(backoffDelay({ klass: 'transient', attempt, random: fixed(0.5) })).toBe(
+        cap / 2 < 500 ? 500 : cap / 2,
+      );
     }
     expect(backoffDelay({ klass: 'transient', attempt: 7, random: fixed(0.5) })).toBeNull();
     expect(backoffDelay({ klass: 'transient', attempt: 8, random: fixed(0.5) })).toBeNull();
@@ -144,12 +142,16 @@ describe('classifyFailure', () => {
   });
 
   it('a 404 is replication only for an id the run created or received within the window', () => {
-    expect(classifyFailure(new GraphNotFoundError(), { justCreated: true }).klass).toBe('replication');
+    expect(classifyFailure(new GraphNotFoundError(), { justCreated: true }).klass).toBe(
+      'replication',
+    );
     expect(classifyFailure(new GraphNotFoundError(), none).klass).toBe('permanent');
   });
 
   it('a 400 is replication only on an object the run just created, otherwise permanent', () => {
-    expect(classifyFailure(new GraphBadRequestError(), { justCreated: true }).klass).toBe('replication');
+    expect(classifyFailure(new GraphBadRequestError(), { justCreated: true }).klass).toBe(
+      'replication',
+    );
     expect(classifyFailure(new GraphBadRequestError(), none).klass).toBe('permanent');
     expect(
       classifyFailure(new GraphBadRequestError({ graphCode: 'Request_BadRequest' }), none).klass,
@@ -157,29 +159,42 @@ describe('classifyFailure', () => {
   });
 
   it('401 and 403 are replication only inside the propagation window after a grant or role assignment', () => {
-    expect(classifyFailure(new GraphForbiddenError(), { afterGrant: true }).klass).toBe('replication');
-    expect(classifyFailure(new GraphUnauthorizedError(), { afterGrant: true }).klass).toBe('replication');
-    expect(classifyFailure(new ExchangeForbiddenError(), { afterGrant: true }).klass).toBe('replication');
+    expect(classifyFailure(new GraphForbiddenError(), { afterGrant: true }).klass).toBe(
+      'replication',
+    );
+    expect(classifyFailure(new GraphUnauthorizedError(), { afterGrant: true }).klass).toBe(
+      'replication',
+    );
+    expect(classifyFailure(new ExchangeForbiddenError(), { afterGrant: true }).klass).toBe(
+      'replication',
+    );
     expect(classifyFailure(new GraphForbiddenError(), none).klass).toBe('permanent');
     expect(classifyFailure(new GraphUnauthorizedError(), none).klass).toBe('permanent');
   });
 
   it('invalid_client is replication only inside the window after a certificate upload', () => {
     const invalidClient = new TokenEndpointError({ error: 'invalid_client', status: 401 });
-    expect(classifyFailure(invalidClient, { afterCertificateUpload: true }).klass).toBe('replication');
+    expect(classifyFailure(invalidClient, { afterCertificateUpload: true }).klass).toBe(
+      'replication',
+    );
     expect(classifyFailure(invalidClient, none).klass).toBe('permanent');
     expect(
-      classifyFailure(new TokenEndpointError({ error: 'invalid_grant' }), { afterCertificateUpload: true })
-        .klass,
+      classifyFailure(new TokenEndpointError({ error: 'invalid_grant' }), {
+        afterCertificateUpload: true,
+      }).klass,
     ).toBe('permanent');
   });
 
   it('everything else is permanent: 409, a device-code failure, an unavailable secret, an unknown error', () => {
-    expect(classifyFailure(new GraphConflictError(), { justCreated: true }).klass).toBe('permanent');
-    expect(classifyFailure(new DeviceCodeError({ kind: 'declined' }), none).klass).toBe('permanent');
-    expect(classifyFailure(new SecretsUnavailableError({ reason: 'app_key_missing' }), none).klass).toBe(
+    expect(classifyFailure(new GraphConflictError(), { justCreated: true }).klass).toBe(
       'permanent',
     );
+    expect(classifyFailure(new DeviceCodeError({ kind: 'declined' }), none).klass).toBe(
+      'permanent',
+    );
+    expect(
+      classifyFailure(new SecretsUnavailableError({ reason: 'app_key_missing' }), none).klass,
+    ).toBe('permanent');
     expect(classifyFailure(new Error('boom'), { justCreated: true, afterGrant: true }).klass).toBe(
       'permanent',
     );
@@ -187,7 +202,10 @@ describe('classifyFailure', () => {
   });
 
   it('carries the allow-listed Graph error code and the retry hint, nothing else', () => {
-    const verdict = classifyFailure(new GraphBadRequestError({ graphCode: 'Request_BadRequest' }), none);
+    const verdict = classifyFailure(
+      new GraphBadRequestError({ graphCode: 'Request_BadRequest' }),
+      none,
+    );
     expect(verdict.graphCode).toBe('Request_BadRequest');
     expect(Object.keys(verdict).sort()).toEqual(['graphCode', 'klass']);
   });

@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuditRouteImport } from './routes/audit'
+import { Route as BreakGlassRouteImport } from './routes/break-glass'
 import { Route as ContactsRouteImport } from './routes/contacts'
 import { Route as DesignRouteImport } from './routes/design'
 import { Route as DistributionListsRouteImport } from './routes/distribution-lists'
@@ -21,7 +22,10 @@ import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SigninRouteImport } from './routes/signin'
 import { Route as UsersRouteImport } from './routes/users'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
+import { Route as SettingsAccessRouteImport } from './routes/settings.access'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
+import { Route as SettingsConnectionRouteImport } from './routes/settings.connection'
+import { Route as SettingsRestoreAccessRouteImport } from './routes/settings.restore-access'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -31,6 +35,11 @@ const IndexRoute = IndexRouteImport.update({
 const AuditRoute = AuditRouteImport.update({
   id: '/audit',
   path: '/audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BreakGlassRoute = BreakGlassRouteImport.update({
+  id: '/break-glass',
+  path: '/break-glass',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContactsRoute = ContactsRouteImport.update({
@@ -83,15 +92,31 @@ const SettingsIndexRoute = SettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsAccessRoute = SettingsAccessRouteImport.update({
+  id: '/access',
+  path: '/access',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   id: '/appearance',
   path: '/appearance',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsConnectionRoute = SettingsConnectionRouteImport.update({
+  id: '/connection',
+  path: '/connection',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsRestoreAccessRoute = SettingsRestoreAccessRouteImport.update({
+  id: '/restore-access',
+  path: '/restore-access',
   getParentRoute: () => SettingsRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
+  '/break-glass': typeof BreakGlassRoute
   '/contacts': typeof ContactsRoute
   '/design': typeof DesignRoute
   '/distribution-lists': typeof DistributionListsRoute
@@ -101,12 +126,16 @@ export interface FileRoutesByFullPath {
   '/setup': typeof SetupRoute
   '/signin': typeof SigninRoute
   '/users': typeof UsersRoute
+  '/settings/access': typeof SettingsAccessRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/connection': typeof SettingsConnectionRoute
+  '/settings/restore-access': typeof SettingsRestoreAccessRoute
   '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
+  '/break-glass': typeof BreakGlassRoute
   '/contacts': typeof ContactsRoute
   '/design': typeof DesignRoute
   '/distribution-lists': typeof DistributionListsRoute
@@ -115,13 +144,17 @@ export interface FileRoutesByTo {
   '/setup': typeof SetupRoute
   '/signin': typeof SigninRoute
   '/users': typeof UsersRoute
+  '/settings/access': typeof SettingsAccessRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/connection': typeof SettingsConnectionRoute
+  '/settings/restore-access': typeof SettingsRestoreAccessRoute
   '/settings': typeof SettingsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
+  '/break-glass': typeof BreakGlassRoute
   '/contacts': typeof ContactsRoute
   '/design': typeof DesignRoute
   '/distribution-lists': typeof DistributionListsRoute
@@ -131,7 +164,10 @@ export interface FileRoutesById {
   '/setup': typeof SetupRoute
   '/signin': typeof SigninRoute
   '/users': typeof UsersRoute
+  '/settings/access': typeof SettingsAccessRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/connection': typeof SettingsConnectionRoute
+  '/settings/restore-access': typeof SettingsRestoreAccessRoute
   '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRouteTypes {
@@ -139,6 +175,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/audit'
+    | '/break-glass'
     | '/contacts'
     | '/design'
     | '/distribution-lists'
@@ -148,12 +185,16 @@ export interface FileRouteTypes {
     | '/setup'
     | '/signin'
     | '/users'
+    | '/settings/access'
     | '/settings/appearance'
+    | '/settings/connection'
+    | '/settings/restore-access'
     | '/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/audit'
+    | '/break-glass'
     | '/contacts'
     | '/design'
     | '/distribution-lists'
@@ -162,12 +203,16 @@ export interface FileRouteTypes {
     | '/setup'
     | '/signin'
     | '/users'
+    | '/settings/access'
     | '/settings/appearance'
+    | '/settings/connection'
+    | '/settings/restore-access'
     | '/settings'
   id:
     | '__root__'
     | '/'
     | '/audit'
+    | '/break-glass'
     | '/contacts'
     | '/design'
     | '/distribution-lists'
@@ -177,13 +222,17 @@ export interface FileRouteTypes {
     | '/setup'
     | '/signin'
     | '/users'
+    | '/settings/access'
     | '/settings/appearance'
+    | '/settings/connection'
+    | '/settings/restore-access'
     | '/settings/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuditRoute: typeof AuditRoute
+  BreakGlassRoute: typeof BreakGlassRoute
   ContactsRoute: typeof ContactsRoute
   DesignRoute: typeof DesignRoute
   DistributionListsRoute: typeof DistributionListsRoute
@@ -209,6 +258,13 @@ declare module '@tanstack/react-router' {
       path: '/audit'
       fullPath: '/audit'
       preLoaderRoute: typeof AuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/break-glass': {
+      id: '/break-glass'
+      path: '/break-glass'
+      fullPath: '/break-glass'
+      preLoaderRoute: typeof BreakGlassRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contacts': {
@@ -281,6 +337,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIndexRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/access': {
+      id: '/settings/access'
+      path: '/access'
+      fullPath: '/settings/access'
+      preLoaderRoute: typeof SettingsAccessRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/appearance': {
       id: '/settings/appearance'
       path: '/appearance'
@@ -288,16 +351,36 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAppearanceRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/connection': {
+      id: '/settings/connection'
+      path: '/connection'
+      fullPath: '/settings/connection'
+      preLoaderRoute: typeof SettingsConnectionRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/restore-access': {
+      id: '/settings/restore-access'
+      path: '/restore-access'
+      fullPath: '/settings/restore-access'
+      preLoaderRoute: typeof SettingsRestoreAccessRouteImport
+      parentRoute: typeof SettingsRoute
+    }
   }
 }
 
 interface SettingsRouteChildren {
+  SettingsAccessRoute: typeof SettingsAccessRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  SettingsConnectionRoute: typeof SettingsConnectionRoute
+  SettingsRestoreAccessRoute: typeof SettingsRestoreAccessRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsAccessRoute: SettingsAccessRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsConnectionRoute: SettingsConnectionRoute,
+  SettingsRestoreAccessRoute: SettingsRestoreAccessRoute,
   SettingsIndexRoute: SettingsIndexRoute,
 }
 
@@ -308,6 +391,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuditRoute: AuditRoute,
+  BreakGlassRoute: BreakGlassRoute,
   ContactsRoute: ContactsRoute,
   DesignRoute: DesignRoute,
   DistributionListsRoute: DistributionListsRoute,

@@ -20,9 +20,7 @@ export function createCompleteSetupInTx(services: SetupServices): CompleteSetupI
   return (tx: Tx, oid: string): void => {
     const state = services.state.read(tx);
     if (state.state !== 'awaiting_first_signin') return;
-    if (state.designatedOwnerOid === null || state.designatedOwnerOid.toLowerCase() !== oid.toLowerCase()) {
-      return;
-    }
+    if (state.designatedOwnerOid?.toLowerCase() !== oid.toLowerCase()) return;
     services.state.apply(tx, 'complete');
     appendAudit(tx, {
       ts: new Date(services.deps.now()).toISOString(),

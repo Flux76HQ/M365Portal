@@ -36,10 +36,15 @@ export interface EngineHarness {
   readonly engine: SetupEngine;
   readonly deps: ModuleDeps;
   /** Another engine on the same database (a second process). */
-  another(registry: readonly SubActionDefinition[]): { engine: SetupEngine; services: SetupServices };
+  another(registry: readonly SubActionDefinition[]): {
+    engine: SetupEngine;
+    services: SetupServices;
+  };
 }
 
-export type Script = (ctx: Parameters<SubActionDefinition['run']>[0]) => Promise<SubActionOutcome> | SubActionOutcome;
+export type Script = (
+  ctx: Parameters<SubActionDefinition['run']>[0],
+) => Promise<SubActionOutcome> | SubActionOutcome;
 
 /** One scripted sub-action per registered (step, sub-action); the default succeeds at once. */
 export function scripted(
@@ -47,17 +52,15 @@ export function scripted(
   calls: string[] = [],
 ): SubActionDefinition[] {
   return Object.values(STEPS).flatMap((definition) =>
-    definition.subActions.map(
-      (key): SubActionDefinition => ({
-        step: definition.key,
-        key,
-        run: async (ctx) => {
-          calls.push(`${definition.key}/${key}`);
-          const script = scripts[`${definition.key}/${key}`];
-          return script === undefined ? { status: 'succeeded' } : await script(ctx);
-        },
-      }),
-    ),
+    definition.subActions.map((key): SubActionDefinition => ({
+      step: definition.key,
+      key,
+      run: async (ctx) => {
+        calls.push(`${definition.key}/${key}`);
+        const script = scripts[`${definition.key}/${key}`];
+        return script === undefined ? { status: 'succeeded' } : await script(ctx);
+      },
+    })),
   );
 }
 
@@ -82,17 +85,18 @@ export async function engineHarness(
   if (!loaded.ok) throw new Error('the harness configuration is invalid');
   const random = seededRandom();
   const logs = createLogCapture();
-  const build = (): ModuleDeps => ({
-    config: loaded.config,
-    log: createLogger({ level: 'debug', now: () => clock.nowMs(), destination: logs }),
-    now: () => clock.nowMs(),
-    database: () => db,
-    requireDatabase: () => db,
-    storageAvailable: () => true,
-    random,
-    scheduler,
-    secrets: new SecretsRuntime(() => db),
-  } as unknown as ModuleDeps);
+  const build = (): ModuleDeps =>
+    ({
+      config: loaded.config,
+      log: createLogger({ level: 'debug', now: () => clock.nowMs(), destination: logs }),
+      now: () => clock.nowMs(),
+      database: () => db,
+      requireDatabase: () => db,
+      storageAvailable: () => true,
+      random,
+      scheduler,
+      secrets: new SecretsRuntime(() => db),
+    }) as unknown as ModuleDeps;
 
   const deps = build();
   if (options.withSecrets !== false) {
@@ -116,7 +120,10 @@ export async function engineHarness(
     another(registry) {
       const otherDeps = build();
       const otherServices = createSetupServices(otherDeps);
-      return { services: otherServices, engine: createSetupEngine({ services: otherServices, registry }) };
+      return {
+        services: otherServices,
+        engine: createSetupEngine({ services: otherServices, registry }),
+      };
     },
   };
 }

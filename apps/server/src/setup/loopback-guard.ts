@@ -30,7 +30,7 @@ export function loopbackGuardOpen(input: LoopbackInput): boolean {
   if (input.publicIsHttps) return true;
   if (PROXY_HEADERS.some((name) => input.headers.has(name))) return false;
   const raw = input.headers.get('host') ?? input.urlHost;
-  if (raw === undefined || raw === null || raw === '') return false;
+  if (raw === undefined || raw === '') return false;
   const host = normalizeHost(raw);
   return host !== undefined && isLoopbackHost(host);
 }

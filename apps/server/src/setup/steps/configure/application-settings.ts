@@ -17,20 +17,31 @@ function isAdopted(ctx: Parameters<SubActionDefinition['run']>[0], objectId: str
   return (
     (
       ctx.db.sqlite
-        .prepare("SELECT origin FROM setup_object WHERE kind = 'application' AND tenant_object_id = ?")
+        .prepare(
+          "SELECT origin FROM setup_object WHERE kind = 'application' AND tenant_object_id = ?",
+        )
         .get(objectId) as { origin: string } | undefined
     )?.origin === 'adopted'
   );
 }
 
 const sameSet = (left: readonly string[], right: readonly string[]): boolean =>
-  left.length === right.length && new Set(left).size === new Set(right).size && left.every((item) => right.includes(item));
+  left.length === right.length &&
+  new Set(left).size === new Set(right).size &&
+  left.every((item) => right.includes(item));
 
 function accessKeys(
-  list: ApplicationInfo['requiredResourceAccess'] | readonly { resourceAppId: string; resourceAccess: readonly { id: string; type: string | null }[] }[],
+  list:
+    | ApplicationInfo['requiredResourceAccess']
+    | readonly {
+        resourceAppId: string;
+        resourceAccess: readonly { id: string; type: string | null }[];
+      }[],
 ): string[] {
   return (list ?? []).flatMap((resource) =>
-    resource.resourceAccess.map((entry) => `${resource.resourceAppId}:${entry.id}:${entry.type ?? 'Role'}`),
+    resource.resourceAccess.map(
+      (entry) => `${resource.resourceAppId}:${entry.id}:${entry.type ?? 'Role'}`,
+    ),
   );
 }
 
@@ -69,11 +80,16 @@ export const applicationSettingsSubAction: SubActionDefinition = {
       drift.push('tags');
       patch.tags = [...new Set([...(app.tags ?? []), ...desired.tags])];
     }
-    if (!sameSet(accessKeys(app.requiredResourceAccess), accessKeys(desired.requiredResourceAccess))) {
+    if (
+      !sameSet(accessKeys(app.requiredResourceAccess), accessKeys(desired.requiredResourceAccess))
+    ) {
       drift.push('required_resource_access');
       patch.requiredResourceAccess = desired.requiredResourceAccess.map((resource) => ({
         resourceAppId: resource.resourceAppId,
-        resourceAccess: resource.resourceAccess.map((entry) => ({ id: entry.id, type: entry.type })),
+        resourceAccess: resource.resourceAccess.map((entry) => ({
+          id: entry.id,
+          type: entry.type,
+        })),
       }));
     }
     const claims = app.optionalClaims?.idToken ?? [];
@@ -83,7 +99,10 @@ export const applicationSettingsSubAction: SubActionDefinition = {
     if (!claimsOk) {
       drift.push('optional_claims');
       patch.optionalClaims = {
-        idToken: desired.optionalClaims.idToken.map((claim) => ({ name: claim.name, essential: claim.essential })),
+        idToken: desired.optionalClaims.idToken.map((claim) => ({
+          name: claim.name,
+          essential: claim.essential,
+        })),
       };
     }
     if (app.signInAudience !== desired.signInAudience) {

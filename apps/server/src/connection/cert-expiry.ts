@@ -20,7 +20,13 @@ export function certificateExpiry(notAfter: string, nowMs: number): CertificateE
   const daysLeft = Math.ceil((end - nowMs) / DAY_MS) + 0;
   const { warnDays, criticalDays } = LIMITS.certificate;
   const level: CertificateLevel =
-    daysLeft <= 0 ? 'expired' : daysLeft <= criticalDays ? 'critical' : daysLeft <= warnDays ? 'warning' : 'ok';
+    daysLeft <= 0
+      ? 'expired'
+      : daysLeft <= criticalDays
+        ? 'critical'
+        : daysLeft <= warnDays
+          ? 'warning'
+          : 'ok';
   return { daysLeft, level };
 }
 
@@ -28,7 +34,13 @@ export function certificateExpiry(notAfter: string, nowMs: number): CertificateE
 export function expiryWarningOf(
   notAfter: string,
   nowMs: number,
-): { readonly event: 'certificate_expiry'; readonly level: Exclude<CertificateLevel, 'ok'>; readonly daysLeft: number } | undefined {
+):
+  | {
+      readonly event: 'certificate_expiry';
+      readonly level: Exclude<CertificateLevel, 'ok'>;
+      readonly daysLeft: number;
+    }
+  | undefined {
   const { daysLeft, level } = certificateExpiry(notAfter, nowMs);
   return level === 'ok' ? undefined : { event: 'certificate_expiry', level, daysLeft };
 }

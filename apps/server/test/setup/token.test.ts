@@ -126,7 +126,7 @@ describe('the token never leaves by accident', () => {
     const { token } = await fixture();
     token.ensureFile();
     const value = token.reveal() ?? '';
-    for (const text of [JSON.stringify(token), inspect(token), `${JSON.stringify({ token })}`]) {
+    for (const text of [JSON.stringify(token), inspect(token), JSON.stringify({ token })]) {
       expect(text).not.toContain(value);
     }
     expect(join('a', 'b')).toBeTruthy();

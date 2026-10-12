@@ -18,7 +18,11 @@ export const exchangeRoleSubAction: SubActionDefinition = {
     await ensureResolved(ctx);
     if (run.exchangeSpId === undefined) {
       ctx.log('setup.log.exchange_skipped');
-      return { status: 'skipped', code: 'exchange_service_principal_missing', detail: { exchangeEnabled: false } };
+      return {
+        status: 'skipped',
+        code: 'exchange_service_principal_missing',
+        detail: { exchangeEnabled: false },
+      };
     }
     const provisioner = provisionerOf(ctx);
     const runtimeSpId = services.connections.read(ctx.db)?.spObjectId;
@@ -37,7 +41,8 @@ export const exchangeRoleSubAction: SubActionDefinition = {
       op = 'assign';
     }
     const others = assignments.filter((candidate) => candidate.roleDefinitionId !== templateId);
-    if (others.length > 0) ctx.log('setup.log.drift_found', { kind: 'directory_role_assignment' }, 'warn');
+    if (others.length > 0)
+      ctx.log('setup.log.drift_found', { kind: 'directory_role_assignment' }, 'warn');
     recordChange(ctx, {
       kind: 'directory_role_assignment',
       tenantObjectId: assignment.id,
@@ -49,7 +54,10 @@ export const exchangeRoleSubAction: SubActionDefinition = {
       hintDetail: { name: run.exchangeRole, kind: 'directory_role_assignment' },
       log:
         op === 'assign'
-          ? { key: 'setup.log.created', params: { kind: 'directory_role_assignment', name: run.exchangeRole } }
+          ? {
+              key: 'setup.log.created',
+              params: { kind: 'directory_role_assignment', name: run.exchangeRole },
+            }
           : { key: 'setup.log.unchanged', params: { kind: 'directory_role_assignment' } },
     });
     return {
@@ -60,4 +68,3 @@ export const exchangeRoleSubAction: SubActionDefinition = {
     };
   },
 };
-

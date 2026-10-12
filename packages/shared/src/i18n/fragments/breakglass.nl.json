@@ -3,6 +3,7 @@
   "breakglass.form.normalSignIn": "Terug naar de gewone aanmelding",
   "breakglass.form.password": "Wachtwoord",
   "breakglass.form.required": "Vul dit veld in.",
+  "breakglass.form.retryIn": "U kunt het over {seconds} s opnieuw proberen.",
   "breakglass.form.submit": "Aanmelden met noodtoegang",
   "breakglass.form.submitting": "Aanmelden",
   "breakglass.form.title": "Noodtoegang",

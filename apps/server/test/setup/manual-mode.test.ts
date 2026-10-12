@@ -25,7 +25,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const depsOf = (scene: TenantScene): ManualDeps => ({ services: scene.services, busy: () => scene.engine.busy(), actor: SETUP_ACTOR });
+const depsOf = (scene: TenantScene): ManualDeps => ({
+  services: scene.services,
+  busy: () => scene.engine.busy(),
+  actor: SETUP_ACTOR,
+});
 
 async function problemOf(work: Promise<unknown>): Promise<ProblemError> {
   try {
@@ -61,17 +65,21 @@ describe('the certificate', () => {
     const second = await prepareManualCertificate(scene.services, SETUP_ACTOR);
     expect(first.created).toBe(true);
     expect(second).toMatchObject({ created: false, thumbprint8: first.thumbprint8 });
-    expect(scene.rows("SELECT state FROM certificate")).toEqual([{ state: 'pending' }]);
+    expect(scene.rows('SELECT state FROM certificate')).toEqual([{ state: 'pending' }]);
 
     const file = manualCertificateFile(scene.services);
     expect(file?.filename).toBe(`m365portal-${first.thumbprint8}.cer`);
-    const sha1 = createHash('sha1').update(file?.der ?? Buffer.alloc(0)).digest('hex');
+    const sha1 = createHash('sha1')
+      .update(file?.der ?? Buffer.alloc(0))
+      .digest('hex');
     expect(sha1.slice(0, 8)).toBe(first.thumbprint8);
     expect(file?.der[0]).toBe(0x30); // a DER SEQUENCE: a certificate
     const text = file?.der.toString('latin1') ?? '';
     expect(text).not.toContain('PRIVATE');
     // The sealed private key is a different blob and is not part of the file.
-    const sealed = scene.rows<{ blob: Buffer }>('SELECT blob FROM secret').map((row) => Buffer.from(row.blob));
+    const sealed = scene
+      .rows<{ blob: Buffer }>('SELECT blob FROM secret')
+      .map((row) => Buffer.from(row.blob));
     expect(sealed.length).toBeGreaterThan(0);
     for (const blob of sealed) expect(file?.der.includes(blob)).toBe(false);
   });
@@ -82,7 +90,9 @@ describe('the checklist', () => {
     const scene = await tenantScene();
     await scene.run(['connect', 'configure']);
     const [application] = [...scene.world.graph.directory.applications.values()];
-    const checklist = Object.fromEntries(manualChecklist(scene.services).map((item) => [item.key, item.value]));
+    const checklist = Object.fromEntries(
+      manualChecklist(scene.services).map((item) => [item.key, item.value]),
+    );
     expect(checklist).toMatchObject({
       application_name: application?.displayName,
       description: application?.description,
@@ -91,7 +101,9 @@ describe('the checklist', () => {
       redirect_uris: application?.web.redirectUris,
       implicit_id_token: application?.web.implicitGrantSettings.enableIdTokenIssuance,
       implicit_access_token: application?.web.implicitGrantSettings.enableAccessTokenIssuance,
-      optional_claims: ((application?.optionalClaims as { idToken?: { name: string }[] } | null)?.idToken ?? []).map((claim) => claim.name),
+      optional_claims: (
+        (application?.optionalClaims as { idToken?: { name: string }[] } | null)?.idToken ?? []
+      ).map((claim) => claim.name),
     });
     expect([...(checklist.graph_roles as string[])].sort()).toEqual([...GRAPH_APP_ROLES].sort());
     expect(checklist.exchange_roles).toEqual([EXCHANGE_APP_ROLES.required]);
@@ -137,17 +149,25 @@ describe('the inputs', () => {
       "SELECT step, sub_action, status FROM setup_step WHERE step IN ('connect', 'configure') AND sub_action <> 'device_code' ORDER BY step, sub_action",
     );
     expect(rows.find((row) => row.sub_action === 'manual_inputs')?.status).toBe('succeeded');
-    expect(rows.filter((row) => row.step === 'configure').every((row) => row.status === 'skipped')).toBe(true);
+    expect(
+      rows.filter((row) => row.step === 'configure').every((row) => row.status === 'skipped'),
+    ).toBe(true);
     const [entry] = scene.rows<{ actor_kind: string; detail: string }>(
       "SELECT actor_kind, detail FROM audit_log WHERE action = 'setup.step.run' AND target_id = 'connect' AND detail LIKE '%manual_inputs%'",
     );
     expect(entry?.actor_kind).toBe('setup');
-    expect(JSON.parse(entry?.detail ?? '{}')).toMatchObject({ step: 'connect', subAction: 'manual_inputs', mode: 'manual' });
+    expect(JSON.parse(entry?.detail ?? '{}')).toMatchObject({
+      step: 'connect',
+      subAction: 'manual_inputs',
+      mode: 'manual',
+    });
   });
 
   it('take an oid as the first Owner too, which may be someone other than the signed-in administrator', async () => {
     const { scene, appId } = await tenantWithPortalTasksDone();
-    const other = scene.world.graph.directory.addUser({ userPrincipalName: 'second@contoso-fake.example' });
+    const other = scene.world.graph.directory.addUser({
+      userPrincipalName: 'second@contoso-fake.example',
+    });
     const result = await applyManualInputs(depsOf(scene), {
       applicationClientId: appId,
       tenantId: scene.world.tenantId,
@@ -185,7 +205,9 @@ describe('the inputs', () => {
 
   it('for another tenant than the pinned one are 409 tenant_mismatch', async () => {
     const { scene, appId } = await tenantWithPortalTasksDone();
-    scene.db.sqlite.prepare('UPDATE tenant_connection SET tenant_id = ?').run('11111111-2222-4333-8444-555555555555');
+    scene.db.sqlite
+      .prepare('UPDATE tenant_connection SET tenant_id = ?')
+      .run('11111111-2222-4333-8444-555555555555');
     const problem = await problemOf(
       applyManualInputs(depsOf(scene), {
         applicationClientId: appId,
@@ -203,11 +225,17 @@ describe('the inputs', () => {
       tenantId: scene.world.tenantId,
       firstOwner: { kind: 'oid' as const, value: scene.world.admin.id },
     };
-    expect((await problemOf(applyManualInputs(depsOf(scene), input))).code).toBe('setup_step_not_ready');
+    expect((await problemOf(applyManualInputs(depsOf(scene), input))).code).toBe(
+      'setup_step_not_ready',
+    );
     await prepareManualCertificate(scene.services, SETUP_ACTOR);
-    expect((await problemOf(applyManualInputs({ ...depsOf(scene), busy: () => true }, input))).code).toBe('setup_step_busy');
+    expect(
+      (await problemOf(applyManualInputs({ ...depsOf(scene), busy: () => true }, input))).code,
+    ).toBe('setup_step_busy');
     scene.db.sqlite.prepare("UPDATE setup_state SET state = 'awaiting_first_signin'").run();
-    expect((await problemOf(applyManualInputs(depsOf(scene), input))).code).toBe('setup_step_not_ready');
+    expect((await problemOf(applyManualInputs(depsOf(scene), input))).code).toBe(
+      'setup_step_not_ready',
+    );
   });
 });
 
@@ -219,18 +247,24 @@ describe('verification without a bootstrap', () => {
       tenantId: scene.world.tenantId,
       firstOwner: { kind: 'upn', value: scene.world.admin.userPrincipalName },
     });
-    expect(scene.rows("SELECT state FROM certificate")).toEqual([{ state: 'pending' }]);
-    const deviceRequests = scene.world.entra.control.tokenRequests().filter((r) => (r.grantType ?? '').includes('device')).length;
+    expect(scene.rows('SELECT state FROM certificate')).toEqual([{ state: 'pending' }]);
+    const deviceRequests = scene.world.entra.control
+      .tokenRequests()
+      .filter((r) => (r.grantType ?? '').includes('device')).length;
 
     await scene.run(['verify'], { mode: 'reconcile' });
     expect(scene.engine.current()?.status).toBe('warning');
     expect(scene.rows("SELECT 1 FROM setup_step WHERE status = 'failed'")).toEqual([]);
-    expect(scene.rows("SELECT status, error_code FROM setup_step WHERE sub_action = 'audit_reads'")).toEqual([
-      { status: 'skipped', error_code: 'not_checked' },
-    ]);
-    expect(scene.rows("SELECT state FROM certificate")).toEqual([{ state: 'active' }]);
+    expect(
+      scene.rows("SELECT status, error_code FROM setup_step WHERE sub_action = 'audit_reads'"),
+    ).toEqual([{ status: 'skipped', error_code: 'not_checked' }]);
+    expect(scene.rows('SELECT state FROM certificate')).toEqual([{ state: 'active' }]);
     expect(scene.services.connections.read(scene.db)?.tenantId).toBe(scene.world.tenantId);
-    expect(scene.world.entra.control.tokenRequests().filter((r) => (r.grantType ?? '').includes('device')).length).toBe(deviceRequests);
+    expect(
+      scene.world.entra.control
+        .tokenRequests()
+        .filter((r) => (r.grantType ?? '').includes('device')).length,
+    ).toBe(deviceRequests);
     const steps = scene.services.steps.stepStates(scene.db, 'manual');
     expect(steps.map((step) => [step.step, step.status])).toEqual([
       ['environment', 'pending'],

@@ -880,7 +880,7 @@ describe('what the client does when the session is the problem', () => {
     await expect(dashboard.client.get('/api/v1/me')).rejects.toBeInstanceOf(ApiError);
     expect(dashboard.moves).toEqual(['replace /signin']);
 
-    for (const pathname of ['/setup', '/setup/anything', '/api/v1/me', '//evil.example', '/a\\b']) {
+    for (const pathname of ['/api/v1/me', '//evil.example', '/a\\b']) {
       const hostile = sessionClient(() => problem(401, 'unauthenticated'), { pathname, search: '' });
       await expect(hostile.client.get('/api/v1/me'), pathname).rejects.toBeInstanceOf(ApiError);
       expect(hostile.moves, pathname).toEqual(['replace /signin']);
@@ -894,6 +894,18 @@ describe('what the client does when the session is the problem', () => {
     });
     await expect(client.get('/api/v1/me')).rejects.toBeInstanceOf(ApiError);
     expect(moves).toEqual([]);
+  });
+
+  it('does not leave the pages that answer their own 401: the break-glass form and the setup wizard', async () => {
+    for (const pathname of ['/break-glass', '/setup', '/setup/anything']) {
+      const { client, moves } = sessionClient(() => problem(401, 'unauthenticated'), { pathname, search: '' });
+      await expect(client.get('/api/v1/me'), pathname).rejects.toBeInstanceOf(ApiError);
+      expect(moves, pathname).toEqual([]);
+    }
+    // A look-alike path is a different page and still goes to the sign-in.
+    const other = sessionClient(() => problem(401, 'unauthenticated'), { pathname: '/break-glassy', search: '' });
+    await expect(other.client.get('/api/v1/me')).rejects.toBeInstanceOf(ApiError);
+    expect(other.moves).toEqual(['replace /signin?returnTo=%2Fbreak-glassy']);
   });
 
   it('navigates only for these two codes: a 401 or 403 with another code never moves the browser (+ negative)', async () => {

@@ -26,6 +26,7 @@ import { createHttpClient, type HttpClient } from '../../helpers/http-client.js'
 import { createLogCapture, type LogCapture } from '../../helpers/log-capture.js';
 import { createTempDataDir } from '../../helpers/temp-data-dir.js';
 import { fake, testClock } from '../../support/msw.js';
+import { realPause, trackRealWork } from './tenant-scene.js';
 
 const SERVER_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const WEB = join(SERVER_ROOT, 'test', 'fixtures', 'web-dist');
@@ -36,7 +37,11 @@ export interface WizardServerOptions {
   /** Default true: the Exchange service principal exists in the fake tenant. */
   readonly exchange?: boolean;
   /** Called with the fake tenant before the server starts. */
-  readonly beforeStart?: (world: { graph: FakeGraph; entra: FakeEntra; exchange: FakeExchange }) => void;
+  readonly beforeStart?: (world: {
+    graph: FakeGraph;
+    entra: FakeEntra;
+    exchange: FakeExchange;
+  }) => void;
   /** A data directory to reuse (a restart over the same data). */
   readonly dataDir?: string;
   /** Default true. Fake timers are the test file's business (`useWizardTimers`). */
@@ -76,7 +81,15 @@ export interface WizardServer {
    * second pass at a time (at most `maxSeconds`) until no run is active or `until` says stop.
    */
   drive(options?: { maxSeconds?: number; until?: () => boolean; approve?: boolean }): Promise<void>;
-  auditRows(): { seq: number; actor_kind: string; actor_id: string; action: string; outcome: string; reason_code: string | null; detail: string }[];
+  auditRows(): {
+    seq: number;
+    actor_kind: string;
+    actor_id: string;
+    action: string;
+    outcome: string;
+    reason_code: string | null;
+    detail: string;
+  }[];
 }
 
 async function settle(rounds = 6): Promise<void> {
@@ -114,10 +127,12 @@ export async function startWizardServer(options: WizardServerOptions = {}): Prom
     },
     stderr: createLogCapture(),
     logDestination: logs,
-    modules: (await import('../../../src/modules.js')).appModules.map((factory) => (deps: ModuleDeps) => {
-      captured = deps;
-      return factory(deps);
-    }),
+    modules: (await import('../../../src/modules.js')).appModules.map(
+      (factory) => (deps: ModuleDeps) => {
+        captured = deps;
+        return factory(deps);
+      },
+    ),
     paths: { webRoot: WEB, migrationsFolder: MIGRATIONS },
     umask: () => undefined,
     scheduler,
@@ -155,7 +170,13 @@ export async function startWizardServer(options: WizardServerOptions = {}): Prom
     dataDir,
     logs,
     scheduler,
-    world: { graph, entra, exchange, tenantId: graph.directory.tenantId, admin: { id: admin.id, userPrincipalName: admin.userPrincipalName } },
+    world: {
+      graph,
+      entra,
+      exchange,
+      tenantId: graph.directory.tenantId,
+      admin: { id: admin.id, userPrincipalName: admin.userPrincipalName },
+    },
     deps,
     token: () => {
       try {
@@ -172,14 +193,21 @@ export async function startWizardServer(options: WizardServerOptions = {}): Prom
       if (response.status !== 200) throw new Error(`unlock answered ${String(response.status)}`);
       const setCookie = response.headers.get('set-cookie') ?? '';
       const name = cookieNames(origin).setup;
-      const match = new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=([A-Za-z0-9_-]+)`).exec(setCookie);
+      const match = new RegExp(
+        `${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=([A-Za-z0-9_-]+)`,
+      ).exec(setCookie);
       const value = match?.[1] ?? '';
       const headers = { cookie: `${name}=${value}` };
       return { headers, client: client(headers), value };
     },
-    query: <T>(sql: string, ...params: unknown[]) => reader().sqlite.prepare(sql).all(...params) as T[],
+    query: <T>(sql: string, ...params: unknown[]) =>
+      reader()
+        .sqlite.prepare(sql)
+        .all(...params) as T[],
     exec: (sql, ...params) => {
-      reader().sqlite.prepare(sql).run(...params);
+      reader()
+        .sqlite.prepare(sql)
+        .run(...params);
     },
     database: open,
     advance: async (ms) => {
@@ -191,8 +219,10 @@ export async function startWizardServer(options: WizardServerOptions = {}): Prom
     drive: async (driveOptions = {}) => {
       const max = driveOptions.maxSeconds ?? 1_500;
       let approved = driveOptions.approve === false;
-      const runtimeServices = async () => (await import('../../../src/setup/runtime.js')).setupRuntimeOf(deps());
+      const runtimeServices = async () =>
+        (await import('../../../src/setup/runtime.js')).setupRuntimeOf(deps());
       const runtime = await runtimeServices();
+      const realWork = trackRealWork(deps().secrets);
       await settle(8);
       for (let second = 0; second < max; second += 1) {
         if (!runtime.engine.busy()) break;
@@ -202,13 +232,16 @@ export async function startWizardServer(options: WizardServerOptions = {}): Prom
           approved = true;
         }
         await settle(40);
+        while (realWork.inflight() > 0) await realPause(5);
         await server.advance(1_000);
       }
       await settle(8);
     },
     auditRows: () =>
       reader()
-        .sqlite.prepare('SELECT seq, actor_kind, actor_id, action, outcome, reason_code, detail FROM audit_log ORDER BY seq')
+        .sqlite.prepare(
+          'SELECT seq, actor_kind, actor_id, action, outcome, reason_code, detail FROM audit_log ORDER BY seq',
+        )
         .all() as ReturnType<WizardServer['auditRows']>,
   };
   return server;

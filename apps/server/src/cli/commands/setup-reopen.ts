@@ -30,7 +30,7 @@ export function runSetupReopen(args: readonly string[], io: CommandIo): Promise<
     io.stderr.write(EXPLANATION);
     return Promise.resolve(1);
   }
-  const opened = openSetupScene('setup-reopen', io);
+  const opened = openSetupScene('setup-reopen', io, io.now ?? (() => Date.now()));
   if ('exit' in opened) return Promise.resolve(opened.exit);
   const { config, database, repository, state } = opened.scene;
   try {

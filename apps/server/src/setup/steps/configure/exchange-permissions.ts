@@ -19,16 +19,27 @@ export const exchangePermissionsSubAction: SubActionDefinition = {
         services.connections.update(tx, { exchangeEnabled: false, exchangeSpId: null });
         log('setup.log.exchange_skipped');
       });
-      return { status: 'skipped', code: 'exchange_service_principal_missing', detail: { exchangeEnabled: false } };
+      return {
+        status: 'skipped',
+        code: 'exchange_service_principal_missing',
+        detail: { exchangeEnabled: false },
+      };
     }
     const wanted = [
       EXCHANGE_APP_ROLES.required,
-      ...(ctx.run.roleIds[EXCHANGE_APP_ROLES.whenExposed] === undefined ? [] : [EXCHANGE_APP_ROLES.whenExposed]),
+      ...(ctx.run.roleIds[EXCHANGE_APP_ROLES.whenExposed] === undefined
+        ? []
+        : [EXCHANGE_APP_ROLES.whenExposed]),
     ];
     const result = await ensureGrants(ctx, { resourceSpId: exchangeSpId, wanted });
     return {
       status: 'succeeded',
-      detail: { kind: 'app_role_assignment', count: wanted.length, name: wanted.join(','), exchangeEnabled: true },
+      detail: {
+        kind: 'app_role_assignment',
+        count: wanted.length,
+        name: wanted.join(','),
+        exchangeEnabled: true,
+      },
       hintKey: 'setup.hint.grants',
       ...(result.extra.length > 0 ? { drift: ['extra_exchange_role'] } : {}),
     };

@@ -25,8 +25,10 @@ async function connected(options: Parameters<typeof tenantScene>[0] = {}): Promi
   return scene;
 }
 
-const graphSp = (scene: TenantScene) => scene.world.graph.directory.servicePrincipalByAppId(GRAPH_RESOURCE_APP_ID);
-const exchangeSp = (scene: TenantScene) => scene.world.graph.directory.servicePrincipalByAppId(EXCHANGE_RESOURCE_APP_ID);
+const graphSp = (scene: TenantScene) =>
+  scene.world.graph.directory.servicePrincipalByAppId(GRAPH_RESOURCE_APP_ID);
+const exchangeSp = (scene: TenantScene) =>
+  scene.world.graph.directory.servicePrincipalByAppId(EXCHANGE_RESOURCE_APP_ID);
 const provisioner = (scene: TenantScene) => {
   const found = scene.services.bootstrap.provisioner();
   if (found === undefined) throw new Error('not connected');
@@ -42,7 +44,9 @@ describe('the lookup', () => {
       [...GRAPH_APP_ROLES, EXCHANGE_APP_ROLES.required, EXCHANGE_APP_ROLES.whenExposed].sort(),
     );
     for (const name of GRAPH_APP_ROLES) {
-      expect(resolved.roleIds[name]).toBe(graphSp(scene)?.appRoles.find((role) => role.value === name)?.id);
+      expect(resolved.roleIds[name]).toBe(
+        graphSp(scene)?.appRoles.find((role) => role.value === name)?.id,
+      );
     }
     expect(resolved.graphSpId).toBe(graphSp(scene)?.id);
     expect(resolved.exchangeSpId).toBe(exchangeSp(scene)?.id);
@@ -77,10 +81,12 @@ describe('a role that cannot be used stops with app_role_missing (+ negative)', 
       if (sp !== undefined) sp.appRoles = sp.appRoles.filter((role) => role.value !== name);
     },
     disabled: (scene: TenantScene, name: string) => {
-      for (const role of graphSp(scene)?.appRoles ?? []) if (role.value === name) role.isEnabled = false;
+      for (const role of graphSp(scene)?.appRoles ?? [])
+        if (role.value === name) role.isEnabled = false;
     },
     userOnly: (scene: TenantScene, name: string) => {
-      for (const role of graphSp(scene)?.appRoles ?? []) if (role.value === name) role.allowedMemberTypes = ['User'];
+      for (const role of graphSp(scene)?.appRoles ?? [])
+        if (role.value === name) role.allowedMemberTypes = ['User'];
     },
   } as const;
 
@@ -98,8 +104,11 @@ describe('a role that cannot be used stops with app_role_missing (+ negative)', 
   it('Exchange.ManageAsApp missing from an existing Exchange service principal stops too', async () => {
     const scene = await connected();
     const sp = exchangeSp(scene);
-    if (sp !== undefined) sp.appRoles = sp.appRoles.filter((role) => role.value !== EXCHANGE_APP_ROLES.required);
-    await expect(resolveAppRoles(provisioner(scene))).rejects.toMatchObject({ code: 'app_role_missing' });
+    if (sp !== undefined)
+      sp.appRoles = sp.appRoles.filter((role) => role.value !== EXCHANGE_APP_ROLES.required);
+    await expect(resolveAppRoles(provisioner(scene))).rejects.toMatchObject({
+      code: 'app_role_missing',
+    });
   });
 });
 
@@ -111,7 +120,8 @@ describe('the fixtures', () => {
     const resolved = await resolveAppRoles(provisioner(scene), {
       fixtures: {
         'User.Read.All': '00000000-0000-4000-8000-000000000001',
-        'Organization.Read.All': graphSp(scene)?.appRoles.find((role) => role.value === 'Organization.Read.All')?.id ?? '',
+        'Organization.Read.All':
+          graphSp(scene)?.appRoles.find((role) => role.value === 'Organization.Read.All')?.id ?? '',
       },
       onFixtureMismatch: (role) => seen.push(role),
     });

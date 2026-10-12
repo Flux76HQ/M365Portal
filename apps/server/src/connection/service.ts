@@ -26,7 +26,15 @@ import {
   openProbe,
   type CheckResult,
 } from '../setup/steps/verify-checks.js';
-import { mergeProof, proofItem, readProof, writeProof, type Proof, type ProofItem, type ProofKey } from '../setup/proof.js';
+import {
+  mergeProof,
+  proofItem,
+  readProof,
+  writeProof,
+  type Proof,
+  type ProofItem,
+  type ProofKey,
+} from '../setup/proof.js';
 import type { RunActor } from '../setup/run-context.js';
 import { connectionView, type ConnectionView } from '../setup/view.js';
 
@@ -52,14 +60,20 @@ export async function verifyConnection(
   if (engine.busy()) throw new ProblemError('setup_step_busy');
 
   const connection = services.connections.read(db);
-  if (connection?.tenantId == null || connection.appId == null) throw new ProblemError('setup_step_not_ready');
+  if (connection?.tenantId == null || connection.appId == null)
+    throw new ProblemError('setup_step_not_ready');
   const secrets = deps.secrets.services();
   if (secrets === undefined) throw new ProblemError('secrets_unavailable');
-  if (secrets.certificates.current(db).active === undefined) throw new ProblemError('setup_step_not_ready');
+  if (secrets.certificates.current(db).active === undefined)
+    throw new ProblemError('setup_step_not_ready');
 
   const checks: readonly Check[] = [
     { key: 'check_v1', failCode: 'token_unavailable', run: (probe) => checkToken(services, probe) },
-    { key: 'check_v2', failCode: 'graph_error', run: (probe) => checkOrganization(services, probe, { pin: false }) },
+    {
+      key: 'check_v2',
+      failCode: 'graph_error',
+      run: (probe) => checkOrganization(services, probe, { pin: false }),
+    },
     { key: 'check_v3', failCode: 'graph_error', run: (probe) => checkUsers(services, probe) },
     { key: 'check_v5', failCode: 'graph_error', run: (probe) => checkExchange(services, probe) },
   ];
@@ -76,7 +90,11 @@ export async function verifyConnection(
     try {
       probe = openProbe(services);
     } catch {
-      items.push(proofItem(check.key, 'failed', new Date(deps.now()).toISOString(), { code: check.failCode }));
+      items.push(
+        proofItem(check.key, 'failed', new Date(deps.now()).toISOString(), {
+          code: check.failCode,
+        }),
+      );
       codes.push(check.failCode);
       continue;
     }
@@ -86,11 +104,19 @@ export async function verifyConnection(
       if (result.status === 'failed' && result.code !== undefined) codes.push(result.code);
     } catch (error) {
       if (error instanceof SecretsUnavailableError) throw new ProblemError('secrets_unavailable');
-      if (error instanceof GraphThrottledError && (error.retryAfterMs ?? 0) > VERIFY_BUDGET_MS - (deps.now() - startedAt)) {
+      if (
+        error instanceof GraphThrottledError &&
+        (error.retryAfterMs ?? 0) > VERIFY_BUDGET_MS - (deps.now() - startedAt)
+      ) {
         throw new ProblemError('graph_throttled');
       }
-      if (!(error instanceof IntegrationError) && !(error instanceof NotConnectedError)) throw error;
-      items.push(proofItem(check.key, 'failed', new Date(deps.now()).toISOString(), { code: check.failCode }));
+      if (!(error instanceof IntegrationError) && !(error instanceof NotConnectedError))
+        throw error;
+      items.push(
+        proofItem(check.key, 'failed', new Date(deps.now()).toISOString(), {
+          code: check.failCode,
+        }),
+      );
       codes.push(check.failCode);
     } finally {
       probe.close();

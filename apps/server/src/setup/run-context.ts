@@ -8,7 +8,8 @@ import type { AdoptionPrompt } from './wire.js';
 export type RunKind = 'setup' | 'repair';
 export type RunMode = 'continue' | 'reconcile';
 export type RunStep = 'connect' | 'configure' | 'verify';
-export type RunStatusName = 'running' | 'waiting' | 'succeeded' | 'warning' | 'failed' | 'cancelled';
+export type RunStatusName =
+  'running' | 'waiting' | 'succeeded' | 'warning' | 'failed' | 'cancelled';
 
 /** Who started the run: the setup actor, or a signed-in user (repair, after completion). */
 export interface RunActor {

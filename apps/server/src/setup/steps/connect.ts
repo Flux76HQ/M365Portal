@@ -15,7 +15,11 @@
 // No token is ever kept here: the authenticator is the single holder (FR-B-215) and the slot drops it
 // on every end condition.
 import { GRAPH_RESOURCE_APP_ID } from '@m365portal/shared/setup/graph-roles';
-import { DeviceCodeError, GraphForbiddenError, GraphUnauthorizedError } from '../../ports/errors.js';
+import {
+  DeviceCodeError,
+  GraphForbiddenError,
+  GraphUnauthorizedError,
+} from '../../ports/errors.js';
 import { connectFailureOf } from '../aadsts.js';
 import { auditTenantPin } from '../audit.js';
 import { SetupFailure, type SubActionDefinition } from '../context.js';
@@ -49,7 +53,9 @@ export const deviceCodeSubAction: SubActionDefinition = {
 
     let info;
     try {
-      info = await authenticator.start(run.tenantHint === undefined ? {} : { tenantHint: run.tenantHint });
+      info = await authenticator.start(
+        run.tenantHint === undefined ? {} : { tenantHint: run.tenantHint },
+      );
     } catch (error) {
       if (error instanceof DeviceCodeError) return fail(error);
       slot.discard('failure');

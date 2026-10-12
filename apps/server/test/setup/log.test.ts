@@ -14,7 +14,12 @@ async function make() {
   const add = (n = 1, key: keyof typeof LOG_KEYS = 'setup.log.step_started'): void => {
     withTransaction(db, (tx) => {
       for (let i = 0; i < n; i += 1) {
-        log.append(tx, { step: 'configure', level: 'info', messageKey: key, params: { step: 'configure' } });
+        log.append(tx, {
+          step: 'configure',
+          level: 'info',
+          messageKey: key,
+          params: { step: 'configure' },
+        });
       }
     });
   };
@@ -42,7 +47,10 @@ describe('append', () => {
         }),
       ).toBe(2);
     });
-    const rows = db.sqlite.prepare('SELECT * FROM setup_log ORDER BY seq').all() as Record<string, unknown>[];
+    const rows = db.sqlite.prepare('SELECT * FROM setup_log ORDER BY seq').all() as Record<
+      string,
+      unknown
+    >[];
     expect(rows).toEqual([
       {
         seq: 1,
@@ -66,7 +74,9 @@ describe('append', () => {
   it('keeps the newest 1,000 rows: the oldest are trimmed in the same transaction', async () => {
     const { db, add } = await make();
     add(1_005);
-    const range = db.sqlite.prepare('SELECT count(*) AS n, min(seq) AS low, max(seq) AS high FROM setup_log').get();
+    const range = db.sqlite
+      .prepare('SELECT count(*) AS n, min(seq) AS low, max(seq) AS high FROM setup_log')
+      .get();
     expect(range).toEqual({ n: 1000, low: 6, high: 1005 });
   });
 
@@ -74,7 +84,12 @@ describe('append', () => {
     const { db, log } = await make();
     expect(() =>
       withTransaction(db, (tx) => {
-        log.append(tx, { step: 'verify', level: 'info', messageKey: 'setup.log.run_started', params: { mode: 'continue', steps: 'verify' } });
+        log.append(tx, {
+          step: 'verify',
+          level: 'info',
+          messageKey: 'setup.log.run_started',
+          params: { mode: 'continue', steps: 'verify' },
+        });
         throw new Error('fault');
       }),
     ).toThrow('fault');
@@ -83,30 +98,54 @@ describe('append', () => {
 
   it.each([
     ['an unknown key', { messageKey: 'setup.log.invented', params: {} }],
-    ['a parameter the key does not declare', { messageKey: 'setup.log.created', params: { kind: 'a', name: 'b', extra: 1 } }],
-    ['a parameter named secret', { messageKey: 'setup.log.created', params: { kind: 'a', secret: 'x' } }],
-    ['a parameter named token', { messageKey: 'setup.log.read', params: { what: 'x', token: 'x' } }],
-    ['a nested parameter', { messageKey: 'setup.log.created', params: { kind: { a: 1 }, name: 'b' } }],
-    ['a long string', { messageKey: 'setup.log.created', params: { kind: 'a', name: 'x'.repeat(257) } }],
-    ['more than 8 parameters', { messageKey: 'setup.log.created', params: Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`p${String(i)}`, 1])) }],
+    [
+      'a parameter the key does not declare',
+      { messageKey: 'setup.log.created', params: { kind: 'a', name: 'b', extra: 1 } },
+    ],
+    [
+      'a parameter named secret',
+      { messageKey: 'setup.log.created', params: { kind: 'a', secret: 'x' } },
+    ],
+    [
+      'a parameter named token',
+      { messageKey: 'setup.log.read', params: { what: 'x', token: 'x' } },
+    ],
+    [
+      'a nested parameter',
+      { messageKey: 'setup.log.created', params: { kind: { a: 1 }, name: 'b' } },
+    ],
+    [
+      'a long string',
+      { messageKey: 'setup.log.created', params: { kind: 'a', name: 'x'.repeat(257) } },
+    ],
+    [
+      'more than 8 parameters',
+      {
+        messageKey: 'setup.log.created',
+        params: Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`p${String(i)}`, 1])),
+      },
+    ],
   ])('rejects %s and writes nothing', async (_name, entry) => {
     const { db, log } = await make();
-    expect(() =>
+    expect(() => {
       withTransaction(db, (tx) => {
         log.append(tx, { step: 'configure', level: 'info', ...entry } as never);
-      }),
-    ).toThrow(LogWriteError);
+      });
+    }).toThrow(LogWriteError);
     expect(db.sqlite.prepare('SELECT count(*) AS n FROM setup_log').get()).toEqual({ n: 0 });
   });
 
   it('rejects a level and a step outside the sets', async () => {
     const { db, log } = await make();
-    for (const entry of [{ level: 'debug', step: 'configure' }, { level: 'info', step: 'nope' }]) {
-      expect(() =>
+    for (const entry of [
+      { level: 'debug', step: 'configure' },
+      { level: 'info', step: 'nope' },
+    ]) {
+      expect(() => {
         withTransaction(db, (tx) => {
           log.append(tx, { messageKey: 'setup.log.run_cancelled', params: {}, ...entry } as never);
-        }),
-      ).toThrow(LogWriteError);
+        });
+      }).toThrow(LogWriteError);
     }
   });
 });
@@ -132,10 +171,22 @@ describe('read', () => {
   it('the lines are the wire shape with the key and scalar parameters', async () => {
     const { db, log, clock } = await make();
     withTransaction(db, (tx) => {
-      log.append(tx, { step: 'connect', level: 'info', messageKey: 'setup.log.bootstrap_waiting', params: { seconds: 5 } });
+      log.append(tx, {
+        step: 'connect',
+        level: 'info',
+        messageKey: 'setup.log.bootstrap_waiting',
+        params: { seconds: 5 },
+      });
     });
     expect(log.read(db, { after: 0, limit: 10 }).lines).toEqual([
-      { seq: 1, ts: clock.iso(), step: 'connect', level: 'info', messageKey: 'setup.log.bootstrap_waiting', params: { seconds: 5 } },
+      {
+        seq: 1,
+        ts: clock.iso(),
+        step: 'connect',
+        level: 'info',
+        messageKey: 'setup.log.bootstrap_waiting',
+        params: { seconds: 5 },
+      },
     ]);
   });
 
@@ -151,7 +202,12 @@ describe('read', () => {
 
   it('validates the limit and the cursor', async () => {
     const { db, log } = await make();
-    for (const options of [{ after: -1, limit: 10 }, { after: 0, limit: 0 }, { after: 0, limit: 201 }, { after: 1.5, limit: 10 }]) {
+    for (const options of [
+      { after: -1, limit: 10 },
+      { after: 0, limit: 0 },
+      { after: 0, limit: 201 },
+      { after: 1.5, limit: 10 },
+    ]) {
       expect(() => log.read(db, options)).toThrow(RangeError);
     }
   });

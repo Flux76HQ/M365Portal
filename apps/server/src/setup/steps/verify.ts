@@ -21,7 +21,12 @@ import {
   GRAPH_APP_ROLES,
 } from '@m365portal/shared/setup/graph-roles';
 import type { ResultCode } from '@m365portal/shared/setup/result-codes';
-import { SetupFailure, type SubActionContext, type SubActionDefinition, type SubActionOutcome } from '../context.js';
+import {
+  SetupFailure,
+  type SubActionContext,
+  type SubActionDefinition,
+  type SubActionOutcome,
+} from '../context.js';
 import { mergeProof, proofItem, readProof, writeProof, type ProofItem } from '../proof.js';
 import {
   checkExchange,
@@ -38,7 +43,11 @@ function saveProof(ctx: SubActionContext, items: readonly ProofItem[]): void {
   ctx.transact(({ tx, services }) => {
     const existing = readProof(services.connections, tx);
     const mode = services.state.read(tx).mode;
-    writeProof(services.connections, tx, mergeProof(existing, items, { generatedAt: ctx.iso(), mode }));
+    writeProof(
+      services.connections,
+      tx,
+      mergeProof(existing, items, { generatedAt: ctx.iso(), mode }),
+    );
   });
 }
 
@@ -48,9 +57,17 @@ function outcomeOf(result: CheckResult): SubActionOutcome {
     case 'ok':
       return { status: 'succeeded', detail };
     case 'warning':
-      return { status: 'warning', ...(result.code === undefined ? {} : { code: result.code }), detail };
+      return {
+        status: 'warning',
+        ...(result.code === undefined ? {} : { code: result.code }),
+        detail,
+      };
     case 'skipped':
-      return { status: 'skipped', ...(result.code === undefined ? {} : { code: result.code }), detail };
+      return {
+        status: 'skipped',
+        ...(result.code === undefined ? {} : { code: result.code }),
+        detail,
+      };
     case 'failed':
       return { status: 'failed', code: result.code ?? 'drift_detected', detail };
   }
@@ -83,7 +100,9 @@ async function appOnly(
 const sameSet = (left: readonly string[], right: readonly string[]): boolean =>
   new Set(left).size === new Set(right).size && left.every((item) => right.includes(item));
 
-async function readDelegated(ctx: SubActionContext): Promise<SubActionOutcome & { items: ProofItem[] }> {
+async function readDelegated(
+  ctx: SubActionContext,
+): Promise<SubActionOutcome & { items: ProofItem[] }> {
   const { services, run } = ctx;
   const provisioner = provisionerOf(ctx);
   await ensureResolved(ctx);
@@ -105,12 +124,21 @@ async function readDelegated(ctx: SubActionContext): Promise<SubActionOutcome & 
     app.signInAudience === desired.signInAudience &&
     sameSet(app.redirectUris ?? [], desired.web.redirectUris) &&
     desired.tags.every((tag) => app.tags?.includes(tag) === true);
-  items.push(proofItem('application', appOk ? 'ok' : 'failed', now, appOk ? {} : { code: 'drift_detected' }));
+  items.push(
+    proofItem('application', appOk ? 'ok' : 'failed', now, appOk ? {} : { code: 'drift_detected' }),
+  );
   if (!appOk) drift.push('application');
 
   // The service principal.
   const sp = await provisioner.findServicePrincipalByAppId(appId);
-  items.push(proofItem('service_principal', sp === null ? 'failed' : 'ok', now, sp === null ? { code: 'drift_detected' } : {}));
+  items.push(
+    proofItem(
+      'service_principal',
+      sp === null ? 'failed' : 'ok',
+      now,
+      sp === null ? { code: 'drift_detected' } : {},
+    ),
+  );
   if (sp === null) drift.push('service_principal');
 
   // The credentials: ours by thumbprint, the rest counted (FR-B-319).
@@ -120,7 +148,9 @@ async function readDelegated(ctx: SubActionContext): Promise<SubActionOutcome & 
   const ours = [certificates?.active, certificates?.pending]
     .filter((certificate) => certificate !== undefined)
     .map((certificate) => certificate.thumbprintSha1.toUpperCase());
-  const remote = (inventory.keyCredentials ?? []).map((credential) => credential.thumbprintSha1?.toUpperCase() ?? null);
+  const remote = (inventory.keyCredentials ?? []).map(
+    (credential) => credential.thumbprintSha1?.toUpperCase() ?? null,
+  );
   const activeThumbprint = certificates?.active?.thumbprintSha1.toUpperCase();
   const present = activeThumbprint !== undefined && remote.includes(activeThumbprint);
   if (inventory.keyCredentials === null) {
@@ -128,9 +158,17 @@ async function readDelegated(ctx: SubActionContext): Promise<SubActionOutcome & 
     items.push(proofItem('certificate', 'not_checked', now));
   } else {
     items.push(
-      proofItem('certificate', present ? 'ok' : 'failed', now, present
-        ? { thumbprint8: activeThumbprint.slice(0, 8).toLowerCase(), notAfter: certificates?.active?.notAfter ?? '' }
-        : { code: 'drift_detected' }),
+      proofItem(
+        'certificate',
+        present ? 'ok' : 'failed',
+        now,
+        present
+          ? {
+              thumbprint8: activeThumbprint.slice(0, 8).toLowerCase(),
+              notAfter: certificates?.active?.notAfter ?? '',
+            }
+          : { code: 'drift_detected' },
+      ),
     );
     if (!present) drift.push('certificate');
   }
@@ -142,13 +180,21 @@ async function readDelegated(ctx: SubActionContext): Promise<SubActionOutcome & 
       .filter((grant) => grant.resourceId === resourceSpId)
       .map((grant) => run.roleNames[grant.appRoleId] ?? grant.appRoleId);
   const graphHeld = named(run.graphSpId);
-  const forbidden = graphHeld.filter((name) => (FORBIDDEN_APP_ROLES as readonly string[]).includes(name));
+  const forbidden = graphHeld.filter((name) =>
+    (FORBIDDEN_APP_ROLES as readonly string[]).includes(name),
+  );
   const graphMissing = GRAPH_APP_ROLES.filter((name) => !graphHeld.includes(name));
-  const graphExtra = graphHeld.filter((name) => !(GRAPH_APP_ROLES as readonly string[]).includes(name));
+  const graphExtra = graphHeld.filter(
+    (name) => !(GRAPH_APP_ROLES as readonly string[]).includes(name),
+  );
   items.push(
     proofItem(
       'graph_roles',
-      graphMissing.length > 0 || forbidden.length > 0 ? 'failed' : graphExtra.length > 0 ? 'warning' : 'ok',
+      graphMissing.length > 0 || forbidden.length > 0
+        ? 'failed'
+        : graphExtra.length > 0
+          ? 'warning'
+          : 'ok',
       now,
       { count: graphHeld.length, extra: graphExtra.length, missing: graphMissing.length },
     ),
@@ -158,45 +204,76 @@ async function readDelegated(ctx: SubActionContext): Promise<SubActionOutcome & 
   if (run.exchangeSpId !== undefined) {
     const wanted: string[] = [
       EXCHANGE_APP_ROLES.required,
-      ...(run.roleIds[EXCHANGE_APP_ROLES.whenExposed] === undefined ? [] : [EXCHANGE_APP_ROLES.whenExposed]),
+      ...(run.roleIds[EXCHANGE_APP_ROLES.whenExposed] === undefined
+        ? []
+        : [EXCHANGE_APP_ROLES.whenExposed]),
     ];
     const held = named(run.exchangeSpId);
     const missing = wanted.filter((name) => !held.includes(name));
     const extra = held.filter((name) => !wanted.includes(name));
     items.push(
-      proofItem('exchange_roles', missing.length > 0 ? 'failed' : extra.length > 0 ? 'warning' : 'ok', now, {
-        count: held.length,
-        extra: extra.length,
-        missing: missing.length,
-      }),
+      proofItem(
+        'exchange_roles',
+        missing.length > 0 ? 'failed' : extra.length > 0 ? 'warning' : 'ok',
+        now,
+        {
+          count: held.length,
+          extra: extra.length,
+          missing: missing.length,
+        },
+      ),
     );
     if (missing.length > 0) drift.push('exchange_roles');
     const assignments = spId == null ? [] : await provisioner.listDirectoryRoleAssignments(spId);
     const wantedRole = connection?.exchangeRoleTemplateId;
-    const hasRole = wantedRole != null && assignments.some((assignment) => assignment.roleDefinitionId === wantedRole);
-    items.push(proofItem('entra_role', hasRole ? 'ok' : 'failed', now, hasRole ? {} : { code: 'drift_detected' }));
+    const hasRole =
+      wantedRole != null &&
+      assignments.some((assignment) => assignment.roleDefinitionId === wantedRole);
+    items.push(
+      proofItem(
+        'entra_role',
+        hasRole ? 'ok' : 'failed',
+        now,
+        hasRole ? {} : { code: 'drift_detected' },
+      ),
+    );
     if (!hasRole) drift.push('entra_role');
   } else {
-    items.push(proofItem('exchange_roles', 'not_checked', now), proofItem('entra_role', 'not_checked', now));
+    items.push(
+      proofItem('exchange_roles', 'not_checked', now),
+      proofItem('entra_role', 'not_checked', now),
+    );
   }
 
   // Credentials and owners the panel did not create (FR-B-319): counts only, owner ids are not kept.
   const passwords = (inventory.passwordCredentials ?? 0) + (spInventory?.passwordCredentials ?? 0);
   const foreignKeys =
-    (inventory.keyCredentials ?? []).filter((credential) => !ours.includes(credential.thumbprintSha1?.toUpperCase() ?? '')).length +
-    (spInventory?.keyCredentials ?? []).length;
+    (inventory.keyCredentials ?? []).filter(
+      (credential) => !ours.includes(credential.thumbprintSha1?.toUpperCase() ?? ''),
+    ).length + (spInventory?.keyCredentials ?? []).length;
   const owners = (inventory.ownerIds ?? []).length + (spInventory?.ownerIds ?? []).length;
   const unreadable =
-    inventory.passwordCredentials === null || inventory.keyCredentials === null || inventory.ownerIds === null;
+    inventory.passwordCredentials === null ||
+    inventory.keyCredentials === null ||
+    inventory.ownerIds === null;
   const foreign = passwords > 0 || foreignKeys > 0;
   const v4Failed = drift.length > 0 || forbidden.length > 0;
   items.push(
-    proofItem('check_v4', unreadable && !v4Failed ? 'not_checked' : v4Failed ? 'failed' : foreign ? 'warning' : 'ok', now, {
-      passwordCredentials: passwords,
-      foreignKeyCredentials: foreignKeys,
-      owners,
-      ...(v4Failed ? { code: forbidden.length > 0 ? 'forbidden_permission_present' : 'drift_detected' } : foreign ? { code: 'foreign_credential_present' } : {}),
-    }),
+    proofItem(
+      'check_v4',
+      unreadable && !v4Failed ? 'not_checked' : v4Failed ? 'failed' : foreign ? 'warning' : 'ok',
+      now,
+      {
+        passwordCredentials: passwords,
+        foreignKeyCredentials: foreignKeys,
+        owners,
+        ...(v4Failed
+          ? { code: forbidden.length > 0 ? 'forbidden_permission_present' : 'drift_detected' }
+          : foreign
+            ? { code: 'foreign_credential_present' }
+            : {}),
+      },
+    ),
   );
 
   // V6: the optional claims.
@@ -204,16 +281,39 @@ async function readDelegated(ctx: SubActionContext): Promise<SubActionOutcome & 
   const claimsOk = desired.optionalClaims.idToken.every((wanted) =>
     claims.some((claim) => claim.name === wanted.name),
   );
-  items.push(proofItem('check_v6', claimsOk ? 'ok' : 'warning', now, claimsOk ? {} : { code: 'optional_claim_missing' }));
+  items.push(
+    proofItem(
+      'check_v6',
+      claimsOk ? 'ok' : 'warning',
+      now,
+      claimsOk ? {} : { code: 'optional_claim_missing' },
+    ),
+  );
 
   if (forbidden.length > 0) {
-    return { status: 'failed', code: 'forbidden_permission_present', detail: { count: forbidden.length }, items };
+    return {
+      status: 'failed',
+      code: 'forbidden_permission_present',
+      detail: { count: forbidden.length },
+      items,
+    };
   }
   if (drift.length > 0) {
-    return { status: 'failed', code: 'drift_detected', detail: { count: drift.length }, items, drift };
+    return {
+      status: 'failed',
+      code: 'drift_detected',
+      detail: { count: drift.length },
+      items,
+      drift,
+    };
   }
   if (foreign) {
-    return { status: 'warning', code: 'foreign_credential_present', detail: { count: passwords + foreignKeys }, items };
+    return {
+      status: 'warning',
+      code: 'foreign_credential_present',
+      detail: { count: passwords + foreignKeys },
+      items,
+    };
   }
   if (!claimsOk) return { status: 'warning', code: 'optional_claim_missing', detail: {}, items };
   return { status: 'succeeded', detail: {}, items };
@@ -227,15 +327,22 @@ export const auditReadsSubAction: SubActionDefinition = {
     const slot = ctx.services.bootstrap;
     const now = ctx.iso();
     if (ctx.mode === 'manual' || !slot.live()) {
-      saveProof(ctx, [proofItem('check_v4', 'not_checked', now), proofItem('check_v6', 'not_checked', now)]);
-      return { status: 'skipped', code: 'not_checked', detail: ctx.mode === 'manual' ? { manual: true } : {} };
+      saveProof(ctx, [
+        proofItem('check_v4', 'not_checked', now),
+        proofItem('check_v6', 'not_checked', now),
+      ]);
+      return {
+        status: 'skipped',
+        code: 'not_checked',
+        detail: ctx.mode === 'manual' ? { manual: true } : {},
+      };
     }
     const { items, ...outcome } = await readDelegated(ctx);
     saveProof(ctx, items);
     // The delegated reads are done: the bootstrap object goes now, before any propagation probe.
     slot.discard('audit_reads_done');
     ctx.log('setup.log.bootstrap_discarded');
-    return outcome as SubActionOutcome;
+    return outcome;
   },
 };
 

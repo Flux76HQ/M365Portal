@@ -6,8 +6,15 @@ import { startWizardServer, type WizardServer } from './support/server-scene.js'
 
 const HTML = { accept: 'text/html' };
 
-async function navigate(server: WizardServer, path: string, headers: Record<string, string> = {}): Promise<Response> {
-  return fetch(new URL(path, server.socket), { headers: { ...HTML, ...headers }, redirect: 'manual' });
+async function navigate(
+  server: WizardServer,
+  path: string,
+  headers: Record<string, string> = {},
+): Promise<Response> {
+  return fetch(new URL(path, server.socket), {
+    headers: { ...HTML, ...headers },
+    redirect: 'manual',
+  });
 }
 
 describe('while the wizard is open', () => {
@@ -23,15 +30,22 @@ describe('while the wizard is open', () => {
     expect((await navigate(server, path)).status).toBe(200);
   });
 
-  it.each(['/signin', '/signin/error', '/no-access'])('%s is never bounced to the token form', async (path) => {
-    const server = await startWizardServer();
-    expect((await navigate(server, path)).status).toBe(200);
-  });
+  it.each(['/signin', '/signin/error', '/no-access'])(
+    '%s is never bounced to the token form',
+    async (path) => {
+      const server = await startWizardServer();
+      expect((await navigate(server, path)).status).toBe(200);
+    },
+  );
 
   it('a request over a proxy (the guard refuses) is not redirected, and /setup is a 404 there', async () => {
     const server = await startWizardServer();
-    expect((await navigate(server, '/users', { 'x-forwarded-for': '203.0.113.9' })).status).toBe(200);
-    expect((await navigate(server, '/setup', { 'x-forwarded-for': '203.0.113.9' })).status).toBe(404);
+    expect((await navigate(server, '/users', { 'x-forwarded-for': '203.0.113.9' })).status).toBe(
+      200,
+    );
+    expect((await navigate(server, '/setup', { 'x-forwarded-for': '203.0.113.9' })).status).toBe(
+      404,
+    );
   });
 });
 
@@ -40,7 +54,9 @@ describe('once the setup is completed', () => {
     const server = await startWizardServer();
     server.exec("UPDATE setup_state SET state = 'in_progress'");
     server.exec("UPDATE setup_state SET state = 'awaiting_first_signin'");
-    server.exec("UPDATE setup_state SET state = 'completed', completed_at = '2026-10-12T00:00:00.000Z'");
+    server.exec(
+      "UPDATE setup_state SET state = 'completed', completed_at = '2026-10-12T00:00:00.000Z'",
+    );
     const setup = await navigate(server, '/setup');
     expect(setup.status).toBe(404);
     expect(await setup.text()).toContain('<div id="root"');

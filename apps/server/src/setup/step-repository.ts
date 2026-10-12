@@ -93,8 +93,15 @@ export interface SubActionWire {
   readonly startedAt: string | null;
   readonly finishedAt: string | null;
   readonly errorCode: ResultCode | null;
-  readonly hint: { readonly key: string; readonly params: Record<string, string | number | boolean> } | null;
-  readonly waiting: { readonly attempt: number; readonly max: number; readonly nextAttemptAt: string } | null;
+  readonly hint: {
+    readonly key: string;
+    readonly params: Record<string, string | number | boolean>;
+  } | null;
+  readonly waiting: {
+    readonly attempt: number;
+    readonly max: number;
+    readonly nextAttemptAt: string;
+  } | null;
   readonly manual: boolean;
 }
 
@@ -168,60 +175,81 @@ export class SetupStepRepository {
     if (!Object.hasOwn(STEPS, step) || stepOfSubAction(subAction) !== step) {
       throw new StepWriteError('unknown_sub_action');
     }
-    const sets: string[] = [];
-    const values: unknown[] = [];
-    const add = (column: string, value: unknown): void => {
-      sets.push(`${column} = ?`);
-      values.push(value);
-    };
-
-    if (patch.status !== undefined) {
-      if (!(STEP_STATUSES as readonly string[]).includes(patch.status)) {
-        throw new StepWriteError('status_invalid');
+    if (
+      patch.status !== undefined &&
+      !(STEP_STATUSES as readonly string[]).includes(patch.status)
+    ) {
+      throw new StepWriteError('status_invalid');
+    }
+    if (
+      patch.attempt !== undefined &&
+      (!Number.isSafeInteger(patch.attempt) || patch.attempt < 0)
+    ) {
+      throw new StepWriteError('attempt_invalid');
+    }
+    for (const value of [patch.startedAt, patch.finishedAt]) {
+      if (value !== undefined && value !== null && !ISO.test(value)) {
+        throw new StepWriteError('timestamp_invalid');
       }
-      add('status', patch.status);
     }
-    if (patch.attempt !== undefined) {
-      if (!Number.isSafeInteger(patch.attempt) || patch.attempt < 0) {
-        throw new StepWriteError('attempt_invalid');
-      }
-      add('attempt', patch.attempt);
+    if (
+      patch.errorCode !== undefined &&
+      patch.errorCode !== null &&
+      !isResultCode(patch.errorCode)
+    ) {
+      throw new StepWriteError('error_code_invalid');
     }
-    for (const [column, value] of [
-      ['started_at', patch.startedAt],
-      ['finished_at', patch.finishedAt],
-    ] as const) {
-      if (value === undefined) continue;
-      if (value !== null && !ISO.test(value)) throw new StepWriteError('timestamp_invalid');
-      add(column, value);
+    if (
+      patch.hintKey !== undefined &&
+      patch.hintKey !== null &&
+      !(ROLLBACK_HINT_KEYS as readonly string[]).includes(patch.hintKey)
+    ) {
+      throw new StepWriteError('hint_invalid');
     }
-    if (patch.errorCode !== undefined) {
-      if (patch.errorCode !== null && !isResultCode(patch.errorCode)) {
-        throw new StepWriteError('error_code_invalid');
-      }
-      add('error_code', patch.errorCode);
-    }
-    if (patch.hintKey !== undefined) {
-      if (patch.hintKey !== null && !(ROLLBACK_HINT_KEYS as readonly string[]).includes(patch.hintKey)) {
-        throw new StepWriteError('hint_invalid');
-      }
-      add('rollback_hint_key', patch.hintKey);
-    }
+    let detail: string | null = null;
     if (patch.detail !== undefined) {
       const checked = StepDetailSchema.safeParse(patch.detail);
       if (!checked.success) throw new StepWriteError('detail_invalid');
-      add('detail', JSON.stringify(checked.data));
+      detail = JSON.stringify(checked.data);
     }
-    add('updated_at', iso(this.#now()));
+    const updatedAt = iso(this.#now());
+    // A member that is absent keeps the column; `null` clears the columns that may be empty.
+    const flag = (value: unknown): number => (value === undefined ? 0 : 1);
 
     tx.sqlite
       .prepare(
         "INSERT OR IGNORE INTO setup_step (step, sub_action, status, attempt, detail, updated_at) VALUES (?, ?, 'pending', 0, '{}', ?)",
       )
-      .run(step, subAction, iso(this.#now()));
+      .run(step, subAction, updatedAt);
     tx.sqlite
-      .prepare(`UPDATE setup_step SET ${sets.join(', ')} WHERE step = ? AND sub_action = ?`)
-      .run(...values, step, subAction);
+      .prepare(
+        `UPDATE setup_step SET
+           status = COALESCE(?, status),
+           attempt = COALESCE(?, attempt),
+           started_at = CASE WHEN ? = 1 THEN ? ELSE started_at END,
+           finished_at = CASE WHEN ? = 1 THEN ? ELSE finished_at END,
+           error_code = CASE WHEN ? = 1 THEN ? ELSE error_code END,
+           rollback_hint_key = CASE WHEN ? = 1 THEN ? ELSE rollback_hint_key END,
+           detail = COALESCE(?, detail),
+           updated_at = ?
+         WHERE step = ? AND sub_action = ?`,
+      )
+      .run(
+        patch.status ?? null,
+        patch.attempt ?? null,
+        flag(patch.startedAt),
+        patch.startedAt ?? null,
+        flag(patch.finishedAt),
+        patch.finishedAt ?? null,
+        flag(patch.errorCode),
+        patch.errorCode ?? null,
+        flag(patch.hintKey),
+        patch.hintKey ?? null,
+        detail,
+        updatedAt,
+        step,
+        subAction,
+      );
   }
 
   /** `running` and `waiting` rows go back to `pending` (a crash, a cancel). Returns how many. */
@@ -246,7 +274,8 @@ export class SetupStepRepository {
           status: sub.status,
           warning:
             sub.status === 'skipped' &&
-            (sub.errorCode === 'exchange_service_principal_missing' || sub.errorCode === 'not_checked'),
+            (sub.errorCode === 'exchange_service_principal_missing' ||
+              sub.errorCode === 'not_checked'),
         })),
       );
       return { step, status, subActions };

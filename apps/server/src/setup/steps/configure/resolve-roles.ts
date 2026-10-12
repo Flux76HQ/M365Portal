@@ -18,7 +18,11 @@ import {
   GRAPH_APP_ROLES,
   GRAPH_RESOURCE_APP_ID,
 } from '@m365portal/shared/setup/graph-roles';
-import type { AppRoleInfo, ServicePrincipalInfo, TenantProvisioner } from '../../../ports/provisioner.js';
+import type {
+  AppRoleInfo,
+  ServicePrincipalInfo,
+  TenantProvisioner,
+} from '../../../ports/provisioner.js';
 import { SetupFailure } from '../../context.js';
 
 /**
@@ -46,8 +50,7 @@ function usable(role: AppRoleInfo, name: string): boolean {
   return (
     role.value === name &&
     role.isEnabled === true &&
-    role.allowedMemberTypes !== null &&
-    role.allowedMemberTypes.includes('Application')
+    role.allowedMemberTypes?.includes('Application') === true
   );
 }
 
@@ -64,7 +67,8 @@ export async function resolveAppRoles(
   const roleIds: Record<string, string> = {};
   const roleNames: Record<string, string> = {};
   const nameAll = (resource: ServicePrincipalInfo): void => {
-    for (const role of resource.appRoles ?? []) if (role.value !== null) roleNames[role.id] = role.value;
+    for (const role of resource.appRoles ?? [])
+      if (role.value !== null) roleNames[role.id] = role.value;
   };
   nameAll(graph);
   const compare = (name: string, id: string): void => {
@@ -80,7 +84,8 @@ export async function resolveAppRoles(
   }
 
   const exchange = await provisioner.findServicePrincipalByAppId(EXCHANGE_RESOURCE_APP_ID);
-  if (exchange === null) return { graphSpId: graph.id, exchangeSpId: undefined, roleIds, roleNames };
+  if (exchange === null)
+    return { graphSpId: graph.id, exchangeSpId: undefined, roleIds, roleNames };
   nameAll(exchange);
 
   const required = roleId(exchange, EXCHANGE_APP_ROLES.required);

@@ -1,5 +1,5 @@
 import { STEP_KEYS, type StepKey } from '@m365portal/shared/setup/steps';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { Skeleton } from '../../components/ui/skeleton';
 import { ApiError, type ApiClient } from '../../lib/api';
@@ -9,8 +9,9 @@ import { LogRegion } from './LogRegion';
 import { StepList, isStepDone } from './StepList';
 import { renderStep } from './steps';
 import { TokenForm } from './TokenForm';
-import { connectionApi, setupApi, setupKeys, type StepState } from './setup-api';
+import { setupApi, setupKeys, type StepState } from './setup-api';
 import { useRunPolling } from './useRunPolling';
+import { useWizardActions } from './useWizardActions';
 import type { WizardActions, WizardContext } from './wizard-context';
 
 /**
@@ -25,33 +26,6 @@ export function currentStepOf(steps: readonly StepState[], environmentSeen: bool
     if (!isStepDone(status)) return key;
   }
   return 'finish';
-}
-
-function useWizardActions(api: ApiClient, poke: () => void): WizardActions {
-  const runs = connectionApi(api);
-  const start = useMutation({ mutationFn: runs.start, onSuccess: poke });
-  const retryNow = useMutation({ mutationFn: runs.retryNow, onSuccess: poke });
-  const cancel = useMutation({ mutationFn: runs.cancel, onSuccess: poke });
-  const adopt = useMutation({ mutationFn: runs.adopt, onSuccess: poke });
-  const all = [start, retryNow, cancel, adopt];
-  const error = all.find((mutation) => mutation.isError)?.error ?? null;
-  return {
-    start: (request) => {
-      cancel.reset();
-      start.mutate(request);
-    },
-    retryNow: () => {
-      retryNow.mutate();
-    },
-    cancel: () => {
-      cancel.mutate();
-    },
-    adopt: (request) => {
-      adopt.mutate(request);
-    },
-    busy: all.some((mutation) => mutation.isPending),
-    error,
-  };
 }
 
 export interface WizardProps {
@@ -73,7 +47,7 @@ export function Wizard({ api }: WizardProps) {
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
   });
-  const { state: poll, poke } = useRunPolling({
+  const { state: poll, poke, refresh: refreshSnapshot } = useRunPolling({
     api,
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: setupKeys.state });
@@ -120,6 +94,7 @@ export function Wizard({ api }: WizardProps) {
       actions={actions}
       refresh={() => {
         void state.refetch();
+        refreshSnapshot();
       }}
     />
   );

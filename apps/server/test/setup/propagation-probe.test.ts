@@ -25,7 +25,13 @@ function delayPropagation(scene: TenantScene, count: number): { issued: () => nu
   world.issueAppToken = (appId, audience, options) => {
     n += 1;
     if (n <= count) {
-      return world.tokens.issue({ audience, kind: 'app', appId, roles: [], entraRoleTemplateIds: [] });
+      return world.tokens.issue({
+        audience,
+        kind: 'app',
+        appId,
+        roles: [],
+        entraRoleTemplateIds: [],
+      });
     }
     return issue(appId, audience, options);
   };
@@ -62,10 +68,14 @@ describe('fresh tokens', () => {
       };
       return clients;
     });
-    const before = scene.world.entra.control.tokenRequests().filter((r) => r.grantType === 'client_credentials').length;
+    const before = scene.world.entra.control
+      .tokenRequests()
+      .filter((r) => r.grantType === 'client_credentials').length;
     await scene.run(['verify'], { mode: 'reconcile' });
     expect(asked[0]).toBe(true);
-    const after = scene.world.entra.control.tokenRequests().filter((r) => r.grantType === 'client_credentials').length;
+    const after = scene.world.entra.control
+      .tokenRequests()
+      .filter((r) => r.grantType === 'client_credentials').length;
     // V1, V2, V3 and V5: four clients, four token requests (a cache would have made it one).
     expect(after - before).toBeGreaterThanOrEqual(4);
   });
@@ -74,7 +84,10 @@ describe('fresh tokens', () => {
     const scene = await configured();
     fake.calls.clear();
     await scene.run(['verify'], { mode: 'reconcile' });
-    const paths = fake.calls.all().filter((call) => call.host === 'graph.microsoft.com').map((call) => `${call.method} ${call.path}`);
+    const paths = fake.calls
+      .all()
+      .filter((call) => call.host === 'graph.microsoft.com')
+      .map((call) => `${call.method} ${call.path}`);
     expect(paths).toContain('GET /v1.0/organization');
     expect(paths).toContain('GET /v1.0/users');
     expect(fake.calls.mutating().filter((call) => call.host === 'graph.microsoft.com')).toEqual([]);
@@ -90,23 +103,34 @@ describe('waiting for propagation', () => {
     expect(scene.engine.current()?.status).toBe('warning');
     expect(scene.rows("SELECT 1 FROM setup_step WHERE status = 'failed'")).toEqual([]);
     expect(delay.issued()).toBeGreaterThan(2);
-    const waits = scene.rows<{ params: string }>("SELECT params FROM setup_log WHERE message_key = 'setup.log.waiting_replication' ORDER BY seq");
+    const waits = scene.rows<{ params: string }>(
+      "SELECT params FROM setup_log WHERE message_key = 'setup.log.waiting_replication' ORDER BY seq",
+    );
     expect(waits.length).toBeGreaterThanOrEqual(1);
     for (const line of waits) {
       const params = JSON.parse(line.params) as { attempt: number; max: number; seconds: number };
       expect(params.attempt).toBeGreaterThanOrEqual(1);
       expect(params.seconds).toBeGreaterThanOrEqual(1);
     }
-    expect(scene.rows("SELECT attempt FROM setup_step WHERE sub_action IN ('organization', 'users') ORDER BY sub_action").some((r) => (r as { attempt: number }).attempt > 1)).toBe(true);
+    expect(
+      scene
+        .rows(
+          "SELECT attempt FROM setup_step WHERE sub_action IN ('organization', 'users') ORDER BY sub_action",
+        )
+        .some((r) => (r as { attempt: number }).attempt > 1),
+    ).toBe(true);
   });
 
   it('when the window (SETUP_PROPAGATION_TIMEOUT_SECONDS) runs out the sub-action fails replication_timeout with the elapsed time', async () => {
     const scene = await configured({ env: { SETUP_PROPAGATION_TIMEOUT_SECONDS: '300' } });
     delayPropagation(scene, 10_000);
     await scene.run(['verify'], { mode: 'reconcile', maxSeconds: 900 });
-    const [failed] = scene.rows<{ sub_action: string; status: string; error_code: string; detail: string }>(
-      "SELECT sub_action, status, error_code, detail FROM setup_step WHERE status = 'failed'",
-    );
+    const [failed] = scene.rows<{
+      sub_action: string;
+      status: string;
+      error_code: string;
+      detail: string;
+    }>("SELECT sub_action, status, error_code, detail FROM setup_step WHERE status = 'failed'");
     expect(failed).toMatchObject({ status: 'failed', error_code: 'replication_timeout' });
     const detail = JSON.parse(failed?.detail ?? '{}') as { elapsedSeconds: number };
     expect(detail.elapsedSeconds).toBeGreaterThanOrEqual(300);
@@ -118,8 +142,14 @@ describe('waiting for propagation', () => {
     const scene = await configured();
     delayPropagation(scene, 2);
     scene.startRun(['verify'], { mode: 'reconcile' });
-    await scene.drive({ until: () => scene.rows("SELECT 1 FROM setup_step WHERE status = 'waiting'").length > 0, maxSeconds: 30, stepMs: 50 });
-    expect(scene.rows("SELECT sub_action FROM setup_step WHERE status = 'waiting'")).toHaveLength(1);
+    await scene.drive({
+      until: () => scene.rows("SELECT 1 FROM setup_step WHERE status = 'waiting'").length > 0,
+      maxSeconds: 30,
+      stepMs: 50,
+    });
+    expect(scene.rows("SELECT sub_action FROM setup_step WHERE status = 'waiting'")).toHaveLength(
+      1,
+    );
     scene.engine.retryNow();
     await scene.drive({ maxSeconds: 60 });
     await scene.engine.idle();
@@ -131,7 +161,9 @@ describe('waiting for propagation', () => {
     const scene = await configured();
     scene.world.exchange.control.propagation(2);
     await scene.run(['verify'], { mode: 'reconcile' });
-    const probe = scene.rows<{ status: string; attempt: number }>("SELECT status, attempt FROM setup_step WHERE sub_action = 'exchange_probe'")[0];
+    const probe = scene.rows<{ status: string; attempt: number }>(
+      "SELECT status, attempt FROM setup_step WHERE sub_action = 'exchange_probe'",
+    )[0];
     expect(['succeeded', 'warning']).toContain(probe?.status);
   });
 });
@@ -147,11 +179,16 @@ describe('no code decodes a Graph or Exchange access token (FR-B-316)', () => {
         else if (path.endsWith('.ts')) files.push(path);
       }
     };
-    for (const folder of ['setup', 'connection', 'integrations/graph', 'integrations/exchange']) walk(join(root, folder));
+    for (const folder of ['setup', 'connection', 'integrations/graph', 'integrations/exchange'])
+      walk(join(root, folder));
     expect(files.length).toBeGreaterThan(10);
     for (const file of files) {
-      const text = readFileSync(file, 'utf8').replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-      expect(text, file).not.toMatch(/decodeJwt|decodeProtectedHeader|jwtVerify|\batob\s*\(|split\('\.'\)\[1\]/);
+      const text = readFileSync(file, 'utf8')
+        .replace(/\/\/.*$/gm, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '');
+      expect(text, file).not.toMatch(
+        /decodeJwt|decodeProtectedHeader|jwtVerify|\batob\s*\(|split\('\.'\)\[1\]/,
+      );
     }
   });
 });

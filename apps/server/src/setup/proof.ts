@@ -24,7 +24,10 @@ export class ProofError extends Error {
 }
 
 /** The stored proof, or `null` when there is none (or the stored text no longer validates). */
-export function readProof(connections: TenantConnectionRepository, db: DatabaseHandle): Proof | null {
+export function readProof(
+  connections: TenantConnectionRepository,
+  db: DatabaseHandle,
+): Proof | null {
   const row = connections.read(db);
   if (row === undefined || row.proofText === '' || row.proofText === '{}') return null;
   try {
@@ -36,11 +39,7 @@ export function readProof(connections: TenantConnectionRepository, db: DatabaseH
 }
 
 /** Validate and store a proof list inside the caller's transaction. */
-export function writeProof(
-  connections: TenantConnectionRepository,
-  tx: Tx,
-  proof: Proof,
-): void {
+export function writeProof(connections: TenantConnectionRepository, tx: Tx, proof: Proof): void {
   const checked = ProofSchema.safeParse(proof);
   if (!checked.success) throw new ProofError();
   connections.writeProofText(tx, JSON.stringify(checked.data));

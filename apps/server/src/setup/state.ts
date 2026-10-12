@@ -122,8 +122,7 @@ export class SetupStateRepository {
   /** The row, read now. Throws `SetupStateMissingError` when there is none. */
   read(db: DatabaseHandle): SetupStateRow {
     const row = db.sqlite.prepare('SELECT * FROM setup_state WHERE id = 1').get() as
-      | RawRow
-      | undefined;
+      RawRow | undefined;
     if (row === undefined) throw new SetupStateMissingError();
     return {
       state: row.state,
@@ -155,11 +154,15 @@ export class SetupStateRepository {
     if (to === from) return { from, to };
     if (to === 'completed') {
       tx.sqlite
-        .prepare("UPDATE setup_state SET state = 'completed', completed_at = ?, updated_at = ? WHERE id = 1")
+        .prepare(
+          "UPDATE setup_state SET state = 'completed', completed_at = ?, updated_at = ? WHERE id = 1",
+        )
         .run(now, now);
     } else {
       tx.sqlite
-        .prepare('UPDATE setup_state SET state = ?, completed_at = NULL, updated_at = ? WHERE id = 1')
+        .prepare(
+          'UPDATE setup_state SET state = ?, completed_at = NULL, updated_at = ? WHERE id = 1',
+        )
         .run(to, now);
     }
     return { from, to };
@@ -186,9 +189,29 @@ export class SetupStateRepository {
     column: 'mode' | 'proposed_tenant_id' | 'designated_owner_oid' | 'default_language',
     value: string | null,
   ): void {
-    // The column name comes from the closed union above, never from a caller's string.
-    tx.sqlite
-      .prepare(`UPDATE setup_state SET ${column} = ?, updated_at = ? WHERE id = 1`)
-      .run(value, iso(this.#deps.now()));
+    const updatedAt = iso(this.#deps.now());
+    // One literal statement per column: the column name is never part of a built string.
+    switch (column) {
+      case 'mode':
+        tx.sqlite
+          .prepare('UPDATE setup_state SET mode = ?, updated_at = ? WHERE id = 1')
+          .run(value, updatedAt);
+        break;
+      case 'proposed_tenant_id':
+        tx.sqlite
+          .prepare('UPDATE setup_state SET proposed_tenant_id = ?, updated_at = ? WHERE id = 1')
+          .run(value, updatedAt);
+        break;
+      case 'designated_owner_oid':
+        tx.sqlite
+          .prepare('UPDATE setup_state SET designated_owner_oid = ?, updated_at = ? WHERE id = 1')
+          .run(value, updatedAt);
+        break;
+      case 'default_language':
+        tx.sqlite
+          .prepare('UPDATE setup_state SET default_language = ?, updated_at = ? WHERE id = 1')
+          .run(value, updatedAt);
+        break;
+    }
   }
 }

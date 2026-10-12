@@ -17,7 +17,11 @@
 // would carry every permission the wizard is about to grant). Key credentials or owners other than the
 // bootstrap identity make the prompt require an acknowledgement. A count that cannot be read stops the
 // step (fail closed, U50). Nothing is deleted from the candidate.
-import type { ApplicationInfo, CredentialInventory, TenantProvisioner } from '../../../ports/provisioner.js';
+import type {
+  ApplicationInfo,
+  CredentialInventory,
+  TenantProvisioner,
+} from '../../../ports/provisioner.js';
 import { SetupFailure } from '../../context.js';
 import type { AdoptionPrompt } from '../../wire.js';
 
@@ -58,7 +62,8 @@ export async function inspectCandidate(
   if (passwords > 0) throw new SetupFailure('application_untrusted', { count: passwords });
 
   const foreignOwners = (inventory: CredentialInventory | null): number =>
-    (inventory?.ownerIds ?? []).filter((id) => id.toLowerCase() !== bootstrapOid?.toLowerCase()).length;
+    (inventory?.ownerIds ?? []).filter((id) => id.toLowerCase() !== bootstrapOid?.toLowerCase())
+      .length;
   const foreign = {
     keyCredentials: app.keyCredentials?.length ?? 0,
     owners: foreignOwners(app),
@@ -91,7 +96,8 @@ export async function discoverApplication(input: DiscoveryInput): Promise<Discov
   if (ours !== undefined) return { kind: 'ours', app: ours };
 
   if (matches.length === 0) return { kind: 'none' };
-  if (matches.length > 1) throw new SetupFailure('application_ambiguous', { count: matches.length });
+  if (matches.length > 1)
+    throw new SetupFailure('application_ambiguous', { count: matches.length });
   const [candidate] = matches;
   if (candidate === undefined) return { kind: 'none' };
   const prompt = await inspectCandidate(provisioner, candidate, input.bootstrapOid);

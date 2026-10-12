@@ -18,14 +18,19 @@ afterEach(() => {
 });
 
 const runtimeSp = (scene: TenantScene) =>
-  scene.world.graph.directory.servicePrincipalByAppId([...scene.world.graph.directory.applications.values()][0]?.appId ?? '');
+  scene.world.graph.directory.servicePrincipalByAppId(
+    [...scene.world.graph.directory.applications.values()][0]?.appId ?? '',
+  );
 
 function recordRoleBodies(): Record<string, unknown>[] {
   const bodies: Record<string, unknown>[] = [];
   const original = globalThis.fetch;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const request = new Request(input, init);
-    if (request.method === 'POST' && request.url.includes('/roleManagement/directory/roleAssignments')) {
+    if (
+      request.method === 'POST' &&
+      request.url.includes('/roleManagement/directory/roleAssignments')
+    ) {
       bodies.push(JSON.parse(await request.clone().text()) as Record<string, unknown>);
     }
     return original(input, init);
@@ -49,14 +54,20 @@ describe('the assignment', () => {
       },
     ]);
     const calls = fake.calls.all().map((call) => `${call.method} ${call.path}`);
-    expect(calls.findIndex((call) => call === 'GET /v1.0/roleManagement/directory/roleAssignments')).toBeLessThan(
+    expect(
+      calls.findIndex((call) => call === 'GET /v1.0/roleManagement/directory/roleAssignments'),
+    ).toBeLessThan(
       calls.findIndex((call) => call === 'POST /v1.0/roleManagement/directory/roleAssignments'),
     );
     expect(scene.services.connections.read(scene.db)).toMatchObject({
       exchangeRoleTemplateId: '29232cdf-9323-42fd-ade2-1d097af3e4de',
       exchangeEnabled: true,
     });
-    expect(scene.rows("SELECT kind, name, origin FROM setup_object WHERE kind = 'directory_role_assignment'")).toEqual([
+    expect(
+      scene.rows(
+        "SELECT kind, name, origin FROM setup_object WHERE kind = 'directory_role_assignment'",
+      ),
+    ).toEqual([
       { kind: 'directory_role_assignment', name: 'exchange_administrator', origin: 'created' },
     ]);
   });
@@ -68,7 +79,11 @@ describe('the assignment', () => {
       .rows<{ detail: string }>("SELECT detail FROM audit_log WHERE action = 'setup.object.change'")
       .map((row) => JSON.parse(row.detail) as Record<string, unknown>)
       .find((detail) => detail.kind === 'directory_role_assignment');
-    expect(entry).toEqual({ kind: 'directory_role_assignment', op: 'assign', name: 'exchange_administrator' });
+    expect(entry).toEqual({
+      kind: 'directory_role_assignment',
+      op: 'assign',
+      name: 'exchange_administrator',
+    });
   });
 
   it('skips an assignment that exists: the second run makes no POST', async () => {
@@ -85,7 +100,9 @@ describe('the assignment', () => {
     const bodies = recordRoleBodies();
     await scene.run(['connect', 'configure'], { exchangeRole: 'exchange_recipient_administrator' });
     expect(bodies[0]?.roleDefinitionId).toBe('31392ffb-586c-42d1-9346-e59415a2cc4e');
-    expect(scene.services.connections.read(scene.db)?.exchangeRoleTemplateId).toBe('31392ffb-586c-42d1-9346-e59415a2cc4e');
+    expect(scene.services.connections.read(scene.db)?.exchangeRoleTemplateId).toBe(
+      '31392ffb-586c-42d1-9346-e59415a2cc4e',
+    );
   });
 
   it('a later run without a key keeps the stored role', async () => {
@@ -109,7 +126,9 @@ describe('only the keys of the constant can name a role', () => {
     '',
   ])('%j is refused before anything reaches Graph', async (value) => {
     const scene = await tenantScene();
-    expect(() => scene.startRun(['connect', 'configure'], { exchangeRole: value as never })).toThrow(/validation_failed/);
+    expect(() =>
+      scene.startRun(['connect', 'configure'], { exchangeRole: value as never }),
+    ).toThrow(/validation_failed/);
     expect(fake.calls.length).toBe(0);
     expect(scene.engine.busy()).toBe(false);
   });
@@ -137,6 +156,9 @@ describe('only the keys of the constant can name a role', () => {
     });
     await scene.run(['connect', 'configure'], { mode: 'reconcile' });
     expect(scene.world.graph.directory.directoryRoleAssignments.has(id)).toBe(true);
-    expect(scene.rows("SELECT message_key FROM setup_log WHERE message_key = 'setup.log.drift_found'").length).toBeGreaterThan(0);
+    expect(
+      scene.rows("SELECT message_key FROM setup_log WHERE message_key = 'setup.log.drift_found'")
+        .length,
+    ).toBeGreaterThan(0);
   });
 });

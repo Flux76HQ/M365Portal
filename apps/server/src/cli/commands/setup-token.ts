@@ -14,7 +14,7 @@ export function runSetupToken(args: readonly string[], io: CommandIo): Promise<n
     io.stderr.write(SETUP_TOKEN_USAGE);
     return Promise.resolve(2);
   }
-  const opened = openSetupScene('setup-token', io);
+  const opened = openSetupScene('setup-token', io, io.now ?? (() => Date.now()));
   if ('exit' in opened) return Promise.resolve(opened.exit);
   const { config, database, state } = opened.scene;
   try {

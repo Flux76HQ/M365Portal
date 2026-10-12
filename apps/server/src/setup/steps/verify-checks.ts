@@ -35,7 +35,7 @@ export function openProbe(services: SetupServices): ProbeClients {
   const tenantId = connection?.tenantId ?? state.proposedTenantId;
   const clientId = connection?.appId;
   const secrets = deps.secrets.state();
-  if (tenantId === null || tenantId === undefined || clientId === null || clientId === undefined) {
+  if (tenantId === null || clientId === null || clientId === undefined) {
     throw new SetupFailure('token_unavailable');
   }
   if (secrets.status !== 'ok' || secrets.holder === undefined) {
@@ -47,7 +47,10 @@ export function openProbe(services: SetupServices): ProbeClients {
 const at = (services: SetupServices): string => new Date(services.deps.now()).toISOString();
 
 /** V1. Also the proof of possession of the certificate: an active certificate is read from here on. */
-export async function checkToken(services: SetupServices, probe: ProbeClients): Promise<CheckResult> {
+export async function checkToken(
+  services: SetupServices,
+  probe: ProbeClients,
+): Promise<CheckResult> {
   await probe.appTokens.get('graph', { skipCache: true });
   const connection = services.connections.read(services.deps.requireDatabase());
   const certificate = services.deps.secrets
@@ -67,7 +70,10 @@ export async function checkToken(services: SetupServices, probe: ProbeClients): 
             }),
           ]),
     ],
-    detail: connection?.appId === null || connection?.appId === undefined ? {} : { appId: connection.appId },
+    detail:
+      connection?.appId === null || connection?.appId === undefined
+        ? {}
+        : { appId: connection.appId },
   };
 }
 
@@ -90,13 +96,19 @@ export async function checkOrganization(
 }
 
 /** V3. */
-export async function checkUsers(services: SetupServices, probe: ProbeClients): Promise<CheckResult> {
+export async function checkUsers(
+  services: SetupServices,
+  probe: ProbeClients,
+): Promise<CheckResult> {
   await probe.graph.probeUsers();
   return { status: 'ok', items: [proofItem('check_v3', 'ok', at(services))] };
 }
 
 /** V5: Exchange. Never a failure (EB-09): the Admin API is "not available in all organizations". */
-export async function checkExchange(services: SetupServices, probe: ProbeClients): Promise<CheckResult> {
+export async function checkExchange(
+  services: SetupServices,
+  probe: ProbeClients,
+): Promise<CheckResult> {
   const connection = services.connections.read(services.deps.requireDatabase());
   if (connection?.exchangeEnabled !== true) {
     return {
@@ -110,7 +122,8 @@ export async function checkExchange(services: SetupServices, probe: ProbeClients
   if (result.status === 'ok') {
     return { status: 'ok', items: [proofItem('check_v5', 'ok', at(services))] };
   }
-  const code: ResultCode = result.status === 'not_ready' ? 'exchange_not_ready' : 'exchange_unavailable';
+  const code: ResultCode =
+    result.status === 'not_ready' ? 'exchange_not_ready' : 'exchange_unavailable';
   return {
     status: 'warning',
     code,

@@ -5,7 +5,12 @@ import { FinishRequestSchema, FinishResponseSchema } from '@m365portal/shared/sc
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GraphNetworkError } from '../../src/ports/errors.js';
 import { runEnvironmentChecks } from '../../src/setup/environment.js';
-import { finishSetup, proposedOrgName, type FinishDeps, type FinishInput } from '../../src/setup/finish.js';
+import {
+  finishSetup,
+  proposedOrgName,
+  type FinishDeps,
+  type FinishInput,
+} from '../../src/setup/finish.js';
 import { ProblemError } from '../../src/http/problem.js';
 import { SETUP_ACTOR } from './support/engine-harness.js';
 import { tenantScene, useWizardTimers, type TenantScene } from './support/tenant-scene.js';
@@ -32,7 +37,11 @@ async function readyScene(): Promise<{ scene: TenantScene; deps: FinishDeps; own
   });
   const owner = scene.services.state.read(scene.db).designatedOwnerOid;
   if (owner === null) throw new Error('no designated owner');
-  return { scene, deps: { services: scene.services, busy: () => scene.engine.busy(), actor: SETUP_ACTOR }, owner };
+  return {
+    scene,
+    deps: { services: scene.services, busy: () => scene.engine.busy(), actor: SETUP_ACTOR },
+    owner,
+  };
 }
 
 async function problemOf(work: Promise<unknown>): Promise<ProblemError> {
@@ -46,7 +55,13 @@ async function problemOf(work: Promise<unknown>): Promise<ProblemError> {
 }
 
 const assignments = (scene: TenantScene) =>
-  scene.rows<{ principal_type: string; principal_id: string; key: string; source: string; created_by: string }>(
+  scene.rows<{
+    principal_type: string;
+    principal_id: string;
+    key: string;
+    source: string;
+    created_by: string;
+  }>(
     'SELECT a.principal_type, a.principal_id, r.key, a.source, a.created_by FROM rbac_assignment a JOIN rbac_role r ON r.id = a.role_id ORDER BY a.created_at, a.principal_type',
   );
 const stateOf = (scene: TenantScene) => scene.services.state.read(scene.db);
@@ -75,18 +90,39 @@ describe('a finish that succeeds', () => {
     });
 
     expect(assignments(scene)).toEqual([
-      { principal_type: 'user', principal_id: owner, key: 'owner', source: 'wizard', created_by: SETUP_ACTOR.id },
+      {
+        principal_type: 'user',
+        principal_id: owner,
+        key: 'owner',
+        source: 'wizard',
+        created_by: SETUP_ACTOR.id,
+      },
     ]);
     const [entry] = scene.rows<{ actor_kind: string; detail: string }>(
       "SELECT actor_kind, detail FROM audit_log WHERE action = 'rbac.assignment.create'",
     );
     expect(entry?.actor_kind).toBe('setup');
-    expect(JSON.parse(entry?.detail ?? '{}')).toMatchObject({ principalType: 'user', principalId: owner, role: 'owner', source: 'wizard' });
-    expect(scene.rows("SELECT 1 FROM audit_log WHERE action = 'setup.step.run' AND target_id = 'finish'")).toHaveLength(1);
+    expect(JSON.parse(entry?.detail ?? '{}')).toMatchObject({
+      principalType: 'user',
+      principalId: owner,
+      role: 'owner',
+      source: 'wizard',
+    });
+    expect(
+      scene.rows(
+        "SELECT 1 FROM audit_log WHERE action = 'setup.step.run' AND target_id = 'finish'",
+      ),
+    ).toHaveLength(1);
 
-    expect(stateOf(scene)).toMatchObject({ state: 'awaiting_first_signin', defaultLanguage: 'en', completedAt: null });
+    expect(stateOf(scene)).toMatchObject({
+      state: 'awaiting_first_signin',
+      defaultLanguage: 'en',
+      completedAt: null,
+    });
     expect(scene.services.bootstrap.live()).toBe(false);
-    const rows = scene.rows<{ sub_action: string; status: string }>("SELECT sub_action, status FROM setup_step WHERE step = 'finish' ORDER BY sub_action");
+    const rows = scene.rows<{ sub_action: string; status: string }>(
+      "SELECT sub_action, status FROM setup_step WHERE step = 'finish' ORDER BY sub_action",
+    );
     expect(Object.fromEntries(rows.map((row) => [row.sub_action, row.status]))).toEqual({
       beheerder_group: 'skipped',
       branding: 'skipped',
@@ -102,7 +138,9 @@ describe('a finish that succeeds', () => {
     scene.db.sqlite.prepare("UPDATE setup_state SET state = 'in_progress' WHERE id = 1").run();
     await finishSetup(deps, { confirmOwnerOid: owner }, AUDIT);
     expect(assignments(scene)).toHaveLength(1);
-    expect(scene.rows("SELECT 1 FROM audit_log WHERE action = 'rbac.assignment.create'")).toHaveLength(1);
+    expect(
+      scene.rows("SELECT 1 FROM audit_log WHERE action = 'rbac.assignment.create'"),
+    ).toHaveLength(1);
   });
 
   it('accepts the confirmation in any letter case', async () => {
@@ -118,18 +156,36 @@ describe('the Beheerder group', () => {
     const group = scene.world.graph.directory.addGroup({ displayName: 'Beheerders' });
     const before = scene.world.graph.directory.groups.size;
     await finishSetup(deps, { confirmOwnerOid: owner, beheerderGroupId: group.id }, AUDIT);
-    expect(assignments(scene)).toContainEqual({ principal_type: 'group', principal_id: group.id, key: 'admin', source: 'wizard', created_by: SETUP_ACTOR.id });
-    expect(scene.rows("SELECT 1 FROM audit_log WHERE action = 'rbac.assignment.create'")).toHaveLength(2);
+    expect(assignments(scene)).toContainEqual({
+      principal_type: 'group',
+      principal_id: group.id,
+      key: 'admin',
+      source: 'wizard',
+      created_by: SETUP_ACTOR.id,
+    });
+    expect(
+      scene.rows("SELECT 1 FROM audit_log WHERE action = 'rbac.assignment.create'"),
+    ).toHaveLength(2);
     expect(scene.world.graph.directory.groups.size).toBe(before);
-    const writes = (await import('../support/msw.js')).fake.calls.mutating().filter((call) => call.path.includes('/groups'));
+    const writes = (await import('../support/msw.js')).fake.calls
+      .mutating()
+      .filter((call) => call.path.includes('/groups'));
     expect(writes).toEqual([]);
   });
 
   it('that Graph does not know is 422 validation_failed with group_unknown, and nothing changes', async () => {
     const { scene, deps, owner } = await readyScene();
-    const problem = await problemOf(finishSetup(deps, { confirmOwnerOid: owner, beheerderGroupId: '5b0d7a3e-8c1f-4f6e-9a52-0d3c2b1a4e77' }, AUDIT));
+    const problem = await problemOf(
+      finishSetup(
+        deps,
+        { confirmOwnerOid: owner, beheerderGroupId: '5b0d7a3e-8c1f-4f6e-9a52-0d3c2b1a4e77' },
+        AUDIT,
+      ),
+    );
     expect(problem.code).toBe('validation_failed');
-    expect(problem.details.errors).toEqual([{ pointer: '/beheerderGroupId', code: 'group_unknown' }]);
+    expect(problem.details.errors).toEqual([
+      { pointer: '/beheerderGroupId', code: 'group_unknown' },
+    ]);
     expect(stateOf(scene).state).toBe('in_progress');
     expect(assignments(scene)).toEqual([]);
   });
@@ -138,7 +194,13 @@ describe('the Beheerder group', () => {
     const { scene, deps, owner } = await readyScene();
     const graph = scene.deps.clients.graph();
     vi.spyOn(graph, 'getGroup').mockRejectedValue(new GraphNetworkError());
-    const problem = await problemOf(finishSetup(deps, { confirmOwnerOid: owner, beheerderGroupId: '5b0d7a3e-8c1f-4f6e-9a52-0d3c2b1a4e77' }, AUDIT));
+    const problem = await problemOf(
+      finishSetup(
+        deps,
+        { confirmOwnerOid: owner, beheerderGroupId: '5b0d7a3e-8c1f-4f6e-9a52-0d3c2b1a4e77' },
+        AUDIT,
+      ),
+    );
     expect(problem.code).toBe('graph_unavailable');
     expect(stateOf(scene).state).toBe('in_progress');
     expect(assignments(scene)).toEqual([]);
@@ -149,15 +211,22 @@ describe('the confirmation and the preconditions', () => {
   it('a request without the confirmation is invalid (+ negative: with it the schema accepts)', () => {
     expect(FinishRequestSchema.safeParse({}).success).toBe(false);
     expect(FinishRequestSchema.safeParse({ language: 'nl' }).success).toBe(false);
-    expect(FinishRequestSchema.safeParse({ confirmOwnerOid: '5b0d7a3e-8c1f-4f6e-9a52-0d3c2b1a4e77' }).success).toBe(true);
+    expect(
+      FinishRequestSchema.safeParse({ confirmOwnerOid: '5b0d7a3e-8c1f-4f6e-9a52-0d3c2b1a4e77' })
+        .success,
+    ).toBe(true);
   });
 
   it('a confirmation for someone else is 422 validation_failed with owner_changed, and nothing changes', async () => {
     const { scene, deps } = await readyScene();
-    const other = scene.world.graph.directory.addUser({ userPrincipalName: 'other@contoso-fake.example' });
+    const other = scene.world.graph.directory.addUser({
+      userPrincipalName: 'other@contoso-fake.example',
+    });
     const problem = await problemOf(finishSetup(deps, { confirmOwnerOid: other.id }, AUDIT));
     expect(problem.code).toBe('validation_failed');
-    expect(problem.details.errors).toEqual([{ pointer: '/confirmOwnerOid', code: 'owner_changed' }]);
+    expect(problem.details.errors).toEqual([
+      { pointer: '/confirmOwnerOid', code: 'owner_changed' },
+    ]);
     expect(stateOf(scene).state).toBe('in_progress');
     expect(assignments(scene)).toEqual([]);
   });
@@ -166,7 +235,9 @@ describe('the confirmation and the preconditions', () => {
     const { scene, deps, owner } = await readyScene();
     await finishSetup(deps, { confirmOwnerOid: owner, language: 'nl' }, AUDIT);
     const auditCount = scene.rows('SELECT 1 FROM audit_log').length;
-    const problem = await problemOf(finishSetup(deps, { confirmOwnerOid: owner, language: 'en' }, AUDIT));
+    const problem = await problemOf(
+      finishSetup(deps, { confirmOwnerOid: owner, language: 'en' }, AUDIT),
+    );
     expect(problem.code).toBe('setup_step_not_ready');
     expect(stateOf(scene)).toMatchObject({ state: 'awaiting_first_signin', defaultLanguage: 'nl' });
     expect(scene.rows('SELECT 1 FROM audit_log')).toHaveLength(auditCount);
@@ -174,14 +245,22 @@ describe('the confirmation and the preconditions', () => {
 
   it('is 409 setup_step_not_ready while a step has not ended well', async () => {
     const { scene, deps, owner } = await readyScene();
-    scene.db.sqlite.prepare("UPDATE setup_step SET status = 'failed', error_code = 'graph_error' WHERE sub_action = 'organization'").run();
-    expect((await problemOf(finishSetup(deps, { confirmOwnerOid: owner }, AUDIT))).code).toBe('setup_step_not_ready');
+    scene.db.sqlite
+      .prepare(
+        "UPDATE setup_step SET status = 'failed', error_code = 'graph_error' WHERE sub_action = 'organization'",
+      )
+      .run();
+    expect((await problemOf(finishSetup(deps, { confirmOwnerOid: owner }, AUDIT))).code).toBe(
+      'setup_step_not_ready',
+    );
     expect(stateOf(scene).state).toBe('in_progress');
   });
 
   it('is 409 setup_step_not_ready with owner_missing when no Owner is known', async () => {
     const { scene, deps, owner } = await readyScene();
-    scene.db.sqlite.prepare('UPDATE setup_state SET designated_owner_oid = NULL WHERE id = 1').run();
+    scene.db.sqlite
+      .prepare('UPDATE setup_state SET designated_owner_oid = NULL WHERE id = 1')
+      .run();
     const problem = await problemOf(finishSetup(deps, { confirmOwnerOid: owner }, AUDIT));
     expect(problem.code).toBe('setup_step_not_ready');
     expect(problem.details.errors).toEqual([{ pointer: '/', code: 'owner_missing' }]);
@@ -190,7 +269,9 @@ describe('the confirmation and the preconditions', () => {
   it('is 409 setup_step_busy while a run is active', async () => {
     const { deps, owner } = await readyScene();
     const busy: FinishDeps = { ...deps, busy: () => true };
-    expect((await problemOf(finishSetup(busy, { confirmOwnerOid: owner }, AUDIT))).code).toBe('setup_step_busy');
+    expect((await problemOf(finishSetup(busy, { confirmOwnerOid: owner }, AUDIT))).code).toBe(
+      'setup_step_busy',
+    );
   });
 });
 
@@ -202,14 +283,26 @@ describe('atomicity', () => {
       "CREATE TRIGGER finish_fault BEFORE UPDATE ON setup_step WHEN NEW.sub_action = 'handover' BEGIN SELECT RAISE(ABORT, 'injected fault'); END",
     );
     const auditBefore = scene.rows('SELECT 1 FROM audit_log').length;
-    await expect(finishSetup(deps, { confirmOwnerOid: owner, language: 'en', beheerderGroupId: group.id }, AUDIT)).rejects.toThrow();
+    await expect(
+      finishSetup(
+        deps,
+        { confirmOwnerOid: owner, language: 'en', beheerderGroupId: group.id },
+        AUDIT,
+      ),
+    ).rejects.toThrow();
     expect(stateOf(scene)).toMatchObject({ state: 'in_progress', defaultLanguage: null });
     expect(assignments(scene)).toEqual([]);
     expect(scene.rows('SELECT 1 FROM audit_log')).toHaveLength(auditBefore);
-    expect(scene.rows("SELECT 1 FROM setup_step WHERE step = 'finish' AND status <> 'pending'")).toEqual([]);
+    expect(
+      scene.rows("SELECT 1 FROM setup_step WHERE step = 'finish' AND status <> 'pending'"),
+    ).toEqual([]);
 
     scene.db.sqlite.exec('DROP TRIGGER finish_fault');
-    await finishSetup(deps, { confirmOwnerOid: owner, language: 'en', beheerderGroupId: group.id }, AUDIT);
+    await finishSetup(
+      deps,
+      { confirmOwnerOid: owner, language: 'en', beheerderGroupId: group.id },
+      AUDIT,
+    );
     expect(assignments(scene)).toHaveLength(2);
     expect(stateOf(scene).state).toBe('awaiting_first_signin');
   });
