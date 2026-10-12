@@ -15,8 +15,13 @@ export const CLIENT_ROUTES = [
   '/audit',
   '/settings',
   '/settings/appearance',
+  '/settings/connection',
+  '/settings/access',
+  '/settings/restore-access',
   '/no-access',
   '/signin',
+  '/setup',
+  '/break-glass',
   '/design',
 ] as const;
 

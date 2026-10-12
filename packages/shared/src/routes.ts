@@ -15,9 +15,19 @@ export const ROUTES = Object.freeze({
   auditLog: '/audit',
   settings: '/settings',
   appearance: '/settings/appearance',
+  /** The connection to Microsoft 365: tenant, application, certificate, proof, repair (FR-B-111). */
+  connection: '/settings/connection',
+  /** "Mijn toegang": the signed-in user's roles and effective permissions (FR-B-514). */
+  access: '/settings/access',
+  /** The break-glass recovery page: restore the Owner (FR-B-523). Break-glass sessions only. */
+  restoreAccess: '/settings/restore-access',
   noAccess: '/no-access',
   /** The public sign-in page and its error variants (FR-B-607). */
   signin: '/signin',
+  /** The setup wizard; the server decides who may see it (FR-B-207). */
+  setup: '/setup',
+  /** The break-glass sign-in form; Not-found unless the server has it configured (FR-B-522). */
+  breakGlass: '/break-glass',
   /** Exists only when the server runs with `SHOWCASE=true`; Not-found otherwise (FR-A-131). */
   design: '/design',
 } as const);
