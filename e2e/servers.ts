@@ -307,6 +307,19 @@ function logDirectory(): string {
   return join(dirname(stateFile()), 'logs');
 }
 
+// Instance B answers a browser's page load with a call to the setup routes, whose rate class holds 10
+// tokens and earns one every 5 s (`rateLimit.setup`), and B trusts no proxy, so every context is the
+// same client. A spec run that opens many pages on B restarts it (the buckets are in memory) before the
+// budget is gone, instead of waiting for tokens or failing with 429. `takeSetupBudget` is called by
+// `app.goto` for instance B; any start of B resets the count.
+const SETUP_PAGE_LOADS_PER_START = 6;
+let setupLoadsSinceStart = 0;
+
+export async function takeSetupBudget(): Promise<void> {
+  if (setupLoadsSinceStart >= SETUP_PAGE_LOADS_PER_START) await restartServer('b');
+  setupLoadsSinceStart += 1;
+}
+
 /** Stops the instance; its DATA_DIR stays. Resolves when the port no longer answers. */
 export async function stopServer(name: InstanceName): Promise<void> {
   const state = readState();
@@ -337,6 +350,7 @@ export async function startServer(
     state.secrets,
   );
   writeState(state);
+  if (name === 'b') setupLoadsSinceStart = 0;
 }
 
 /** Stop, then start, on the same DATA_DIR. */

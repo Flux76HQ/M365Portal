@@ -130,10 +130,10 @@ test('a reset also survives a restart: the defaults come back, not the last appe
   expect(after.accent).toBe('#0078d4');
 });
 
-test('the anonymous instance has its own data directory and its own appearance', async ({
+test('the empty instance has its own data directory and its own appearance', async ({
   request,
   app,
 }) => {
-  const anonymous = await readBranding(request, app, 'anonymous');
-  expect(anonymous.orgName).toBe('M365Portal');
+  const empty = await readBranding(request, app, 'b');
+  expect(empty.orgName).toBe('M365Portal');
 });

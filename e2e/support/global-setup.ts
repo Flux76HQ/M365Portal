@@ -13,15 +13,21 @@
 // A server already answering on one of the ports fails the run on purpose: it would serve a stale
 // build.
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { chromium, type BrowserContext } from '@playwright/test';
 import { ApiClient } from './api-client.js';
 import { freshClientAddress } from './client-address.js';
+import { expireAssignmentsOf } from './database.js';
 import { fakeControl } from './fake-control.js';
 import { chromiumArgs } from './microsoft-hosts.js';
 import { INSTANCE_NAMES, originOf, portOf } from './ports.js';
-import { PRINCIPAL_NAMES, PRINCIPALS, ROLE_GROUP, type PrincipalName } from './principals.js';
+import {
+  PRINCIPAL_NAMES,
+  PRINCIPALS,
+  ROLE_GROUP,
+  STORED_PRINCIPAL_NAMES,
+  type PrincipalName,
+} from './principals.js';
 import { signInAs } from './sign-in.js';
 import {
   generateRunSecrets,
@@ -124,7 +130,7 @@ async function seedInstanceA(
   await admin.close();
 
   // 4. One storage state per principal, from a sign-in of their own.
-  for (const name of PRINCIPAL_NAMES) {
+  for (const name of STORED_PRINCIPAL_NAMES) {
     const file = storageStateFile(statesDir(), name);
     if (name === 'norole') {
       // A Global Administrator without a role gets no session (OV-15): the state holds no cookie.
@@ -139,19 +145,8 @@ async function seedInstanceA(
 
   // The expiry of `expired-assignment` moves into the past directly in the database: the session
   // stays, the rights are gone (documented in fixtures-selftest.spec.ts).
-  const database = new DatabaseSync(join(state.instances.a.dataDir, 'm365portal.sqlite'));
-  try {
-    database.exec('PRAGMA busy_timeout = 5000');
-    const moved = database
-      .prepare(
-        `UPDATE rbac_assignment SET expires_at = '2020-01-01T00:00:00.000Z'
-         WHERE principal_type = 'user' AND principal_id = ?`,
-      )
-      .run(PRINCIPALS['expired-assignment'].oid);
-    if (moved.changes !== 1)
-      throw new Error('the expired assignment was not found in the database');
-  } finally {
-    database.close();
+  if (expireAssignmentsOf(state.instances.a.dataDir, PRINCIPALS['expired-assignment'].oid) !== 1) {
+    throw new Error('the expired assignment was not found in the database');
   }
   await fake.clearCalls();
 }

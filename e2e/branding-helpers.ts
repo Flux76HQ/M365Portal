@@ -4,7 +4,7 @@
 // the appearance restores the defaults in `afterEach` (restoreDefaults).
 import { deflateSync } from 'node:zlib';
 import type { APIRequestContext, Locator, Page } from '@playwright/test';
-import type { App } from './fixtures.js';
+import type { App, InstanceName } from './fixtures.js';
 
 // --- generated images -----------------------------------------------------------------------------
 
@@ -134,7 +134,7 @@ export function appearanceFields(page: Page): AppearanceFields {
 export async function openAppearance(
   page: Page,
   app: App,
-  instance: 'preview' | 'anonymous' = 'preview',
+  instance: InstanceName = 'a',
 ): Promise<AppearanceFields> {
   // `page.goto` and not `app.goto`: the page may belong to a second browser context.
   await page.goto(app.url('/settings/appearance', instance));
@@ -178,7 +178,7 @@ interface BrandingBody {
 export async function readBranding(
   request: APIRequestContext,
   app: App,
-  instance: 'preview' | 'anonymous' = 'preview',
+  instance: InstanceName = 'a',
 ): Promise<BrandingBody> {
   const response = await request.get(app.url('/api/v1/branding', instance));
   return (await response.json()) as BrandingBody;

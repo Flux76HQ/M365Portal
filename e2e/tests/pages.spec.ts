@@ -3,7 +3,7 @@
 // boundary shows the request id and never a stack; with JavaScript off the <noscript> message appears
 // in both languages.
 import type { Page } from '@playwright/test';
-import { expect, test } from '../fixtures.js';
+import { expect, test, type StoredPrincipalName } from '../fixtures.js';
 
 const PLACEHOLDERS = [
   {
@@ -72,7 +72,7 @@ test.describe('placeholder pages', () => {
     const list = page.getByRole('list', { name: 'Available settings' });
     await expect(list.getByRole('link', { name: /Appearance/ })).toBeVisible();
     await expect(
-      page.getByText('Connection settings arrive in Phase B, and access management in Phase D.'),
+      page.getByText('Access management (assigning roles) arrives in Phase D.'),
     ).toBeVisible();
     await list.getByRole('link', { name: /Appearance/ }).click();
     await expect(page).toHaveURL(/\/settings\/appearance$/);
@@ -81,55 +81,75 @@ test.describe('placeholder pages', () => {
 });
 
 test.describe('No-access', () => {
-  for (const path of [
-    '/users',
-    '/groups',
-    '/distribution-lists',
-    '/contacts',
-    '/audit',
-    '/settings',
-    '/settings/appearance',
-  ]) {
-    test(`${path} on the anonymous instance says No-access at the same URL`, async ({
-      page,
-      app,
-    }) => {
-      await app.goto(path, { instance: 'anonymous' });
-      await expect(page).toHaveURL(new RegExp(`${path}$`));
-      await expect(
-        page.getByRole('heading', { level: 1, name: 'You do not have access to this page' }),
-      ).toBeVisible();
-      await expect(
-        page.getByText(/Ask an administrator if you think this is a mistake/),
-      ).toBeVisible();
-      // The page behind it is not drawn.
-      await expect(page.getByText('What it will do')).toHaveCount(0);
-      await expect(page.getByRole('textbox', { name: /^Organisation name/ })).toHaveCount(0);
+  // Phase A: the "anonymous" instance held no permission. Phase B: a person who is signed in and
+  // lacks the permission (the person whose only assignment has ended, a reader, an administrator
+  // without the Connection entry); a visitor without a session is sent to /signin instead.
+  const DENIED: readonly (readonly [string, StoredPrincipalName])[] = [
+    ['/users', 'expired-assignment'],
+    ['/groups', 'expired-assignment'],
+    ['/distribution-lists', 'expired-assignment'],
+    ['/contacts', 'expired-assignment'],
+    ['/audit', 'reader'],
+    ['/settings/appearance', 'reader'],
+    ['/settings/connection', 'administrator'],
+  ];
+  for (const [path, principal] of DENIED) {
+    test.describe(`${path} as ${principal}`, () => {
+      test.use({ principal });
+      test(`${path} for the ${principal} says No-access at the same URL`, async ({ page, app }) => {
+        await app.goto(path);
+        await expect(page).toHaveURL(new RegExp(`${path}$`));
+        await expect(
+          page.getByRole('heading', { level: 1, name: 'You do not have access to this page' }),
+        ).toBeVisible();
+        await expect(
+          page.getByText(/Ask an administrator if you think this is a mistake/),
+        ).toBeVisible();
+        // The page behind it is not drawn.
+        await expect(page.getByText('What it will do')).toHaveCount(0);
+        await expect(page.getByRole('textbox', { name: /^Organisation name/ })).toHaveCount(0);
+      });
     });
   }
 
-  test('/no-access is the same page on both instances', async ({ page, app }) => {
-    for (const instance of ['anonymous', 'preview'] as const) {
-      await app.goto('/no-access', { instance });
-      await expect(
-        page.getByRole('heading', { level: 1, name: 'You do not have access to this page' }),
-      ).toBeVisible();
-    }
+  test.describe('a visitor without a session', () => {
+    test.use({ principal: 'anonymous' });
+    test('/users is the sign-in page with the way back, not No-access', async ({ page, app }) => {
+      await app.goto('/users');
+      await expect(page).toHaveURL(/\/signin\?returnTo=%2Fusers$/);
+      await expect(page.getByRole('heading', { level: 1 })).toContainText('Sign in to');
+    });
   });
 
-  test('the way out leads back to the dashboard', async ({ page, app }) => {
-    await app.goto('/users', { instance: 'anonymous' });
-    await page.getByRole('link', { name: 'Back to the dashboard' }).click();
-    await expect(page).toHaveURL(/\/$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
-  });
+  for (const principal of ['anonymous', 'owner'] as const) {
+    test.describe(`/no-access as ${principal}`, () => {
+      test.use({ principal });
+      test(`/no-access is the same public page for the ${principal}`, async ({ page, app }) => {
+        await app.goto('/no-access');
+        await expect(
+          page.getByRole('heading', { level: 1, name: 'No access to the panel' }),
+        ).toBeVisible();
+      });
+    });
+  }
 
-  test('Back goes where the person came from (no redirect was used)', async ({ page, app }) => {
-    await app.goto('/', { instance: 'anonymous' });
-    await page.goto(app.url('/users', 'anonymous'));
-    await page.waitForSelector('main');
-    await page.goBack();
-    await expect(page).toHaveURL(/\/$/);
+  test.describe('the way out', () => {
+    test.use({ principal: 'expired-assignment' });
+
+    test('the way out leads back to the dashboard', async ({ page, app }) => {
+      await app.goto('/users');
+      await page.getByRole('link', { name: 'Back to the dashboard' }).click();
+      await expect(page).toHaveURL(/\/$/);
+      await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
+    });
+
+    test('Back goes where the person came from (no redirect was used)', async ({ page, app }) => {
+      await app.goto('/');
+      await page.goto(app.url('/users'));
+      await page.waitForSelector('main');
+      await page.goBack();
+      await expect(page).toHaveURL(/\/$/);
+    });
   });
 });
 

@@ -16,7 +16,11 @@ import type { Page } from '@playwright/test';
 import { expect, test, type ProblemKind } from '../fixtures.js';
 import { repoRoot } from '../servers.js';
 import { e2ePort } from '../support/ports.js';
-import { PRINCIPALS, PRINCIPAL_NAMES, type PrincipalName } from '../support/principals.js';
+import {
+  PRINCIPALS,
+  STORED_PRINCIPAL_NAMES,
+  type StoredPrincipalName,
+} from '../support/principals.js';
 
 interface Provocation {
   readonly name: string;
@@ -170,7 +174,7 @@ test('the topology answers and the stop and start helpers work on the same DATA_
 });
 
 test.describe('the principals (CB17)', () => {
-  const EXPECTED_ROLES: Record<PrincipalName, readonly string[]> = {
+  const EXPECTED_ROLES: Record<StoredPrincipalName, readonly string[]> = {
     owner: ['owner'],
     administrator: ['admin'],
     operator: ['operator'],
@@ -184,7 +188,7 @@ test.describe('the principals (CB17)', () => {
     'group-member': ['helpdesk'],
   };
 
-  for (const name of PRINCIPAL_NAMES) {
+  for (const name of STORED_PRINCIPAL_NAMES) {
     test.describe(name, () => {
       test.use({ principal: name });
       test(`${name} is who the storage state says`, async ({ request, app }) => {

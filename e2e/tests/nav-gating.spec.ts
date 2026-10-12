@@ -4,7 +4,7 @@
 // visitor without a session is sent to /signin, and the role matrix below says what each role sees.
 // Gating is cosmetic (the server enforces); the page behind a hidden entry says No-access at the same
 // URL, and the palette offers the same list as the menu.
-import { expect, test, type PrincipalName } from '../fixtures.js';
+import { expect, test, type StoredPrincipalName } from '../fixtures.js';
 
 const OWNER_ENTRIES = [
   'Dashboard',
@@ -150,7 +150,7 @@ interface Expectation {
   readonly palette: { readonly offered: readonly string[]; readonly absent: readonly string[] };
 }
 
-const MATRIX: Readonly<Record<Exclude<PrincipalName, 'norole'>, Expectation>> = {
+const MATRIX: Readonly<Record<Exclude<StoredPrincipalName, 'norole'>, Expectation>> = {
   owner: {
     sidebar: OWNER_ENTRIES,
     settings: ['Appearance', 'Connection', 'My access'],
@@ -215,7 +215,7 @@ const MATRIX: Readonly<Record<Exclude<PrincipalName, 'norole'>, Expectation>> = 
 
 test.describe('the role matrix', () => {
   for (const [name, expected] of Object.entries(MATRIX) as [
-    Exclude<PrincipalName, 'norole'>,
+    Exclude<StoredPrincipalName, 'norole'>,
     Expectation,
   ][]) {
     test.describe(name, () => {

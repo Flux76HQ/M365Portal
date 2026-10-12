@@ -12,6 +12,9 @@
 //                       into the past directly in the database, because the API refuses a past
 //                       expiry. The session stays, the rights are gone (the self-test documents it)
 //   group-member        holds a role only through membership of an Entra group
+//   leaver, deputy      disposable: given a role like the others but with NO storage state, so that a
+//                       spec may sign them in, out and out everywhere, or step them up (which rotates
+//                       the session), without touching the session the other specs share
 export const PRINCIPAL_NAMES = [
   'owner',
   'administrator',
@@ -21,8 +24,20 @@ export const PRINCIPAL_NAMES = [
   'norole',
   'expired-assignment',
   'group-member',
+  'leaver',
+  'deputy',
 ] as const;
 export type PrincipalName = (typeof PRINCIPAL_NAMES)[number];
+
+/** The principals nobody shares: no storage state is written for them. */
+export const DISPOSABLE_NAMES = ['leaver', 'deputy'] as const;
+export type DisposableName = (typeof DISPOSABLE_NAMES)[number];
+
+/** The principals that start a test signed in (a storage state each; `norole` has an empty one). */
+export type StoredPrincipalName = Exclude<PrincipalName, DisposableName>;
+export const STORED_PRINCIPAL_NAMES: readonly StoredPrincipalName[] = PRINCIPAL_NAMES.filter(
+  (name): name is StoredPrincipalName => !(DISPOSABLE_NAMES as readonly string[]).includes(name),
+);
 
 /** The built-in role keys of the panel. */
 export type RoleKey = 'owner' | 'admin' | 'operator' | 'helpdesk' | 'reader';
@@ -97,6 +112,21 @@ export const PRINCIPALS: Readonly<Record<PrincipalName, Principal>> = {
     displayName: 'Ellen Expired',
     role: 'reader',
   },
+  leaver: {
+    name: 'leaver',
+    oid: guid(109),
+    upn: 'lena.leaver@contoso-fake.example',
+    displayName: 'Lena Leaver',
+    role: 'helpdesk',
+  },
+  deputy: {
+    name: 'deputy',
+    oid: guid(110),
+    upn: 'dirk.deputy@contoso-fake.example',
+    displayName: 'Dirk Deputy',
+    role: 'owner',
+    widsGlobalAdministrator: true,
+  },
   'group-member': {
     name: 'group-member',
     oid: guid(108),
@@ -117,7 +147,7 @@ export const ROLE_GROUP = {
 /** The Entra role template id of Global Administrator (Microsoft Learn: built-in roles). */
 export const GLOBAL_ADMINISTRATOR_TEMPLATE_ID = '62e90394-69f5-4237-9190-012177145e10';
 
-/** The principals that have a session (everyone but `norole`). */
+/** The principals that can have a session (everyone but `norole`). */
 export const SIGNED_IN_PRINCIPALS: readonly PrincipalName[] = PRINCIPAL_NAMES.filter(
   (name) => name !== 'norole',
 );

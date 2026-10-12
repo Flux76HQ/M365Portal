@@ -29,6 +29,7 @@ import { createServer as createTlsServer } from 'node:https';
 import net from 'node:net';
 import {
   createFakeEntra,
+  seedApplication,
   type FakeEntra,
 } from '../../apps/server/test/fakes/fake-tenant/entra/index.js';
 import { exchangeModule } from '../../apps/server/test/fakes/fake-tenant/exchange/module.js';
@@ -109,6 +110,48 @@ function panelApplication(scene: Scene) {
     if (application.tags.some((tag) => tag.startsWith('m365portal-install-'))) return application;
   }
   throw new Error('the fake tenant holds no application with an install tag');
+}
+
+/** What a person sees in Microsoft Entra for the panel's application: the facts the specs compare. */
+function summaryOfPanelApplication(scene: Scene) {
+  const { directory } = scene.graph;
+  const application = panelApplication(scene);
+  const servicePrincipal = directory.servicePrincipalByAppId(application.appId);
+  const roles = (kind: 'graph' | 'exchange'): string[] => {
+    if (servicePrincipal === undefined) return [];
+    const names: string[] = [];
+    for (const assignment of directory.appRoleAssignments.values()) {
+      if (assignment.principalId !== servicePrincipal.id) continue;
+      const resource = directory.servicePrincipals.get(assignment.resourceId);
+      if (resource === undefined || directory.resourceKindOf(resource) !== kind) continue;
+      const role = resource.appRoles.find((candidate) => candidate.id === assignment.appRoleId);
+      if (role !== undefined) names.push(role.value);
+    }
+    return names.sort();
+  };
+  const claims = application.optionalClaims as { idToken?: { name: string }[] } | null;
+  return {
+    appId: application.appId,
+    objectId: application.id,
+    displayName: application.displayName,
+    description: application.description,
+    tags: application.tags,
+    redirectUris: application.web.redirectUris,
+    implicitGrant: application.web.implicitGrantSettings,
+    optionalClaimNames: (claims?.idToken ?? []).map((claim) => claim.name).sort(),
+    graphRoles: roles('graph'),
+    exchangeRoles: roles('exchange'),
+    entraRoleTemplateIds:
+      servicePrincipal === undefined
+        ? []
+        : [...directory.directoryRoleAssignments.values()]
+            .filter((assignment) => assignment.principalId === servicePrincipal.id)
+            .map((assignment) => assignment.roleDefinitionId),
+    keyCredentials: application.keyCredentials.length,
+    thumbprintsSha1: application.keyCredentials.map((key) => key.thumbprintSha1.toLowerCase()),
+    passwordCredentials: application.passwordCredentials.length,
+    owners: application.owners.length,
+  };
 }
 
 export const FAKE_OPERATIONS: Readonly<Record<string, Operation>> = {
@@ -249,6 +292,47 @@ export const FAKE_OPERATIONS: Readonly<Record<string, Operation>> = {
     panelApplication(scene).web.redirectUris = (args.uris as string[]).slice();
     return null;
   },
+  /** The panel's application as Microsoft Entra holds it (for the specs that compare it with the UI). */
+  panelApplication: (scene) => summaryOfPanelApplication(scene),
+  /**
+   * What a person does by hand in Microsoft Entra, following the checklist (FR-B-218, EB-04): the
+   * application with exactly the values they were given, the certificate they downloaded, the
+   * permissions, the consent and the Entra role. Returns the client id and the tenant id they then
+   * type into the panel.
+   */
+  seedManualApplication(scene, args) {
+    const names = (name: string): string[] =>
+      Array.isArray(args[name]) ? (args[name] as string[]) : [];
+    const seeded = seedApplication(scene.graph.world, {
+      redirectUris: names('redirectUris'),
+      displayName: text(args, 'displayName'),
+      graphRoles: names('graphRoles'),
+      exchangeRoles: names('exchangeRoles'),
+      certificate: false,
+    });
+    const { directory } = scene.graph;
+    const application = directory.applications.get(seeded.objectId);
+    if (application === undefined) throw new Error('the seeded application is gone');
+    application.description = text(args, 'description');
+    application.tags = names('tags');
+    application.optionalClaims = {
+      idToken: names('optionalClaimNames').map((name) => ({ name, essential: false })),
+    };
+    application.keyCredentials = [
+      directory.credentialFromUpload({
+        key: text(args, 'certificateBase64'),
+        type: 'AsymmetricX509Cert',
+        usage: 'Verify',
+        displayName: 'uploaded by hand',
+      }),
+    ];
+    if (typeof args.entraRoleTemplateId === 'string') {
+      seeded.assignEntraRole(args.entraRoleTemplateId);
+    }
+    return { appId: seeded.appId, tenantId: directory.tenantId };
+  },
+  /** The tenant id the fake reports (what a person reads on the Entra overview page). */
+  tenantId: (scene) => scene.graph.directory.tenantId,
   // ---- what the fake saw --------------------------------------------------------------------------
   calls: (scene) => scene.tenant.calls.all(),
   'calls.mutating': (scene) => scene.tenant.calls.mutating(),

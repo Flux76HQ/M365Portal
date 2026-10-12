@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { fixtureById } from '../../apps/server/test/fixtures/hostile-corpus.js';
 import { writeHostileFiles } from '../../apps/server/test/fixtures/write-hostile.js';
-import { expect, test } from '../fixtures.js';
+import { contextAs, expect, test } from '../fixtures.js';
 import {
   appearanceFields,
   makeJpeg,
@@ -372,7 +372,7 @@ test.describe('two people', () => {
     guard.allowResponse({ status: 412, url: '/api/v1/branding' });
     const mine = await openAppearance(page, app);
 
-    const otherContext = await browser.newContext({ locale: 'en-US', timezoneId: 'UTC' });
+    const otherContext = await contextAs(browser, 'administrator');
     try {
       const other = await otherContext.newPage();
       const theirs = await openAppearance(other, app);

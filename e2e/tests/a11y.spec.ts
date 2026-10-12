@@ -11,7 +11,13 @@ import type { Page } from '@playwright/test';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { isWaived, loadWaivers, readWaiverFile, todayUtc } from '../axe-waivers.js';
 import { ROUTES } from '../routes.js';
-import { expect, cssColourBrightness, test, type InstanceName } from '../fixtures.js';
+import {
+  allowLockedSetup,
+  cssColourBrightness,
+  expect,
+  test,
+  type StoredPrincipalName,
+} from '../fixtures.js';
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 const fixture = (name: string): unknown =>
@@ -68,7 +74,8 @@ async function settle(page: Page, route = '/'): Promise<void> {
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
 }
 
-const INSTANCES: readonly InstanceName[] = ['preview', 'anonymous'];
+/** Who looks at the page: the owner of instance A, and a visitor without a session. */
+const VIEWERS: readonly (StoredPrincipalName | 'anonymous')[] = ['owner', 'anonymous'];
 
 test.describe('axe on every route', () => {
   test.beforeEach(async ({ page }) => {
@@ -76,14 +83,18 @@ test.describe('axe on every route', () => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
   });
 
-  for (const instance of INSTANCES) {
-    for (const route of ROUTES) {
-      test(`${route} (${instance}) has no violations`, async ({ page, app }) => {
-        await app.goto(route, { instance });
-        await settle(page, route);
-        expect(await scan(page, route)).toEqual([]);
-      });
-    }
+  for (const viewer of VIEWERS) {
+    test.describe(viewer, () => {
+      test.use({ principal: viewer });
+      for (const route of ROUTES) {
+        test(`${route} (${viewer}) has no violations`, async ({ page, app, guard }) => {
+          allowLockedSetup(guard);
+          await app.goto(route);
+          await settle(page, route);
+          expect(await scan(page, route)).toEqual([]);
+        });
+      }
+    });
   }
 });
 

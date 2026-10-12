@@ -21,6 +21,7 @@
 import {
   expect,
   test as base,
+  type Browser,
   type BrowserContext,
   type Page,
   type Response,
@@ -32,19 +33,21 @@ import {
   restartServer,
   startServer,
   statesDir,
+  takeSetupBudget,
   stopServer,
   type InstanceName,
 } from './servers.js';
+import { ApiClient } from './support/api-client.js';
 import { freshClientAddress } from './support/client-address.js';
 import { FakeControl } from './support/fake-control.js';
 import { isMicrosoftUrl } from './support/microsoft-hosts.js';
-import type { PrincipalName } from './support/principals.js';
+import type { PrincipalName, StoredPrincipalName } from './support/principals.js';
 import { signInAs, type SignInAsOptions } from './support/sign-in.js';
 import { join } from 'node:path';
 
 export { expect };
 export type { InstanceName };
-export type { PrincipalName };
+export type { PrincipalName, StoredPrincipalName };
 
 export type AppTheme = 'light' | 'dark' | 'system';
 
@@ -58,7 +61,7 @@ export interface AppOptions {
    * Who the context is signed in as when the test starts: the storage state global-setup wrote for
    * that principal. `anonymous` starts without cookies (`norole` has none either: no session).
    */
-  principal: PrincipalName | 'anonymous';
+  principal: StoredPrincipalName | 'anonymous';
   /**
    * Send an `X-Forwarded-For` of its own so that this context is its own client (instance A trusts
    * one proxy hop; see support/client-address.ts). Specs of instance B turn it off: B trusts none.
@@ -257,6 +260,34 @@ async function bodyBackground(page: Page): Promise<string> {
   return page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 }
 
+/**
+ * After the setup is complete, `/setup` and `/api/v1/setup/status` answer 404 on purpose, byte for byte
+ * like an unknown address (FR-B-206): a spec that walks every route of a configured instance expects
+ * both, and nothing else.
+ */
+export function allowLockedSetup(guard: Guard): void {
+  guard.allowResponse({ status: 404, url: /\/setup(\/|$)/ });
+  guard.allowResponse({ status: 404, url: '/api/v1/setup/status' });
+}
+
+/**
+ * A second browser context, signed in as another person (the specs about two people): the storage
+ * state of that principal, a client address of its own and the project's locale and time zone. The
+ * caller closes it. The guard watches the test's own context only.
+ */
+export async function contextAs(
+  browser: Browser,
+  principal: StoredPrincipalName | 'anonymous',
+): Promise<BrowserContext> {
+  return browser.newContext({
+    locale: 'en-US',
+    timezoneId: 'UTC',
+    ignoreHTTPSErrors: true,
+    extraHTTPHeaders: { 'x-forwarded-for': freshClientAddress() },
+    ...(principal === 'anonymous' ? {} : { storageState: join(statesDir(), `${principal}.json`) }),
+  });
+}
+
 /** The control surface of an instance's tenant in the fake (default A): device approval, toggles, call record. */
 export function fakeOf(instance: InstanceName = 'a'): FakeControl {
   return new FakeControl(instance);
@@ -314,10 +345,17 @@ export const test = base.extend<AppOptions & { guard: Guard; app: App }>({
   },
 
   app: async ({ page, appTheme }, use) => {
+    // Instances this test signed somebody in on: the session is ended afterwards, so that a run does
+    // not pile up live sessions (a principal holds at most ten; the oldest, which may be the one in
+    // the shared storage state, is evicted).
+    const dynamicSignIns = new Set<InstanceName>();
     const app: App = {
       origin: (instance = 'a') => originOf(instance),
       url: (path, instance = 'a') => `${originOf(instance)}${path}`,
-      signInAs: (principal, options) => signInAs(page, principal, options),
+      async signInAs(principal, options) {
+        await signInAs(page, principal, options);
+        dynamicSignIns.add(options?.instance ?? 'a');
+      },
       async expectTheme(theme) {
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
         const luminance = cssColourBrightness(await bodyBackground(page));
@@ -340,6 +378,7 @@ export const test = base.extend<AppOptions & { guard: Guard; app: App }>({
         if (appTheme === 'light' || appTheme === 'dark') await app.expectTheme(appTheme);
       },
       async goto(path, options = {}) {
+        if (options.instance === 'b') await takeSetupBudget();
         const response = await page.goto(app.url(path, options.instance), {
           waitUntil: 'load',
         });
@@ -354,5 +393,15 @@ export const test = base.extend<AppOptions & { guard: Guard; app: App }>({
       },
     };
     await use(app);
+    for (const instance of dynamicSignIns) {
+      const cookie = (await page.context().cookies(originOf(instance))).find(
+        (candidate) => candidate.name === 'm365portal_session',
+      );
+      if (cookie === undefined) continue;
+      // Best effort: the test may have signed out already (the call is then a 401 and nothing else).
+      await new ApiClient(instance, { m365portal_session: cookie.value })
+        .post('/api/v1/auth/logout')
+        .catch(() => undefined);
+    }
   },
 });

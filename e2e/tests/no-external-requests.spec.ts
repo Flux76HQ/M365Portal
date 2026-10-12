@@ -1,12 +1,20 @@
 // No runtime CDN and no third-party request (FR-A-007), and the self-hosted font (FR-A-123,
-// SC-A-005): on every route of both instances every request the browser makes is same-origin, and at
-// first paint the only font file fetched is `inter-latin-wght-normal*.woff2`.
+// SC-A-005, FR-B-606, SC-B-015): on every route, for the signed-in owner of instance A, for a visitor
+// without a session and on the empty instance B, every request the browser makes is same-origin, and at
+// first paint the only font file fetched is `inter-latin-wght-normal*.woff2`. (The sign-in itself is
+// the one place the browser goes to Microsoft, by navigation: see signin.spec.ts.)
 //
 // The `guard` fixture fails the test on a foreign origin as well; this spec makes the same claim
 // with its own listener, so a weakened fixture cannot make it vacuous.
 import type { Page, Request } from '@playwright/test';
 import { ROUTES } from '../routes.js';
-import { expect, test, type InstanceName } from '../fixtures.js';
+import {
+  allowLockedSetup,
+  expect,
+  test,
+  type InstanceName,
+  type StoredPrincipalName,
+} from '../fixtures.js';
 
 function collect(page: Page): Request[] {
   const requests: Request[] = [];
@@ -16,21 +24,40 @@ function collect(page: Page): Request[] {
   return requests;
 }
 
-const INSTANCES: readonly InstanceName[] = ['preview', 'anonymous'];
+interface View {
+  readonly label: string;
+  readonly instance: InstanceName;
+  readonly principal: StoredPrincipalName | 'anonymous';
+}
 
-for (const instance of INSTANCES) {
-  for (const route of ROUTES) {
-    test(`every request on ${route} (${instance}) is same-origin`, async ({ page, app }) => {
-      const requests = collect(page);
-      await app.goto(route, { instance });
-      const origin = app.origin(instance);
-      const foreign = requests
-        .map((request) => request.url())
-        .filter((url) => /^https?:/.test(url) && new URL(url).origin !== origin);
-      expect(foreign, 'requests to another origin').toEqual([]);
-      expect(requests.length).toBeGreaterThan(3);
-    });
-  }
+const VIEWS: readonly View[] = [
+  { label: 'owner', instance: 'a', principal: 'owner' },
+  { label: 'visitor', instance: 'a', principal: 'anonymous' },
+  { label: 'empty instance', instance: 'b', principal: 'anonymous' },
+];
+
+for (const view of VIEWS) {
+  test.describe(view.label, () => {
+    test.use({ principal: view.principal, ownClientAddress: view.instance === 'a' });
+    for (const route of ROUTES) {
+      test(`every request on ${route} (${view.label}) is same-origin`, async ({
+        page,
+        app,
+        guard,
+      }) => {
+        if (view.instance === 'a') allowLockedSetup(guard);
+        else guard.allowResponse({ status: 404 });
+        const requests = collect(page);
+        await app.goto(route, { instance: view.instance });
+        const origin = app.origin(view.instance);
+        const foreign = requests
+          .map((request) => request.url())
+          .filter((url) => /^https?:/.test(url) && new URL(url).origin !== origin);
+        expect(foreign, 'requests to another origin').toEqual([]);
+        expect(requests.length).toBeGreaterThan(3);
+      });
+    }
+  });
 }
 
 test('at first paint only inter-latin-wght-normal*.woff2 is fetched, and it is loaded (P21)', async ({
