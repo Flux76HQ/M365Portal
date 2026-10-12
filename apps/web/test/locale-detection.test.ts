@@ -11,6 +11,7 @@ import {
   applyLanguage,
   chooseLanguage,
   createLanguageController,
+  loadLazyNamespace,
   readLanguageChoice,
 } from '../src/lib/locale';
 import { STORAGE_KEYS, createStorage, type KeyValueStore } from '../src/lib/storage';
@@ -200,5 +201,75 @@ describe('createLanguageController', () => {
       expect(inDutch, name).toContain(name);
       expect(inEnglish, name).toContain(name);
     }
+  });
+});
+
+describe('the default language the setup stored (T-B-291; FR-B-219 d)', () => {
+  it('is used only when the browser has no stored choice and asks for neither nl nor en', () => {
+    const empty = createStorage(backend());
+    expect(chooseLanguage(empty, ['de-DE'], 'nl')).toBe('nl');
+    expect(chooseLanguage(empty, [], 'nl')).toBe('nl');
+    expect(chooseLanguage(empty, ['en-US'], 'nl')).toBe('en');
+    expect(chooseLanguage(empty, ['nl-BE'], 'en')).toBe('nl');
+    // A stored choice of this browser wins over everything.
+    const chosen = createStorage(backend({ [STORAGE_KEYS.locale]: 'en' }));
+    expect(chooseLanguage(chosen, ['de-DE'], 'nl')).toBe('en');
+    // A value that is not a language is no default.
+    expect(chooseLanguage(empty, ['de-DE'], 'fr')).toBe('en');
+  });
+
+  it('is a controller option: the first language of a visitor without preference', () => {
+    const root = freshRoot();
+    const controller = createLanguageController({
+      storage: createStorage(backend()),
+      languages: ['de-DE'],
+      root,
+      defaultLanguage: 'nl',
+    });
+    expect(controller.language).toBe('nl');
+    expect(root.lang).toBe('nl');
+  });
+});
+
+describe('lazy namespaces and the language switch (T-B-291)', () => {
+  it('loadLazyNamespace loads the namespace for the language of the page', async () => {
+    const controller = createLanguageController({
+      storage: createStorage(backend()),
+      languages: ['nl'],
+      root: freshRoot(),
+    });
+    await loadLazyNamespace('breakglass', controller);
+    expect(controller.translator.t('breakglass.form.title')).toBe('Noodtoegang');
+  });
+
+  it('loads the namespaces the page already uses in the other language before the switch is applied', async () => {
+    const root = freshRoot();
+    const controller = createLanguageController({
+      storage: createStorage(backend()),
+      languages: ['en'],
+      root,
+    });
+    await loadLazyNamespace('setup', controller);
+    const seen: string[] = [];
+    controller.subscribe(() => {
+      // By the time anyone is told, the Dutch text of the wizard is there: no flash of English keys.
+      seen.push(controller.translator.t('setup.step.finish'));
+    });
+    controller.setLanguage('nl');
+    await vi.waitFor(() => {
+      expect(controller.language).toBe('nl');
+    });
+    expect(seen).toEqual(['Afronden']);
+    expect(root.lang).toBe('nl');
+  });
+
+  it('switches at once when no lazy namespace has been asked for', () => {
+    const controller = createLanguageController({
+      storage: createStorage(backend()),
+      languages: ['en'],
+      root: freshRoot(),
+    });
+    controller.setLanguage('nl');
+    expect(controller.language).toBe('nl');
   });
 });

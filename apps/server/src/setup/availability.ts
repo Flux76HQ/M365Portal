@@ -5,8 +5,10 @@
 //     at once), and
 //   - the loopback guard passes (only over a plain-http base URL).
 //
-// A closed gate makes the route not exist: the wrapper answers it like an unknown path. When the state
-// cannot be read (no database), the gate is closed: nothing about setup is shown to a process that
+// A closed gate makes the route not exist: the wrapper answers it like an unknown path. In degraded
+// mode (no database at all, EB-33) the gate stays open for a request the guard lets through, so that a
+// setup route answers 503 `storage_unavailable` like every route that needs storage; a database that is
+// open but has no readable state row closes the gate: nothing about setup is shown to a process that
 // cannot say what state it is in.
 import type { SetupState } from '@m365portal/shared/setup/steps';
 import type { AppConfig } from '../config/env.js';
@@ -54,6 +56,9 @@ export function createSetupGate(deps: SetupGateDeps): SetupGate {
     state,
     guardOpen,
     stateOpen,
-    isOpen: (request) => stateOpen() && guardOpen(request),
+    isOpen: (request) => {
+      if (!guardOpen(request)) return false;
+      return deps.database() === undefined || stateOpen();
+    },
   };
 }

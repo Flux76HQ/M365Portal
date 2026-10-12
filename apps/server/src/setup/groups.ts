@@ -3,7 +3,22 @@
 // app-only (FR-B-311) and run before the finish transaction, never inside it.
 import { ProblemError } from '../http/problem.js';
 import { graphProblem } from '../rbac/graph-problem.js';
+import type { ModuleDeps } from '../module.js';
+import { NotConnectedError } from '../ports/errors.js';
 import type { GraphClient, Guid } from '../ports/graph.js';
+
+/**
+ * The app-only Graph client, or the problem that says why there is none: not connected yet is 409
+ * `setup_step_not_ready` (verification has not pinned the tenant), unusable secrets is 503.
+ */
+export function appGraphOf(deps: Pick<ModuleDeps, 'clients'>): GraphClient {
+  try {
+    return deps.clients.graph();
+  } catch (error) {
+    if (error instanceof NotConnectedError) throw new ProblemError('setup_step_not_ready');
+    throw graphProblem(error);
+  }
+}
 
 export interface GroupChoice {
   readonly id: string;

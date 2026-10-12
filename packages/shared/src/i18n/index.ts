@@ -9,6 +9,7 @@ export {
   loadNamespace,
   loadRequestedNamespaces,
   loadedNamespaces,
+  missingNamespaces,
   type LoadedNamespace,
 } from './load-namespace.js';
 export { createFormatters, interpolate, placeholdersOf, stripPlaceholders } from './format.js';

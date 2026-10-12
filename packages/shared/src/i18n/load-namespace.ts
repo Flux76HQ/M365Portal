@@ -91,6 +91,11 @@ export function loadedNamespaces(locale: Locale): readonly LazyNamespace[] {
   return LAZY_NAMESPACES.filter((namespace) => loaded[locale].has(namespace));
 }
 
+/** The namespaces that were asked for in some language and are not loaded in `locale` yet. */
+export function missingNamespaces(locale: Locale): readonly LazyNamespace[] {
+  return LAZY_NAMESPACES.filter((namespace) => requested.has(namespace) && !loaded[locale].has(namespace));
+}
+
 /**
  * Loads, for `locale`, every namespace that was ever asked for in any language. Call it before
  * switching the interface to `locale`: the page that is open keeps its text instead of falling back to

@@ -20,7 +20,8 @@ import { findDuplicateAssignment, findRoleByKey, insertAssignment } from '../rba
 import { readBranding } from '../branding/repository.js';
 import { auditStepRun } from './audit.js';
 import type { SetupServices } from './context.js';
-import { requireExistingGroup } from './groups.js';
+import { appGraphOf, requireExistingGroup } from './groups.js';
+import { ownerLabelsOf } from './owner-labels.js';
 import type { RunActor } from './run-context.js';
 import { SetupTransitionError } from './state.js';
 
@@ -62,19 +63,6 @@ export function proposedOrgName(
 
 function notReady(errors?: { pointer: string; code: string }[]): ProblemError {
   return new ProblemError('setup_step_not_ready', errors === undefined ? {} : { errors });
-}
-
-async function ownerLabels(
-  services: SetupServices,
-  oid: string,
-): Promise<{ upnLabel: string | null; nameLabel: string | null }> {
-  try {
-    const user = await services.deps.clients.graph().getUser(oid, { priority: 'high' });
-    return { upnLabel: user?.userPrincipalName ?? null, nameLabel: user?.displayName ?? null };
-  } catch {
-    // Labels only decorate the confirmation; a failure here must not block a finish.
-    return { upnLabel: null, nameLabel: null };
-  }
 }
 
 function insertWizardAssignment(
@@ -177,8 +165,8 @@ export async function finishSetup(
   const owner = checkPreconditions(services, db, deps.busy(), input);
 
   const groupId = input.beheerderGroupId ?? null;
-  if (groupId !== null) await requireExistingGroup(services.deps.clients.graph(), groupId);
-  const labels = await ownerLabels(services, owner);
+  if (groupId !== null) await requireExistingGroup(appGraphOf(services.deps), groupId);
+  const labels = await ownerLabelsOf(services, owner);
 
   // The checks above ran before two awaits: the transaction repeats the ones a concurrent request
   // could have changed (the state edge refuses a second finish).

@@ -48,7 +48,7 @@ export function SignInError({ code, adminConsentUrl }: SignInErrorProps) {
           {remedy}
         </p>
         {link === null ? null : (
-          <div className="flex flex-col gap-1 border-t border-line-subtle pt-2">
+          <div className="flex flex-col gap-1 border-t border-line-subtle pt-3">
             <p className="font-semibold text-fg">{t('signin.consent.heading')}</p>
             <p className="text-fg-secondary">{t('signin.consent.message')}</p>
             <a

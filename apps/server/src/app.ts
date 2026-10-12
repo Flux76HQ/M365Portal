@@ -111,6 +111,8 @@ export function buildApp(deps: BuildAppDeps): BuiltApp {
     deps.modules.find((module) => module.shell !== undefined)?.shell ??
     createPlaceholderShell(deps.shellTemplate);
 
+  const pages = deps.modules.find((module) => module.pages !== undefined)?.pages;
+
   const http = createHttpApp({
     config,
     log,
@@ -151,7 +153,13 @@ export function buildApp(deps: BuildAppDeps): BuiltApp {
       serviceWorkerRoute({ root: deps.webRoot }),
       ...deps.modules.flatMap((module) => module.routes(deps.moduleDeps)),
     ],
-    fallbacks: [staticFallback({ root: deps.webRoot }), spaFallback({ shell })],
+    fallbacks: [
+      staticFallback({ root: deps.webRoot }),
+      spaFallback({
+        shell,
+        ...(pages === undefined ? {} : { pages }),
+      }),
+    ],
     openApi: { version: APP_VERSION, source: document },
   });
 

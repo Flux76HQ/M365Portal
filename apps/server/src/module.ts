@@ -19,6 +19,7 @@
 import type { AppConfig } from './config/env.js';
 import type { DatabaseHandle } from './db/index.js';
 import type { RouteDefinition } from './http/route.js';
+import type { PagePolicy } from './http/spa-fallback.js';
 import { ProblemError } from './http/problem.js';
 import type { ClientsRegistry } from './integrations/registry.js';
 import type { Logger } from './logging/logger.js';
@@ -115,6 +116,12 @@ export interface AppModule {
    * composition root merges them and the route wrapper reads them (`T-B-237`).
    */
   readonly availability?: ModuleAvailability;
+  /**
+   * What a page navigation gets before the shell renders (Phase B, additive, seam XB20): the setup
+   * module answers 404 for `/setup` once the wizard is closed and 303 to `/setup` for any other page
+   * while it is open. The first module that has one is used.
+   */
+  readonly pages?: PagePolicy;
 }
 
 /** Throws unless the `availability` of `module`, when there is one, names only the two gates, as functions. */

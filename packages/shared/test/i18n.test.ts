@@ -760,6 +760,17 @@ describe('loadNamespace: lazy namespace catalogues (FR-B-604, AM-21, CB15)', () 
     );
   });
 
+  it('names the namespaces asked for in one language and not yet loaded in another', async () => {
+    vi.resetModules();
+    const fresh = await import('../src/i18n/index.js');
+    expect(fresh.missingNamespaces('nl')).toEqual([]);
+    await fresh.loadNamespace('en', 'setup');
+    expect(fresh.missingNamespaces('nl')).toEqual(['setup']);
+    expect(fresh.missingNamespaces('en')).toEqual([]);
+    await fresh.loadNamespace('nl', 'setup');
+    expect(fresh.missingNamespaces('nl')).toEqual([]);
+  });
+
   it('falls back to English for a lazy key the Dutch file lacks, like any other key', () => {
     const translator = createTranslatorFrom('nl', {
       en: { 'setup.step.x': 'English' },

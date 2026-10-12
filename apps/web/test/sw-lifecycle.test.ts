@@ -546,3 +546,50 @@ describe('the offline page', () => {
     expect(reload).toHaveBeenCalledTimes(2);
   });
 });
+
+// --- Phase B: the sign-in flow (T-B-299; FR-B-417, AM-12, PB-18) ------------------------------------
+
+describe('the sign-in flow and the worker', () => {
+  let h: Harness;
+  beforeEach(async () => {
+    h = createHarness(servingEverything());
+    await h.install();
+    await h.activate();
+    h.fetch.mockClear();
+  });
+
+  it.each([
+    '/auth/login?returnTo=%2Fusers',
+    '/auth/callback?code=abc&state=def',
+    '/auth/logged-out',
+    '/%61uth/login',
+  ])('does not touch %s: no respondWith, no fetch, nothing stored', async (path) => {
+    for (const mode of ['navigate', 'cors'] as const) {
+      expect(await h.request(`${ORIGIN}${path}`, { mode })).toBeUndefined();
+    }
+    expect(h.fetch).not.toHaveBeenCalled();
+    expect(stored(h, STATIC)).toEqual([]);
+  });
+
+  it.each(['/signin', '/signin?error=consent_required', '/setup', '/no-access', '/break-glass'])(
+    'goes to the network first for a navigation to %s and stores nothing, also when it answers',
+    async (path) => {
+      const response = await h.request(`${ORIGIN}${path}`, { mode: 'navigate' });
+      expect(await response?.text()).toBe('<html>shell</html>');
+      expect(h.fetch).toHaveBeenCalledTimes(1);
+      expect(stored(h, STATIC)).toEqual([]);
+      expect(stored(h, OFFLINE).filter((entry) => !PRECACHED.includes(entry))).toEqual([]);
+    },
+  );
+
+  it.each(['/signin', '/setup', '/no-access', '/break-glass'])(
+    'answers the offline page for %s when the network is gone, and still stores nothing',
+    async (path) => {
+      h.fetch.mockRejectedValue(new TypeError('offline'));
+      const response = await h.request(`${ORIGIN}${path}`, { mode: 'navigate' });
+      expect(await response?.text()).toBe('<p>offline</p>');
+      expect(stored(h, STATIC)).toEqual([]);
+      expect(stored(h, OFFLINE).filter((entry) => !PRECACHED.includes(entry))).toEqual([]);
+    },
+  );
+});

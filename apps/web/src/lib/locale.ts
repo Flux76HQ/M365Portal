@@ -14,6 +14,10 @@ import {
   createTranslator,
   detectLocale,
   isLocale,
+  loadNamespace,
+  loadRequestedNamespaces,
+  missingNamespaces,
+  type LazyNamespace,
   type Locale,
   type Translator,
 } from '@m365portal/shared/i18n';
@@ -27,9 +31,16 @@ export function readLanguageChoice(storage: AppStorage): Locale | null {
   return isLocale(stored) ? stored : null;
 }
 
-/** A stored choice wins; otherwise the first of nl or en among the browser's languages; else English. */
-export function chooseLanguage(storage: AppStorage, languages: readonly string[]): Locale {
-  return readLanguageChoice(storage) ?? detectLocale(languages);
+/**
+ * A stored choice wins; otherwise the first of nl or en among the browser's languages; otherwise the
+ * default language the setup stored (`storedDefault`, FR-B-219 d); else English.
+ */
+export function chooseLanguage(
+  storage: AppStorage,
+  languages: readonly string[],
+  storedDefault?: unknown,
+): Locale {
+  return readLanguageChoice(storage) ?? detectLocale(languages, storedDefault);
 }
 
 /** Makes `<html lang>` follow the language. */
@@ -42,6 +53,8 @@ export interface LanguageControllerOptions {
   /** `navigator.languages`. */
   readonly languages: readonly string[];
   readonly root: HTMLElement;
+  /** The default language the setup stored; used only for a visitor with no choice and no nl or en preference. */
+  readonly defaultLanguage?: unknown;
 }
 
 export interface LanguageController {
@@ -59,9 +72,21 @@ export function createLanguageController(options: LanguageControllerOptions): La
   const { storage, root } = options;
   const listeners = new Set<() => void>();
 
-  let language = chooseLanguage(storage, options.languages);
+  let language = chooseLanguage(storage, options.languages, options.defaultLanguage);
   let translator = createTranslator(language);
   applyLanguage(root, language);
+
+  /** The newest switch asked for: a slow load of an older one must not undo it. */
+  let latest: Locale | null = null;
+
+  function apply(next: Locale): void {
+    if (next === language) return;
+    language = next;
+    translator = createTranslator(language);
+    storage.write(STORAGE_KEYS.locale, language);
+    applyLanguage(root, language);
+    for (const listener of [...listeners]) listener();
+  }
 
   return {
     get language() {
@@ -72,11 +97,19 @@ export function createLanguageController(options: LanguageControllerOptions): La
     },
     setLanguage(next) {
       if (!isLocale(next) || next === language) return;
-      language = next;
-      translator = createTranslator(language);
-      storage.write(STORAGE_KEYS.locale, language);
-      applyLanguage(root, language);
-      for (const listener of [...listeners]) listener();
+      latest = next;
+      // The lazy namespaces the page already uses (the wizard, the connection page) are loaded in the
+      // new language first, so a switch never shows their keys or the other language for a moment. A
+      // file that cannot be fetched does not block the switch: its text falls back to English.
+      if (missingNamespaces(next).length === 0) {
+        apply(next);
+        return;
+      }
+      void loadRequestedNamespaces(next)
+        .catch(() => undefined)
+        .then(() => {
+          if (latest === next) apply(next);
+        });
     },
     subscribe(listener) {
       listeners.add(listener);
@@ -99,6 +132,18 @@ export function getLanguageController(): LanguageController {
     root: document.documentElement,
   });
   return shared;
+}
+
+/**
+ * Loads a lazy namespace (the wizard, the connection page, the break-glass pages, "Mijn toegang") in the
+ * language of the page. A route calls it in its `loader` and renders afterwards, so the first render has
+ * its text; a later switch of language loads the same namespaces in the new language first.
+ */
+export function loadLazyNamespace(
+  namespace: LazyNamespace,
+  controller: Pick<LanguageController, 'language'> = getLanguageController(),
+): Promise<unknown> {
+  return loadNamespace(controller.language, namespace);
 }
 
 const LanguageContext = createContext<LanguageController | null>(null);
