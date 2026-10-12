@@ -36,6 +36,10 @@ export const SPEC_PROJECTS: Readonly<Record<string, readonly string[]>> = {
   'reduced-motion.spec.ts': ['reduced-motion'],
 };
 
+function escapeRegExpLiteral(value: string): string {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+}
+
 function projectFor(
   name: string,
   options: Partial<AppOptions> & { viewport: { width: number; height: number } },
@@ -52,12 +56,12 @@ function projectFor(
     testMatch:
       name === 'desktop-light'
         ? ['**/*.spec.ts']
-        : owned.map((file) => new RegExp(`${file.replace(/\./g, '\\.')}$`)),
+        : owned.map((file) => new RegExp(`${escapeRegExpLiteral(file)}$`)),
     testIgnore:
       name === 'desktop-light'
         ? claimed
             .filter((file) => !owned.includes(file))
-            .map((file) => new RegExp(`${file.replace(/\./g, '\\.')}$`))
+            .map((file) => new RegExp(`${escapeRegExpLiteral(file)}$`))
         : undefined,
   };
 }

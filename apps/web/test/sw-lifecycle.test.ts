@@ -515,7 +515,7 @@ describe('the offline page', () => {
 
   it('has no inline script, no inline style, no style attribute and no event handler', () => {
     const html = read('offline.html');
-    for (const script of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+    for (const script of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi)) {
       expect(script[1]).toMatch(/\ssrc="\/offline\.js"/);
       expect((script[2] ?? '').trim()).toBe('');
     }
