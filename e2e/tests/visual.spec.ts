@@ -142,6 +142,8 @@ const MOVING = (page: Page) => [
   page.locator('[role="progressbar"]'),
   page.locator('[data-slot="proof-list"] p', { hasText: /Thumbprint/ }),
   page.getByText(/Last verified/),
+  // The row of a waiting sub-action: countdown, attempt and the button move against each other.
+  page.locator('[data-slot="waiting-note"]'),
 ];
 
 /**
@@ -153,6 +155,7 @@ async function pinMovingText(page: Page): Promise<void> {
     await locator.evaluateAll((nodes) => {
       nodes.forEach((node) => {
         if (node.getAttribute('role') === 'progressbar') return;
+        if (node.getAttribute('data-slot') === 'waiting-note') return;
         node.textContent = '0000000000';
       });
     });
@@ -163,7 +166,7 @@ async function shoot(
   page: Page,
   slug: string,
   testInfo: TestInfo,
-  options: { fullPage?: boolean } = {},
+  options: { fullPage?: boolean; maxDiffPixels?: number } = {},
 ): Promise<void> {
   await page.waitForFunction(() => document.getAnimations().length === 0);
   await pinVersionText(page);
@@ -171,6 +174,7 @@ async function shoot(
   await page.mouse.move(0, 0);
   await expect(page).toHaveScreenshot(nameOf(slug, testInfo), {
     ...SHOT,
+    maxDiffPixels: options.maxDiffPixels ?? SHOT.maxDiffPixels,
     fullPage: options.fullPage ?? true,
     mask: MOVING(page),
   });
@@ -237,7 +241,11 @@ test.describe('Phase B: /setup (empty instance B)', () => {
       await app.ready();
       // The wizard runs live against the fake tenant, so the length of the page (log lines, retries) and the
       // attempt counter differ from run to run: the picture is the viewport, with the counters masked.
-      await shoot(page, `setup-${state}`, testInfo, { fullPage: false });
+      // Owner decision of 2026-10-12: the live wizard states may differ by a few anti-aliased corner pixels of
+      // the cards between runs (up to 108 pixels measured over three runner artefacts, in places that no
+      // content change touches). The per-pixel threshold stays 0, and 120 stays below the 132 pixels of the
+      // real change that the Phase A rule was made for. Every other screenshot keeps `maxDiffPixels: 0`.
+      await shoot(page, `setup-${state}`, testInfo, { fullPage: false, maxDiffPixels: 120 });
     });
   }
 });

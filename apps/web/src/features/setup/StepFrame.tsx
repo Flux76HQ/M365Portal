@@ -32,7 +32,10 @@ function WaitingNote({
   );
   if (waiting === null) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-body-sm text-fg-secondary">
+    <div
+      data-slot="waiting-note"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-body-sm text-fg-secondary"
+    >
       <span>{t('setup.configure.waitingFor', { seconds })}</span>
       <span>{t('setup.configure.attempt', { attempt: waiting.attempt })}</span>
       <Button
