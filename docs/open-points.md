@@ -693,6 +693,62 @@ owner can overturn it.
 - Phase A items closed by Phase B: R-08 (preview mode) and OD-03 (preview mode removed), and the permission
   set of OD-06 is implemented with its default (four application roles).
 
+## Phase C (2026-10-12)
+
+Added by the Phase C specification task from `specs/003-phase-c/spec.md` (sections 8 to 11), `plan.md` (section 10) and `research-microsoft-c.md`. Numbering: this file already held U1 to U65 (the gap that `docs/phase-reports/phase-B.md` section 4.1 item 10 noted for U51 to U65 is closed: all of them have rows above), so nothing was renumbered and Phase C continues at **U66**. Status words as above.
+
+### Unverified Microsoft claims U66 to U74
+
+Date of the register: 2026-10-12 (Microsoft Learn only).
+
+| # | Claim | Where used | Tried | Needed to close |
+|---|---|---|---|---|
+| U66 | `GET /users/{id}/manager` (and `$expand=manager`) works for an application token holding `User.Read.All`; the List manager page says Application: "Not supported", a sibling page lists `User.Read.All` | FR-C-107, EC-C6 | List manager page read 2026-10-12 | OV-C2; the design degrades to "not available" |
+| U67 | What Graph answers for the members of a `HiddenMembership` group without `Member.Read.Hidden` (empty list or 403), and whether such groups are missing from a user's `transitiveMemberOf` | FR-C-108, FR-C-206 | permissions text and members page read | OV-C5; the panel does not call members for such groups |
+| U68 | `GET /groups/{id}/owners` accepts `GroupMember.Read.All` for application tokens (the PowerShell page says so; the REST permission table was seen only in part) | FR-C-305 | Get-MgGroupOwner page, owners page excerpt | OV-C4 |
+| U69 | The distribution and mail-enabled-security filters (`not groupTypes/any(c:c eq 'Unified') and mailEnabled eq ... and securityEnabled eq ...`) with `$orderby=displayName`, `$count=true` and the header work for an application holding only `GroupMember.Read.All`; `$select` of `visibility`, `mailNickname`, `description`, `onPremisesSyncEnabled` is returned (extends U36) | FR-C-301, FR-C-304 | group-list page filter table | OV-C1 |
+| U70 | `startsWith` joined by `or` over `displayName`, `mail`, `userPrincipalName`, combined with `and accountEnabled eq ...`, `userType eq ...` and `$orderby=displayName` under the advanced pair is accepted | FR-C-202 | each part documented alone (advanced-queries property table) | OV-C1; fallback: `displayName` only |
+| U71 | `$select=id,displayName,mail,userPrincipalName` on the polymorphic members and owners collections returns those properties for users (and `displayName`, `mail` for groups) | FR-C-306 | members page: query options supported | OV-C4; fallback: no `$select` |
+| U72 | The literal values of `userType` are `Member` and `Guest`, and users with a null `userType` exist; "member" then means `Member` only | FR-C-202 | property table says `eq` and `eq null` work | OV-C1 |
+| U73 | A `nextLink` of an advanced query keeps working without resending `ConsistencyLevel` (the client always resends it) | FR-C-103 | not stated on the pages read | none; harmless |
+| U74 | Which properties `transitiveMemberOf/microsoft.graph.group` returns for an application holding `User.Read.All` and `GroupMember.Read.All` (limited-information rule) | FR-C-206 | permissions-overview excerpt | OV-C5; groups with `null` names show a dash |
+
+Carried and still open, relevant to Phase C: U1, U8, U36 (its "is `GroupMember.Read.All` listed for group list" half is answered by the group-list page; which properties come back stays open), U37 (not needed: Phase C always sends the advanced pair), **U17 and U48 (licences: deferred by the owner on 2026-10-13, no licence column in Phase C)**.
+
+### Phase C owner decisions
+
+Recorded (owner, 2026-10-13): **D-C1** first version is read only (no create/update/delete, no group-membership writes, no password reset, no licence changes; no new Graph permission; `GroupMember.ReadWrite.All` is "granted, unused" in Phase C, ODB-02 default). **D-C2** ODB-11 closed: a single object outside the visible scope answers 403 `permission_denied`; lists filter by `visibleScopes`. **D-C3** no licence column; U17 stays open (deferred).
+
+| ID | Decision | Options | Default in the spec | Needed by | Status |
+|---|---|---|---|---|---|
+| ODC-01 | Audit of successful reads | Denials only (the code today; default); or an entry per detail view; or per list | Denials only | The owner test | owner |
+| ODC-02 | Distribution and mail-enabled security groups in the Groups list | Shown read-only with a badge (default); or hidden until Phase D | Shown, read-only | The Phase C gate | owner |
+| ODC-03 | Search semantics | Prefix on name, mail and principal name (default); or tokenised `$search` | Prefix | The owner test | owner |
+| ODC-04 | Hidden-membership groups | State "hidden", no call (default); or request `Member.Read.Hidden` later | State "hidden" | After OV-C5 | owner |
+| ODC-05 | Manager | Best effort, "not available" when refused (default); or drop until U66 is closed | Best effort | After OV-C2 | owner |
+
+### Phase C assumptions, plan decisions and risks
+
+| ID | Statement | Status |
+|---|---|---|
+| AC-01 | The tenant is a workforce tenant (not B2C): `$count` and `$search` exist | recorded |
+| AC-02 | A scan of 5 Graph pages per request is acceptable for scoped lists | recorded |
+| AC-03 | Names and addresses are personal data: no logs, no disk cache | recorded |
+| AC-04 | Only direct group members in the first version | recorded |
+| AC-05 | The role templates of Phase B already grant `users:read` and `groups:read` as needed | recorded |
+| PC-01 | `GraphHttp.requestPage` is added instead of changing `requestAll` | recorded |
+| PC-02 | The cursor store is in memory, not a signed token | recorded |
+| PC-03 | Prefix search over `$search` (ODC-03) | recorded |
+| PC-04 | One pure query-builder module | recorded |
+| PC-05 | Restricted rows for members and owners; omission for a user's groups | recorded |
+| PC-06 | Ids in paths are GUIDs only (no UPN lookups) | recorded |
+| RC-01 | `GroupMember.Read.All` alone returns too few group properties (U36): kinds show as `unknown` (M / M) | open |
+| RC-02 | The manager call is refused for applications (U66) (H / L) | open |
+| RC-03 | Scoped lists of a very large tenant are slow (L / M) | open |
+| RC-04 | The fake tenant encodes a wrong reading of Learn (M / M) | open |
+| RC-05 | Restricted rows or the cursor store leak information (L / H) | open |
+| RC-06 | CSS growth from two new pages exceeds the budget (M / L) | open |
+
 ## Nederlands
 
 Dit bestand bundelt de onverifieerde Microsoft-aannames (U1 tot en met U18), de overige onverifieerde
@@ -723,3 +779,4 @@ zoals `s1c-9`), plus de bekende beperkingen van de repository-bewakers (GR-1 tot
   PB-28, de eigenaarsbeslissingen ODB-01 tot en met ODB-18 en de risico's RB-01 tot en met RB-18 en PBR-01 tot en met
   PBR-14. Belangrijkste beslissingen voor de eigenaar: ODB-01 (het Exchange-schrijfpad, vastgelegd in ADR-0102),
   ODB-02 (de vier Graph-rechten) en ODB-17 (break-glass zonder tweede factor). Het ontbrekende auditscherm is Fase D.
+- **Fase C (2026-10-12):** de onverifieerde claims U66 tot en met U74 (de rij U51 tot en met U65 stond er al; er is niets hernummerd), de eigenaarsbeslissingen D-C1 tot en met D-C3 (2026-10-13: alleen lezen, 403 voor losse objecten buiten het zicht, geen licentiekolom) en ODC-01 tot en met ODC-05, de aannames AC-01 tot en met AC-05, de plan-beslissingen PC-01 tot en met PC-06 en de risico's RC-01 tot en met RC-06. `GroupMember.ReadWrite.All` is verleend maar ongebruikt in fase C.
