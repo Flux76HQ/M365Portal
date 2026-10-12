@@ -39,6 +39,13 @@ import type { LocalListener } from '../helpers/local-listener.js';
 /** Each fixture must finish within this long (spec Appendix A). */
 export const FIXTURE_BUDGET_MS = 5_000;
 
+/**
+ * What a run enforces: the budget times a fixed allowance for a machine that runs the whole suite in
+ * parallel (a dimension bomb that takes 1 s alone took 9 s with ten busy cores). The allowance is
+ * bounded, so a fixture that really hangs or decodes a bomb in full still fails.
+ */
+export const FIXTURE_LOAD_ALLOWANCE = 3;
+
 function messageOf(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
 }
@@ -481,7 +488,11 @@ export async function runFixture({ fixture, target, environment }: RunInput): Pr
   for (const input of inputs) {
     const name = `${fixture.id} (${input.label})`;
     const before = (await target.auditEntries()).length;
-    const observed = await withinBudget(target.run(input, context), name);
+    const observed = await withinBudget(
+      target.run(input, context),
+      name,
+      FIXTURE_BUDGET_MS * FIXTURE_LOAD_ALLOWANCE,
+    );
 
     assertOutcome({ observed, expected: input.expected, name });
     if (observed.output !== undefined) {

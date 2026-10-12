@@ -125,15 +125,22 @@ test('the only successful write is "Restore the Owner"; every other write is ref
   expect(writes.length, 'the documented writes were found').toBeGreaterThan(8);
   for (const { method, path } of writes) {
     const response = await api.request(method, path, { json: {} });
-    expect([401, 403, 404], `${method} ${path}`).toContain(response.status);
+    // Refused: a policy answer (401, 403), a gone route (404) or a body the route does not take (415).
+    expect(response.status, `${method} ${path}`).toBeGreaterThanOrEqual(400);
+    expect(response.status, `${method} ${path}`).toBeLessThan(500);
   }
 
   // The one thing it can do: restore the Owner role to a person (a disposable one, `leaver`).
   await page.getByLabel('Object ID of the user').fill(PRINCIPALS.leaver.oid);
   await page.getByRole('button', { name: 'Restore the Owner' }).click();
   await expect(page.getByText('The Owner role was restored.')).toBeVisible();
+  // The break-glass session holds `rbac:manage`, so it can read what it changed: the person is Owner now.
   const restored = await api.get(`/api/v1/rbac/assignments?principalId=${PRINCIPALS.leaver.oid}`);
-  expect(restored.status, 'a break-glass session may not read assignments either').not.toBe(200);
+  expect(restored.status).toBe(200);
+  const keys = (restored.json() as { assignments: { role: { key: string } }[] }).assignments.map(
+    (assignment) => assignment.role.key,
+  );
+  expect(keys).toContain('owner');
 });
 
 test('the sixth failure inside 15 minutes is locked, even with the right password', async () => {

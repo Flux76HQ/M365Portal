@@ -109,9 +109,12 @@ export function ManualMode({ context, onBack }: ManualModeProps) {
   const { state } = context;
   const [values, setValues] = useState({ applicationClientId: '', tenantId: '', firstOwner: '' });
   const [errors, setErrors] = useState<Partial<Record<keyof typeof values, string>>>({});
+  // Before the details are handed over the panel does not know whether the tenant has Exchange Online, so the
+  // checklist asks for its permissions, as the server's own checklist does (`manualChecklist`, default true).
+  const withExchange = state.mode === 'manual' ? state.exchangeEnabled : true;
   const items = useMemo(
-    () => checklistFor(state.publicBaseUrl, state.installTag, state.exchangeEnabled, state.certificate?.thumbprintSha1.toLowerCase() ?? null, t as never),
-    [state.publicBaseUrl, state.installTag, state.exchangeEnabled, state.certificate, t],
+    () => checklistFor(state.publicBaseUrl, state.installTag, withExchange, state.certificate?.thumbprintSha1.toLowerCase() ?? null, t as never),
+    [state.publicBaseUrl, state.installTag, withExchange, state.certificate, t],
   );
   const send = useMutation({
     mutationFn: async (request: ManualRequest) => {
