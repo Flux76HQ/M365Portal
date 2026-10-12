@@ -25,6 +25,7 @@ import {
 } from '../../src/ports/errors.js';
 import type { CertificateHolderPort } from '../../src/ports/secrets.js';
 import { createTestCertificate } from '../support/test-certificate.js';
+import { x5tOf } from './fake-tenant/entra/assertion.js';
 import { seedApplication } from './fake-tenant/entra/index.js';
 import { installFakeExchange } from './fake-tenant/exchange/index.js';
 import { ENTRA_ROLE_TEMPLATES, fakeGuid, installFakeGraph } from './fake-tenant/graph/index.js';
@@ -242,7 +243,7 @@ describe('Entra is strict about the client assertion', () => {
 
   it('refuses the SHA-1 x5t header on its own, and accepts it next to x5t#S256', async () => {
     const world = identityWorld();
-    const sha1 = createHash('sha1').update(world.holder.publicCertificateDer()).digest('base64url');
+    const sha1 = x5tOf(world.holder.thumbprintSha1);
     const only = bending(world.holder, (header) => {
       Reflect.deleteProperty(header, 'x5t#S256');
       header.x5t = sha1;
