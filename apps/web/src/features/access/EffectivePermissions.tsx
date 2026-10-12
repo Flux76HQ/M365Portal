@@ -18,30 +18,56 @@ export function EffectivePermissions({ grants }: { readonly grants: Grants }) {
       <h2 id="access-permissions" className="text-subtitle font-semibold text-fg">
         {t('access.permissions.heading')}
       </h2>
-      <p className="max-w-prose text-body text-fg-secondary">{t('access.permissions.description')}</p>
+      <p className="max-w-prose text-body text-fg-secondary">
+        {t('access.permissions.description')}
+      </p>
       {grants.length === 0 ? (
         <p className="text-body text-fg-secondary">{t('access.permissions.empty')}</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-line-subtle">
-          <table aria-label={t('access.permissions.table')} className="w-full min-w-120 border-collapse text-start text-body">
+        <div
+          role="region"
+          aria-label={t('access.permissions.table')}
+          tabIndex={0}
+          className="overflow-x-auto rounded-lg border border-line-subtle"
+        >
+          <table
+            aria-label={t('access.permissions.table')}
+            className="w-full min-w-120 border-collapse text-start text-body"
+          >
             <thead>
               <tr className="border-b border-line-subtle bg-surface-page">
-                <th scope="col" className="px-3 py-2 text-start text-body-sm font-semibold text-fg-secondary">
+                <th
+                  scope="col"
+                  className="px-3 py-2 text-start text-body-sm font-semibold text-fg-secondary"
+                >
                   {t('access.permissions.column.permission')}
                 </th>
-                <th scope="col" className="px-3 py-2 text-start text-body-sm font-semibold text-fg-secondary">
+                <th
+                  scope="col"
+                  className="px-3 py-2 text-start text-body-sm font-semibold text-fg-secondary"
+                >
                   {t('access.permissions.column.detail')}
                 </th>
-                <th scope="col" className="px-3 py-2 text-start text-body-sm font-semibold text-fg-secondary">
+                <th
+                  scope="col"
+                  className="px-3 py-2 text-start text-body-sm font-semibold text-fg-secondary"
+                >
                   {t('access.permissions.column.scope')}
                 </th>
               </tr>
             </thead>
             <tbody>
               {grants.map((grant) => (
-                <tr key={`${grant.permission}:${grant.qualifier}`} className="border-b border-line-subtle last:border-b-0">
-                  <td className="px-3 py-2 text-fg">{t(`permission.${grant.permission}` as MessageKey)}</td>
-                  <td className="px-3 py-2 text-fg-secondary">{t(`qualifier.${grant.qualifier}` as MessageKey)}</td>
+                <tr
+                  key={`${grant.permission}:${grant.qualifier}`}
+                  className="border-b border-line-subtle last:border-b-0"
+                >
+                  <td className="px-3 py-2 text-fg">
+                    {t(`permission.${grant.permission}` as MessageKey)}
+                  </td>
+                  <td className="px-3 py-2 text-fg-secondary">
+                    {t(`qualifier.${grant.qualifier}` as MessageKey)}
+                  </td>
                   <td className="px-3 py-2 text-fg-secondary">
                     <ScopeText scope={grant.scope} />
                   </td>

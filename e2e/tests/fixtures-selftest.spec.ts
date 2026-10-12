@@ -177,7 +177,8 @@ test.describe('the principals (CB17)', () => {
   const EXPECTED_ROLES: Record<StoredPrincipalName, readonly string[]> = {
     owner: ['owner'],
     administrator: ['admin'],
-    operator: ['operator'],
+    // plus the scoped, expiring Reader assignment that the access page puts in words (global-setup)
+    operator: ['operator', 'reader'],
     helpdesk: ['helpdesk'],
     reader: ['reader'],
     norole: [],

@@ -81,10 +81,11 @@ export default defineConfig([
   },
   { files: ['apps/web/**/*.{tsx,jsx}'], extends: [jsxA11y.flatConfigs.recommended] },
   {
-    // A scrollable `role="log"` region must be reachable by keyboard (axe `scrollable-region-focusable`,
-    // WCAG 2.1.1), so that one role may carry `tabIndex`; every other non-interactive element may not.
+    // A scrollable `role="log"` or `role="region"` (a wide table's wrapper) must be reachable by keyboard
+    // (axe `scrollable-region-focusable`, WCAG 2.1.1), so those roles may carry `tabIndex`; every other
+    // non-interactive element may not.
     files: ['apps/web/**/*.{tsx,jsx}'],
-    rules: { 'jsx-a11y/no-noninteractive-tabindex': ['error', { roles: ['log'], tags: [] }] },
+    rules: { 'jsx-a11y/no-noninteractive-tabindex': ['error', { roles: ['log', 'region'], tags: [] }] },
   },
 
   {
