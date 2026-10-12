@@ -366,7 +366,7 @@ function subpathsOf(manifest: unknown, files: readonly string[]): Subpath[] {
     }
     for (const { file, star } of matchPattern(target, files)) {
       subpaths.push({
-        specifier: `${PACKAGE_NAME}${key.slice(1).replace('*', star)}`,
+        specifier: `${PACKAGE_NAME}${key.slice(1).replace(/\*/g, star)}`,
         json: file.endsWith('.json'),
       });
     }

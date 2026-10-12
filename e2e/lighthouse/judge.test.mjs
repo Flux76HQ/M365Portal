@@ -78,6 +78,38 @@ test('a timing miss on the first run that a later run meets passes and says so',
   assert.equal(result.best.lcpMs, 1500);
 });
 
+test('NO_NAVSTART retries and judges the first successful capture', () => {
+  const failedCapture = run({ runtimeError: 'NO_NAVSTART' });
+  const recovered = cell([failedCapture, run({}, 2)]);
+
+  assert.equal(needsRepeat(cell([failedCapture])), true);
+  assert.equal(judgeCell(recovered).verdict, 'pass');
+  assert.match(
+    judgeCell(recovered).notes.join(),
+    /run 1 failed with transient runtime error NO_NAVSTART/,
+  );
+  assert.equal(needsRepeat(recovered), false);
+
+  const lowScore = judgeCell(
+    cell([failedCapture, run({ scores: { performance: 94 } }, 2), run({}, 3)]),
+  );
+  assert.equal(lowScore.verdict, 'fail');
+  assert.match(lowScore.reasons.join(), /Performance 94.*first measurement/);
+});
+
+test('NEGATIVE: repeated NO_NAVSTART failures exhaust the retry limit and fail', () => {
+  const failures = cell([
+    run({ runtimeError: 'NO_NAVSTART' }),
+    run({ runtimeError: 'NO_NAVSTART' }, 2),
+    run({ runtimeError: 'NO_NAVSTART' }, 3),
+  ]);
+
+  assert.equal(needsRepeat(cell(failures.measurements.slice(0, 2))), true);
+  assert.equal(needsRepeat(failures), false);
+  assert.equal(judgeCell(failures).verdict, 'fail');
+  assert.match(judgeCell(failures).reasons.join(), /NO_NAVSTART on all 3 measurements/);
+});
+
 test('NEGATIVE: a timing miss on all three runs fails, with the best of the three named', () => {
   const result = judgeCell(
     cell([run({ lcpMs: 2300 }), run({ lcpMs: 2100 }, 2), run({ lcpMs: 2600 }, 3)]),
@@ -198,6 +230,7 @@ test('needsRepeat: only a timing miss is measured again, at most three times', (
   // A wrong status or a low score on the first run is final: repeating would only hide it.
   assert.equal(needsRepeat(cell([run({ status: 500, lcpMs: 2300 })])), false);
   assert.equal(needsRepeat(cell([run({ scores: { performance: 90 }, lcpMs: 2300 })])), false);
+  assert.equal(needsRepeat(cell([run({ runtimeError: 'NO_FCP' })])), false);
   // `always` collects the spread.
   assert.equal(needsRepeat(cell([run()]), { always: true }), true);
   assert.equal(needsRepeat(cell([run(), run({}, 2), run({}, 3)]), { always: true }), false);

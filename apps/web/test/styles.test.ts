@@ -946,7 +946,7 @@ describe('the Tailwind build (real plugin, copy of the stylesheets)', () => {
 /** The class as it appears in a selector: a leading digit and the characters of variants are escaped. */
 function selectorFor(className: string): string {
   const escaped = className
-    .replace(/[:/[\]().%]/g, '\\$&')
+    .replace(/[\\:/[\]().%]/g, '\\$&')
     .replace(/^(\d)/, (digit) => `\\3${digit} `);
   return `.${escaped}`;
 }
