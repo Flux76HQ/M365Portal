@@ -135,6 +135,11 @@ const MOVING = (page: Page) => [
   page.getByText(/Trying again in \d+ s/),
   page.getByText(/\b(359|360) days\b/),
   page.locator('[data-slot="proof-list"] p', { hasText: /Generated at/ }),
+  // The certificate is generated on every run, so its thumbprint differs (connection card and proof rows),
+  // and so does the moment of the last verification.
+  page.locator('dd.font-mono'),
+  page.locator('[data-slot="proof-list"] p', { hasText: /Thumbprint/ }),
+  page.getByText(/Last verified/),
 ];
 
 async function shoot(
