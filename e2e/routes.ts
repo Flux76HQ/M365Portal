@@ -16,6 +16,7 @@ export const CLIENT_ROUTES = [
   '/settings',
   '/settings/appearance',
   '/no-access',
+  '/signin',
   '/design',
 ] as const;
 

@@ -1,0 +1,11 @@
+{
+  "noaccess.action.otherAccount": "Use another account",
+  "noaccess.action.signInAgain": "Sign in again",
+  "noaccess.reason.graph_unavailable": "You signed in, but the panel could not check your roles because Microsoft did not answer.",
+  "noaccess.reason.no_role": "You signed in, but this account has no role in the panel yet.",
+  "noaccess.reference": "Reference",
+  "noaccess.referenceHelp": "Give this reference to your administrator if you ask for help.",
+  "noaccess.remedy.graph_unavailable": "Try again in a moment. If it keeps happening, tell your administrator and give the reference below.",
+  "noaccess.remedy.no_role": "Ask an Owner or administrator of the panel to give you a role, then sign in again.",
+  "noaccess.title": "No access to the panel"
+}

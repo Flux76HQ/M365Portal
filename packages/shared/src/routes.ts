@@ -1,11 +1,11 @@
-// The client paths of the web application (FR-A-126, FR-A-129 to FR-A-131): one list, so the shell, the
+// The client paths of the web application (FR-A-126, FR-A-129 to FR-A-131, FR-B-607): one list, so the shell, the
 // command registry, the placeholder pages and the end-to-end route list (`e2e/routes.ts`, contract C14)
 // cannot disagree about where a page lives. The router's file tree is the source of the real paths
 // (`pnpm routes:check` keeps it fresh); `apps/web/test/pages.test.tsx` compares the two.
 //
 // Platform-neutral and pure: only constants.
 
-/** Every page of Phase A, by name. Frozen: nothing adds a path at run time. */
+/** Every page, by name. Frozen: nothing adds a path at run time. Phase B adds its paths here, task by task (XB29). */
 export const ROUTES = Object.freeze({
   dashboard: '/',
   users: '/users',
@@ -16,6 +16,8 @@ export const ROUTES = Object.freeze({
   settings: '/settings',
   appearance: '/settings/appearance',
   noAccess: '/no-access',
+  /** The public sign-in page and its error variants (FR-B-607). */
+  signin: '/signin',
   /** Exists only when the server runs with `SHOWCASE=true`; Not-found otherwise (FR-A-131). */
   design: '/design',
 } as const);

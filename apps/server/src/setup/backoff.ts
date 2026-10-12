@@ -66,3 +66,18 @@ export function windowSecondsFor(kind: WindowKind, configuredPropagationSeconds:
 export function replicationWindowEnded(elapsedMs: number, windowSeconds: number): boolean {
   return elapsedMs >= windowSeconds * 1000;
 }
+
+/**
+ * About how many tries a replication window holds, for the "n of m" of the live log: the mean wait
+ * (half the ceiling, at least 500 ms) added up until the window is full.
+ */
+export function expectedTries(windowSeconds: number): number {
+  const { baseMs, capMs } = SETUP_REPLICATION_BACKOFF;
+  let elapsed = 0;
+  let tries = 0;
+  while (elapsed < windowSeconds * 1000 && tries < 1000) {
+    tries += 1;
+    elapsed += Math.max(SETUP_MIN_WAIT_MS, ceiling(baseMs, capMs, tries) / 2);
+  }
+  return Math.max(1, tries);
+}

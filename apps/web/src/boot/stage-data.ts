@@ -3,3 +3,5 @@
 export { getApiClient } from '../lib/api';
 export { readBootData } from '../lib/boot-data';
 export { createAppQueryClient, seedQueryClient } from '../lib/query';
+// The check of the session before the first route is loaded (T-B-296).
+export { recheckBootSession } from './recheck';

@@ -117,12 +117,21 @@ const EQUAL = [
  * diagnostic it expects: TS2345 is "argument not assignable", TS2578 an unused `@ts-expect-error`.
  */
 const MUST_COMPILE: Readonly<Record<string, string>> = {
-  // MessageKey is derived from the bundled en.json, whatever it holds.
+  // MessageKey is derived from the bundled en.json, whatever it holds, plus the English files of the
+  // lazy namespaces (T-B-291): the entry keys are exactly those of en.json, the lazy keys are exactly
+  // those of the four lazy files, and the two sets do not overlap.
   'derived-from-en-json.ts': [
     IMPORT_TYPES,
+    "import type { LazyMessageKey } from '../../src/i18n/index.js';",
     "import type En from '../../src/i18n/locales/en.json';",
+    "import type EnSetup from '../../src/i18n/locales/lazy/setup.en.json';",
+    "import type EnConnection from '../../src/i18n/locales/lazy/connection.en.json';",
+    "import type EnBreakglass from '../../src/i18n/locales/lazy/breakglass.en.json';",
+    "import type EnAccess from '../../src/i18n/locales/lazy/access.en.json';",
     EQUAL,
-    'export type Derived = Expect<Equal<MessageKey, MessageKeyOf<typeof En>>>;',
+    'export type Derived = Expect<Equal<Exclude<MessageKey, LazyMessageKey>, MessageKeyOf<typeof En>>>;',
+    'export type Lazy = Expect<Equal<LazyMessageKey, MessageKeyOf<typeof EnSetup> | MessageKeyOf<typeof EnConnection> | MessageKeyOf<typeof EnBreakglass> | MessageKeyOf<typeof EnAccess>>>;',
+    'export type Disjoint = Expect<Equal<Extract<MessageKeyOf<typeof En>, LazyMessageKey>, never>>;',
   ].join('\n'),
 
   // The derivation on a catalogue of the test's own: plain keys stay, plural groups collapse to

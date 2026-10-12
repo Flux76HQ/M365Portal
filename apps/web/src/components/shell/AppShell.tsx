@@ -1,14 +1,20 @@
-import { Outlet } from '@tanstack/react-router';
+import { Outlet, useRouterState } from '@tanstack/react-router';
 import { lazy, Suspense, useCallback, useState } from 'react';
+import { isPublicPath } from '../../lib/gating';
+import { BreakGlassBanner } from '../../features/auth/BreakGlassBanner';
+import { GroupsStaleNotice } from '../../features/auth/GroupsStaleNotice';
+import { SessionTimers } from '../../features/auth/SessionTimers';
+import { StepUpDialog } from '../../features/auth/StepUpDialog';
 import { useSidebarState } from '../../lib/sidebar';
 import {
   useGlobalShortcuts,
   useSingleKeyShortcuts,
   type ShortcutAction,
 } from '../../lib/shortcuts';
+import { BareLayout } from './BareLayout';
 import { BreadcrumbsBar } from './BreadcrumbsBar';
 import { Header } from './Header';
-import { PreviewBanner } from './PreviewBanner';
+import { MAIN_ID } from './main-id';
 import { NavDrawer, Sidebar } from './Sidebar';
 import { SkipLink } from './SkipLink';
 
@@ -16,12 +22,20 @@ import { SkipLink } from './SkipLink';
 const CommandPalette = lazy(() => import('./CommandPalette'));
 const ShortcutsOverview = lazy(() => import('./ShortcutsOverview'));
 
-/** The id of the `main` landmark, the target of the skip link. */
-export const MAIN_ID = 'main-content';
+export { MAIN_ID };
 
 /**
- * The frame of every page (plan 9.5): skip link, sidebar (a drawer below 768 px), the preview banner,
- * the header, breadcrumbs and exactly one `main` landmark that holds the page, capped at 1600 px and
+ * The component of the root route: the frame of the public pages (sign-in, no-access, break-glass, setup:
+ * no sidebar, T-B-297) or the frame of the application.
+ */
+export function RootLayout() {
+  const publicPage = useRouterState({ select: (state) => isPublicPath(state.location.pathname) });
+  return publicPage ? <BareLayout /> : <AppShell />;
+}
+
+/**
+ * The frame of every page (plan 9.5): skip link, sidebar (a drawer below 768 px), the session banners
+ * (break-glass, stale groups, the notice before the session ends), the header, breadcrumbs and exactly one `main` landmark that holds the page, capped at 1600 px and
  * centred on ultrawide screens. It is the component of the root route.
  */
 export function AppShell() {
@@ -57,13 +71,17 @@ export function AppShell() {
       <Sidebar collapsed={collapsed} onToggle={toggle} />
       <NavDrawer open={drawerOpen} onOpenChange={setDrawerOpen} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <PreviewBanner />
-        <Header
-          onOpenMenu={() => {
-            setDrawerOpen(true);
-          }}
-          onOpenSearch={openPalette}
-        />
+        <div className="sticky top-0 z-chrome">
+          <BreakGlassBanner />
+          <GroupsStaleNotice />
+          <SessionTimers />
+          <Header
+            onOpenMenu={() => {
+              setDrawerOpen(true);
+            }}
+            onOpenSearch={openPalette}
+          />
+        </div>
         <BreadcrumbsBar />
         <main
           id={MAIN_ID}
@@ -73,6 +91,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      <StepUpDialog />
       <Suspense fallback={null}>
         {paletteLoaded ? (
           <CommandPalette

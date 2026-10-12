@@ -38,7 +38,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { LOCALES } from '../src/i18n/index.js';
+import { LAZY_NAMESPACES, LOCALES } from '../src/i18n/index.js';
 import { expectGuardFails } from '../src/testing/index.js';
 import {
   CHECK_NAMES,
@@ -54,6 +54,7 @@ import {
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 const localesDirectory = join(packageRoot, 'src', 'i18n', 'locales');
+const lazyDirectory = join(localesDirectory, 'lazy');
 const fixturesDirectory = join(packageRoot, 'test', 'fixtures', 'i18n');
 
 function readCatalogue(path: string): Record<string, string> {
@@ -83,9 +84,9 @@ function messagesOf(set: CatalogueSet, name: CheckName): string[] {
 describe('the merged catalogues of the repository', () => {
   const merged = readSet(localesDirectory);
 
-  it('are one file per supported locale and nothing else', () => {
+  it('are one file per supported locale and the folder of the lazy namespaces, nothing else', () => {
     expect(readdirSync(localesDirectory).sort()).toEqual(
-      LOCALES.map((locale) => `${locale}.json`).sort(),
+      [...LOCALES.map((locale) => `${locale}.json`), 'lazy'].sort(),
     );
   });
 
@@ -109,6 +110,77 @@ describe('the merged catalogues of the repository', () => {
       expect([...counts.keys()], locale).toEqual(['Latin']);
       expect([...allowedScripts(counts)], locale).toEqual(['Latin']);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The lazy namespace files (T-B-291): the same checks, one pair of files per namespace
+// ---------------------------------------------------------------------------------------------
+
+/** The `<namespace>.en.json` / `<namespace>.nl.json` pair of a lazy namespace as a catalogue set. */
+function readLazySet(namespace: string): CatalogueSet {
+  return Object.fromEntries(
+    LOCALES.map((locale) => [locale, readCatalogue(join(lazyDirectory, `${namespace}.${locale}.json`))]),
+  );
+}
+
+describe('the lazy namespace files of the repository', () => {
+  it('are one file per lazy namespace and language and nothing else', () => {
+    expect(readdirSync(lazyDirectory).sort()).toEqual(
+      LAZY_NAMESPACES.flatMap((namespace) =>
+        LOCALES.map((locale) => `${namespace}.${locale}.json`),
+      ).sort(),
+    );
+  });
+
+  describe.each(LAZY_NAMESPACES)('%s', (namespace) => {
+    const set = readLazySet(namespace);
+
+    it('is not empty in either language and holds only its own keys', () => {
+      for (const locale of LOCALES) {
+        const keys = Object.keys(set[locale] ?? {});
+        expect(keys.length, locale).toBeGreaterThan(0);
+        for (const key of keys) expect(key.startsWith(`${namespace}.`), `${locale}: ${key}`).toBe(true);
+      }
+    });
+
+    it('passes every check (key parity, empty values, placeholders, plurals, no third script)', () => {
+      expect(failing(set)).toEqual([]);
+      expect(() => {
+        assertCatalogues(set);
+      }).not.toThrow();
+    });
+  });
+
+  it('fails on purpose: a key the Dutch file lacks, an empty value, a changed placeholder, a Cyrillic value (+ negative)', () => {
+    const real = readLazySet('setup');
+    const english: Record<string, unknown> = { ...real.en };
+    const dutch: Record<string, unknown> = { ...real.nl };
+    const firstKey = Object.keys(dutch)[0] ?? '';
+    const key =
+      Object.keys(english).find((name) => /\{\w+\}/.test(String(english[name]))) ?? '';
+    expect(key, 'the setup namespace has at least one placeholder').not.toBe('');
+    const without = Object.fromEntries(Object.entries(dutch).filter(([name]) => name !== firstKey));
+    expectGuardFails(
+      assertCatalogues,
+      { en: english, nl: without } ,
+      { reason: `nl is missing the key "${firstKey}" that en has` },
+    );
+    expectGuardFails(
+      assertCatalogues,
+      { en: english, nl: { ...dutch, [firstKey]: '' } } ,
+      { reason: `nl: the value of "${firstKey}" is empty` },
+    );
+    expectGuardFails(
+      assertCatalogues,
+      { en: english, nl: { ...dutch, [key]: 'zonder plaatshouder' } } ,
+      { reason: `the placeholders of "${key}" differ from en` },
+    );
+    expectGuardFails(
+      assertCatalogues,
+      { en: english, nl: { ...dutch, [firstKey]: 'Привіт' } } ,
+      { reason: `nl: the value of "${firstKey}" is written in Cyrillic` },
+    );
   });
 });
 

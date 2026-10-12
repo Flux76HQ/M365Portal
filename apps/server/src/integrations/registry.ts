@@ -60,12 +60,64 @@ export interface ClientsRegistry {
   stop(): void;
   /** The key set of the pinned tenant (for the hourly reload and its tests). */
   keySet(): KeySet;
+  /**
+   * Is a Microsoft host reachable (the wizard's `network` and `time_skew` checks, FR-B-213)? Any HTTP
+   * answer, a 401 or a 404 included, is "reachable"; a connection error, a refused redirect to another
+   * host or a timeout is not. Returns the `Date` header of the answer as epoch milliseconds, or `null`.
+   * No credential is sent, nothing is read from the body.
+   */
+  ping(host: PingHost): Promise<PingResult>;
+  /**
+   * App-only clients for a tenant that is not pinned yet (the wizard's verification, T-B-136, and the
+   * certificate renewal, plan 9.11 step 4): built for the given tenant, application and certificate
+   * holder, not cached, and closed by the caller. The pinned clients above are unaffected.
+   */
+  probe(spec: ProbeSpec): ProbeClients;
   /** A new device-code authenticator for the wizard; needs neither secrets nor a pinned tenant. */
   createBootstrap(): BootstrapAuthenticator;
   /** `(bootstrap) => TenantProvisioner`; throws `NotConnectedError` unless the bootstrap is signed in. */
   provisionerFactory(): (
     bootstrap: Pick<BootstrapAuthenticator, 'bearer'>,
   ) => Promise<TenantProvisioner>;
+}
+
+export const PING_HOSTS = Object.freeze([
+  'login.microsoftonline.com',
+  'graph.microsoft.com',
+  'outlook.office365.com',
+] as const);
+export type PingHost = (typeof PING_HOSTS)[number];
+
+export interface PingResult {
+  readonly reachable: boolean;
+  readonly httpStatus: number | null;
+  /** The `Date` header of the answer, as epoch milliseconds. */
+  readonly dateMs: number | null;
+}
+
+/** Public, unauthenticated URLs: the answer only has to exist (and, for Entra, carry a `Date`). */
+const PING_URLS: Readonly<Record<PingHost, string>> = Object.freeze({
+  'login.microsoftonline.com':
+    'https://login.microsoftonline.com/common/discovery/instance?api-version=1.1&authorization_endpoint=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fv2.0%2Fauthorize',
+  'graph.microsoft.com': 'https://graph.microsoft.com/v1.0/organization',
+  'outlook.office365.com': 'https://outlook.office365.com/adminapi/beta/',
+});
+
+const PING_TIMEOUT_MS = 5_000;
+
+/** What `probe` builds clients for: a tenant id and client id the caller vouches for, and a holder. */
+export interface ProbeSpec {
+  readonly tenantId: string;
+  readonly clientId: string;
+  readonly holder: CertificateHolderPort;
+}
+
+export interface ProbeClients {
+  readonly appTokens: AppTokenProvider;
+  readonly graph: GraphClient;
+  readonly exchange: ExchangeClient;
+  /** Drops the token cache and the holder reference. Idempotent. */
+  close(): void;
 }
 
 export interface ClientsRegistryDeps {
@@ -157,6 +209,43 @@ export function createClientsRegistry(deps: ClientsRegistryDeps): ClientsRegistr
     return shared;
   }
 
+  /** The app-only clients over one token provider: the same wiring for the pinned and the probe case. */
+  function buildClients(
+    tenantId: string,
+    clientId: string,
+    holder: CertificateHolderPort,
+  ): { appTokens: MsalAppTokenProvider; graph: GraphClient; exchange: ExchangeClient } {
+    const appTokens = createMsalAppTokenProvider({
+      tenantId,
+      clientId,
+      signer: holder,
+      clock: deps.clock,
+      random: deps.random,
+      jsonFetch,
+      scheduler: deps.scheduler,
+      ...(deps.log === undefined ? {} : { log: deps.log }),
+      ...(deps.includeX5t === undefined ? {} : { includeX5t: deps.includeX5t }),
+    });
+    return {
+      appTokens,
+      graph: createHttpGraphClient({
+        appTokens,
+        clock: deps.clock,
+        random: deps.random,
+        scheduler: deps.scheduler,
+        ...(deps.log === undefined ? {} : { log: deps.log }),
+      }),
+      exchange: new AdminApiExchangeClient({
+        tenantId,
+        appTokens,
+        clock: deps.clock,
+        random: deps.random,
+        scheduler: deps.scheduler,
+        ...(deps.log === undefined ? {} : { log: deps.log }),
+      }),
+    };
+  }
+
   function build(): Built {
     // Secrets first: a pin without a usable certificate is a degraded process, not a missing setup.
     const holder = holderOrThrow();
@@ -172,17 +261,7 @@ export function createClientsRegistry(deps: ClientsRegistryDeps): ClientsRegistr
     built = undefined;
 
     const { keys, metadata } = sharedFor(pin.tenantId);
-    const appTokens = createMsalAppTokenProvider({
-      tenantId: pin.tenantId,
-      clientId: pin.clientId,
-      signer: holder,
-      clock: deps.clock,
-      random: deps.random,
-      jsonFetch,
-      scheduler: deps.scheduler,
-      ...(deps.log === undefined ? {} : { log: deps.log }),
-      ...(deps.includeX5t === undefined ? {} : { includeX5t: deps.includeX5t }),
-    });
+    const clients = buildClients(pin.tenantId, pin.clientId, holder);
     const redirectUri = authorizeRedirectUri(deps.publicBaseUrl);
     const tokenEndpoint = createTokenEndpoint({
       tenantId: pin.tenantId,
@@ -199,22 +278,9 @@ export function createClientsRegistry(deps: ClientsRegistryDeps): ClientsRegistr
       tenantId: pin.tenantId,
       clientId: pin.clientId,
       holder,
-      appTokens,
-      graph: createHttpGraphClient({
-        appTokens,
-        clock: deps.clock,
-        random: deps.random,
-        scheduler: deps.scheduler,
-        ...(deps.log === undefined ? {} : { log: deps.log }),
-      }),
-      exchange: new AdminApiExchangeClient({
-        tenantId: pin.tenantId,
-        appTokens,
-        clock: deps.clock,
-        random: deps.random,
-        scheduler: deps.scheduler,
-        ...(deps.log === undefined ? {} : { log: deps.log }),
-      }),
+      appTokens: clients.appTokens,
+      graph: clients.graph,
+      exchange: clients.exchange,
       oidc: createOidcClient({
         tenantId: pin.tenantId,
         clientId: pin.clientId,
@@ -275,6 +341,46 @@ export function createClientsRegistry(deps: ClientsRegistryDeps): ClientsRegistr
     keySet() {
       const pin = pinOrThrow();
       return sharedFor(pin.tenantId).keys;
+    },
+
+    async ping(host) {
+      const controller = new AbortController();
+      const timer = deps.scheduler.setTimeout(() => {
+        controller.abort();
+      }, PING_TIMEOUT_MS);
+      try {
+        const doFetch = deps.fetch ?? fetch;
+        const response = await doFetch(PING_URLS[host], {
+          method: 'GET',
+          redirect: 'manual',
+          signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        });
+        await response.body?.cancel();
+        const header = response.headers.get('date');
+        const parsed = header === null ? Number.NaN : Date.parse(header);
+        return {
+          reachable: true,
+          httpStatus: response.status,
+          dateMs: Number.isFinite(parsed) ? parsed : null,
+        };
+      } catch {
+        return { reachable: false, httpStatus: null, dateMs: null };
+      } finally {
+        deps.scheduler.clearTimeout(timer);
+      }
+    },
+
+    probe(spec) {
+      const clients = buildClients(spec.tenantId, spec.clientId, spec.holder);
+      return {
+        appTokens: clients.appTokens,
+        graph: clients.graph,
+        exchange: clients.exchange,
+        close: () => {
+          clients.appTokens.close();
+        },
+      };
     },
 
     createBootstrap() {

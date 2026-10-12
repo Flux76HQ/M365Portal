@@ -1,5 +1,5 @@
 //
-// THE SHELL (FR-A-126, FR-A-121 switching, FR-A-032 banner UI; US-5.1, US-5.4; T-A-167).
+// THE SHELL (FR-A-126, FR-A-121 switching, FR-B-608 session banners; US-5.1, US-5.4; T-A-167, T-B-298).
 //
 // What this proves, in a happy-dom page (no layout: sizes and breakpoints are asserted as the classes
 // that carry them, and proven in a real browser by e2e/responsive.spec.ts and e2e/keyboard.spec.ts):
@@ -11,7 +11,9 @@
 //      sits in the sidebar footer;
 //   4. a long organisation name truncates but keeps its full accessible name; the organisation mark
 //      is the logo (on a plate when `logoPlateFor` says so) or the monogram tile of the boot data;
-//   5. the preview banner is a status region that cannot be dismissed, whenever `me.features.preview`;
+//   5. the break-glass banner is a red status region that cannot be dismissed, on every route of a
+//      break-glass session, and a notice shows while the group memberships are stale; the preview banner
+//      of Phase A is gone (FR-B-102);
 //   6. the theme switcher is a segmented control, the language switcher a menu.
 import { logoPlateColour, logoPlateFor } from '@m365portal/shared/branding/logo-plate';
 import { createTranslator } from '@m365portal/shared/i18n';
@@ -20,7 +22,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getThemeController } from '../src/lib/theme';
 import { STORAGE_KEYS, createStorage } from '../src/lib/storage';
-import { sampleBranding, sampleMe } from './helpers/boot-fixtures';
+import { sampleBranding, sampleMe, sampleSignedInMe } from './helpers/boot-fixtures';
 import { MemoryBackend, renderShell } from './helpers/render-shell';
 
 const en = createTranslator('en');
@@ -80,14 +82,14 @@ describe('the header', () => {
     expect(trigger).not.toHaveClass('sm:min-w-56');
   });
 
-  it('shows the actor as a persona with initials and a translated name', async () => {
-    await renderShell({ me: sampleMe({ preview: true }) });
+  it('shows the signed-in user as a persona with the initials of the display name', async () => {
+    await renderShell({ me: sampleSignedInMe({ label: 'Alice Example' }) });
     const header = await screen.findByRole('banner');
 
     const persona = within(header).getByRole('img', {
-      name: en.t('shell.actor.label', { name: en.t('shell.actor.preview') }),
+      name: en.t('shell.actor.label', { name: 'Alice Example' }),
     });
-    expect(persona).toHaveTextContent('PA');
+    expect(persona).toHaveTextContent('AE');
   });
 
   it('names the anonymous actor in the language of the page', async () => {
@@ -137,7 +139,7 @@ describe('the sidebar', () => {
   });
 
   it('keeps every link named when collapsed', async () => {
-    const { user } = await renderShell({ me: sampleMe({ preview: true }) });
+    const { user } = await renderShell({ me: sampleSignedInMe() });
     const sidebar = await screen.findByRole('complementary');
     await user.click(within(sidebar).getByRole('button', { name: en.t('shell.sidebar.collapse') }));
 
@@ -156,7 +158,7 @@ describe('the sidebar', () => {
   });
 
   it('marks the page that is open', async () => {
-    await renderShell({ me: sampleMe({ preview: true }), path: '/users' });
+    await renderShell({ me: sampleSignedInMe(), path: '/users' });
     const nav = await screen.findByRole('navigation', { name: en.t('a11y.mainNavigation') });
 
     expect(within(nav).getByRole('link', { name: en.t('nav.users') })).toHaveAttribute(
@@ -193,7 +195,7 @@ describe('the drawer below 768 px', () => {
   });
 
   it('closes when a link is followed', async () => {
-    const { user, router } = await renderShell({ me: sampleMe({ preview: true }) });
+    const { user, router } = await renderShell({ me: sampleSignedInMe() });
     await user.click(await screen.findByRole('button', { name: en.t('shell.sidebar.open') }));
     const dialog = await screen.findByRole('dialog');
 
@@ -217,7 +219,7 @@ describe('the drawer below 768 px', () => {
 
 describe('breadcrumbs', () => {
   it('come from the routes: the dashboard, then each page with a title', async () => {
-    await renderShell({ me: sampleMe({ preview: true }), path: '/settings/appearance' });
+    await renderShell({ me: sampleSignedInMe(), path: '/settings/appearance' });
     const trail = await screen.findByRole('navigation', { name: en.t('a11y.breadcrumbs') });
 
     const items = within(trail).getAllByRole('listitem');
@@ -235,7 +237,7 @@ describe('breadcrumbs', () => {
 
   it('are translated', async () => {
     await renderShell({
-      me: sampleMe({ preview: true }),
+      me: sampleSignedInMe(),
       path: '/settings/appearance',
       language: 'nl',
     });
@@ -367,33 +369,94 @@ describe('the organisation mark', () => {
   });
 });
 
-describe('the preview banner', () => {
-  it('is a status region on every page while preview mode is on', async () => {
-    await renderShell({ me: sampleMe({ preview: true }), path: '/settings' });
+describe('the break-glass banner', () => {
+  const breakGlass = () =>
+    sampleMe({ kind: 'break_glass', breakGlass: true, permissions: ['rbac:manage'] });
 
-    const banner = await screen.findByRole('status');
-    expect(banner).toHaveTextContent(en.t('banner.preview.title'));
-    expect(banner).toHaveTextContent(en.t('banner.preview.message'));
+  it('is a status region on every route of a break-glass session', async () => {
+    for (const path of ['/', '/settings', '/settings/appearance', '/users']) {
+      const { unmount } = await renderShell({ me: breakGlass(), path });
+      const banner = await screen.findByTestId('break-glass-banner');
+      expect(banner, path).toHaveAttribute('role', 'status');
+      expect(banner, path).toHaveTextContent(en.t('session.breakGlass.title'));
+      expect(banner, path).toHaveTextContent(en.t('session.breakGlass.message'));
+      unmount();
+    }
+  });
+
+  it('is red (the danger tone), with an icon, and has a countdown to the absolute end', async () => {
+    await renderShell({ me: breakGlass() });
+    const banner = await screen.findByTestId('break-glass-banner');
+    expect(banner).toHaveAttribute('data-tone', 'danger');
+    expect(banner.querySelector('svg')).not.toBeNull();
+    expect(within(banner).getByRole('timer')).toBeInTheDocument();
   });
 
   it('cannot be dismissed', async () => {
-    await renderShell({ me: sampleMe({ preview: true }) });
-
-    const banner = await screen.findByRole('status');
+    await renderShell({ me: breakGlass() });
+    const banner = await screen.findByTestId('break-glass-banner');
     expect(within(banner).queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('is absent when preview mode is off', async () => {
-    await renderShell({ me: sampleMe({ preview: false }) });
-    await screen.findByRole('main');
-
-    expect(screen.queryByText(en.t('banner.preview.title'))).not.toBeInTheDocument();
+  it('is written in the language of the page', async () => {
+    await renderShell({ me: breakGlass(), language: 'nl' });
+    expect(await screen.findByTestId('break-glass-banner')).toHaveTextContent(
+      nl.t('session.breakGlass.title'),
+    );
   });
 
-  it('is written in the language of the page', async () => {
-    await renderShell({ me: sampleMe({ preview: true }), language: 'nl' });
+  it('is absent for every other actor', async () => {
+    for (const me of [
+      sampleSignedInMe(),
+      sampleMe({ kind: 'setup', setupState: 'in_progress' }),
+      sampleMe(),
+    ]) {
+      const { unmount } = await renderShell({ me });
+      await screen.findByRole('main');
+      expect(screen.queryByTestId('break-glass-banner'), me.actor.kind).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+});
 
-    expect(await screen.findByRole('status')).toHaveTextContent(nl.t('banner.preview.title'));
+describe('the notice about stale group memberships', () => {
+  it('shows while session.groupsStale is true, as a polite status region with a warning tone', async () => {
+    await renderShell({ me: sampleSignedInMe({ session: { groupsStale: true } }) });
+    const notice = await screen.findByTestId('groups-stale-notice');
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toHaveAttribute('data-tone', 'warning');
+    expect(notice).toHaveTextContent(en.t('session.groupsStale.title'));
+    expect(notice).toHaveTextContent(en.t('session.groupsStale.message'));
+  });
+
+  it('is in Dutch when the page is Dutch', async () => {
+    await renderShell({ me: sampleSignedInMe({ session: { groupsStale: true } }), language: 'nl' });
+    expect(await screen.findByTestId('groups-stale-notice')).toHaveTextContent(
+      nl.t('session.groupsStale.title'),
+    );
+  });
+
+  it('is absent when the memberships are fresh', async () => {
+    await renderShell({ me: sampleSignedInMe() });
+    await screen.findByRole('main');
+    expect(screen.queryByTestId('groups-stale-notice')).not.toBeInTheDocument();
+  });
+});
+
+describe('no preview banner (FR-B-102)', () => {
+  it('shows no status region for a normal actor on any shell route', async () => {
+    for (const path of ['/', '/settings', '/users']) {
+      const { unmount } = await renderShell({ me: sampleSignedInMe(), path });
+      await screen.findByRole('main');
+      expect(screen.queryByRole('status'), path).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('has neither the component nor its catalogue entries', () => {
+    const english = createTranslator('en');
+    expect(english.t('banner.preview.title' as never)).toBe('banner.preview.title');
+    expect(english.t('shell.actor.preview' as never)).toBe('shell.actor.preview');
   });
 });
 

@@ -7,26 +7,35 @@
 // two streams never edit one file. The merge writes `src/i18n/locales/<language>.json`, which are
 // committed: the translator bundles them and the catalogue checks read them.
 //
+// The namespaces in `LAZY_NAMESPACES` (setup, connection, breakglass, access) are not merged into the
+// entry catalogues: each is written to `locales/lazy/<namespace>.<language>.json` and loaded on demand
+// (`loadNamespace`, T-B-291). All other rules apply to them unchanged.
+//
 //   --check        compare instead of write; exit 1 when a committed catalogue is stale or missing
 //   --fragments    another fragment directory (the tests use it)
 //   --out          another output directory (the tests use it)
 //
 // The functions are exported so that `test/i18n-fragments.test.ts` can run every rule on input that
 // breaks it; the command line runs only when this file is the entry point.
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { LOCALES, type Locale } from '../src/i18n/types.js';
+import { LAZY_NAMESPACES, LOCALES, type LazyNamespace, type Locale } from '../src/i18n/types.js';
 
 export const FRAGMENTS_DIRECTORY = fileURLToPath(new URL('../src/i18n/fragments', import.meta.url));
 export const LOCALES_DIRECTORY = fileURLToPath(new URL('../src/i18n/locales', import.meta.url));
+/** Where the lazy namespace files go, inside the output directory: `lazy/<namespace>.<language>.json`. */
+export const LAZY_DIRECTORY_NAME = 'lazy';
+export const LAZY_DIRECTORY = join(LOCALES_DIRECTORY, LAZY_DIRECTORY_NAME);
 
 /** The stream that writes a namespace. The command a stale catalogue is repaired with. */
 const MERGE_COMMAND = 'pnpm i18n:merge';
 
 /**
  * Who owns which namespace (contract C11). `problem` is the problem registry's (S1), the Appearance
- * page's namespaces are S5's, every other namespace is S4's. A new namespace is one line here: the
+ * page's namespaces are S5's, the Phase B namespaces are S6's (`qualifier`, `resource` and `origin`
+ * are the label registry's keys of `rbac/labels.ts`, small files of their own because a key must start
+ * with the name of its fragment), every other namespace is S4's. A new namespace is one line here: the
  * merge refuses a fragment whose namespace is not listed, so a typo in a file name cannot create a
  * catalogue section nobody owns.
  */
@@ -42,7 +51,6 @@ export const NAMESPACE_OWNERS = {
   nav: 'S4',
   theme: 'S4',
   lang: 'S4',
-  banner: 'S4',
   a11y: 'S4',
   palette: 'S4',
   shortcuts: 'S4',
@@ -53,7 +61,21 @@ export const NAMESPACE_OWNERS = {
   placeholders: 'S4',
   showcase: 'S4',
   pwa: 'S4',
-} as const satisfies Readonly<Record<string, 'S1' | 'S4' | 'S5'>>;
+
+  setup: 'S6',
+  connection: 'S6',
+  signin: 'S6',
+  noaccess: 'S6',
+  access: 'S6',
+  role: 'S6',
+  permission: 'S6',
+  session: 'S6',
+  breakglass: 'S6',
+  scope: 'S6',
+  qualifier: 'S6',
+  resource: 'S6',
+  origin: 'S6',
+} as const satisfies Readonly<Record<string, 'S1' | 'S4' | 'S5' | 'S6'>>;
 
 /** File name to file text. The names carry the namespace and the language. */
 export type FragmentFiles = Readonly<Record<string, string>>;
@@ -196,9 +218,18 @@ function parseFragment(
   return { name, namespace, language, entries };
 }
 
+/** What the merge makes: the entry catalogues and one catalogue pair per lazy namespace. */
+export interface MergeResult {
+  readonly entry: MergedCatalogues;
+  readonly lazy: Readonly<Record<LazyNamespace, MergedCatalogues>>;
+  /** The lazy namespaces that have a fragment file; only these get lazy files. */
+  readonly lazyPresent: readonly LazyNamespace[];
+}
+
 /**
- * Merge fragment files into one flat catalogue per locale, keys in code unit order. Throws a
- * `FragmentError` that lists every problem found when a rule is broken:
+ * Merge fragment files into one flat catalogue per locale, keys in code unit order, and the lazy
+ * namespaces into a catalogue pair of their own. Throws a `FragmentError` that lists every problem
+ * found when a rule is broken:
  *   - the file name is `<namespace>.<language>.json` with a language the product speaks;
  *   - the namespace is listed in `NAMESPACE_OWNERS`, and has a file for every language;
  *   - a file is one flat object of strings, its keys start with `<namespace>.`, are well formed,
@@ -206,7 +237,7 @@ function parseFragment(
  *   - no key is in two fragments of one language.
  * Whether the two languages hold the same keys is the catalogue check's business, not the merge's.
  */
-export function mergeFragments(files: FragmentFiles): MergedCatalogues {
+export function mergeAllFragments(files: FragmentFiles): MergeResult {
   const problems: string[] = [];
   const parsed: ParsedFragment[] = [];
   const present = new Map<string, Set<Locale>>();
@@ -269,7 +300,27 @@ export function mergeFragments(files: FragmentFiles): MergedCatalogues {
 
   const sorted = (catalogue: Map<string, string>): Record<string, string> =>
     Object.fromEntries([...catalogue].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-  return perLanguage((language) => sorted(merged[language]));
+  const inNamespace = (key: string, namespace: string): boolean => key.startsWith(`${namespace}.`);
+  const entry = perLanguage((language) =>
+    sorted(
+      new Map([...merged[language]].filter(([key]) => !LAZY_NAMESPACES.some((n) => inNamespace(key, n)))),
+    ),
+  );
+  const lazy = Object.fromEntries(
+    LAZY_NAMESPACES.map((namespace) => [
+      namespace,
+      perLanguage((language) =>
+        sorted(new Map([...merged[language]].filter(([key]) => inNamespace(key, namespace)))),
+      ),
+    ]),
+  ) as Record<LazyNamespace, MergedCatalogues>;
+  const lazyPresent = LAZY_NAMESPACES.filter((namespace) => present.has(namespace));
+  return { entry, lazy, lazyPresent };
+}
+
+/** The merged entry catalogues: what `mergeFragments` always meant, now without the lazy namespaces. */
+export function mergeFragments(files: FragmentFiles): MergedCatalogues {
+  return mergeAllFragments(files).entry;
 }
 
 /** The text of a catalogue file: two-space JSON and a final newline, as Prettier leaves it. */
@@ -323,6 +374,58 @@ export function staleProblems(
   return problems;
 }
 
+/** The files of the lazy directory by name; a directory that does not exist holds none. */
+export function readLazyFiles(directory: string): Record<string, string> {
+  try {
+    return readFragmentFiles(directory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw error;
+  }
+}
+
+/** The lazy files the merge makes, by file name (`<namespace>.<language>.json`). */
+export function renderLazyFiles(result: MergeResult): Record<string, string> {
+  const files: Record<string, string> = {};
+  for (const namespace of result.lazyPresent) {
+    for (const locale of LOCALES) {
+      files[`${namespace}.${locale}.json`] = renderCatalogue(result.lazy[namespace][locale]);
+    }
+  }
+  return files;
+}
+
+/**
+ * What is wrong with the committed lazy files, as sentences that name the command to run: a file that
+ * is stale, missing, or that no lazy namespace produces. An empty list means the folder equals the
+ * render.
+ */
+export function staleLazyProblems(
+  rendered: Readonly<Record<string, string>>,
+  committed: Readonly<Record<string, string>>,
+  pathOf: (name: string) => string = (name) => `packages/shared/src/i18n/locales/lazy/${name}`,
+): string[] {
+  const problems: string[] = [];
+  for (const [name, wanted] of Object.entries(rendered)) {
+    const actual = committed[name];
+    if (actual === undefined) {
+      problems.push(`${pathOf(name)} is missing; run \`${MERGE_COMMAND}\` and commit it`);
+    } else if (actual !== wanted) {
+      problems.push(
+        `${pathOf(name)} is stale (first difference at line ${String(firstDifference(actual, wanted))}); run \`${MERGE_COMMAND}\` and commit the result`,
+      );
+    }
+  }
+  for (const name of Object.keys(committed)) {
+    if (!(name in rendered)) {
+      problems.push(
+        `${pathOf(name)} is not produced by the merge (a lazy namespace is one of ${LAZY_NAMESPACES.join(', ')}); delete it or run \`${MERGE_COMMAND}\``,
+      );
+    }
+  }
+  return problems;
+}
+
 function readIfPresent(path: string): string | undefined {
   try {
     return readFileSync(path, 'utf8');
@@ -363,9 +466,9 @@ export function runCommand(argv: readonly string[], output: Output): number {
     }
   }
 
-  let merged: MergedCatalogues;
+  let result: MergeResult;
   try {
-    merged = mergeFragments(readFragmentFiles(fragments));
+    result = mergeAllFragments(readFragmentFiles(fragments));
   } catch (error) {
     if (error instanceof FragmentError) {
       output.error(`i18n: ${error.message}`);
@@ -378,15 +481,21 @@ export function runCommand(argv: readonly string[], output: Output): number {
     throw error;
   }
 
+  const merged = result.entry;
   const rendered = perLanguage((language) => renderCatalogue(merged[language]));
   const fileOf = (locale: Locale): string => join(out, `${locale}.json`);
+  const lazyOut = join(out, LAZY_DIRECTORY_NAME);
+  const lazyRendered = renderLazyFiles(result);
 
   if (check) {
-    const problems = staleProblems(
-      rendered,
-      perLanguage((language) => readIfPresent(fileOf(language))),
-      fileOf,
-    );
+    const problems = [
+      ...staleProblems(
+        rendered,
+        perLanguage((language) => readIfPresent(fileOf(language))),
+        fileOf,
+      ),
+      ...staleLazyProblems(lazyRendered, readLazyFiles(lazyOut), (name) => join(lazyOut, name)),
+    ];
     if (problems.length > 0) {
       output.error(problems.map((problem) => `i18n: ${problem}`).join('\n'));
       return 1;
@@ -401,6 +510,19 @@ export function runCommand(argv: readonly string[], output: Output): number {
     output.log(
       `i18n: wrote ${fileOf(locale)} (${String(Object.keys(merged[locale]).length)} keys)`,
     );
+  }
+  // The lazy folder holds exactly what the merge makes: a file nobody produces any more is removed.
+  for (const name of Object.keys(readLazyFiles(lazyOut))) {
+    if (!(name in lazyRendered)) rmSync(join(lazyOut, name));
+  }
+  if (Object.keys(lazyRendered).length > 0) {
+    mkdirSync(lazyOut, { recursive: true });
+    for (const [name, text] of Object.entries(lazyRendered)) {
+      writeFileSync(join(lazyOut, name), text);
+      output.log(`i18n: wrote ${join(lazyOut, name)}`);
+    }
+  } else {
+    rmSync(lazyOut, { recursive: true, force: true });
   }
   return 0;
 }

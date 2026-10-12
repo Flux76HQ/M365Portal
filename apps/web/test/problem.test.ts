@@ -5,7 +5,7 @@
 // lib/problem.ts chooses the key with `problemMessageKey` of @m365portal/shared (the one mapping of
 // code to message) and fills the parameters the messages use: the request id of the generic message,
 // the origin of `origin_not_allowed`, the seconds of the two busy codes.
-import { createTranslator, type Locale } from '@m365portal/shared/i18n';
+import { createTranslator, placeholdersOf, type Locale } from '@m365portal/shared/i18n';
 import { PROBLEM_CODES, type ProblemCode } from '@m365portal/shared/problem';
 import { describe, expect, it } from 'vitest';
 import { ApiError, NetworkError } from '../src/lib/api';
@@ -50,13 +50,10 @@ describe('translateProblemCode', () => {
     for (const locale of LOCALES) {
       const { t } = createTranslator(locale);
       for (const code of CODES) {
-        if (
-          code === 'origin_not_allowed' ||
-          code === 'rate_limited' ||
-          code === 'image_processing_busy'
-        ) {
-          continue;
-        }
+        // A message with a placeholder is not the same text once the parameters are filled in
+        // (origin_not_allowed, rate_limited, image_processing_busy, and the Phase B messages with a
+        // wait: setup_token_locked, break_glass_locked, graph_throttled); the next test covers them.
+        if (placeholdersOf(t(`problem.${code}`)).length > 0) continue;
         expect(text(locale, code), `${locale} ${code}`).toBe(t(`problem.${code}`));
       }
     }

@@ -1,5 +1,5 @@
 import { CircleAlertIcon, CircleCheckIcon, InfoIcon, TriangleAlertIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 
 const TONES = {
@@ -9,7 +9,7 @@ const TONES = {
   danger: { Icon: CircleAlertIcon, iconClass: 'text-danger', barClass: 'border-s-danger' },
 } as const;
 
-export interface BannerProps {
+export interface BannerProps extends Omit<ComponentProps<'div'>, 'title' | 'role' | 'children' | 'className'> {
   readonly tone: keyof typeof TONES;
   /** A short heading above the message. */
   readonly title?: string;
@@ -21,14 +21,16 @@ export interface BannerProps {
 }
 
 /**
- * A message that stays on the page: the preview banner, a storage warning. It is a polite status
- * region, it has no close button (a banner that says "everyone is an administrator" must not be
- * dismissed), and the tone is an icon and a bar as well as a colour (WCAG 1.4.1).
+ * A message that stays on the page: the break-glass banner, a storage warning. It is a polite status
+ * region, it has no close button (a banner that says "this is the emergency account" must not be
+ * dismissed), and the tone is an icon and a bar as well as a colour (WCAG 1.4.1). Further attributes
+ * (a `data-` marker) go to the element.
  */
-export function Banner({ tone, title, action, className, children }: BannerProps) {
+export function Banner({ tone, title, action, className, children, ...rest }: BannerProps) {
   const { Icon, iconClass, barClass } = TONES[tone];
   return (
     <div
+      {...rest}
       role="status"
       data-slot="banner"
       data-tone={tone}

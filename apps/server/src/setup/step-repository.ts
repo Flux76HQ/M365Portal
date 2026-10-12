@@ -244,7 +244,9 @@ export class SetupStepRepository {
       const status = aggregate(
         subActions.map((sub) => ({
           status: sub.status,
-          warning: sub.status === 'skipped' && sub.errorCode === 'exchange_service_principal_missing',
+          warning:
+            sub.status === 'skipped' &&
+            (sub.errorCode === 'exchange_service_principal_missing' || sub.errorCode === 'not_checked'),
         })),
       );
       return { step, status, subActions };

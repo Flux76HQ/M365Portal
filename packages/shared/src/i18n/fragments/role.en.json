@@ -1,0 +1,8 @@
+{
+  "role.admin": "Administrator",
+  "role.board": "Board",
+  "role.helpdesk": "Helpdesk",
+  "role.operator": "Operator",
+  "role.owner": "Owner",
+  "role.reader": "Reader"
+}

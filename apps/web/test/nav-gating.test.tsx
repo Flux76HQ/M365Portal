@@ -10,7 +10,7 @@ import { ROUTES } from '@m365portal/shared/routes';
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { COMMANDS, navigationCommands, visibleCommands, type Command } from '../src/lib/commands';
-import { sampleMe } from './helpers/boot-fixtures';
+import { sampleMe, sampleSignedInMe } from './helpers/boot-fixtures';
 import { renderShell } from './helpers/render-shell';
 
 const en = createTranslator('en');
@@ -28,7 +28,7 @@ describe('navigationCommands(me)', () => {
   });
 
   it('shows the preview actor every entry', () => {
-    expect(ids(navigationCommands(sampleMe({ preview: true })))).toEqual([
+    expect(ids(navigationCommands(sampleSignedInMe()))).toEqual([
       'dashboard',
       'users',
       'groups',
@@ -76,7 +76,7 @@ describe('navigationCommands(me)', () => {
 
   it('points every entry at a path of the shared route list', () => {
     const paths = Object.values(ROUTES) as string[];
-    for (const command of navigationCommands(sampleMe({ preview: true, showcase: true }))) {
+    for (const command of navigationCommands(sampleSignedInMe({ showcase: true }))) {
       expect(command.run.kind).toBe('navigate');
       if (command.run.kind === 'navigate') expect(paths).toContain(command.run.to);
     }
@@ -116,7 +116,7 @@ describe('visibleCommands(me)', () => {
   it('denies a command whose permission list is empty by mistake', () => {
     const broken: Command = { ...COMMANDS[0]!, id: 'broken', anyOf: [] };
     // A command with an empty list is never satisfied (deny by default), so it is not visible.
-    expect(visibleCommands(sampleMe({ preview: true }), [broken])).toEqual([]);
+    expect(visibleCommands(sampleSignedInMe(), [broken])).toEqual([]);
   });
 });
 
@@ -166,7 +166,7 @@ describe('the sidebar reads the registry', () => {
   });
 
   it('shows the preview actor every entry, in Dutch when the page is Dutch', async () => {
-    await renderShell({ me: sampleMe({ preview: true }), language: 'nl' });
+    await renderShell({ me: sampleSignedInMe(), language: 'nl' });
     const nav = await screen.findByRole('navigation', { name: nl.t('a11y.mainNavigation') });
 
     expect(

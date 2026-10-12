@@ -10,7 +10,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { sampleMe } from './helpers/boot-fixtures';
+import { sampleMe, sampleSignedInMe } from './helpers/boot-fixtures';
 import { renderShell } from './helpers/render-shell';
 
 const en = createTranslator('en');
@@ -37,7 +37,7 @@ const optionNames = (dialog: HTMLElement): string[] =>
 
 describe('the palette as a combobox', () => {
   it('opens from the search trigger as a modal dialog with a combobox and a listbox', async () => {
-    const { dialog } = await openPalette({ me: sampleMe({ preview: true }) });
+    const { dialog } = await openPalette({ me: sampleSignedInMe() });
 
     const input = within(dialog).getByRole('combobox', { name: en.t('palette.inputLabel') });
     const list = within(dialog).getByRole('listbox');
@@ -49,7 +49,7 @@ describe('the palette as a combobox', () => {
 
   it('points aria-activedescendant at the chosen option: when it opens, as the search changes and as the arrow keys move', async () => {
     // cmdk 1.1.1 sets the attribute only for the arrow keys; the palette puts it right after every render.
-    const { dialog, user } = await openPalette({ me: sampleMe({ preview: true }) });
+    const { dialog, user } = await openPalette({ me: sampleSignedInMe() });
     const input = within(dialog).getByRole('combobox');
     const chosen = () => dialog.querySelector('[role="option"][aria-selected="true"]');
 
@@ -107,7 +107,7 @@ describe('the palette as a combobox', () => {
   });
 
   it('groups the results and names the groups', async () => {
-    const { dialog } = await openPalette({ me: sampleMe({ preview: true }) });
+    const { dialog } = await openPalette({ me: sampleSignedInMe() });
 
     for (const key of [
       'palette.group.navigate',
@@ -137,7 +137,7 @@ describe('what it lists', () => {
   });
 
   it('lists every destination for the preview actor, the same ones as the sidebar plus Appearance', async () => {
-    const { dialog } = await openPalette({ me: sampleMe({ preview: true }) });
+    const { dialog } = await openPalette({ me: sampleSignedInMe() });
 
     const names = optionNames(dialog);
     for (const key of [
@@ -156,7 +156,7 @@ describe('what it lists', () => {
   });
 
   it('adds the showcase when the server has it on', async () => {
-    const { dialog } = await openPalette({ me: sampleMe({ preview: true, showcase: true }) });
+    const { dialog } = await openPalette({ me: sampleSignedInMe({ showcase: true }) });
 
     expect(optionNames(dialog)).toContain(en.t('nav.design'));
   });
@@ -170,7 +170,7 @@ describe('what it lists', () => {
   });
 
   it('is written in Dutch when the page is Dutch', async () => {
-    const { dialog } = await openPalette({ me: sampleMe({ preview: true }), language: 'nl' });
+    const { dialog } = await openPalette({ me: sampleSignedInMe(), language: 'nl' });
 
     expect(optionNames(dialog)).toContain(nl.t('nav.distributionLists'));
     expect(within(dialog).getByText(nl.t('palette.group.navigate'))).toBeInTheDocument();
@@ -180,7 +180,7 @@ describe('what it lists', () => {
 describe('finding and running a command', () => {
   it('goes to Settings, Appearance when "appear" is typed and Enter is pressed', async () => {
     const { dialog, user, router } = await openPalette({
-      me: sampleMe({ preview: true }),
+      me: sampleSignedInMe(),
       path: '/',
     });
 
@@ -197,7 +197,7 @@ describe('finding and running a command', () => {
   });
 
   it('finds a command by a keyword of the other language', async () => {
-    const { dialog, user } = await openPalette({ me: sampleMe({ preview: true }) });
+    const { dialog, user } = await openPalette({ me: sampleSignedInMe() });
 
     await user.keyboard('huisstijl');
 
@@ -205,7 +205,7 @@ describe('finding and running a command', () => {
   });
 
   it('finds a command by a keyword in the language of the page', async () => {
-    const { dialog, user } = await openPalette({ me: sampleMe({ preview: true }), language: 'nl' });
+    const { dialog, user } = await openPalette({ me: sampleSignedInMe(), language: 'nl' });
 
     await user.keyboard('mensen');
 

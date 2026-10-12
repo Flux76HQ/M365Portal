@@ -6,7 +6,7 @@
 //   - it fills the `{{en:key}}` / `{{nl:key}}` tokens from the catalogues (no user-visible literal lives
 //     in the web code; a missing key fails the build), HTML escaped, both languages side by side;
 //   - it puts the small inline script (`src/boot/static-shell.ts`) after the shell, so the
-//     organisation name and the preview banner are right at first paint.
+//     organisation name is right at first paint.
 // React's `createRoot(...).render` replaces the content of `#root`, so the shell vanishes the moment the
 // application has its first tree. The shell is `aria-hidden` and `inert`: it is a picture, not a page.
 import { build as bundle } from 'esbuild';

@@ -22,14 +22,19 @@ import { LOCALES, type Locale } from '../src/i18n/index.js';
 import {
   FRAGMENTS_DIRECTORY,
   FragmentError,
+  LAZY_DIRECTORY,
   LOCALES_DIRECTORY,
   NAMESPACE_OWNERS,
+  mergeAllFragments,
   mergeFragments,
   readFragmentFiles,
+  readLazyFiles,
   renderCatalogue,
+  staleLazyProblems,
   staleProblems,
   type FragmentFiles,
 } from '../scripts/i18n-merge.js';
+import { LAZY_NAMESPACES } from '../src/i18n/index.js';
 import { expectGuardFails } from '../src/testing/index.js';
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -104,6 +109,37 @@ describe('the fragments and catalogues of the repository', () => {
     }
   });
 
+  it('write the lazy namespace files byte for byte too, and nothing else into locales/lazy (T-B-291)', () => {
+    const all = mergeAllFragments(files);
+    const committed = readLazyFiles(LAZY_DIRECTORY);
+    const expected: Record<string, string> = {};
+    for (const namespace of LAZY_NAMESPACES) {
+      for (const locale of LOCALES) {
+        expected[`${namespace}.${locale}.json`] = renderCatalogue(all.lazy[namespace][locale]);
+      }
+    }
+    expect(Object.keys(committed).sort()).toEqual(Object.keys(expected).sort());
+    for (const [name, text] of Object.entries(expected)) {
+      expect(committed[name] === text, `${name} is stale: run pnpm i18n:merge`).toBe(true);
+    }
+    expect(staleLazyProblems(expected, committed)).toEqual([]);
+  });
+
+  it('keep the keys of a lazy namespace out of the entry catalogues and the other way round', () => {
+    const all = mergeAllFragments(files);
+    for (const locale of LOCALES) {
+      for (const key of Object.keys(all.entry[locale])) {
+        const namespace = key.slice(0, key.indexOf('.'));
+        expect((LAZY_NAMESPACES as readonly string[]).includes(namespace), key).toBe(false);
+      }
+      for (const namespace of LAZY_NAMESPACES) {
+        const keys = Object.keys(all.lazy[namespace][locale]);
+        expect(keys.length, `${namespace}.${locale}`).toBeGreaterThan(0);
+        for (const key of keys) expect(key.startsWith(`${namespace}.`), key).toBe(true);
+      }
+    }
+  });
+
   it('give the merged catalogues every key of the problem fragments of stream S1, with the same text (TA-03, FR-A-112)', () => {
     const merged = mergeFragments(files);
     for (const locale of LOCALES) {
@@ -138,12 +174,39 @@ describe('the fragments and catalogues of the repository', () => {
 describe('the namespace owner table (C11)', () => {
   const s5 = ['appearance', 'accent', 'logo', 'preview'];
 
-  it('gives problem to S1, appearance, accent, logo and preview to S5, and every other namespace to S4', () => {
+  it('gives problem to S1, appearance, accent, logo and preview to S5, the Phase B namespaces to S6, and every other namespace to S4', () => {
     expect(NAMESPACE_OWNERS.problem).toBe('S1');
     for (const namespace of s5) expect(NAMESPACE_OWNERS, namespace).toHaveProperty(namespace, 'S5');
     for (const [namespace, owner] of Object.entries(NAMESPACE_OWNERS)) {
-      if (namespace === 'problem' || s5.includes(namespace)) continue;
+      if (namespace === 'problem' || s5.includes(namespace) || owner === 'S6') continue;
       expect(owner, namespace).toBe('S4');
+    }
+  });
+
+  it('gives the ten Phase B namespaces, and the three small label namespaces beside them, to S6', () => {
+    const s6 = [
+      'setup',
+      'connection',
+      'signin',
+      'noaccess',
+      'access',
+      'role',
+      'permission',
+      'session',
+      'breakglass',
+      'scope',
+      // The label registry (rbac/labels.ts) also names qualifier.*, resource.* and origin.*; a key
+      // must start with the name of its fragment, so they are fragments of their own.
+      'qualifier',
+      'resource',
+      'origin',
+    ];
+    for (const namespace of s6) expect(NAMESPACE_OWNERS, namespace).toHaveProperty(namespace, 'S6');
+  });
+
+  it('lists the lazy namespaces among the namespaces of S6 only', () => {
+    for (const namespace of LAZY_NAMESPACES) {
+      expect(NAMESPACE_OWNERS, namespace).toHaveProperty(namespace, 'S6');
     }
   });
 
@@ -153,7 +216,6 @@ describe('the namespace owner table (C11)', () => {
       'nav',
       'theme',
       'lang',
-      'banner',
       'a11y',
       'palette',
       'shortcuts',
@@ -498,6 +560,107 @@ describe('renderCatalogue', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// Lazy namespaces (T-B-291, XB24)
+// ---------------------------------------------------------------------------------------------
+
+/** The valid set plus a lazy namespace (`setup`), one extra entry namespace (`signin`). */
+function withLazy(changes: Readonly<Record<string, string | undefined>> = {}): Record<string, string> {
+  return with_({
+    'setup.en.json': fragment({ 'setup.step.connect': 'Connect', 'setup.step.environment': 'Environment' }),
+    'setup.nl.json': fragment({ 'setup.step.connect': 'Verbinden', 'setup.step.environment': 'Omgeving' }),
+    'signin.en.json': fragment({ 'signin.title': 'Sign in' }),
+    'signin.nl.json': fragment({ 'signin.title': 'Aanmelden' }),
+    ...changes,
+  });
+}
+
+describe('mergeAllFragments: entry namespaces and lazy namespaces go to different catalogues', () => {
+  it('puts the lazy namespaces in their own catalogue per namespace and language, the rest in the entry catalogue', () => {
+    const all = mergeAllFragments(withLazy());
+    expect(Object.keys(all.entry.en)).toEqual([
+      'common.save',
+      'problem.unknown',
+      'shell.subtitle',
+      'shell.title',
+      'signin.title',
+    ]);
+    expect(Object.keys(all.lazy.setup.nl)).toEqual(['setup.step.connect', 'setup.step.environment']);
+    expect(all.lazy.setup.nl['setup.step.connect']).toBe('Verbinden');
+    expect(all.lazy.setup.en['setup.step.connect']).toBe('Connect');
+    // A lazy namespace with no fragment yet is an empty catalogue, not a missing one.
+    expect(all.lazy.access).toEqual({ en: {}, nl: {} });
+  });
+
+  it('leaves mergeFragments with the meaning it had: the merged catalogue of the entry namespaces', () => {
+    const merged = mergeFragments(withLazy());
+    expect(Object.keys(merged.en)).not.toContain('setup.step.connect');
+    expect(merged.nl['signin.title']).toBe('Aanmelden');
+  });
+
+  it('applies every rule of the merge to a lazy namespace too (a key outside its namespace, an unsorted file, a missing language)', () => {
+    const options = (reason: string | RegExp) => ({ name: 'mergeAllFragments', reason });
+    expectGuardFails(
+      mergeAllFragments,
+      withLazy({ 'setup.en.json': fragment({ 'connection.x': 'x' }) }),
+      options(/setup\.en\.json: key "connection\.x" must start with "setup\."/),
+    );
+    expectGuardFails(
+      mergeAllFragments,
+      withLazy({ 'setup.nl.json': undefined }),
+      options(/setup\.nl\.json is missing/),
+    );
+    expectGuardFails(
+      mergeAllFragments,
+      withLazy({
+        'setup.en.json': '{\n  "setup.step.environment": "E",\n  "setup.step.connect": "C"\n}\n',
+      }),
+      options(/setup\.en\.json: keys are not sorted/),
+    );
+  });
+});
+
+describe('the lazy files must equal the merge', () => {
+  const all = mergeAllFragments(withLazy());
+  const rendered: Record<string, string> = {};
+  for (const locale of LOCALES) {
+    rendered[`setup.${locale}.json`] = renderCatalogue(all.lazy.setup[locale]);
+  }
+
+  function assertFresh(committed: Readonly<Record<string, string>>): void {
+    const problems = staleLazyProblems(rendered, committed);
+    if (problems.length > 0) throw new Error(problems.join('\n'));
+  }
+
+  it('passes when the committed files equal the render', () => {
+    expect(staleLazyProblems(rendered, { ...rendered })).toEqual([]);
+  });
+
+  it('fails for a stale lazy file and names the command', () => {
+    expectGuardFails(
+      assertFresh,
+      { ...rendered, 'setup.nl.json': '{}\n' },
+      { name: 'lazy freshness', reason: /locales\/lazy\/setup\.nl\.json is stale.*pnpm i18n:merge/s },
+    );
+  });
+
+  it('fails for a lazy file that is missing', () => {
+    expectGuardFails(
+      assertFresh,
+      { 'setup.en.json': rendered['setup.en.json'] ?? '' },
+      { name: 'lazy freshness', reason: /locales\/lazy\/setup\.nl\.json is missing.*pnpm i18n:merge/s },
+    );
+  });
+
+  it('fails for a file in locales/lazy that no lazy namespace produces', () => {
+    expectGuardFails(
+      assertFresh,
+      { ...rendered, 'common.en.json': '{}\n' },
+      { name: 'lazy freshness', reason: /locales\/lazy\/common\.en\.json is not produced by the merge.*delete it/s },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
 // The command line, run for real
 // ---------------------------------------------------------------------------------------------
 
@@ -525,7 +688,21 @@ describe('pnpm i18n:merge (tsx scripts/i18n-merge.ts)', () => {
     const result = runCli(['--out', out]);
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
-    expect(readdirSync(out).sort()).toEqual([...LOCALES].map((locale) => `${locale}.json`).sort());
+    expect(readdirSync(out).sort()).toEqual(
+      [...LOCALES.map((locale) => `${locale}.json`), 'lazy'].sort(),
+    );
+    expect(readdirSync(join(out, 'lazy')).sort()).toEqual(
+      LAZY_NAMESPACES.flatMap((namespace) =>
+        LOCALES.map((locale) => `${namespace}.${locale}.json`),
+      ).sort(),
+    );
+    for (const name of readdirSync(join(out, 'lazy'))) {
+      expect(
+        readFileSync(join(out, 'lazy', name), 'utf8') ===
+          readFileSync(join(LAZY_DIRECTORY, name), 'utf8'),
+        name,
+      ).toBe(true);
+    }
     for (const locale of LOCALES) {
       expect(
         readFileSync(join(out, `${locale}.json`), 'utf8') ===
@@ -540,6 +717,37 @@ describe('pnpm i18n:merge (tsx scripts/i18n-merge.ts)', () => {
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
     expect(result.stdout).toMatch(/up to date/);
+  });
+
+  it('--check fails on a stale or missing lazy file and says which command to run', () => {
+    const out = temporaryDirectory();
+    for (const locale of LOCALES) {
+      writeFileSync(
+        join(out, `${locale}.json`),
+        readFileSync(join(LOCALES_DIRECTORY, `${locale}.json`), 'utf8'),
+      );
+    }
+    mkdirSync(join(out, 'lazy'));
+    for (const name of readdirSync(LAZY_DIRECTORY)) {
+      writeFileSync(join(out, 'lazy', name), readFileSync(join(LAZY_DIRECTORY, name), 'utf8'));
+    }
+    expect(runCli(['--check', '--out', out]).status).toBe(0);
+    writeFileSync(join(out, 'lazy', 'setup.nl.json'), '{}\n');
+    rmSync(join(out, 'lazy', 'access.en.json'));
+    const result = runCli(['--check', '--out', out]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/lazy\/setup\.nl\.json is stale/);
+    expect(result.stderr).toMatch(/lazy\/access\.en\.json is missing/);
+    expect(result.stderr).toMatch(/pnpm i18n:merge/);
+  });
+
+  it('writes no lazy directory for fragments without a lazy namespace, and removes a lazy file nobody produces any more', () => {
+    const fragments = writeFragmentDirectory(validFragments());
+    const out = temporaryDirectory();
+    mkdirSync(join(out, 'lazy'));
+    writeFileSync(join(out, 'lazy', 'setup.en.json'), '{}\n');
+    expect(runCli(['--fragments', fragments, '--out', out]).status).toBe(0);
+    expect(readdirSync(out).sort()).toEqual(['en.json', 'nl.json']);
   });
 
   it('--check fails on a stale catalogue and says which command to run', () => {

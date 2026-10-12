@@ -2,7 +2,8 @@
 //   1. zod-config   Zod must not probe `new Function` (Trusted Types, probe P17): before any schema parses.
 //   2. app.css      the stylesheet (the server inlines the built result into the HTML shell).
 //   3. the nonce    libraries that inject a <style> at run time read `__webpack_nonce__` (probe P15).
-//   4. the cache    `me` and `branding` come embedded in the page, so the first render needs no request.
+//   4. the cache    `me` and `branding` come embedded in the page, so the first render needs no request;
+//                   an anonymous boot actor is checked once against GET /api/v1/me first (boot/recheck.ts).
 //
 // The stage modules (boot/stage-*.ts) are the dynamic imports of the start-up; build/plugins/defer-entry.ts
 // finds their chunks by that name and preloads them all in parallel, so the chain of tasks is not a chain
@@ -31,6 +32,8 @@ async function start(): Promise<void> {
   const api = data.getApiClient();
   const bootData = data.readBootData();
   if (bootData) data.seedQueryClient(queryClient, bootData, api);
+  // A cross-site entry drops the Strict cookie: ask once before any gating redirect (T-B-296, PB-15).
+  await data.recheckBootSession({ boot: bootData, queryClient, api });
   const { createAppRouter } = await import('./boot/stage-router');
   await yieldToMain();
   const router = createAppRouter(undefined, { queryClient, api });
