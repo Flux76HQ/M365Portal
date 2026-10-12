@@ -144,6 +144,21 @@ const MOVING = (page: Page) => [
   page.getByText(/Last verified/),
 ];
 
+/**
+ * The moving text becomes a fixed filler before the shot, so the masked boxes have the same size in
+ * every run (a mask covers the box of the element, and the box follows the text length).
+ */
+async function pinMovingText(page: Page): Promise<void> {
+  for (const locator of MOVING(page).slice(MASKS(page).length)) {
+    await locator.evaluateAll((nodes) => {
+      nodes.forEach((node) => {
+        if (node.getAttribute('role') === 'progressbar') return;
+        node.textContent = '0000000000';
+      });
+    });
+  }
+}
+
 async function shoot(
   page: Page,
   slug: string,
@@ -152,6 +167,7 @@ async function shoot(
 ): Promise<void> {
   await page.waitForFunction(() => document.getAnimations().length === 0);
   await pinVersionText(page);
+  await pinMovingText(page);
   await page.mouse.move(0, 0);
   await expect(page).toHaveScreenshot(nameOf(slug, testInfo), {
     ...SHOT,
