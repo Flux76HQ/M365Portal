@@ -21,9 +21,8 @@ const { installNoEgress, isLoopbackHost } = await import(
 );
 const { HttpResponse, bypass, http } = await import('msw');
 const { FetchInterceptor } = await import('@mswjs/interceptors/fetch/web');
-const { defineNetwork, InMemoryHandlersController, InterceptorSource } = await import(
-  'msw/experimental'
-);
+const { defineNetwork, InMemoryHandlersController, InterceptorSource } =
+  await import('msw/experimental');
 
 const fakeOrigin = process.env.E2E_FAKE_ORIGIN ?? '';
 const tenant = process.env.E2E_FAKE_TENANT ?? '';
@@ -33,8 +32,15 @@ if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(fakeOrigin) || !/^[ab]$/.test(tenant)) {
 
 installNoEgress();
 
-const MICROSOFT = /^https:\/\/(login\.microsoftonline\.com|graph\.microsoft\.com|outlook\.office365\.com)\//;
-const DROPPED = new Set(['host', 'connection', 'content-length', 'transfer-encoding', 'keep-alive']);
+const MICROSOFT =
+  /^https:\/\/(login\.microsoftonline\.com|graph\.microsoft\.com|outlook\.office365\.com)\//;
+const DROPPED = new Set([
+  'host',
+  'connection',
+  'content-length',
+  'transfer-encoding',
+  'keep-alive',
+]);
 
 const forward = http.all(MICROSOFT, async ({ request }) => {
   const url = new URL(request.url);
@@ -43,11 +49,14 @@ const forward = http.all(MICROSOFT, async ({ request }) => {
     if (!DROPPED.has(name)) headers.set(name, value);
   }
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
-  const forwarded = new Request(`${fakeOrigin}/t/${tenant}/${url.hostname}${url.pathname}${url.search}`, {
-    method: request.method,
-    headers,
-    ...(hasBody ? { body: await request.arrayBuffer() } : {}),
-  });
+  const forwarded = new Request(
+    `${fakeOrigin}/t/${tenant}/${url.hostname}${url.pathname}${url.search}`,
+    {
+      method: request.method,
+      headers,
+      ...(hasBody ? { body: await request.arrayBuffer() } : {}),
+    },
+  );
   try {
     const upstream = await fetch(bypass(forwarded), { redirect: 'manual' });
     // A fresh Response: the one `fetch` returned already carries its URL, which MSW cannot set again.

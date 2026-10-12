@@ -40,12 +40,14 @@ export async function runWizard(
     mode: 'continue',
   });
   if (started.status !== 202 && started.status !== 200 && started.status !== 201) {
-    throw new Error(`starting the run answered ${String(started.status)}: ${started.text.slice(0, 200)}`);
+    throw new Error(
+      `starting the run answered ${String(started.status)}: ${started.text.slice(0, 200)}`,
+    );
   }
   let approved = false;
   const deadline = Date.now() + (options.timeoutMs ?? 180_000);
   while (Date.now() < deadline) {
-    const snapshot = (await api.get('/api/v1/connection/runs/current')).json<RunSnapshot>();
+    const snapshot = (await api.get('/api/v1/connection/runs/current')).json() as RunSnapshot;
     if (!approved && snapshot.deviceCode?.state === 'waiting_for_user') {
       await fake.approveDevice('owner');
       approved = true;
@@ -57,19 +59,18 @@ export async function runWizard(
 }
 
 /** Finishes the setup: the designated Owner becomes Owner at their first sign-in. */
-export async function finishWizard(
-  api: ApiClient,
-  language: 'nl' | 'en' = 'en',
-): Promise<void> {
-  const state = (await api.get('/api/v1/setup/state')).json<{
+export async function finishWizard(api: ApiClient, language: 'nl' | 'en' = 'en'): Promise<void> {
+  const state = (await api.get('/api/v1/setup/state')).json() as {
     designatedOwner: { oid: string } | null;
-  }>();
+  };
   const oid = state.designatedOwner?.oid;
   if (oid !== PRINCIPALS.owner.oid) {
     throw new Error('the designated Owner is not the owner principal of the e2e tenant');
   }
   const finished = await api.post('/api/v1/setup/finish', { confirmOwnerOid: oid, language });
   if (finished.status !== 200) {
-    throw new Error(`setup finish answered ${String(finished.status)}: ${finished.text.slice(0, 200)}`);
+    throw new Error(
+      `setup finish answered ${String(finished.status)}: ${finished.text.slice(0, 200)}`,
+    );
   }
 }

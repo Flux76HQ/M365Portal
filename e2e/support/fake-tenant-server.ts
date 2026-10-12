@@ -32,7 +32,10 @@ import {
   type FakeEntra,
 } from '../../apps/server/test/fakes/fake-tenant/entra/index.js';
 import { exchangeModule } from '../../apps/server/test/fakes/fake-tenant/exchange/module.js';
-import { createFakeGraph, type FakeGraph } from '../../apps/server/test/fakes/fake-tenant/graph/index.js';
+import {
+  createFakeGraph,
+  type FakeGraph,
+} from '../../apps/server/test/fakes/fake-tenant/graph/index.js';
 import {
   createFakeTenant,
   FAKE_TENANT_HOSTS,
@@ -117,11 +120,11 @@ export const FAKE_OPERATIONS: Readonly<Record<string, Operation>> = {
   },
   // ---- sign-in -----------------------------------------------------------------------------------
   nextSignIn(scene, args) {
-    scene.entra.control.nextSignIn(args as never);
+    scene.entra.control.nextSignIn(args);
     return null;
   },
   defaultSignIn(scene, args) {
-    scene.entra.control.defaultSignIn((args.spec ?? null) as never);
+    scene.entra.control.defaultSignIn(args.spec ?? null);
     return null;
   },
   'entra.logouts': (scene) => scene.entra.control.logouts(),
@@ -289,7 +292,12 @@ function send(response: ServerResponse, status: number, body: unknown): void {
   response.end(JSON.stringify(body));
 }
 
-const SKIPPED_REQUEST_HEADERS = new Set(['host', 'connection', 'content-length', 'transfer-encoding']);
+const SKIPPED_REQUEST_HEADERS = new Set([
+  'host',
+  'connection',
+  'content-length',
+  'transfer-encoding',
+]);
 
 async function forward(
   scene: Scene,
@@ -334,19 +342,28 @@ async function forward(
 function tenantOfBrowserRequest(url: URL): TenantKey {
   for (const name of ['redirect_uri', 'post_logout_redirect_uri']) {
     const value = url.searchParams.get(name);
-    if (value !== null && value.startsWith(originOf('b'))) return 'b';
+    if (value?.startsWith(originOf('b')) === true) return 'b';
   }
   return 'a';
 }
 
-async function handleBrowserRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+async function handleBrowserRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
   const url = new URL(request.url ?? '/', 'https://fake.invalid');
   const host = (request.headers.host ?? '').replace(/:\d+$/, '').toLowerCase();
   if (!(FAKE_TENANT_HOSTS as readonly string[]).includes(host)) {
     send(response, 404, { error: 'not a host of the fake tenant' });
     return;
   }
-  await forward(scenes[tenantOfBrowserRequest(url)], host, `${url.pathname}${url.search}`, request, response);
+  await forward(
+    scenes[tenantOfBrowserRequest(url)],
+    host,
+    `${url.pathname}${url.search}`,
+    request,
+    response,
+  );
 }
 
 const server = createServer((request, response) => {

@@ -8,7 +8,7 @@ export interface ApiResponse {
   readonly status: number;
   readonly headers: Headers;
   readonly text: string;
-  json<T = unknown>(): T;
+  json(): unknown;
 }
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -31,7 +31,9 @@ export class ApiClient {
     clientAddress?: string | null,
   ) {
     this.#address =
-      clientAddress === null ? undefined : (clientAddress ?? (instance === 'a' ? freshClientAddress() : undefined));
+      clientAddress === null
+        ? undefined
+        : (clientAddress ?? (instance === 'a' ? freshClientAddress() : undefined));
     this.#socket = `http://127.0.0.1:${String(portOf(instance))}`;
     this.#origin = originOf(instance);
     for (const [name, value] of Object.entries(cookies)) this.#cookies.set(name, value);
@@ -69,7 +71,10 @@ export class ApiClient {
     const headers = new Headers(options.headers);
     if (this.#address !== undefined) headers.set('x-forwarded-for', this.#address);
     if (this.#cookies.size > 0) {
-      headers.set('cookie', [...this.#cookies].map(([name, value]) => `${name}=${value}`).join('; '));
+      headers.set(
+        'cookie',
+        [...this.#cookies].map(([name, value]) => `${name}=${value}`).join('; '),
+      );
     }
     let body: string | undefined;
     if (options.json !== undefined) {
@@ -93,7 +98,7 @@ export class ApiClient {
       status: response.status,
       headers: response.headers,
       text,
-      json: <T>() => JSON.parse(text) as T,
+      json: () => JSON.parse(text) as unknown,
     };
   }
 
@@ -103,7 +108,10 @@ export class ApiClient {
     const headers = new Headers();
     if (this.#address !== undefined) headers.set('x-forwarded-for', this.#address);
     if (this.#cookies.size > 0) {
-      headers.set('cookie', [...this.#cookies].map(([name, value]) => `${name}=${value}`).join('; '));
+      headers.set(
+        'cookie',
+        [...this.#cookies].map(([name, value]) => `${name}=${value}`).join('; '),
+      );
     }
     const response = await fetch(`${this.#socket}/api/v1/csrf`, { headers });
     this.#store(response.headers);
@@ -119,7 +127,11 @@ export class ApiClient {
     return this.request('GET', path, headers === undefined ? {} : { headers });
   }
 
-  post(path: string, json?: unknown, options: { origin?: string | null } = {}): Promise<ApiResponse> {
+  post(
+    path: string,
+    json?: unknown,
+    options: { origin?: string | null } = {},
+  ): Promise<ApiResponse> {
     return this.request('POST', path, { json: json ?? {}, ...options });
   }
 

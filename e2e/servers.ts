@@ -43,7 +43,11 @@ export interface InstanceState {
 export interface RunSecrets {
   readonly appKey: Record<InstanceName, string>;
   readonly setupToken: Record<InstanceName, string>;
-  readonly breakGlass: { readonly username: string; readonly password: string; readonly hash: string };
+  readonly breakGlass: {
+    readonly username: string;
+    readonly password: string;
+    readonly hash: string;
+  };
 }
 
 export interface ServersState {
@@ -90,10 +94,21 @@ export function makeTlsMaterial(runDir: string): { keyFile: string; certFile: st
   const result = spawnSync(
     'openssl',
     [
-      'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2',
-      '-subj', '/CN=m365portal-e2e-fake-tenant',
-      '-addext', `subjectAltName=${names.map((name) => `DNS:${name}`).join(',')}`,
-      '-keyout', keyFile, '-out', certFile,
+      'req',
+      '-x509',
+      '-newkey',
+      'rsa:2048',
+      '-nodes',
+      '-days',
+      '2',
+      '-subj',
+      '/CN=m365portal-e2e-fake-tenant',
+      '-addext',
+      `subjectAltName=${names.map((name) => `DNS:${name}`).join(',')}`,
+      '-keyout',
+      keyFile,
+      '-out',
+      certFile,
     ],
     { encoding: 'utf8' },
   );
@@ -207,7 +222,12 @@ function childEnvironment(env: Record<string, string>): NodeJS.ProcessEnv {
   return merged;
 }
 
-async function waitForHealth(port: number, pid: number, what: string, logDir: string): Promise<void> {
+async function waitForHealth(
+  port: number,
+  pid: number,
+  what: string,
+  logDir: string,
+): Promise<void> {
   const deadline = Date.now() + 40_000;
   while (Date.now() < deadline) {
     if (await answersAt(`http://127.0.0.1:${String(port)}`)) return;

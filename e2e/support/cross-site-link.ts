@@ -22,7 +22,10 @@ export interface CrossSiteLinkOptions {
  * Opens a page on the foreign site that has one link to `to`, and clicks it. Resolves when the
  * navigation to the panel has committed; the caller then waits for the app.
  */
-export async function followCrossSiteLink(page: Page, options: CrossSiteLinkOptions): Promise<void> {
+export async function followCrossSiteLink(
+  page: Page,
+  options: CrossSiteLinkOptions,
+): Promise<void> {
   const instance = options.instance ?? 'a';
   const from = foreignOrigin(instance);
   const target = `http://localhost:${String(portOf(instance))}${options.to}`;

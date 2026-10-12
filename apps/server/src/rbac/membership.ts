@@ -31,7 +31,7 @@ import {
   GraphThrottledError,
   IntegrationError,
 } from '../ports/errors.js';
-import { chunkIds, mapLimited } from '../ports/batching.js';
+import { chunkIds, mapLimited } from '@m365portal/shared/rbac/batching';
 import type { GraphClient } from '../ports/graph.js';
 import {
   dropMemberCache,

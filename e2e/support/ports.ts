@@ -34,7 +34,10 @@ export function portOf(name: PortName, env: NodeJS.ProcessEnv = process.env): nu
  * The origin the browser uses for an instance. `localhost` and not 127.0.0.1: PUBLIC_BASE_URL must
  * equal it (writes are only accepted from that origin, A-31, and an http base URL must be localhost).
  */
-export function originOf(name: InstanceName | 'spare', env: NodeJS.ProcessEnv = process.env): string {
+export function originOf(
+  name: InstanceName | 'spare',
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   return `http://localhost:${String(portOf(name, env))}`;
 }
 

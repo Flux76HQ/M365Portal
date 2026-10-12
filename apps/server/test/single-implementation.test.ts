@@ -8,7 +8,7 @@
 //   classifyFailure       setup/classify.ts                           the one failure classifier
 //   hashSessionId, csrfBindingFor  policy/session-hash.ts             the one session hash and CSRF binding
 //   serializeCookie       packages/shared/src/auth/cookies.ts         the one Set-Cookie writer
-//   chunkIds, mapLimited  ports/batching.ts                           the one 20-id chunker and fan-out
+//   chunkIds, mapLimited  packages/shared/src/rbac/batching.ts                       the one 20-id chunker and fan-out
 //
 // A definition is a function, a method or a variable with a function value, anywhere in `apps/*/src`
 // and `packages/shared/src` (tests excluded), found with the TypeScript parser, so a comment, a string
@@ -35,8 +35,8 @@ const HOMES: Readonly<Record<string, string>> = {
   hashSessionId: 'apps/server/src/policy/session-hash.ts',
   csrfBindingFor: 'apps/server/src/policy/session-hash.ts',
   serializeCookie: 'packages/shared/src/auth/cookies.ts',
-  chunkIds: 'apps/server/src/ports/batching.ts',
-  mapLimited: 'apps/server/src/ports/batching.ts',
+  chunkIds: 'packages/shared/src/rbac/batching.ts',
+  mapLimited: 'packages/shared/src/rbac/batching.ts',
 };
 
 function walk(directory: string, into: string[]): void {
@@ -44,7 +44,7 @@ function walk(directory: string, into: string[]): void {
     if (name === 'node_modules' || name === 'dist') continue;
     const path = join(directory, name);
     if (statSync(path).isDirectory()) walk(path, into);
-    else if (/\.[cm]?tsx?$/.test(name) && !name.endsWith(".d.ts")) into.push(path);
+    else if (/\.[cm]?tsx?$/.test(name) && !name.endsWith('.d.ts')) into.push(path);
   }
 }
 
@@ -162,7 +162,7 @@ function computeChunkerSites(path: string, text: string): number[] {
 
 /** The chunker may be read in its home and where the constant is defined; nowhere else. */
 const CHUNKER_ALLOWED = new Set([
-  'apps/server/src/ports/batching.ts',
+  'packages/shared/src/rbac/batching.ts',
   'packages/shared/src/limits.ts',
 ]);
 

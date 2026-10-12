@@ -21,12 +21,7 @@ import { freshClientAddress } from './client-address.js';
 import { fakeControl } from './fake-control.js';
 import { chromiumArgs } from './microsoft-hosts.js';
 import { INSTANCE_NAMES, originOf, portOf } from './ports.js';
-import {
-  PRINCIPAL_NAMES,
-  PRINCIPALS,
-  ROLE_GROUP,
-  type PrincipalName,
-} from './principals.js';
+import { PRINCIPAL_NAMES, PRINCIPALS, ROLE_GROUP, type PrincipalName } from './principals.js';
 import { signInAs } from './sign-in.js';
 import {
   generateRunSecrets,
@@ -89,7 +84,13 @@ async function seedInstanceA(
   const fake = fakeControl('a');
 
   // 2. The wizard, through the real API.
-  const setupApi = await unlockSetup('a', secrets.setupToken.a);
+  // E2E_SABOTAGE_SEED=unlock lets the harness self-test prove that a failing seed fails the run
+  // loudly (fixtures-selftest.spec.ts); nothing else reads it.
+  const token =
+    process.env.E2E_SABOTAGE_SEED === 'unlock'
+      ? 'not-the-setup-token-of-this-run'
+      : secrets.setupToken.a;
+  const setupApi = await unlockSetup('a', token);
   const ended = await runWizard('a', setupApi);
   if (ended !== 'succeeded' && ended !== 'warning') {
     throw new Error(`the wizard run on instance A ended as ${ended}`);
@@ -147,7 +148,8 @@ async function seedInstanceA(
          WHERE principal_type = 'user' AND principal_id = ?`,
       )
       .run(PRINCIPALS['expired-assignment'].oid);
-    if (moved.changes !== 1) throw new Error('the expired assignment was not found in the database');
+    if (moved.changes !== 1)
+      throw new Error('the expired assignment was not found in the database');
   } finally {
     database.close();
   }

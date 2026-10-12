@@ -44,7 +44,9 @@ export class FakeControl {
     });
     const body = (await response.json()) as { result?: T; error?: string };
     if (response.status !== 200) {
-      throw new Error(`fake tenant ${this.#tenant}: ${op} failed: ${body.error ?? response.status}`);
+      throw new Error(
+        `fake tenant ${this.#tenant}: ${op} failed: ${body.error ?? String(response.status)}`,
+      );
     }
     return body.result as T;
   }
@@ -58,7 +60,9 @@ export class FakeControl {
   nextSignIn(principal: PrincipalName, options: SignInOptions = {}): Promise<void> {
     const person = PRINCIPALS[principal];
     const claims: Record<string, unknown> = {
-      ...(person.widsGlobalAdministrator === true ? { wids: [GLOBAL_ADMINISTRATOR_TEMPLATE_ID] } : {}),
+      ...(person.widsGlobalAdministrator === true
+        ? { wids: [GLOBAL_ADMINISTRATOR_TEMPLATE_ID] }
+        : {}),
       ...options.claims,
     };
     return this.call('nextSignIn', {

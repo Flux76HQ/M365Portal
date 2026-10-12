@@ -257,7 +257,12 @@ async function bodyBackground(page: Page): Promise<string> {
   return page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 }
 
-export const test = base.extend<AppOptions & { guard: Guard; app: App; fake: (instance?: InstanceName) => FakeControl }>({
+/** The control surface of an instance's tenant in the fake (default A): device approval, toggles, call record. */
+export function fakeOf(instance: InstanceName = 'a'): FakeControl {
+  return new FakeControl(instance);
+}
+
+export const test = base.extend<AppOptions & { guard: Guard; app: App }>({
   appTheme: ['light', { option: true }],
   blockStorage: [false, { option: true }],
   principal: ['owner', { option: true }],
@@ -265,10 +270,6 @@ export const test = base.extend<AppOptions & { guard: Guard; app: App; fake: (in
 
   storageState: async ({ principal }, use) => {
     await use(principal === 'anonymous' ? undefined : join(statesDir(), `${principal}.json`));
-  },
-
-  fake: async ({}, use) => {
-    await use((instance = 'a') => new FakeControl(instance));
   },
 
   guard: [

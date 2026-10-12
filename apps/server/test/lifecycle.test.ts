@@ -827,7 +827,11 @@ describe('the built server (FR-A-012 to FR-A-016, FR-A-163, FR-A-187)', () => {
       expect(ready.status).toBe(200);
       expect(ReadyzResponseSchema.parse(JSON.parse(ready.body)).status).toBe('ready');
 
-      const shell = await server.get('/', { accept: 'text/html' });
+      // An unconfigured panel sends a browser to the wizard (FR-B-201, PB-27); that page is the shell.
+      const entry = await server.get('/', { accept: 'text/html' });
+      expect(entry.status).toBe(303);
+      expect(entry.headers.location).toBe('/setup');
+      const shell = await server.get('/setup', { accept: 'text/html' });
       expect(shell.status).toBe(200);
       expect(shell.body).not.toContain('__M365_NONCE__');
       const me = await server.get('/api/v1/me');

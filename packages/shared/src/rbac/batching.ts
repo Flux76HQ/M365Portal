@@ -3,7 +3,7 @@
 // whatever it is given in chunks of that size, and the membership resolver, which needs the chunk
 // boundaries to find the one bad id in a rejected chunk, cuts with the same function. A second
 // `slice(at, at + 20)` anywhere else fails `server/single-implementation.test.ts`.
-import { LIMITS } from '@m365portal/shared/limits';
+import { LIMITS } from '../limits.js';
 
 /** The ids cut in chunks of at most `size` (default: the Graph limit of 20), in order. */
 export function chunkIds<T>(

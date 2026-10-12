@@ -27,7 +27,7 @@
 //     `checkMemberGroups` is never cached here (the RBAC cache of FR-B-507 owns it).
 import type { z } from 'zod';
 import { LIMITS } from '@m365portal/shared/limits';
-import { chunkIds, mapLimited } from '../../ports/batching.js';
+import { chunkIds, mapLimited } from '@m365portal/shared/rbac/batching';
 import type { AccessToken, AppTokenProvider } from '../../ports/identity.js';
 import type { Clock, RandomSource, Scheduler } from '../../ports/clock.js';
 import { GraphBadRequestError, GraphNotFoundError } from '../../ports/errors.js';

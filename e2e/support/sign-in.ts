@@ -54,7 +54,12 @@ export async function signInAs(
   } catch (failure) {
     // Say where the browser got stuck: the path of the page and the start of its text.
     const at = new URL(page.url());
-    const text = (await page.locator('body').innerText({ timeout: 2000 }).catch(() => '')).slice(0, 300);
+    const text = (
+      await page
+        .locator('body')
+        .innerText({ timeout: 2000 })
+        .catch(() => '')
+    ).slice(0, 300);
     throw new Error(
       `the sign-in of ${principal} did not come back to the panel: stopped at ${at.origin}${at.pathname}: ${text}`,
       { cause: failure },
@@ -63,7 +68,10 @@ export async function signInAs(
 }
 
 /** Whether the context holds a session cookie of the panel for this instance. */
-export async function hasSession(context: BrowserContext, instance: InstanceName = 'a'): Promise<boolean> {
+export async function hasSession(
+  context: BrowserContext,
+  instance: InstanceName = 'a',
+): Promise<boolean> {
   const cookies = await context.cookies(originOf(instance));
   return cookies.some((cookie) => cookie.name === 'm365portal_session');
 }
