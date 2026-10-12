@@ -39,25 +39,29 @@ export type Permission = (typeof PERMISSIONS)[number];
  * catalogue order. Scopes (FR-B-513) restrict only the resource types they name; the global-only
  * permissions come only from unscoped assignments (spec 6.5.2).
  */
-export const PERMISSION_RESOURCE: Readonly<Record<Permission, ResourceType | null>> = Object.freeze(
-  {
-    'users:read': 'user',
-    'groups:read': 'group',
-    'groups:members:write': 'group',
-    'distributionlists:read': 'distributionList',
-    'distributionlists:members:write': 'distributionList',
-    'distributionlists:export': 'distributionList',
-    'contacts:read': 'contact',
-    'contacts:create': 'contact',
-    'contacts:update': 'contact',
-    'contacts:delete': 'contact',
-    'audit:read': null,
-    'audit:export': null,
-    'settings:branding': null,
-    'settings:connection': null,
-    'rbac:manage': null,
-  },
-);
+const RESOURCE_OF_PERMISSION = {
+  'users:read': 'user',
+  'groups:read': 'group',
+  'groups:members:write': 'group',
+  'distributionlists:read': 'distributionList',
+  'distributionlists:members:write': 'distributionList',
+  'distributionlists:export': 'distributionList',
+  'contacts:read': 'contact',
+  'contacts:create': 'contact',
+  'contacts:update': 'contact',
+  'contacts:delete': 'contact',
+  'audit:read': null,
+  'audit:export': null,
+  'settings:branding': null,
+  'settings:connection': null,
+  'rbac:manage': null,
+} as const satisfies Record<Permission, ResourceType | null>;
+
+export const PERMISSION_RESOURCE: Readonly<Record<Permission, ResourceType | null>> =
+  Object.freeze(RESOURCE_OF_PERMISSION);
+
+/** The resource type of a permission, as a type (`null` for a global-only permission). */
+export type ResourceOfPermission<P extends Permission> = (typeof RESOURCE_OF_PERMISSION)[P];
 
 /** A permission on the wire. Case-sensitive: `Users:Read`, `*` and `users:write` are all rejected. */
 export const PermissionSchema = z.enum(PERMISSIONS).meta({ id: 'Permission' });

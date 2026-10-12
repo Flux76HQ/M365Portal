@@ -17,15 +17,15 @@ describe('the Bestuur template (FR-B-503)', () => {
       assignable: false,
       scopeTarget: 'distributionList',
     });
-    expect(board?.permissions).toEqual(TEMPLATES[0]?.permissions);
-    expect(board?.permissions.map((entry) => entry.permission).sort()).toEqual([
+    expect(board?.grants).toEqual(TEMPLATES[0]?.permissions);
+    expect(board?.grants.map((entry) => entry.permission).sort()).toEqual([
       'contacts:create',
       'contacts:read',
       'distributionlists:members:write',
       'distributionlists:read',
       'users:read',
     ]);
-    expect(board?.permissions.find((entry) => entry.permission === 'users:read')?.qualifier).toBe(
+    expect(board?.grants.find((entry) => entry.permission === 'users:read')?.qualifier).toBe(
       'basic',
     );
   });

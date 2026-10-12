@@ -15,6 +15,7 @@ export {
   type SessionSlider,
 } from './actor.js';
 export { PolicyUsageError, authorize, type Decision } from './authorize.js';
+export { POLICY_DENIAL_REASONS, PolicyDenied, type PolicyDenialReason } from './denied.js';
 export { canGrant } from './can-grant.js';
 export {
   ResourceDenied,

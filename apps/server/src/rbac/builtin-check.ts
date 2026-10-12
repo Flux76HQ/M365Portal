@@ -40,11 +40,11 @@ export class BuiltinRolesMismatchError extends Error {
 
 const CATALOGUE: ReadonlySet<string> = new Set(PERMISSIONS);
 
-function permissionName(name: string): string {
+function catalogueNameOf(name: string): string {
   return CATALOGUE.has(name) ? name : 'an unknown permission';
 }
 
-function comparePermissions(
+function compareGrants(
   part: BuiltinMismatchPart,
   label: string,
   expected: readonly RolePermission[],
@@ -64,7 +64,7 @@ function comparePermissions(
     if (!wanted.has(permission)) {
       problems.push({
         part,
-        text: `${label} has an extra permission ${permissionName(permission)}`,
+        text: `${label} has an extra permission ${catalogueNameOf(permission)}`,
       });
     }
   }
@@ -90,11 +90,11 @@ export function builtinRoleProblems(db: DatabaseHandle): BuiltinProblem[] {
       problems.push({ part: 'roles', text: `the role ${definition.key} is not assignable` });
     }
     problems.push(
-      ...comparePermissions(
+      ...compareGrants(
         'permissions',
         `the role ${definition.key}`,
         definition.permissions,
-        stored.permissions,
+        stored.grants,
       ),
     );
   }
@@ -135,11 +135,11 @@ export function builtinRoleProblems(db: DatabaseHandle): BuiltinProblem[] {
       });
     }
     problems.push(
-      ...comparePermissions(
+      ...compareGrants(
         'template',
         `the template ${expected.key}`,
         expected.permissions,
-        stored.permissions,
+        stored.grants,
       ),
     );
   }

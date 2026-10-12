@@ -88,6 +88,11 @@ export interface SessionStore extends SessionReader {
   create(tx: Tx, input: NewSession): IssuedSession;
   /** A new id for the session behind `currentId`, or `undefined` when no such session exists. */
   rotate(tx: Tx, currentId: string, change: SessionChange): IssuedSession | undefined;
+  /**
+   * The same, for a caller that only knows the hash: the step-up callback is a cross-site navigation
+   * and the `Strict` cookie is not sent with it, so it holds the hash from its login transaction.
+   */
+  rotateHash(tx: Tx, currentIdHash: string, change: SessionChange): IssuedSession | undefined;
   revoke(tx: Tx, idHash: string): boolean;
   /** Every session of the principal; the number ended. */
   revokeAll(tx: Tx, tid: string, oid: string): number;
@@ -141,6 +146,31 @@ export function createSessionStore(options: SessionStoreOptions): SessionStore {
     tx.afterCommit(() => {
       for (const idHash of idHashes) memo.delete(idHash);
     });
+  }
+
+  function rotateByHash(tx: Tx, oldHash: string, change: SessionChange): IssuedSession | undefined {
+    const old = tx.orm.select().from(sessionTable).where(eq(sessionTable.idHash, oldHash)).get();
+    if (old === undefined) return undefined;
+    const now = options.clock.now();
+    const { id, idHash } = drawId(tx);
+    tx.orm.delete(sessionTable).where(eq(sessionTable.idHash, oldHash)).run();
+    tx.orm
+      .insert(sessionTable)
+      .values({
+        ...old,
+        idHash,
+        lastSeenAt: iso(now),
+        mfa: change.mfa === undefined ? old.mfa : change.mfa ? 1 : 0,
+        amr: change.amr === undefined ? old.amr : amrColumn(change.amr),
+        authenticatedAt: change.authenticatedAt ?? old.authenticatedAt,
+        stepUpAt: change.stepUpAt ?? old.stepUpAt,
+      })
+      .run();
+    forget(tx, [oldHash]);
+    tx.afterCommit(() => {
+      remember(idHash, { seen: now, writtenAt: now });
+    });
+    return { id, idHash, createdAt: old.createdAt, absoluteExpiresAt: old.absoluteExpiresAt };
   }
 
   return {
@@ -223,30 +253,10 @@ export function createSessionStore(options: SessionStoreOptions): SessionStore {
     },
 
     rotate(tx, currentId, change): IssuedSession | undefined {
-      const oldHash = hashSessionId(currentId);
-      const old = tx.orm.select().from(sessionTable).where(eq(sessionTable.idHash, oldHash)).get();
-      if (old === undefined) return undefined;
-      const now = options.clock.now();
-      const { id, idHash } = drawId(tx);
-      tx.orm.delete(sessionTable).where(eq(sessionTable.idHash, oldHash)).run();
-      tx.orm
-        .insert(sessionTable)
-        .values({
-          ...old,
-          idHash,
-          lastSeenAt: iso(now),
-          mfa: change.mfa === undefined ? old.mfa : change.mfa ? 1 : 0,
-          amr: change.amr === undefined ? old.amr : amrColumn(change.amr),
-          authenticatedAt: change.authenticatedAt ?? old.authenticatedAt,
-          stepUpAt: change.stepUpAt ?? old.stepUpAt,
-        })
-        .run();
-      forget(tx, [oldHash]);
-      tx.afterCommit(() => {
-        remember(idHash, { seen: now, writtenAt: now });
-      });
-      return { id, idHash, createdAt: old.createdAt, absoluteExpiresAt: old.absoluteExpiresAt };
+      return rotateByHash(tx, hashSessionId(currentId), change);
     },
+
+    rotateHash: rotateByHash,
 
     revoke(tx, idHash): boolean {
       const result = tx.orm.delete(sessionTable).where(eq(sessionTable.idHash, idHash)).run();

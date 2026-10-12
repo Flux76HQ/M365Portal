@@ -14,7 +14,7 @@ import {
   insertRole,
   listRoles,
   readEpoch,
-  replaceRolePermissions,
+  replaceRoleGrants,
 } from '../../src/rbac/repository.js';
 import { createMigratedDatabase } from '../helpers/rbac-db.js';
 
@@ -25,19 +25,19 @@ describe('the seeded roles are BUILTIN_ROLES (I-B1)', () => {
     const db = await createMigratedDatabase();
     const roles = listRoles(db).filter((role) => role.builtin);
     expect(roles.map((role) => role.key)).toEqual(BUILTIN_ROLES.map((role) => role.key));
-    expect(roles.map((role) => role.permissions.length)).toEqual([15, 13, 9, 6, 4]);
-    expect(roles.reduce((sum, role) => sum + role.permissions.length, 0)).toBe(47);
+    expect(roles.map((role) => role.grants.length)).toEqual([15, 13, 9, 6, 4]);
+    expect(roles.reduce((sum, role) => sum + role.grants.length, 0)).toBe(47);
     for (const [index, definition] of BUILTIN_ROLES.entries()) {
       const stored = roles[index];
       expect(stored?.assignable).toBe(true);
-      expect(stored?.permissions).toEqual(definition.permissions);
+      expect(stored?.grants).toEqual(definition.permissions);
     }
   });
 
   it('lists the permissions of a role in catalogue order', async () => {
     const db = await createMigratedDatabase();
     const owner = findRoleByKey(db, 'owner');
-    expect(owner?.permissions.map((entry) => entry.permission)).toEqual([...PERMISSIONS]);
+    expect(owner?.grants.map((entry) => entry.permission)).toEqual([...PERMISSIONS]);
   });
 });
 
@@ -125,22 +125,22 @@ describe('a custom role stays editable (FR-B-501)', () => {
       insertRole(tx, {
         key: 'helper',
         createdAt: NOW,
-        permissions: [{ permission: 'users:read', qualifier: 'basic' }],
+        grants: [{ permission: 'users:read', qualifier: 'basic' }],
       }),
     );
     expect(role).toMatchObject({ key: 'helper', builtin: false, assignable: true });
-    expect(findRoleByKey(db, 'helper')?.permissions).toEqual([
+    expect(findRoleByKey(db, 'helper')?.grants).toEqual([
       { permission: 'users:read', qualifier: 'basic' },
     ]);
     expect(readEpoch(db)).toBeGreaterThan(start);
 
     withTransaction(db, (tx) => {
-      replaceRolePermissions(tx, role.id, [
+      replaceRoleGrants(tx, role.id, [
         { permission: 'users:read', qualifier: 'full' },
         { permission: 'groups:read', qualifier: 'full' },
       ]);
     });
-    expect(findRoleByKey(db, 'helper')?.permissions.map((entry) => entry.permission)).toEqual([
+    expect(findRoleByKey(db, 'helper')?.grants.map((entry) => entry.permission)).toEqual([
       'users:read',
       'groups:read',
     ]);
@@ -159,7 +159,7 @@ describe('a custom role stays editable (FR-B-501)', () => {
     const owner = findRoleByKey(db, 'owner');
     expect(() => {
       withTransaction(db, (tx) => {
-        replaceRolePermissions(tx, owner?.id ?? 0, []);
+        replaceRoleGrants(tx, owner?.id ?? 0, []);
       });
     }).toThrow(/immutable/);
     expect(() => {

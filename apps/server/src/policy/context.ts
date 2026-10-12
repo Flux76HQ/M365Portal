@@ -14,7 +14,7 @@
 // declared `scoped` and answered 2xx without asking is replaced by 500 `policy_not_applied`
 // (`http/route.ts`). The net finds a forgotten check; it cannot undo a write the handler already made,
 // which is why the services of Phases C and D take the capability as an argument.
-import type { Permission } from '@m365portal/shared/permissions';
+import type { Permission, ResourceOfPermission } from '@m365portal/shared/permissions';
 import type {
   Qualifier,
   ResourceAttrs,
@@ -28,17 +28,8 @@ import { visibleScopes, type VisibleScopes } from './scoped.js';
 declare const authorizedBrand: unique symbol;
 declare const visibleBrand: unique symbol;
 
-/** The resource type each permission with a resource type applies to, as a type (see `PERMISSION_RESOURCE`). */
-export type ResourceOf<P extends ResourcePermission> = P extends 'users:read'
-  ? 'user'
-  : P extends 'groups:read' | 'groups:members:write'
-    ? 'group'
-    : P extends
-          'distributionlists:read' | 'distributionlists:members:write' | 'distributionlists:export'
-      ? 'distributionList'
-      : P extends 'contacts:read' | 'contacts:create' | 'contacts:update' | 'contacts:delete'
-        ? 'contact'
-        : never;
+/** The resource type a permission with a resource type applies to, as a type (from `PERMISSION_RESOURCE`). */
+export type ResourceOf<P extends ResourcePermission> = NonNullable<ResourceOfPermission<P>>;
 
 /** The caller may act on this resource (`ctx.authorizeResource`). */
 export interface AuthorizedResource<T extends ResourceType = ResourceType> {

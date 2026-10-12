@@ -42,6 +42,7 @@ import { ZodType, type z } from 'zod';
 import type { AppConfig } from '../config/env.js';
 import {
   ANONYMOUS_ACTOR,
+  PolicyDenied,
   PolicyUsageError,
   ResourceDenied,
   createPolicyContext,
@@ -309,6 +310,8 @@ interface GuardContext {
   readonly expectedOrigin: string;
   readonly onDenied: OnRouteDenied | undefined;
   readonly slideSession: SessionSlider | undefined;
+  /** The revalidation of the session behind the request (T-B-189, FR-B-409), run before authorisation. */
+  readonly revalidate: Revalidate | undefined;
   /** The gate of the route, when it names one: open or closed for this request, and how to answer. */
   readonly gate: ((gate: AvailabilityGate) => MiddlewareHandler<AppEnv>) | undefined;
 }
@@ -351,6 +354,25 @@ function rateGuard(setting: FallbackRateSetting, limiter: RateLimiter): Middlewa
       if (classOf({ method: c.req.method, path: c.req.path }) !== 'exempt') rated.add(c.req.raw);
       await next();
     });
+  };
+}
+
+/**
+ * Revalidation of the session behind a request (T-B-189, FR-B-409, seam of the auth module): after
+ * `GROUP_CACHE_TTL_SECONDS` the next request refreshes the memberships and the account state. It runs
+ * after the checks that need no credential (gate, limiter, Origin, CSRF) and before authorisation, so
+ * the actor is resolved from the refreshed data. A returned response ends the request (the account is
+ * gone: 401); `undefined` lets it go on. It costs one indexed read for a request that carries a
+ * session cookie and nothing for any other.
+ */
+export type Revalidate = (c: RouteContext) => Promise<Response | undefined>;
+
+function revalidateGuard(revalidate: Revalidate): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const ended = await revalidate(c);
+    if (ended !== undefined) return ended;
+    await next();
+    return undefined;
   };
 }
 
@@ -419,6 +441,9 @@ function guardsOf(definition: RouteDefinition, context: GuardContext): Middlewar
     guards.push(auditedReadGuard({ expectedOrigin: context.expectedOrigin }));
   }
 
+  if (context.revalidate !== undefined && definition.rateLimit !== 'exempt') {
+    guards.push(revalidateGuard(context.revalidate));
+  }
   const authorisation = accessGuard({
     access: definition.access,
     route: summary,
@@ -569,6 +594,8 @@ export interface HttpAppDeps {
   readonly resolveActor?: ActorResolver;
   /** Extends the idle deadline of a session for a request that passed every guard (FR-B-407). */
   readonly slideSession?: SessionSlider;
+  /** Refreshes the group memberships and the account state once the TTL has passed (FR-B-409). */
+  readonly revalidate?: Revalidate;
   /**
    * Adds `X-Session-Idle-Expires` to the API and sign-in responses of a valid session (FR-B-413).
    * Absent in a test that does not care: no header is added.
@@ -713,6 +740,7 @@ export function createHttpApp(deps: HttpAppDeps): HttpApp {
     expectedOrigin: config.publicOrigin,
     onDenied: deps.onDenied,
     slideSession: deps.slideSession,
+    revalidate: deps.revalidate,
     gate: (gate) =>
       availabilityGuard(gate, {
         isOpen: deps.availability?.[gate],
@@ -740,6 +768,12 @@ export function createHttpApp(deps: HttpAppDeps): HttpApp {
           // The handler asked and the answer was no: audited like any denial, before the 403.
           await deps.onDenied?.(c, { code: error.reason, reason: 'resource', route });
           return problemResponse(c, 'permission_denied');
+        }
+        if (error instanceof PolicyDenied) {
+          // The service looked at the rows and refused (escalation, last Owner): audited like any
+          // denial, before the answer, and answered with the problem of the same code.
+          await deps.onDenied?.(c, { code: error.reason, reason: 'handler', route });
+          return problemResponse(c, error.reason);
         }
         if (error instanceof PolicyUsageError) {
           // A bug of the handler (a resource of the wrong type): a 500, audited, never an allow.

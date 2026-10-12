@@ -314,7 +314,7 @@ function assignGrants(db: DatabaseHandle, oid: string, grants: readonly Grant[],
       insertRole(tx, {
         key,
         createdAt: at,
-        permissions: unscoped.map(({ permission, qualifier }) => ({ permission, qualifier })),
+        grants: unscoped.map(({ permission, qualifier }) => ({ permission, qualifier })),
       }),
     );
     assign(db, { principalId: oid, role: key, ifMissing: true });
@@ -327,7 +327,7 @@ function assignGrants(db: DatabaseHandle, oid: string, grants: readonly Grant[],
         insertRole(tx, {
           key,
           createdAt: at,
-          permissions: [{ permission: grant.permission, qualifier: grant.qualifier }],
+          grants: [{ permission: grant.permission, qualifier: grant.qualifier }],
         }),
       );
       assign(db, {

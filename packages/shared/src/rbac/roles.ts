@@ -138,3 +138,47 @@ export const TEMPLATES: readonly RoleTemplate[] = Object.freeze([
     scopeTarget: 'distributionList' as const,
   }),
 ]);
+
+/** A role or template as the repository holds it: the permissions it grants are its `grants`. */
+export interface GrantsHolder {
+  readonly grants: readonly RolePermission[];
+}
+
+/**
+ * A role as `GET /api/v1/rbac/roles` sends it (contract P27): the wire calls the grants of a role its
+ * `permissions`. Built here, once, so the server and the tests agree on the shape.
+ */
+export function roleToWire(
+  role: GrantsHolder & {
+    readonly key: string;
+    readonly builtin: boolean;
+    readonly assignable: boolean;
+  },
+): {
+  readonly key: string;
+  readonly builtin: boolean;
+  readonly assignable: boolean;
+  readonly permissions: RolePermission[];
+} {
+  return {
+    key: role.key,
+    builtin: role.builtin,
+    assignable: role.assignable,
+    permissions: role.grants.map((entry) => ({ ...entry })),
+  };
+}
+
+/** A template as the role list sends it (contract P27). */
+export function templateToWire(
+  template: GrantsHolder & { readonly key: string; readonly scopeTarget: ResourceType | null },
+): {
+  readonly key: string;
+  readonly permissions: RolePermission[];
+  readonly scopeTarget: ResourceType | null;
+} {
+  return {
+    key: template.key,
+    permissions: template.grants.map((entry) => ({ ...entry })),
+    scopeTarget: template.scopeTarget,
+  };
+}

@@ -81,14 +81,14 @@ export function createGrantsService(options: GrantsServiceOptions): GrantsServic
     nowMs: number,
   ): Entry {
     computations += 1;
-    const permissionsOfRole = new Map(listRoles(db).map((role) => [role.id, role.permissions]));
+    const grantsOfRole = new Map(listRoles(db).map((role) => [role.id, role.grants]));
     const rows = listAssignmentsOf(db, {
       userOid: subject.oid,
       groupIds: listCachedGroupIds(db, subject.oid),
     });
     const assignments: GrantAssignment[] = rows.map((row) => ({
       principalType: row.principalType,
-      permissions: permissionsOfRole.get(row.roleId) ?? [],
+      permissions: grantsOfRole.get(row.roleId) ?? [],
       scope: row.scope,
       expiresAt: row.expiresAt,
     }));

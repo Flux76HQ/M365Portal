@@ -5,8 +5,10 @@ import { authModule } from '../../src/auth/module.js';
 import { withTransaction } from '../../src/db/tx.js';
 import type { Sweeper } from '../../src/lifecycle/sweepers.js';
 import type { ModuleDeps } from '../../src/module.js';
+import { createLogger } from '../../src/logging/logger.js';
 import { createPolicyPorts } from '../../src/policy/index.js';
 import { createFakeClock } from '../helpers/fake-clock.js';
+import { createLogCapture } from '../helpers/log-capture.js';
 import { createMigratedDatabase, guid, TENANT } from '../helpers/rbac-db.js';
 import { countingRandom } from '../secrets/support.js';
 
@@ -20,7 +22,14 @@ async function build() {
     now: () => clock.nowMs(),
     random: countingRandom(4),
     policy,
-    config: { session: { idleTimeoutMs: 30 * 60_000, absoluteTimeoutMs: 8 * 3_600_000 } },
+    log: createLogger({ level: 'debug', destination: createLogCapture(), now: () => clock.nowMs() }),
+    config: {
+      publicOrigin: 'http://localhost:9300',
+      session: { idleTimeoutMs: 30 * 60_000, absoluteTimeoutMs: 8 * 3_600_000 },
+      rbac: { groupCacheTtlMs: 300_000 },
+      breakGlass: undefined,
+    },
+    clients: {},
     sweepers: { register: (sweeper: Sweeper) => registered.push(sweeper) },
   } as unknown as ModuleDeps;
   return { db, clock, policy, registered, deps, module: authModule(deps) };
@@ -37,6 +46,7 @@ describe('server/auth/sessions: the auth module wiring', () => {
     await module.start?.({} as ModuleDeps);
     expect(registered.map((sweeper) => [sweeper.name, sweeper.intervalMs])).toEqual([
       ['sessions', 3_600_000],
+      ['login-transactions', 60_000],
     ]);
     const store = policy.sessions.get() as unknown as {
       create: (tx: unknown, input: unknown) => unknown;
@@ -51,8 +61,16 @@ describe('server/auth/sessions: the auth module wiring', () => {
     );
   });
 
-  it('has no routes yet (the sign-in routes follow with the identity client)', async () => {
+  it('offers the six routes of P01 to P06 and the break-glass gate, closed without an account', async () => {
     const { module, deps } = await build();
-    expect(module.routes(deps)).toEqual([]);
+    expect(module.routes(deps).map((route) => route.id)).toEqual([
+      'auth.login',
+      'auth.callback',
+      'auth.loggedOut',
+      'auth.logout',
+      'auth.logout.all',
+      'auth.breakglass',
+    ]);
+    expect(module.availability?.breakGlass?.(new Request('http://localhost/'))).toBe(false);
   });
 });

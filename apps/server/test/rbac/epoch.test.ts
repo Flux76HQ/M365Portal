@@ -257,7 +257,7 @@ describe('the memo (FR-B-511)', () => {
       insertRole(tx, {
         key: 'exporter',
         createdAt: '2026-10-11T12:00:00.000Z',
-        permissions: [{ permission: 'audit:export', qualifier: 'full' }],
+        grants: [{ permission: 'audit:export', qualifier: 'full' }],
       }),
     );
     assign(db, { principalId: ALICE, role: 'exporter' });

@@ -11,7 +11,8 @@
 //                end of the step-up window or null, groupsStale; null for anonymous and setup
 //   setup        `setup_state.state`, or `unconfigured` when storage is unusable or the row is absent
 //   features     `showcase` and `breakGlass` (both break-glass variables are set)
-//   adminConsentUrl  null until the identity client says otherwise (a tenant is pinned, TB-14)
+//   adminConsentUrl  the tenant-wide consent link, non-null only when a tenant is pinned (TB-14,
+//                    FR-B-419; `consent-link.ts`); `meSourcesOf` supplies it to the route and the boot data alike
 //
 // Nothing here chooses an actor: it formats the one it is given. A storage failure while reading the
 // roles or the setup state is not an answer to hide; it throws and the error handler answers 503,
@@ -27,6 +28,7 @@ import type { ModuleDeps } from '../module.js';
 import type { Actor } from '../policy/actor.js';
 import { listAssignmentsOf, listCachedGroupIds } from '../rbac/repository.js';
 import { APP_VERSION } from '../version.js';
+import { adminConsentUrlOf } from './consent-link.js';
 
 export type MeResponse = z.infer<typeof MeResponseSchema>;
 
@@ -65,6 +67,9 @@ export function meSourcesOf(deps: ModuleDeps): MeSources {
     database: deps.database,
     now: deps.now,
     idleTimeoutMs: deps.config.session.idleTimeoutMs,
+    // Non-null only when a tenant is pinned (TB-14, FR-B-419): read per request, the pin appears
+    // while the wizard runs.
+    adminConsentUrl: () => adminConsentUrlOf(deps),
   };
 }
 

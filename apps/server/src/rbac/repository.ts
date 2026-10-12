@@ -17,8 +17,9 @@ import { PERMISSIONS, type Permission } from '@m365portal/shared/permissions';
 import type { Qualifier, ResourceType } from '@m365portal/shared/rbac/resources';
 import type { RolePermission } from '@m365portal/shared/rbac/roles';
 import { canonicalScopeKey, type ScopeItem } from '@m365portal/shared/rbac/scope';
-import { and, asc, eq, inArray, or } from 'drizzle-orm';
+import { and, asc, count, eq, gt, inArray, ne, or } from 'drizzle-orm';
 import {
+  appUser,
   rbacAssignment,
   rbacAssignmentScope,
   rbacEpoch,
@@ -41,14 +42,14 @@ export interface RoleRecord {
   readonly assignable: boolean;
   readonly createdAt: string;
   /** In catalogue order. */
-  readonly permissions: readonly RolePermission[];
+  readonly grants: readonly RolePermission[];
 }
 
 export interface TemplateRecord {
   readonly key: string;
   /** A template is data: it is not a role and it is never assignable (FR-B-503). */
   readonly assignable: false;
-  readonly permissions: readonly RolePermission[];
+  readonly grants: readonly RolePermission[];
   readonly scopeTarget: ResourceType | null;
 }
 
@@ -90,7 +91,7 @@ function recordsOf(
     builtin: role.builtin === 1,
     assignable: role.assignable === 1,
     createdAt: role.createdAt,
-    permissions: (byRole.get(role.id) ?? []).sort(byCatalogue),
+    grants: (byRole.get(role.id) ?? []).sort(byCatalogue),
   }));
 }
 
@@ -136,7 +137,7 @@ export function listTemplates(db: DatabaseHandle): TemplateRecord[] {
       return {
         key: row.key,
         assignable: false as const,
-        permissions: parsed.map((entry) => ({
+        grants: parsed.map((entry) => ({
           permission: entry.permission,
           qualifier: entry.qualifier ?? 'full',
         })),
@@ -148,7 +149,7 @@ export function listTemplates(db: DatabaseHandle): TemplateRecord[] {
 export interface NewRole {
   readonly key: string;
   readonly createdAt: string;
-  readonly permissions: readonly RolePermission[];
+  readonly grants: readonly RolePermission[];
 }
 
 /** A custom role (never built-in, assignable). The built-in five exist only through migration 0001. */
@@ -158,20 +159,16 @@ export function insertRole(tx: Tx, role: NewRole): RoleRecord {
     .values({ key: role.key, builtin: 0, assignable: 1, createdAt: role.createdAt })
     .returning({ id: rbacRole.id })
     .get();
-  replaceRolePermissions(tx, inserted.id, role.permissions);
+  replaceRoleGrants(tx, inserted.id, role.grants);
   const stored = findRoleById(tx, inserted.id);
   if (stored === undefined) throw new Error('the role that was just inserted is missing');
   return stored;
 }
 
-/** Replace the permissions of a role. A built-in role is refused by the database (immutable). */
-export function replaceRolePermissions(
-  tx: Tx,
-  roleId: number,
-  permissions: readonly RolePermission[],
-): void {
+/** Replace the grants of a role. A built-in role is refused by the database (immutable). */
+export function replaceRoleGrants(tx: Tx, roleId: number, grants: readonly RolePermission[]): void {
   tx.orm.delete(rbacRoleGrant).where(eq(rbacRoleGrant.roleId, roleId)).run();
-  const rows = permissions.map((entry) => ({
+  const rows = grants.map((entry) => ({
     roleId,
     permission: entry.permission,
     qualifier: storedQualifier(entry.qualifier),
@@ -388,4 +385,200 @@ export function listCachedGroupIds(db: DatabaseHandle, userOid: string): string[
     .orderBy(asc(rbacGroupMemberCache.groupId))
     .all()
     .map((row) => row.groupId);
+}
+
+/** The distinct Entra groups some assignment names, in id order (the groups to resolve, FR-B-507). */
+export function listBoundGroupIds(db: DatabaseHandle): string[] {
+  return db.orm
+    .selectDistinct({ id: rbacAssignment.principalId })
+    .from(rbacAssignment)
+    .where(eq(rbacAssignment.principalType, 'group'))
+    .orderBy(asc(rbacAssignment.principalId))
+    .all()
+    .map((row) => row.id);
+}
+
+/**
+ * Replace what the cache holds for a user with the groups just found, and stamp the resolution time on
+ * the user (`app_user.groups_resolved_at`), in the caller's transaction. A user the sign-in has not
+ * written yet has no `app_user` row: the cache rows are still stored, and the time stays unset.
+ */
+export function replaceMemberCache(
+  tx: Tx,
+  userOid: string,
+  groupIds: readonly string[],
+  resolvedAt: string,
+): void {
+  const oid = userOid.toLowerCase();
+  tx.orm.delete(rbacGroupMemberCache).where(eq(rbacGroupMemberCache.userOid, oid)).run();
+  const rows = groupIds.map((groupId) => ({
+    userOid: oid,
+    groupId: groupId.toLowerCase(),
+    resolvedAt,
+  }));
+  if (rows.length > 0) tx.orm.insert(rbacGroupMemberCache).values(rows).run();
+  tx.orm.update(appUser).set({ groupsResolvedAt: resolvedAt }).where(eq(appUser.oid, oid)).run();
+}
+
+/** Forget what the cache holds for a user and mark the groups as not resolved (rights from groups end). */
+export function dropMemberCache(tx: Tx, userOid: string): void {
+  const oid = userOid.toLowerCase();
+  tx.orm.delete(rbacGroupMemberCache).where(eq(rbacGroupMemberCache.userOid, oid)).run();
+  tx.orm.update(appUser).set({ groupsResolvedAt: null }).where(eq(appUser.oid, oid)).run();
+}
+
+/** `app_user.groups_resolved_at` of a user, or `null` when never resolved or unknown. */
+export function readGroupsResolvedAt(db: DatabaseHandle, userOid: string): string | null {
+  return (
+    db.orm
+      .select({ at: appUser.groupsResolvedAt })
+      .from(appUser)
+      .where(eq(appUser.oid, userOid.toLowerCase()))
+      .get()?.at ?? null
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Counts and lookups for the assignment service (limits, duplicates, the last Owner)
+// ---------------------------------------------------------------------------------------------
+
+export function countAssignments(db: DatabaseHandle): number {
+  return db.orm.select({ n: count() }).from(rbacAssignment).get()?.n ?? 0;
+}
+
+export function countRoles(db: DatabaseHandle): number {
+  return db.orm.select({ n: count() }).from(rbacRole).get()?.n ?? 0;
+}
+
+/** Does some assignment already name this group? */
+export function isGroupBound(db: DatabaseHandle, groupId: string): boolean {
+  return (
+    db.orm
+      .select({ n: count() })
+      .from(rbacAssignment)
+      .where(
+        and(
+          eq(rbacAssignment.principalType, 'group'),
+          eq(rbacAssignment.principalId, groupId.toLowerCase()),
+        ),
+      )
+      .get()?.n !== 0
+  );
+}
+
+/** The id of the assignment with the same principal, role and scope set, if there is one. */
+export function findDuplicateAssignment(
+  db: DatabaseHandle,
+  key: {
+    readonly principalType: PrincipalType;
+    readonly principalId: string;
+    readonly roleId: number;
+    readonly scope: readonly ScopeItem[];
+  },
+): string | undefined {
+  return db.orm
+    .select({ id: rbacAssignment.id })
+    .from(rbacAssignment)
+    .where(
+      and(
+        eq(rbacAssignment.principalType, key.principalType),
+        eq(rbacAssignment.principalId, key.principalId.toLowerCase()),
+        eq(rbacAssignment.roleId, key.roleId),
+        eq(rbacAssignment.scopeHash, scopeHashOf(key.scope)),
+      ),
+    )
+    .get()?.id;
+}
+
+/** How many assignments of `owner` to a USER exist, not counting `excludingId` (groups never count). */
+export function countUserOwnersExcept(db: DatabaseHandle, excludingId: string): number {
+  return (
+    db.orm
+      .select({ n: count() })
+      .from(rbacAssignment)
+      .innerJoin(rbacRole, eq(rbacRole.id, rbacAssignment.roleId))
+      .where(
+        and(
+          eq(rbacRole.key, 'owner'),
+          eq(rbacAssignment.principalType, 'user'),
+          ne(rbacAssignment.id, excludingId.toLowerCase()),
+        ),
+      )
+      .get()?.n ?? 0
+  );
+}
+
+/** A page of assignments in the order of the API: `createdAt`, then `id`. */
+export function listAssignmentsPage(
+  db: DatabaseHandle,
+  filter: {
+    readonly principalId?: string | undefined;
+    readonly roleKey?: string | undefined;
+    readonly after?: { readonly createdAt: string; readonly id: string } | undefined;
+    readonly limit: number;
+  },
+): { readonly records: AssignmentRecord[]; readonly total: number } {
+  const matches = and(
+    filter.principalId === undefined
+      ? undefined
+      : eq(rbacAssignment.principalId, filter.principalId.toLowerCase()),
+    filter.roleKey === undefined ? undefined : eq(rbacRole.key, filter.roleKey),
+  );
+  const total =
+    db.orm
+      .select({ n: count() })
+      .from(rbacAssignment)
+      .innerJoin(rbacRole, eq(rbacRole.id, rbacAssignment.roleId))
+      .where(matches)
+      .get()?.n ?? 0;
+  const afterClause =
+    filter.after === undefined
+      ? undefined
+      : or(
+          gt(rbacAssignment.createdAt, filter.after.createdAt),
+          and(
+            eq(rbacAssignment.createdAt, filter.after.createdAt),
+            gt(rbacAssignment.id, filter.after.id),
+          ),
+        );
+  const rows = db.orm
+    .select({ assignment: rbacAssignment, roleKey: rbacRole.key })
+    .from(rbacAssignment)
+    .innerJoin(rbacRole, eq(rbacRole.id, rbacAssignment.roleId))
+    .where(and(matches, afterClause))
+    .orderBy(asc(rbacAssignment.createdAt), asc(rbacAssignment.id))
+    .limit(filter.limit)
+    .all();
+  return { records: assignmentsOf(db, rows), total };
+}
+
+/** The assignments that name exactly this principal (a user, or a group on its own), expired or not. */
+export function listAssignmentsOfPrincipal(
+  db: DatabaseHandle,
+  principalType: PrincipalType,
+  principalId: string,
+): AssignmentRecord[] {
+  const rows = db.orm
+    .select({ assignment: rbacAssignment, roleKey: rbacRole.key })
+    .from(rbacAssignment)
+    .innerJoin(rbacRole, eq(rbacRole.id, rbacAssignment.roleId))
+    .where(
+      and(
+        eq(rbacAssignment.principalType, principalType),
+        eq(rbacAssignment.principalId, principalId.toLowerCase()),
+      ),
+    )
+    .orderBy(asc(rbacAssignment.createdAt), asc(rbacAssignment.id))
+    .all();
+  return assignmentsOf(db, rows);
+}
+
+/** The last-known display label of a user (name, else UPN), or `null` when the user never signed in. */
+export function readUserLabel(db: DatabaseHandle, userOid: string): string | null {
+  const row = db.orm
+    .select({ name: appUser.nameLabel, upn: appUser.upnLabel })
+    .from(appUser)
+    .where(eq(appUser.oid, userOid.toLowerCase()))
+    .get();
+  return row?.name ?? row?.upn ?? null;
 }

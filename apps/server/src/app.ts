@@ -21,6 +21,7 @@ import { createDenialAudit, createPolicyErrorAudit } from './http/denial-audit.j
 import { createDocumentSource } from './http/openapi.js';
 import { createRateLimiter } from './http/rate-limit.js';
 import { createHttpApp, mergeAvailability, type HttpApp } from './http/route.js';
+import { authHoldersOf } from './auth/holders.js';
 import { meSourcesOf } from './auth/me.js';
 import { csrfBindingOfHeaders } from './policy/session-hash.js';
 import { spaFallback } from './http/spa-fallback.js';
@@ -125,6 +126,8 @@ export function buildApp(deps: BuildAppDeps): BuiltApp {
         deps.moduleDeps.policy.setupSessions.get()?.touch?.(actor.setupSession.idHash);
       }
     },
+    // The auth module sets its revalidation when it is built; before that there is none (FR-B-409).
+    revalidate: (c) => authHoldersOf(deps.moduleDeps).revalidate.get()?.(c) ?? Promise.resolve(undefined),
     sessionIdle: { idleTimeoutMs: config.session.idleTimeoutMs, now: () => clock.now() },
     onDenied: createDenialAudit({ database: deps.database, now: () => clock.now() }),
     onPolicyError: createPolicyErrorAudit({ database: deps.database, now: () => clock.now() }),

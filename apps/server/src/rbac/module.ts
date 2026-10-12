@@ -12,19 +12,49 @@
 //           degraded mode.
 import type { AppModule, ModuleDeps } from '../module.js';
 import { BuiltinRolesMismatchError, assertBuiltinRoles } from './builtin-check.js';
+import { createAssignmentService } from './assignment-service.js';
+import type { RbacContext } from './context.js';
 import { createGrantsService } from './grants.js';
+import { createMembershipService } from './membership.js';
+import { myAccessRoutes } from './my-access.js';
+import { restoreOwnerRoutes } from './restore-owner.js';
+import { rbacRoutes } from './routes.js';
 
 export const RBAC_MODULE_ID = 'rbac';
 
 export function rbacModule(deps: ModuleDeps): AppModule {
   const log = deps.log.child({ module: RBAC_MODULE_ID });
-  deps.policy.grants.set(createGrantsService({ database: deps.database, now: deps.now }));
+  const grants = createGrantsService({ database: deps.database, now: deps.now });
+  deps.policy.grants.set(grants);
+  const ctx: RbacContext = {
+    deps,
+    membership: createMembershipService({
+      database: deps.database,
+      graph: () => deps.clients.graph(),
+      now: deps.now,
+      ttlMs: deps.config.rbac.groupCacheTtlMs,
+      log,
+    }),
+    assignments: createAssignmentService({
+      database: deps.requireDatabase,
+      graph: () => deps.clients.graph(),
+      now: deps.now,
+      random: deps.random,
+      grantsOf: (actor) => {
+        const db = deps.requireDatabase();
+        const row = db.sqlite
+          .prepare('SELECT groups_resolved_at AS at FROM app_user WHERE oid = ?')
+          .get(actor.id) as { at: string | null } | undefined;
+        return grants.grantsFor({ oid: actor.id, groupsResolvedAt: row?.at ?? null });
+      },
+    }),
+  };
   return {
     id: RBAC_MODULE_ID,
-    routes: () => [],
-    start: (ctx) => {
+    routes: () => [...myAccessRoutes(ctx), ...rbacRoutes(ctx), ...restoreOwnerRoutes(ctx)],
+    start: (startDeps) => {
       try {
-        assertBuiltinRoles(ctx.requireDatabase());
+        assertBuiltinRoles(startDeps.requireDatabase());
       } catch (error) {
         if (error instanceof BuiltinRolesMismatchError) {
           // The problems name roles and catalogue permissions, never a value of the database.
@@ -33,7 +63,7 @@ export function rbacModule(deps: ModuleDeps): AppModule {
             'builtin_roles_mismatch',
           );
         }
-        throw error;
+        return Promise.reject(error instanceof Error ? error : new Error('the rbac start failed'));
       }
       return Promise.resolve();
     },
