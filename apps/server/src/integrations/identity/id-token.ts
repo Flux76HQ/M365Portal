@@ -34,6 +34,7 @@ import { IdTokenError, type IdTokenCheck } from '../../ports/errors.js';
 import type { ValidatedIdToken } from '../../ports/identity.js';
 import { MICROSOFT_ORIGINS, guidSegment, isGuid } from '../http/url-guard.js';
 import { KeySetUnavailableError, type KeySet } from './jwks.js';
+import { labelOf } from './labels.js';
 
 const MAX_BYTES = LIMITS.microsoft.idTokenMaxBytes;
 const TOLERANCE_SECONDS = LIMITS.microsoft.clockToleranceSeconds;
@@ -41,7 +42,6 @@ const SEGMENT = /^[A-Za-z0-9_-]+$/;
 /** The signature segment may be empty: `alg: none` is judged by `alg`, not by `format` (F-17). */
 const SIGNATURE_SEGMENT = /^[A-Za-z0-9_-]*$/;
 const FORBIDDEN_HEADERS = ['jku', 'x5u', 'jwk', 'crit'] as const;
-const LABEL_MAX_BYTES = 256;
 const AMR_MAX_ITEMS = 16;
 const AMR_MAX_LENGTH = 32;
 
@@ -261,20 +261,6 @@ export const ID_TOKEN_STEPS: readonly IdTokenStep[] = Object.freeze([
 
 // ---- what is kept ------------------------------------------------------------------------------------
 
-/** At most 256 bytes of a string label, cut at a character boundary; `null` for anything else. */
-function label(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  let out = '';
-  let bytes = 0;
-  for (const character of value) {
-    const size = Buffer.byteLength(character, 'utf8');
-    if (bytes + size > LABEL_MAX_BYTES) break;
-    out += character;
-    bytes += size;
-  }
-  return out;
-}
-
 function amrOf(value: unknown): readonly string[] | null {
   if (!Array.isArray(value) || value.length > AMR_MAX_ITEMS) return null;
   const items: string[] = [];
@@ -290,8 +276,8 @@ function kept(claims: JWTPayload, tenantId: string): ValidatedIdToken {
   return {
     tid: tenantId,
     oid: String(claims.oid).toLowerCase(),
-    upn: label(claims.preferred_username),
-    name: label(claims.name),
+    upn: labelOf(claims.preferred_username),
+    name: labelOf(claims.name),
     amr: amrOf(claims.amr),
     authTime: typeof authTime === 'number' && Number.isSafeInteger(authTime) ? authTime : null,
   };

@@ -125,6 +125,8 @@ export interface FakeDeviceControl {
   temporarilyUnavailable(times: number): void;
   /** Answer `slow_down` to a poll that comes sooner than the interval (off by default). */
   enforceInterval(on: boolean): void;
+  /** Answer the next `/devicecode` request with this error (a block at the start of the flow); `null` clears it. */
+  failStart(answer: TokenFaultAnswer | null): void;
   /** The scopes each `/devicecode` request asked for. */
   requestedScopes(): readonly (readonly string[])[];
   /** Flows that have not ended yet. */

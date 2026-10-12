@@ -64,17 +64,22 @@ function loginUrl(value: unknown): string | undefined {
   }
 }
 
-export function createTenantMetadata(deps: TenantMetadataDeps): TenantMetadata {
-  const tenant = guidSegment(deps.tenantId);
-  const base = `${MICROSOFT_ORIGINS.login}/${tenant}`;
-  const issuer = `${base}/v2.0`;
-  const constructed = {
-    issuer,
+/** The endpoints as Learn and V-B12 show them, built from the tenant id (the origin is `url-guard.ts`). */
+export function constructedEndpoints(tenantId: string): Omit<TenantEndpoints, 'source'> {
+  const base = `${MICROSOFT_ORIGINS.login}/${guidSegment(tenantId)}`;
+  return {
+    issuer: `${base}/v2.0`,
     authorizationEndpoint: `${base}/oauth2/v2.0/authorize`,
     tokenEndpoint: `${base}/oauth2/v2.0/token`,
     jwksUri: `${base}/discovery/v2.0/keys`,
     endSessionEndpoint: `${base}/oauth2/v2.0/logout`,
   };
+}
+
+export function createTenantMetadata(deps: TenantMetadataDeps): TenantMetadata {
+  const constructed = constructedEndpoints(deps.tenantId);
+  const { issuer } = constructed;
+  const base = issuer.slice(0, -'/v2.0'.length);
 
   let current: { endpoints: TenantEndpoints; validUntil: number } | undefined;
   let pending: Promise<TenantEndpoints> | undefined;

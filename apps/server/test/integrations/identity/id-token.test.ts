@@ -434,7 +434,7 @@ describe('what it never does', () => {
     const world = identityWorld();
     const validate = validatorFor(world);
     for (const raw of [undefined, null, 5, {}, ['a.b.c'], new Uint8Array(3)]) {
-      const failure = await rejectionOf(validate(raw as unknown as string, { nonce: 'n' }));
+      const failure = await rejectionOf(validate(raw as string, { nonce: 'n' }));
       expect((failure as IdTokenError).check).toBe('format');
     }
   });

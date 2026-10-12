@@ -56,6 +56,8 @@ import { appModules } from './modules.js';
 import type { RandomSource } from './ports/clock.js';
 import { SecretsRuntime } from './secrets/state.js';
 import { systemRandom } from './system-random.js';
+import { createClientsRegistry } from './integrations/registry.js';
+import { readTenantPin } from './integrations/tenant-pin.js';
 import { createActorResolver, createPolicyPorts } from './policy/index.js';
 import { readShellTemplate, ShellTemplateError } from './shell-port.js';
 import { APP_VERSION } from './version.js';
@@ -280,6 +282,21 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   const databaseOfMoment = (): AppDatabase | undefined =>
     database?.sqlite.open === true ? database : undefined;
   const policy = createPolicyPorts();
+  // The Microsoft clients (T-B-023, CB11): the only place that builds them. They exist for the pinned
+  // tenant once the secrets are usable; a new secrets state (a certificate swap) reloads them.
+  const clients = createClientsRegistry({
+    secrets,
+    pin: () => readTenantPin(databaseOfMoment()),
+    publicBaseUrl: config.publicOrigin,
+    bootstrapClientId: config.bootstrapClientId,
+    clock: { now: () => clock.now() },
+    random,
+    scheduler: options.scheduler ?? systemScheduler,
+    log: log.child({ module: 'integrations' }),
+  });
+  secrets.onChange(() => {
+    clients.reload();
+  });
   const moduleDeps: ModuleDeps = {
     config,
     log,
@@ -296,6 +313,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     random,
     scheduler: options.scheduler ?? systemScheduler,
     secrets,
+    clients,
     policy,
     resolveActor: createActorResolver({
       publicOrigin: config.publicOrigin,
@@ -329,6 +347,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   };
   const abandon = async (): Promise<void> => {
     await stopModules();
+    clients.stop();
     sweepers.stop();
     if (database !== undefined) database.close();
     clearAuditHeadLog();
@@ -349,6 +368,11 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
       }
     }
     step('modules');
+
+    // 7b. The Microsoft clients (plan 6.1 step 8): with the secrets usable and a tenant pinned they are
+    // built now, the first key-set reload is started without waiting for it, and the hourly one is
+    // scheduled. Nothing here can fail the start or delay `listen`.
+    clients.start();
   }
 
   // 8. The application and its route table.
@@ -419,6 +443,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     },
     stopSweepers: () => {
       sweepers.stop();
+      clients.stop();
     },
     closeDatabase: () => {
       try {

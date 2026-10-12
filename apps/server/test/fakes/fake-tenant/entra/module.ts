@@ -24,10 +24,10 @@
 //   - the device flow: `expires_in` 900, `interval` 5 (scaled by the test), no
 //     `verification_uri_complete`, errors as Learn lists them plus `slow_down` (U22).
 //
-// What the fake invents (UNVERIFIED, recorded in the gate note): `client_info` in the device token
-// response (MSAL needs it; Learn's token reference does not list it, U60), the error and the
-// description of a Conditional Access block while polling (U61), and the refusal of an `Origin`
-// header (the error code is not documented, U62).
+// What the fake invents (UNVERIFIED, recorded in the gate note): the error and the description of a
+// Conditional Access block while polling (U61), the refusal of an `Origin` header (the error code is
+// not documented, U62), and the single use of an assertion's `jti` (U59). `client_info`, which a real
+// token response may carry and Learn's token reference does not list, is left out: MSAL works without it.
 //
 // IDs and strings are derived from counters, so a failure message names the same value each run.
 import { createHash } from 'node:crypto';
@@ -39,7 +39,6 @@ import type { FakeWorld } from '../graph/tokens.js';
 import { checkClientAssertion } from './assertion.js';
 import {
   compact,
-  b64url,
   ecKeyPair,
   signature as signatureOf,
   type JsonObject,
@@ -168,6 +167,7 @@ interface State {
     temporarilyUnavailable: number;
     enforceInterval: boolean;
     requested: string[][];
+    failStart: TokenFaultAnswer | null;
   };
 }
 
@@ -198,6 +198,7 @@ function freshState(pinnedTenant: string): State {
       temporarilyUnavailable: 0,
       enforceInterval: false,
       requested: [],
+      failStart: null,
     },
   };
 }
@@ -847,7 +848,6 @@ export function entraModule(world: FakeWorld, clock: FakeTenantClock): FakeEntra
         access_token: opaqueAccessToken(clientId, userId, scopes, entraRoles),
         refresh_token: refresh,
         id_token: idToken,
-        client_info: b64url(JSON.stringify({ uid: userId, utid: tenantId })),
       },
       noStore(),
     );
@@ -980,6 +980,7 @@ export function entraModule(world: FakeWorld, clock: FakeTenantClock): FakeEntra
       });
     }
     state.device.requested.push([...scopes]);
+    if (state.device.failStart !== null) return faultResponse(state.device.failStart);
     const at = now();
     const n = state.counter + 1;
     state.counter = n;
@@ -1088,6 +1089,9 @@ export function entraModule(world: FakeWorld, clock: FakeTenantClock): FakeEntra
     },
     enforceInterval(on) {
       state.device.enforceInterval = on;
+    },
+    failStart(answer) {
+      state.device.failStart = answer;
     },
     requestedScopes: () => state.device.requested.map((scopes) => [...scopes]),
     pending: () => pendingFlows().length,

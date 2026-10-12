@@ -20,6 +20,7 @@ import type { AppConfig } from './config/env.js';
 import type { DatabaseHandle } from './db/index.js';
 import type { RouteDefinition } from './http/route.js';
 import { ProblemError } from './http/problem.js';
+import type { ClientsRegistry } from './integrations/registry.js';
 import type { Logger } from './logging/logger.js';
 import type { Scheduler, Sweeper } from './lifecycle/sweepers.js';
 import type { ActorResolver, PolicyPorts } from './policy/index.js';
@@ -62,6 +63,13 @@ export interface ModuleDeps {
    * (`key_missing`). Other modules read `secrets.state()` per call and never keep the result.
    */
   readonly secrets: SecretsRuntime;
+  /**
+   * The Microsoft clients (Phase B, T-B-023, CB11): `graph()`, `exchange()`, `oidc()` and `appTokens()`,
+   * each throwing `SecretsUnavailableError` while the secrets are not usable and `NotConnectedError`
+   * before a tenant is pinned. Built by the composition root, started after the module `start` hooks
+   * and reloaded when the secrets module publishes a new state; services get clients here and nowhere else.
+   */
+  readonly clients: ClientsRegistry;
   /**
    * The ports of the policy layer (Phase B, T-B-240, CB10, SB-32): holders built before any module.
    * The auth module registers its session store, the setup module its setup sessions and the rbac

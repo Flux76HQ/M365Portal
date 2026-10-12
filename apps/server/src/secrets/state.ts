@@ -37,6 +37,7 @@ export class SecretsRuntime {
   readonly #database: () => DatabaseHandle | undefined;
   #state: SecretsState = { status: 'key_missing' };
   #services: SecretsServices | undefined;
+  readonly #listeners: (() => void)[] = [];
 
   constructor(database: () => DatabaseHandle | undefined) {
     this.#database = database;
@@ -52,16 +53,36 @@ export class SecretsRuntime {
     return this.#services;
   }
 
+  /**
+   * Told after every `publish` (a new state, a swapped certificate) and after `clear`. The composition
+   * root uses it to reload the Microsoft clients (T-B-023); a listener that throws does not stop the others.
+   */
+  onChange(listener: () => void): void {
+    this.#listeners.push(listener);
+  }
+
   /** Replace the state (the secrets module only). */
   publish(state: SecretsState, services?: SecretsServices): void {
     this.#state = state;
     this.#services = services;
+    this.#notify();
   }
 
   /** Forget everything (shutdown): the holder and the services are unreachable afterwards. */
   clear(): void {
     this.#state = { status: 'key_missing' };
     this.#services = undefined;
+    this.#notify();
+  }
+
+  #notify(): void {
+    for (const listener of this.#listeners) {
+      try {
+        listener();
+      } catch {
+        // A listener is a convenience of the composition root; the state is already changed.
+      }
+    }
   }
 
   /**

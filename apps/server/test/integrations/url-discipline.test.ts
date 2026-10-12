@@ -10,8 +10,8 @@
 // `AdminApiExchangeClient`). For each user-supplied value and each hostile string the fake tenant
 // records what actually arrived, and the test checks that the host, the path prefix, the number of
 // path segments and the query structure are what the template says, or that nothing was sent.
-// The identity clients (T-B-076 to T-B-079) join the tables when they land: their rows are `todo`
-// below, and the source scan (block 1) already covers their files.
+// The identity clients (T-B-076 to T-B-079) have their rows in block 6, and the source scan (block 1)
+// covers their files.
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,11 @@ import { describe, expect, it } from 'vitest';
 import { AdminApiExchangeClient } from '../../src/integrations/exchange/admin-api-client.js';
 import { createHttpGraphClient } from '../../src/integrations/graph/graph-client.js';
 import { createTenantProvisioner } from '../../src/integrations/graph/provisioner.js';
+import { createIdentityFetch } from '../../src/integrations/identity/http.js';
+import { createBootstrapAuthenticator } from '../../src/integrations/identity/bootstrap.js';
+import { createKeySet } from '../../src/integrations/identity/jwks.js';
+import { createTenantMetadata } from '../../src/integrations/identity/tenant-metadata.js';
+import { createTokenEndpoint } from '../../src/integrations/identity/token-endpoint.js';
 import {
   MICROSOFT_ORIGINS,
   tenantHint,
@@ -29,6 +34,7 @@ import type { ExchangeRecipient } from '../../src/ports/exchange.js';
 import { jsonResponse } from '../fakes/fake-tenant/index.js';
 import { fakeGuid } from '../fakes/fake-tenant/graph/index.js';
 import { fake } from '../support/msw.js';
+import { PANEL_CALLBACK, identityWorld } from './identity/support.js';
 import { createTime, rejectionOf, sequenceRandom, staticAppTokens } from './support.js';
 
 const SERVER_SRC = fileURLToPath(new URL('../../src/', import.meta.url));
@@ -604,22 +610,243 @@ describe('the tenant hint (T-B-084, FR-B-214, FR-B-317)', () => {
   });
 });
 
-// ---- 6. the identity clients join the tables -------------------------------------------------------
+// ---- 6. the identity clients join the tables (T-B-076, T-B-077, T-B-079) ---------------------------------
 
-describe('the identity clients (T-B-076 to T-B-079)', () => {
+/** A catch-all on the login host that answers harmlessly and records what arrived. */
+function recordLogin(): {
+  readonly paths: string[];
+  readonly headers: { origin: boolean; authorization: boolean; cookie: boolean }[];
+} {
+  const paths: string[] = [];
+  const headers: { origin: boolean; authorization: boolean; cookie: boolean }[] = [];
+  fake.mount((core) => {
+    for (const method of ['GET', 'POST'] as const) {
+      core.router.add({
+        host: 'login.microsoftonline.com',
+        method,
+        path: /^\/.*$/,
+        mutating: false,
+        handler: ({ request, url }) => {
+          paths.push(`${method} ${url.pathname}`);
+          headers.push({
+            origin: request.headers.has('origin'),
+            authorization: request.headers.has('authorization'),
+            cookie: request.headers.has('cookie'),
+          });
+          return jsonResponse(404, { error: 'invalid_request' });
+        },
+      });
+    }
+  });
+  return { paths, headers };
+}
+
+function identityClients(tenantId: string = TENANT) {
+  const time = createTime();
+  const jsonFetch = createIdentityFetch({ clock: time.clock, scheduler: time.scheduler });
+  const metadata = createTenantMetadata({ tenantId, jsonFetch, clock: time.clock });
+  const keys = createKeySet({ metadata, jsonFetch, clock: time.clock, scheduler: time.scheduler });
+  const world = identityWorld();
+  const tokenEndpoint = createTokenEndpoint({
+    tenantId,
+    clientId: world.app.appId,
+    redirectUri: PANEL_CALLBACK,
+    signer: world.holder,
+    jsonFetch,
+    clock: time.clock,
+    random: sequenceRandom(),
+    scheduler: time.scheduler,
+  });
+  const bootstrap = createBootstrapAuthenticator({
+    clientId: '14d82eec-204b-4c2f-b7e8-296a70dab67e',
+    clock: time.clock,
+    scheduler: time.scheduler,
+    jsonFetch,
+  });
+  return { metadata, keys, tokenEndpoint, bootstrap, time, world };
+}
+
+describe('the identity clients (T-B-076 to T-B-079; FR-B-214, FR-B-317)', () => {
   const identity = (name: string): boolean =>
     existsSync(join(SERVER_SRC, 'integrations/identity', name));
 
-  it('is told by the source scan above as soon as their files exist', () => {
-    // The scan covers every file under apps/server/src, so an origin literal in a file of
-    // integrations/identity is reported by the first block, today and later.
-    expect(typeof identity('bootstrap.ts')).toBe('boolean');
+  it('is told by the source scan above: their files exist and hold no origin literal', () => {
+    for (const name of ['bootstrap.ts', 'tenant-metadata.ts', 'token-endpoint.ts', 'jwks.ts']) {
+      expect(identity(name), name).toBe(true);
+    }
   });
 
-  it.todo(
-    'bootstrap authority: the tenant hint goes through tenantHint(); the authority is https://login.microsoftonline.com/<hint> (needs T-B-076)',
-  );
-  it.todo(
-    'token endpoint and tenant metadata: only login.microsoftonline.com, redirect error, no Origin (needs T-B-077, T-B-079)',
-  );
+  describe('bootstrap authority: the tenant hint goes through tenantHint()', () => {
+    it.each([...HOSTILE, 'common', 'consumers', 'organizations', 'Common', ' common'])(
+      'refuses the hint %j before a request exists',
+      async (hint) => {
+        const { bootstrap } = identityClients();
+        fake.calls.clear();
+        const failure = await rejectionOf(bootstrap.start({ tenantHint: hint }));
+        expect(failure).toBeInstanceOf(UrlRefusedError);
+        expect(fake.calls.length).toBe(0);
+      },
+    );
+
+    it('builds https://login.microsoftonline.com/<hint> for a tenant id or a domain, lower case', async () => {
+      const seen = recordLogin();
+      const { bootstrap } = identityClients();
+      for (const hint of [TENANT.toUpperCase(), 'Contoso.NL']) {
+        await rejectionOf(bootstrap.start({ tenantHint: hint })).catch(() => undefined);
+      }
+      const devicePaths = seen.paths.filter((entry) => entry.includes('/devicecode'));
+      expect(devicePaths).toEqual([
+        `POST /${TENANT}/oauth2/v2.0/devicecode`,
+        'POST /contoso.nl/oauth2/v2.0/devicecode',
+      ]);
+    });
+
+    it('asks organizations when there is no hint, and never common or consumers', async () => {
+      const seen = recordLogin();
+      const { bootstrap } = identityClients();
+      await rejectionOf(bootstrap.start({})).catch(() => undefined);
+      const paths = seen.paths.join(' ');
+      expect(paths).toContain('/organizations/oauth2/v2.0/devicecode');
+      expect(paths).not.toMatch(/\/(common|consumers)\//);
+    });
+  });
+
+  describe('token endpoint, tenant metadata and key set: only the login host, no redirect, no Origin', () => {
+    it('reach login.microsoftonline.com and nothing else, with no Origin, Authorization or Cookie header', async () => {
+      const seen = recordLogin();
+      const { metadata, keys, tokenEndpoint } = identityClients();
+      await metadata.get();
+      await rejectionOf(keys.getKey({ alg: 'RS256', kid: 'k' }, { payload: '', signature: '' }));
+      await rejectionOf(tokenEndpoint.exchangeCode({ code: 'c', codeVerifier: 'v'.repeat(43) }));
+      expect(seen.paths.length).toBeGreaterThanOrEqual(3);
+      expect(
+        seen.headers.every((entry) => !entry.origin && !entry.authorization && !entry.cookie),
+      ).toBe(true);
+      expect(new Set(fake.calls.all().map((call) => call.host))).toEqual(
+        new Set(['login.microsoftonline.com']),
+      );
+    });
+
+    it('every path stays under the tenant: /<tid>/... (and the discovery document for keys)', async () => {
+      const seen = recordLogin();
+      const { metadata, keys, tokenEndpoint } = identityClients();
+      await metadata.get();
+      await rejectionOf(keys.getKey({ alg: 'RS256', kid: 'k' }, { payload: '', signature: '' }));
+      await rejectionOf(tokenEndpoint.exchangeCode({ code: 'c', codeVerifier: 'v'.repeat(43) }));
+      for (const entry of seen.paths) {
+        expect(entry.split(' ')[1]?.startsWith(`/${TENANT}/`), entry).toBe(true);
+      }
+    });
+
+    it('a redirect answer is a failure and nothing follows it (redirect: error)', async () => {
+      fake.mount((core) => {
+        for (const path of [
+          `/${TENANT}/v2.0/.well-known/openid-configuration`,
+          `/${TENANT}/discovery/v2.0/keys`,
+        ]) {
+          core.router.add({
+            host: 'login.microsoftonline.com',
+            method: 'GET',
+            path,
+            handler: () =>
+              new Response(null, {
+                status: 302,
+                headers: { location: 'https://evil.example/steal' },
+              }),
+          });
+        }
+        core.router.add({
+          host: 'login.microsoftonline.com',
+          method: 'POST',
+          path: `/${TENANT}/oauth2/v2.0/token`,
+          mutating: false,
+          handler: () =>
+            new Response(null, {
+              status: 302,
+              headers: { location: 'https://evil.example/steal' },
+            }),
+        });
+      });
+      const { metadata, keys, tokenEndpoint } = identityClients();
+      expect((await metadata.get()).source).toBe('constructed');
+      await rejectionOf(keys.getKey({ alg: 'RS256', kid: 'k' }, { payload: '', signature: '' }));
+      const failure = await rejectionOf(
+        tokenEndpoint.exchangeCode({ code: 'c', codeVerifier: 'v'.repeat(43) }),
+      );
+      expect(failure).toBeDefined();
+      expect(fake.calls.all().every((call) => call.host === 'login.microsoftonline.com')).toBe(
+        true,
+      );
+    });
+
+    it('a discovery document that names a key host or a logout host outside the login host is never obeyed', async () => {
+      const seen = recordLogin();
+      const { metadata } = identityClients();
+      mountDiscovery({
+        jwks_uri: 'https://evil.example/keys',
+        end_session_endpoint: 'https://evil.example/out',
+      });
+      const endpoints = await metadata.get();
+      expect(endpoints.jwksUri).toBe(
+        `https://login.microsoftonline.com/${TENANT}/discovery/v2.0/keys`,
+      );
+      expect(endpoints.endSessionEndpoint).toBe(
+        `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/logout`,
+      );
+      expect(seen.paths.every((entry) => !entry.includes('evil'))).toBe(true);
+    });
+
+    it.each(HOSTILE)(
+      'refuses the tenant id %j at construction (a GUID is required)',
+      (tenantId) => {
+        const time = createTime();
+        const jsonFetch = createIdentityFetch({ clock: time.clock, scheduler: time.scheduler });
+        expect(() => createTenantMetadata({ tenantId, jsonFetch, clock: time.clock })).toThrow();
+      },
+    );
+
+    it('negative: a client that followed the redirect would have reached the foreign host', async () => {
+      const seen: string[] = [];
+      fake.mount((core) => {
+        core.router.add({
+          host: 'login.microsoftonline.com',
+          method: 'GET',
+          path: `/${TENANT}/v2.0/.well-known/openid-configuration`,
+          handler: () =>
+            new Response(null, {
+              status: 302,
+              headers: { location: 'https://graph.microsoft.com/v1.0/organization' },
+            }),
+        });
+        core.router.add({
+          host: 'graph.microsoft.com',
+          method: 'GET',
+          path: '/v1.0/organization',
+          handler: () => {
+            seen.push('graph');
+            return jsonResponse(200, {});
+          },
+        });
+      });
+      const { metadata } = identityClients();
+      await metadata.get();
+      expect(seen).toEqual([]);
+    });
+  });
 });
+
+/** The discovery document of the pinned tenant with some fields replaced (registered after the fake). */
+function mountDiscovery(fields: Record<string, string>): void {
+  fake.mount((core) => {
+    core.router.add({
+      host: 'login.microsoftonline.com',
+      method: 'GET',
+      path: `/${TENANT}/v2.0/.well-known/openid-configuration`,
+      handler: () =>
+        jsonResponse(200, {
+          issuer: `https://login.microsoftonline.com/${TENANT}/v2.0`,
+          ...fields,
+        }),
+    });
+  });
+}

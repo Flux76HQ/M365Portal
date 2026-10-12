@@ -48,7 +48,10 @@ export interface OidcClient {
 
 export interface DeviceCodeInfo {
   readonly userCode: string;
-  /** Only passes through when it is `https` on an allow-listed Microsoft host (FR-B-214). */
+  /**
+   * Only passes through when it is `https` on an allow-listed Microsoft host (FR-B-214); an empty string
+   * otherwise, and the user then gets the code and the instruction without a link.
+   */
   readonly verificationUri: string;
   /** Epoch milliseconds. */
   readonly expiresAt: number;
