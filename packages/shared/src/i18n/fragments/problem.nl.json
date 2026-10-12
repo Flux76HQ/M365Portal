@@ -7,6 +7,7 @@
   "problem.branding_conflict": "De huisstijl is door iemand anders gewijzigd sinds je deze pagina opende. Laad de pagina opnieuw om de laatste instellingen te zien en pas je wijziging daarna opnieuw toe.",
   "problem.break_glass_locked": "Te veel mislukte break-glass-pogingen. Probeer het over {seconds} s opnieuw.",
   "problem.csrf_invalid": "Het beveiligingstoken van deze pagina ontbreekt of is verlopen. Laad de pagina opnieuw en probeer het nog eens.",
+  "problem.cursor_invalid": "Deze plek in de lijst is niet meer geldig, bijvoorbeeld omdat ze is verlopen. De lijst begint opnieuw bij de eerste pagina.",
   "problem.escalation_denied": "Je kunt niet meer toegang verlenen dan je zelf hebt. Kies een rol of bereik binnen je eigen toegang.",
   "problem.graph_throttled": "Microsoft vertraagt de verzoeken. Probeer het over {seconds} s opnieuw.",
   "problem.graph_unavailable": "Microsoft Graph gaf geen antwoord. Probeer het over een moment opnieuw.",

@@ -1,0 +1,6 @@
+{
+  "users.error.graph_permission_missing": "De koppeling van het paneel met Microsoft 365 mist een recht dat nodig is om de directory te lezen. Open Instellingen, Verbinding, voer het herstel uit en probeer het opnieuw.",
+  "users.manager.none": "Geen manager",
+  "users.manager.unavailable": "Manager niet beschikbaar",
+  "users.restricted.row": "Beperkt"
+}

@@ -32,7 +32,7 @@ interface ProblemCodeEntry {
 
 /**
  * Spec section 6.4 and contract section 6: 34 codes of Phase A, plus the 19 codes of Phase B spec
- * 6.9.5 at the end of the list (53 in all). `staging_quota_exceeded` (409) and
+ * 6.9.5, plus `cursor_invalid` of Phase C spec 6.7.3 at the end of the list (54 in all). `staging_quota_exceeded` (409) and
  * `shutting_down` (503) are the two the plan added to the spec's seed list; `bad_request` (400),
  * `request_timeout` (408) and `request_header_fields_too_large` (431) are the three that Node's HTTP
  * parser errors get (the `clientError` handler, amendment 1).
@@ -305,6 +305,12 @@ export const PROBLEM_CODES = deepFreeze({
     status: 409,
     title: 'Tenant mismatch',
     detail: 'The account belongs to another tenant than the one this panel is connected to.',
+  },
+  // Phase C (spec 6.7.3, T-C-002): the one code of the read-only users and groups lists.
+  cursor_invalid: {
+    status: 400,
+    title: 'Invalid list cursor',
+    detail: 'The list cursor is unknown, has expired or belongs to another user.',
   },
 } as const satisfies Record<string, ProblemCodeEntry>);
 

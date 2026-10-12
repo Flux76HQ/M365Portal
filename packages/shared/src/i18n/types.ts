@@ -21,6 +21,8 @@ import type EnSetup from './locales/lazy/setup.en.json';
 import type EnShortcuts from './locales/lazy/shortcuts.en.json';
 import type EnShowcase from './locales/lazy/showcase.en.json';
 import type EnSignin from './locales/lazy/signin.en.json';
+import type EnUsers from './locales/lazy/users.en.json';
+import type EnGroups from './locales/lazy/groups.en.json';
 
 /** The locales the product speaks (FR-A-113). Adding one is a line here plus its fragment files. */
 export const LOCALES = ['en', 'nl'] as const;
@@ -64,7 +66,7 @@ export type MessageKeyOf<Catalogue extends object> =
  * break-glass pages, "Mijn toegang" with its label namespaces (role, permission, scope, qualifier, resource,
  * origin), the Appearance page (appearance, logo, accent, preview), the sign-in page, the session text of a signed-in visitor and
  * the command palette and shortcut overview (dialogs that load
- * on demand) and the component showcase (T-B-307: the entry bundle keeps only what every first page needs). Adding one is a line here and in the owner table of
+ * on demand), the users and groups pages of Phase C (T-C-005) and the component showcase (T-B-307: the entry bundle keeps only what every first page needs). Adding one is a line here and in the owner table of
  * `scripts/i18n-merge.ts`, and its loader in `load-namespace.ts`.
  */
 export const LAZY_NAMESPACES = [
@@ -87,6 +89,8 @@ export const LAZY_NAMESPACES = [
   'session',
   'palette',
   'shortcuts',
+  'users',
+  'groups',
 ] as const;
 export type LazyNamespace = (typeof LAZY_NAMESPACES)[number];
 
@@ -111,6 +115,8 @@ export interface LazyCatalogueTypes {
   readonly session: typeof EnSession;
   readonly palette: typeof EnPalette;
   readonly shortcuts: typeof EnShortcuts;
+  readonly users: typeof EnUsers;
+  readonly groups: typeof EnGroups;
 }
 
 /** The keys of one lazy namespace, read from its English file. */

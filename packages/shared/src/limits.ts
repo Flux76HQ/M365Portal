@@ -336,6 +336,27 @@ export const LIMITS = deepFreeze({
     assignmentExpiryMaxDays: 730,
   },
 
+  /**
+   * Users and groups, read only (Phase C spec 6.7.2, FR-C-103, FR-C-203, EC-C1). No request body is
+   * added, so the largest accepted request is unchanged.
+   */
+  directory: {
+    /** `q`, the prefix search text: 1 to this many characters (EC-C1). */
+    searchMaxChars: 64,
+    /** Rows a list answers when `limit` is absent (the Phase B list convention, CD-10). */
+    pageLimitDefault: 100,
+    /** The ceiling of `limit` (CD-10); the UI asks for 50. */
+    pageLimitMax: 200,
+    /** `$top` for scope scans: the most Graph returns a page (R-C-01). */
+    graphPageSize: 999,
+    /** Graph pages read for one request of a scoped list (FR-C-203). */
+    scanPagesMax: 5,
+    /** How long a list cursor stays valid (FR-C-103). */
+    cursorTtlSeconds: 600,
+    /** Cursors kept at most; the least recently used goes first (FR-C-103). */
+    cursorEntries: 1_000,
+  },
+
   /** Clients the rate limiter tracks at most (memory bound); idle entries are evicted first. */
   trackedClients: 10_000,
 

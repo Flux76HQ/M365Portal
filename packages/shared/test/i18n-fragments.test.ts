@@ -174,11 +174,12 @@ describe('the fragments and catalogues of the repository', () => {
 describe('the namespace owner table (C11)', () => {
   const s5 = ['appearance', 'accent', 'logo', 'preview'];
 
-  it('gives problem to S1, appearance, accent, logo and preview to S5, the Phase B namespaces to S6, and every other namespace to S4', () => {
+  it('gives problem to S1, appearance, accent, logo and preview to S5, the Phase B namespaces to S6, users and groups to SC3, and every other namespace to S4', () => {
     expect(NAMESPACE_OWNERS.problem).toBe('S1');
     for (const namespace of s5) expect(NAMESPACE_OWNERS, namespace).toHaveProperty(namespace, 'S5');
     for (const [namespace, owner] of Object.entries(NAMESPACE_OWNERS)) {
-      if (namespace === 'problem' || s5.includes(namespace) || owner === 'S6') continue;
+      if (namespace === 'problem' || s5.includes(namespace) || owner === 'S6' || owner === 'SC3')
+        continue;
       expect(owner, namespace).toBe('S4');
     }
   });
@@ -216,7 +217,30 @@ describe('the namespace owner table (C11)', () => {
       shortcuts: 'S4',
     };
     for (const namespace of LAZY_NAMESPACES) {
+      if (namespace === 'users' || namespace === 'groups') continue; // Phase C, below
       expect(NAMESPACE_OWNERS, namespace).toHaveProperty(namespace, movedPhaseA[namespace] ?? 'S6');
+    }
+  });
+
+  it('gives the Phase C namespaces users and groups to the web stream SC3, which fills what S-C1 shelled (T-C-005, FR-C-504)', () => {
+    const files = readFragmentFiles(FRAGMENTS_DIRECTORY);
+    for (const namespace of ['users', 'groups']) {
+      expect(NAMESPACE_OWNERS, namespace).toHaveProperty(namespace, 'SC3');
+      expect(LAZY_NAMESPACES as readonly string[], namespace).toContain(namespace);
+      for (const locale of LOCALES) {
+        expect(files, `${namespace}.${locale}.json`).toHaveProperty(`${namespace}.${locale}.json`);
+      }
+    }
+  });
+
+  it('keeps users and groups out of the entry catalogues (the bundle budget does not grow, FR-C-505)', () => {
+    const all = mergeAllFragments(readFragmentFiles(FRAGMENTS_DIRECTORY));
+    for (const locale of LOCALES) {
+      for (const key of Object.keys(all.entry[locale])) {
+        expect(key.startsWith('users.') || key.startsWith('groups.'), key).toBe(false);
+      }
+      expect(Object.keys(all.lazy.users[locale]).length, `users ${locale}`).toBeGreaterThan(0);
+      expect(Object.keys(all.lazy.groups[locale]).length, `groups ${locale}`).toBeGreaterThan(0);
     }
   });
 

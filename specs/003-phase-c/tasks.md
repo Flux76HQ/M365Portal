@@ -78,37 +78,37 @@ XC1 `apps/server/src/modules.ts` append factory (T-C-024). XC2 `ports/graph.ts` 
 
 ## 2. S-C1 Contract and shared (T-C-001 to T-C-006)
 
-- [ ] **T-C-001** Re-read Phase B as built (plan section 0)
+- [x] **T-C-001** Re-read Phase B as built (plan section 0)
   - Files: `specs/003-phase-c/gate-notes/GC0.md` (the finding list only)
   - Needs: none
   - Test first: none (reading task); the note lists each plan finding 1 to 6 as confirmed or amended
   - Done when: the note exists and the plan/spec are amended in the same commit where the code differed
 
-- [ ] **T-C-002** [P] Limits `directory`, problem code `cursor_invalid`, detail code `graph_permission_missing` (FR-C-103, FR-C-404, spec 6.7)
+- [x] **T-C-002** [P] Limits `directory`, problem code `cursor_invalid`, detail code `graph_permission_missing` (FR-C-103, FR-C-404, spec 6.7)
   - Files: `packages/shared/src/limits.ts`, `packages/shared/src/problem.ts`, `packages/shared/src/i18n/fragments/**` (problem messages nl and en), `packages/shared/src/i18n/detail-codes.ts`
   - Needs: T-C-001
   - Test first: `shared/limits.test.ts`, `shared/error-codes.test.ts`, `shared/message-keys.test.ts`
   - Done when: the registry has the new code and every message exists in both languages
 
-- [ ] **T-C-003** [P] `groupKindOf` (FR-C-303)
+- [x] **T-C-003** [P] `groupKindOf` (FR-C-303)
   - Files: `packages/shared/src/directory/group-kind.ts`, `packages/shared/test/group-kind.test.ts`
   - Needs: T-C-001
   - Test first: `shared/group-kind.test.ts` (exhaustive over groupTypes x mailEnabled x securityEnabled x null)
   - Done when: table of R-C-04 holds; `null` anywhere gives `unknown`
 
-- [ ] **T-C-004** Wire schemas (FR-C-201, FR-C-204 to FR-C-206, FR-C-301, FR-C-304 to FR-C-307, FR-C-207)
+- [x] **T-C-004** Wire schemas (FR-C-201, FR-C-204 to FR-C-206, FR-C-301, FR-C-304 to FR-C-307, FR-C-207)
   - Files: `packages/shared/src/schemas/directory.ts`, `packages/shared/test/schemas-directory.test.ts`
   - Needs: T-C-002, T-C-003
   - Test first: `shared/schemas-directory.test.ts` (strict query objects, bounds, restricted-row shape has no id/name; no licence field in any schema)
   - Done when: schemas export types used by server and web; OpenAPI ids unique
 
-- [ ] **T-C-005** [P] Lazy namespaces `users` and `groups` (shells) (FR-C-504)
+- [x] **T-C-005** [P] Lazy namespaces `users` and `groups` (shells) (FR-C-504)
   - Files: `packages/shared/src/i18n/types.ts`, `packages/shared/src/i18n/load-namespace.ts`, `packages/shared/src/i18n/locales/lazy/{users,groups}.{nl,en}.json`, the `NAMESPACE_OWNERS` list of the merge script
   - Needs: T-C-001
   - Test first: `shared/i18n-fragments.test.ts` (ownership), `shared/i18n-catalogue.test.ts`
   - Done when: both namespaces load in both locales with the keys the plan names (filled by T-C-047)
 
-- [ ] **T-C-006** **Gate GC0**: contract frozen
+- [x] **T-C-006** **Gate GC0**: contract frozen
   - Files: `specs/003-phase-c/gate-notes/GC0.md`
   - Needs: T-C-002 to T-C-005
   - Test first: `pnpm --filter @m365portal/shared lint typecheck test`, `pnpm i18n:check`

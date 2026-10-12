@@ -7,7 +7,7 @@
 // two streams never edit one file. The merge writes `src/i18n/locales/<language>.json`, which are
 // committed: the translator bundles them and the catalogue checks read them.
 //
-// The namespaces in `LAZY_NAMESPACES` (setup, connection, breakglass, access) are not merged into the
+// The namespaces in `LAZY_NAMESPACES` (setup, connection, breakglass, access, ..., users, groups) are not merged into the
 // entry catalogues: each is written to `locales/lazy/<namespace>.<language>.json` and loaded on demand
 // (`loadNamespace`, T-B-291). All other rules apply to them unchanged.
 //
@@ -33,7 +33,7 @@ const MERGE_COMMAND = 'pnpm i18n:merge';
 
 /**
  * Who owns which namespace (contract C11). `problem` is the problem registry's (S1), the Appearance
- * page's namespaces are S5's, the Phase B namespaces are S6's (`qualifier`, `resource` and `origin`
+ * page's namespaces are S5's, the Phase C namespaces `users` and `groups` are SC3's, the Phase B namespaces are S6's (`qualifier`, `resource` and `origin`
  * are the label registry's keys of `rbac/labels.ts`, small files of their own because a key must start
  * with the name of its fragment), every other namespace is S4's. A new namespace is one line here: the
  * merge refuses a fragment whose namespace is not listed, so a typo in a file name cannot create a
@@ -75,7 +75,11 @@ export const NAMESPACE_OWNERS = {
   qualifier: 'S6',
   resource: 'S6',
   origin: 'S6',
-} as const satisfies Readonly<Record<string, 'S1' | 'S4' | 'S5' | 'S6'>>;
+
+  // Phase C (T-C-005): S-C1 delivers the shells, the web stream S-C3 fills them (T-C-047).
+  users: 'SC3',
+  groups: 'SC3',
+} as const satisfies Readonly<Record<string, 'S1' | 'S4' | 'S5' | 'S6' | 'SC3'>>;
 
 /** File name to file text. The names carry the namespace and the language. */
 export type FragmentFiles = Readonly<Record<string, string>>;

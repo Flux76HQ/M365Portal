@@ -1,0 +1,11 @@
+{
+  "groups.kind.distribution": "Distributie",
+  "groups.kind.m365": "Microsoft 365",
+  "groups.kind.mailsecurity": "E-mailbeveiliging",
+  "groups.kind.security": "Beveiliging",
+  "groups.kind.unknown": "Onbekend",
+  "groups.members.hidden": "Het lidmaatschap van deze groep is verborgen.",
+  "groups.members.restricted.one": "{count} lid dat u niet kunt zien",
+  "groups.members.restricted.other": "{count} leden die u niet kunt zien",
+  "groups.owners.notAvailable": "Eigenaren zijn niet beschikbaar voor dit soort groep."
+}

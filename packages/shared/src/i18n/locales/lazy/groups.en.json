@@ -1,0 +1,11 @@
+{
+  "groups.kind.distribution": "Distribution",
+  "groups.kind.m365": "Microsoft 365",
+  "groups.kind.mailsecurity": "Mail-enabled security",
+  "groups.kind.security": "Security",
+  "groups.kind.unknown": "Unknown",
+  "groups.members.hidden": "The membership of this group is hidden.",
+  "groups.members.restricted.one": "{count} member you cannot see",
+  "groups.members.restricted.other": "{count} members you cannot see",
+  "groups.owners.notAvailable": "Owners are not available for this kind of group."
+}

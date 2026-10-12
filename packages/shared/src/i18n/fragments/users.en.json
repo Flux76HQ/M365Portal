@@ -1,0 +1,6 @@
+{
+  "users.error.graph_permission_missing": "The panel's connection with Microsoft 365 lacks a permission it needs to read the directory. Open Settings, Connection, run the repair and try again.",
+  "users.manager.none": "No manager",
+  "users.manager.unavailable": "Manager not available",
+  "users.restricted.row": "Restricted"
+}
