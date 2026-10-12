@@ -143,7 +143,7 @@ function runLighthouse({ url, preset, outputFile, chrome }) {
       `--output-path=${outputFile}`,
       '--quiet',
       '--only-categories=performance,accessibility,best-practices',
-      '--chrome-flags=--headless=new --no-sandbox',
+      '--chrome-flags=--headless=new --no-sandbox --disable-dev-shm-usage',
       ...(preset === 'desktop' ? ['--preset=desktop'] : []),
     ];
     const child = spawn(process.execPath, args, {
