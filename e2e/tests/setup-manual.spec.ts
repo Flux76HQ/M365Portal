@@ -160,7 +160,7 @@ test('the checklist equals the automatic mode, the certificate parses, and the h
   expect(proof.check_v1, 'an access token with the certificate').toBe('ok');
   expect(proof.check_v2, 'the organisation of the tenant').toBe('ok');
   expect(proof.check_v3, 'users can be read').toBe('ok');
-  expect(proof.check_v5, 'Exchange Online answers').toBe('ok');
+  expect(proof.check_v5, `Exchange Online answers: ${await page.locator('[data-proof="check_v5"]').innerText()}`).toBe('ok');
   expect(proof.check_v4, 'needs a Microsoft sign-in').toBe('not_checked');
   expect(proof.check_v6, 'needs a Microsoft sign-in').toBe('not_checked');
   await expect(page.locator('[data-proof="check_v4"]')).toContainText(
