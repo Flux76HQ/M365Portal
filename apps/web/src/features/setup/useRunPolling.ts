@@ -59,11 +59,19 @@ export function isActive(snapshot: RunSnapshot | null): boolean {
   return snapshot.deviceCode?.state === 'waiting_for_user' || snapshot.adoption !== null;
 }
 
-const INITIAL: RunPollState = Object.freeze({ snapshot: null, lines: [], truncated: false, error: null, offsetMs: 0 });
+const INITIAL: RunPollState = Object.freeze({
+  snapshot: null,
+  lines: [],
+  truncated: false,
+  error: null,
+  offsetMs: 0,
+});
 
 export function createRunPoller(options: RunPollerOptions): RunPoller {
   const api = connectionApi(options.api);
-  const visible = options.visible ?? (() => typeof document === 'undefined' || document.visibilityState !== 'hidden');
+  const visible =
+    options.visible ??
+    (() => typeof document === 'undefined' || document.visibilityState !== 'hidden');
   const listeners = new Set<() => void>();
   let state: RunPollState = INITIAL;
   let cursor = 0;
@@ -100,7 +108,8 @@ export function createRunPoller(options: RunPollerOptions): RunPoller {
       // A line is shown once: whatever the server repeats (or a slow answer that arrives twice) is dropped.
       const fresh = snapshot.log.lines.filter((line) => line.seq > cursor);
       cursor = Math.max(cursor, snapshot.log.lastSeq);
-      const lines = fresh.length === 0 ? state.lines : [...state.lines, ...fresh].slice(-LOG_LINES_KEPT);
+      const lines =
+        fresh.length === 0 ? state.lines : [...state.lines, ...fresh].slice(-LOG_LINES_KEPT);
       publish({
         snapshot,
         lines,

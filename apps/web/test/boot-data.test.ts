@@ -20,7 +20,15 @@ import {
   queryKeys,
   seedQueryClient,
 } from '../src/lib/query';
-import { escapeForScript, installBootBlock, installNonceMeta, SAMPLE_VERSION, sampleBranding, sampleMe, sampleSignedInMe } from './helpers/boot-fixtures';
+import {
+  escapeForScript,
+  installBootBlock,
+  installNonceMeta,
+  SAMPLE_VERSION,
+  sampleBranding,
+  sampleMe,
+  sampleSignedInMe,
+} from './helpers/boot-fixtures';
 
 function freshDocument(): Document {
   return document.implementation.createHTMLDocument('boot');

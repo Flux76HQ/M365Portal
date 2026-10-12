@@ -16,7 +16,10 @@ beforeAll(async () => {
 
 const tr = (language: Locale) => createTranslator(language);
 
-async function openForm(handlers: Record<string, Handler> = {}, options: { enabled?: boolean; language?: Locale } = {}) {
+async function openForm(
+  handlers: Record<string, Handler> = {},
+  options: { enabled?: boolean; language?: Locale } = {},
+) {
   const mock = createMockApi(handlers);
   const view = await renderApp({
     me: sampleMe({ breakGlass: options.enabled ?? true }),
@@ -31,7 +34,9 @@ async function openForm(handlers: Record<string, Handler> = {}, options: { enabl
 describe('/break-glass', () => {
   it('renders Not-found unless the server has break-glass configured', async () => {
     await openForm({}, { enabled: false });
-    expect(await screen.findByRole('heading', { level: 1, name: tr('en').t('pages.notFound.title') })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: tr('en').t('pages.notFound.title') }),
+    ).toBeInTheDocument();
     expect(screen.queryByLabelText(tr('en').t('breakglass.form.username'))).toBeNull();
   });
 
@@ -39,14 +44,20 @@ describe('/break-glass', () => {
     it(`shows the form with the red warning in ${language}`, async () => {
       await openForm({}, { language });
       const t = tr(language);
-      expect(await screen.findByRole('heading', { level: 1, name: t.t('breakglass.form.title') })).toBeInTheDocument();
+      expect(
+        await screen.findByRole('heading', { level: 1, name: t.t('breakglass.form.title') }),
+      ).toBeInTheDocument();
       expect(screen.getByLabelText(t.t('breakglass.form.username'))).toBeInTheDocument();
       const password = screen.getByLabelText(t.t('breakglass.form.password'));
       expect(password).toHaveAttribute('type', 'password');
       expect(password).toHaveAttribute('autocomplete', 'off');
-      const warning = screen.getByText(t.t('breakglass.form.warning', { minutes: LIMITS.breakGlass.sessionMinutes }));
+      const warning = screen.getByText(
+        t.t('breakglass.form.warning', { minutes: LIMITS.breakGlass.sessionMinutes }),
+      );
       expect(warning.closest('[data-slot="banner"]')).toHaveAttribute('data-tone', 'danger');
-      expect(screen.getByRole('link', { name: t.t('breakglass.form.normalSignIn') })).toHaveAttribute('href', '/signin');
+      expect(
+        screen.getByRole('link', { name: t.t('breakglass.form.normalSignIn') }),
+      ).toHaveAttribute('href', '/signin');
     });
   }
 
@@ -69,7 +80,10 @@ describe('/break-glass', () => {
     await waitFor(() => {
       expect(moves).toEqual(['assign /settings/restore-access']);
     });
-    expect(mock.callsTo('POST /api/v1/auth/break-glass')[0]?.body).toEqual({ username: 'emergency', password: 'a-throwaway-secret' });
+    expect(mock.callsTo('POST /api/v1/auth/break-glass')[0]?.body).toEqual({
+      username: 'emergency',
+      password: 'a-throwaway-secret',
+    });
     expect(screen.getByLabelText(en.t('breakglass.form.password'))).toHaveValue('');
     expect(document.body.innerHTML).not.toContain('a-throwaway-secret');
   });
@@ -107,7 +121,9 @@ describe('/break-glass', () => {
     await user.type(await screen.findByLabelText(en.t('breakglass.form.username')), 'emergency');
     await user.type(screen.getByLabelText(en.t('breakglass.form.password')), 'x');
     await user.click(screen.getByRole('button', { name: en.t('breakglass.form.submit') }));
-    expect(await screen.findByText(en.t('problem.break_glass_locked', { seconds: 60 }))).toBeInTheDocument();
+    expect(
+      await screen.findByText(en.t('problem.break_glass_locked', { seconds: 60 })),
+    ).toBeInTheDocument();
     await screen.findByText(/You can try again in (59|60) s\./);
     await user.type(screen.getByLabelText(en.t('breakglass.form.password')), 'y');
     expect(screen.getByRole('button', { name: en.t('breakglass.form.submit') })).toBeDisabled();
@@ -115,9 +131,14 @@ describe('/break-glass', () => {
 });
 
 describe('/settings/restore-access', () => {
-  const breakGlassMe = () => sampleMe({ kind: 'break_glass', breakGlass: true, permissions: ['rbac:manage'] });
+  const breakGlassMe = () =>
+    sampleMe({ kind: 'break_glass', breakGlass: true, permissions: ['rbac:manage'] });
 
-  async function openRestore(handlers: Record<string, Handler> = {}, me = breakGlassMe(), language: Locale = 'en') {
+  async function openRestore(
+    handlers: Record<string, Handler> = {},
+    me = breakGlassMe(),
+    language: Locale = 'en',
+  ) {
     const mock = createMockApi(handlers);
     const view = await renderApp({
       me,
@@ -131,21 +152,29 @@ describe('/settings/restore-access', () => {
 
   it('is Not-found for a signed-in Owner', async () => {
     await openRestore({}, sampleSignedInMe({ roles: ['owner'] }));
-    expect(await screen.findByRole('heading', { level: 1, name: tr('en').t('pages.notFound.title') })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: tr('en').t('pages.notFound.title') }),
+    ).toBeInTheDocument();
   });
 
   it('is Not-found for an anonymous visitor too (the gate sends them to sign in first)', async () => {
     await openRestore({}, sampleMe());
-    expect(await screen.findByRole('heading', { level: 1 })).not.toHaveTextContent(tr('en').t('breakglass.restore.title'));
+    expect(await screen.findByRole('heading', { level: 1 })).not.toHaveTextContent(
+      tr('en').t('breakglass.restore.title'),
+    );
   });
 
   for (const language of ['en', 'nl'] as const) {
     it(`offers "restore the Owner" to the break-glass session (${language})`, async () => {
       await openRestore({}, breakGlassMe(), language);
       const t = tr(language);
-      expect(await screen.findByRole('heading', { level: 1, name: t.t('breakglass.restore.title') })).toBeInTheDocument();
+      expect(
+        await screen.findByRole('heading', { level: 1, name: t.t('breakglass.restore.title') }),
+      ).toBeInTheDocument();
       expect(screen.getByLabelText(t.t('breakglass.restore.field'))).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: t.t('breakglass.restore.submit') })).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: t.t('breakglass.restore.submit') }),
+      ).toBeInTheDocument();
     });
   }
 
@@ -164,12 +193,17 @@ describe('/settings/restore-access', () => {
     await user.click(screen.getByRole('button', { name: en.t('breakglass.restore.submit') }));
     expect(await screen.findByText(en.t('breakglass.restore.done'))).toBeInTheDocument();
     expect(mock.callsTo('POST /api/v1/rbac/restore-owner')[0]?.body).toEqual({ userId: OWNER_ID });
-    expect(screen.getByRole('button', { name: en.t('breakglass.restore.signOut') })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: en.t('breakglass.restore.signOut') }),
+    ).toBeInTheDocument();
   });
 
   it('says that the account is disabled', async () => {
     const { user } = await openRestore({
-      'POST /api/v1/rbac/restore-owner': () => problem(422, 'principal_unknown', { errors: [{ pointer: '/userId', code: 'principal_disabled' }] }),
+      'POST /api/v1/rbac/restore-owner': () =>
+        problem(422, 'principal_unknown', {
+          errors: [{ pointer: '/userId', code: 'principal_disabled' }],
+        }),
     });
     const en = tr('en');
     await user.type(await screen.findByLabelText(en.t('breakglass.restore.field')), OWNER_ID);
@@ -192,7 +226,9 @@ describe('/settings/restore-access', () => {
     const { user, mock } = await openRestore({
       'POST /api/v1/rbac/restore-owner': (call) => {
         calls += 1;
-        return (call.body as { confirmUnverified?: boolean }).confirmUnverified === true ? {} : problem(503, 'graph_unavailable');
+        return (call.body as { confirmUnverified?: boolean }).confirmUnverified === true
+          ? {}
+          : problem(503, 'graph_unavailable');
       },
     });
     const en = tr('en');
@@ -202,9 +238,14 @@ describe('/settings/restore-access', () => {
     expect(dialog).toHaveTextContent(en.t('breakglass.restore.unverified.title'));
     expect(dialog).toHaveTextContent(en.t('breakglass.restore.unverified.message'));
     expect(calls).toBe(1);
-    await user.click(screen.getByRole('button', { name: en.t('breakglass.restore.unverified.confirm') }));
+    await user.click(
+      screen.getByRole('button', { name: en.t('breakglass.restore.unverified.confirm') }),
+    );
     expect(await screen.findByText(en.t('breakglass.restore.done'))).toBeInTheDocument();
-    expect(mock.callsTo('POST /api/v1/rbac/restore-owner')[1]?.body).toEqual({ userId: OWNER_ID, confirmUnverified: true });
+    expect(mock.callsTo('POST /api/v1/rbac/restore-owner')[1]?.body).toEqual({
+      userId: OWNER_ID,
+      confirmUnverified: true,
+    });
   });
 
   it('offers no other write: the page holds one form and a sign-out', async () => {

@@ -21,7 +21,13 @@ export interface CertificateCardProps {
  * tone (60 days or fewer is a warning, 14 or fewer critical, over is expired), a pending certificate, and
  * the renewal. Renewing is a repair run: a new certificate next to the old one, tested, then the old one goes.
  */
-export function CertificateCard({ certificate, pending, applicationName, onRenew, busy }: CertificateCardProps) {
+export function CertificateCard({
+  certificate,
+  pending,
+  applicationName,
+  onRenew,
+  busy,
+}: CertificateCardProps) {
   const { t, d } = useLanguage().translator;
   const [confirming, setConfirming] = useState(false);
   const level = certificate.level;
@@ -33,7 +39,9 @@ export function CertificateCard({ certificate, pending, applicationName, onRenew
         <dt className="text-fg-secondary">{t('connection.field.validUntil')}</dt>
         <dd className="text-fg">{d(Date.parse(certificate.notAfter), { dateStyle: 'long' })}</dd>
         <dt className="text-fg-secondary">{t('connection.field.daysLeft')}</dt>
-        <dd className="text-fg">{t('connection.daysLeft', { count: Math.max(0, certificate.daysLeft) })}</dd>
+        <dd className="text-fg">
+          {t('connection.daysLeft', { count: Math.max(0, certificate.daysLeft) })}
+        </dd>
       </dl>
       {level === 'ok' ? (
         <p className="text-body-sm text-fg-secondary">{t('connection.certificate.level.ok')}</p>
@@ -43,7 +51,9 @@ export function CertificateCard({ certificate, pending, applicationName, onRenew
         </Banner>
       )}
       {pending === null ? null : (
-        <p className="text-body-sm text-fg-secondary">{t('connection.certificate.pending', { thumbprint: pending.thumbprintSha1 })}</p>
+        <p className="text-body-sm text-fg-secondary">
+          {t('connection.certificate.pending', { thumbprint: pending.thumbprintSha1 })}
+        </p>
       )}
       {onRenew === undefined ? null : (
         <>

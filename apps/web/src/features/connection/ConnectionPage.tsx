@@ -13,9 +13,20 @@ import { CertificateCard } from './CertificateCard';
 import { ProofList } from './ProofList';
 import { RepairPanel } from './RepairPanel';
 
-function Section({ id, title, children }: { readonly id: string; readonly title: string; readonly children: React.ReactNode }) {
+function Section({
+  id,
+  title,
+  children,
+}: {
+  readonly id: string;
+  readonly title: string;
+  readonly children: React.ReactNode;
+}) {
   return (
-    <section aria-labelledby={id} className="flex flex-col gap-3 rounded-lg border border-line-subtle bg-surface-raised p-4">
+    <section
+      aria-labelledby={id}
+      className="flex flex-col gap-3 rounded-lg border border-line-subtle bg-surface-raised p-4"
+    >
       <h2 id={id} className="text-subtitle font-semibold text-fg">
         {title}
       </h2>
@@ -73,7 +84,11 @@ export function ConnectionPage() {
       ) : (
         <div className="flex flex-col gap-4">
           {data.secrets.status === 'ok' ? null : (
-            <Banner tone="danger" title={t('connection.secretsLabel')} className="rounded-md border border-line-subtle">
+            <Banner
+              tone="danger"
+              title={t('connection.secretsLabel')}
+              className="rounded-md border border-line-subtle"
+            >
               {t(`connection.secrets.${data.secrets.status}`)}
             </Banner>
           )}
@@ -96,7 +111,11 @@ export function ConnectionPage() {
               <dt className="text-fg-secondary">{t('connection.field.appId')}</dt>
               <dd className="break-all font-mono text-body-sm text-fg">{data.application.appId}</dd>
               <dt className="text-fg-secondary">{t('connection.field.exchange')}</dt>
-              <dd className="text-fg">{data.exchange.enabled ? t('connection.exchange.enabled') : t('connection.exchange.disabled')}</dd>
+              <dd className="text-fg">
+                {data.exchange.enabled
+                  ? t('connection.exchange.enabled')
+                  : t('connection.exchange.disabled')}
+              </dd>
               <dt className="text-fg-secondary">{t('connection.field.permissionSet')}</dt>
               <dd className="text-fg">{data.permissionSetVersion}</dd>
               <dt className="text-fg-secondary">{t('connection.field.redirectUris')}</dt>
@@ -123,7 +142,11 @@ export function ConnectionPage() {
           <Section id="connection-proof" title={t('connection.section.proof')}>
             {data.verifiedAt === null ? null : (
               <p className="text-body-sm text-fg-muted">
-                {t('connection.field.verifiedAt')}: {translator.d(Date.parse(data.verifiedAt), { dateStyle: 'medium', timeStyle: 'short' })}
+                {t('connection.field.verifiedAt')}:{' '}
+                {translator.d(Date.parse(data.verifiedAt), {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                })}
               </p>
             )}
             <ProofList proof={data.proof} application={data.application} tenant={data.tenant} />
@@ -133,7 +156,13 @@ export function ConnectionPage() {
               connection={data}
               poll={poll}
               actions={actions}
-              verify={{ run: () => { verify.mutate(); }, pending: verify.isPending, error: verify.error }}
+              verify={{
+                run: () => {
+                  verify.mutate();
+                },
+                pending: verify.isPending,
+                error: verify.error,
+              }}
             />
           </Section>
         </div>

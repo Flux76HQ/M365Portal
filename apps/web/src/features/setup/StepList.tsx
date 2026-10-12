@@ -23,7 +23,8 @@ export function isStepDone(status: StepStatus): boolean {
 export function StepList({ steps, current }: StepListProps) {
   const { t } = useTranslator();
   const position = STEP_KEYS.indexOf(current) + 1;
-  const statusOf = (key: StepKey): StepStatus => steps.find((step) => step.step === key)?.status ?? 'pending';
+  const statusOf = (key: StepKey): StepStatus =>
+    steps.find((step) => step.step === key)?.status ?? 'pending';
   return (
     <nav aria-label={t('setup.stepList.label')} className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">

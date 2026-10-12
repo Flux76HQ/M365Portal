@@ -1,7 +1,13 @@
 // What the session UI needs from the page and nothing else (T-B-298): the store of the session and the
 // location it moves. The page uses the shared store and `window.location`; a test hands in its own through
 // `AuthRuntimeProvider`, so a test never reads another test's deadline and never navigates for real.
-import { createContext, createElement, useContext, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  createContext,
+  createElement,
+  useContext,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import { browserLocation, type BrowserLocation } from '../../lib/auth-nav';
 import { getSessionStore, type SessionSnapshot, type SessionStore } from './session-store';
 

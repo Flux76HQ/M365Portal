@@ -22,7 +22,11 @@ async function build() {
     now: () => clock.nowMs(),
     random: countingRandom(4),
     policy,
-    log: createLogger({ level: 'debug', destination: createLogCapture(), now: () => clock.nowMs() }),
+    log: createLogger({
+      level: 'debug',
+      destination: createLogCapture(),
+      now: () => clock.nowMs(),
+    }),
     config: {
       publicOrigin: 'http://localhost:9300',
       session: { idleTimeoutMs: 30 * 60_000, absoluteTimeoutMs: 8 * 3_600_000 },

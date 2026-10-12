@@ -24,7 +24,10 @@ export function ScopeText({ scope }: ScopeTextProps) {
       case 'id':
         return t('scope.id', { target, id: item.match.id });
       case 'prefix':
-        return t(`scope.prefix.${item.match.attr}` as MessageKey, { target, value: item.match.value });
+        return t(`scope.prefix.${item.match.attr}` as MessageKey, {
+          target,
+          value: item.match.value,
+        });
       case 'department':
         return t('scope.department', { target, value: item.match.value });
     }

@@ -326,7 +326,7 @@ Break-glass is an optional emergency account that can only restore an Owner (the
 herstellen"); it bypasses Conditional Access and MFA by design, so treat its password like a root password.
 
 1. Create the hash from the password on standard input:
-   `docker run --rm -i <image> dist/cli.js hash-password`. The command refuses a password shorter than
+   `docker run --rm -it <image> dist/cli.js hash-password` (with `-it`, so that the terminal does not echo the password). The command refuses a password shorter than
    14 characters.
 2. Set `BREAK_GLASS_USERNAME` and `BREAK_GLASS_PASSWORD_HASH` (both, or neither) and recreate the container.
    The hash line contains no `$`, so Compose and shells leave it alone.

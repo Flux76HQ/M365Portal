@@ -85,7 +85,11 @@ export function BreakGlassForm() {
         submit();
       }}
     >
-      <Banner tone="danger" title={t('breakglass.form.warningLabel')} className="rounded-md border border-line-subtle">
+      <Banner
+        tone="danger"
+        title={t('breakglass.form.warningLabel')}
+        className="rounded-md border border-line-subtle"
+      >
         {t('breakglass.form.warning', { minutes: LIMITS.breakGlass.sessionMinutes })}
       </Banner>
       {errorText === null ? null : (
@@ -99,7 +103,10 @@ export function BreakGlassForm() {
         </div>
       )}
       <LockNote until={lockedUntil} />
-      <FormField label={t('breakglass.form.username')} {...(missing.username ? { error: t('breakglass.form.required') } : {})}>
+      <FormField
+        label={t('breakglass.form.username')}
+        {...(missing.username ? { error: t('breakglass.form.required') } : {})}
+      >
         {(control) => (
           <Input
             {...control}
@@ -114,7 +121,10 @@ export function BreakGlassForm() {
           />
         )}
       </FormField>
-      <FormField label={t('breakglass.form.password')} {...(missing.password ? { error: t('breakglass.form.required') } : {})}>
+      <FormField
+        label={t('breakglass.form.password')}
+        {...(missing.password ? { error: t('breakglass.form.required') } : {})}
+      >
         {(control) => (
           <Input
             {...control}
@@ -132,7 +142,10 @@ export function BreakGlassForm() {
         <Button type="submit" variant="primary" disabled={locked || signIn.isPending}>
           {signIn.isPending ? t('breakglass.form.submitting') : t('breakglass.form.submit')}
         </Button>
-        <Link to="/signin" className="inline-flex min-h-target items-center rounded-sm text-accent-text underline underline-offset-4 hover:bg-accent-subtle">
+        <Link
+          to="/signin"
+          className="inline-flex min-h-target items-center rounded-sm text-accent-text underline underline-offset-4 hover:bg-accent-subtle"
+        >
           {t('breakglass.form.normalSignIn')}
         </Link>
       </div>

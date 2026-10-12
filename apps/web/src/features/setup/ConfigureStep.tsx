@@ -38,7 +38,8 @@ export function ConfigureStep({ context, focus }: StepProps) {
   const signInAgain = (): void => {
     actions.start({ ...FULL, steps: [...FULL.steps] });
   };
-  const notReady = actions.error instanceof ApiError && actions.error.code === 'setup_step_not_ready';
+  const notReady =
+    actions.error instanceof ApiError && actions.error.code === 'setup_step_not_ready';
 
   const recovery = (
     <div className="flex flex-wrap gap-2">
@@ -64,9 +65,17 @@ export function ConfigureStep({ context, focus }: StepProps) {
   };
 
   return (
-    <StepFrame step="configure" context={context} focus={focus} title={t('setup.configure.title')} recovery={recovery}>
+    <StepFrame
+      step="configure"
+      context={context}
+      focus={focus}
+      title={t('setup.configure.title')}
+      recovery={recovery}
+    >
       {connect.status === 'succeeded' && step.status !== 'failed' ? (
-        <p role="status" className="text-body text-fg-secondary">{t('setup.connect.signedIn')}</p>
+        <p role="status" className="text-body text-fg-secondary">
+          {t('setup.connect.signedIn')}
+        </p>
       ) : null}
       {renaming ? (
         <form
@@ -93,7 +102,12 @@ export function ConfigureStep({ context, focus }: StepProps) {
               />
             )}
           </FormField>
-          <Button type="submit" variant="primary" className="self-start" disabled={active || actions.busy}>
+          <Button
+            type="submit"
+            variant="primary"
+            className="self-start"
+            disabled={active || actions.busy}
+          >
             {t('setup.connect.start')}
           </Button>
         </form>
@@ -102,7 +116,12 @@ export function ConfigureStep({ context, focus }: StepProps) {
           prompt={adoption}
           busy={actions.busy}
           onAdopt={(acknowledgeForeign) => {
-            actions.adopt({ kind: 'application', objectId: adoption.candidate.objectId, confirm: true, acknowledgeForeign });
+            actions.adopt({
+              kind: 'application',
+              objectId: adoption.candidate.objectId,
+              confirm: true,
+              acknowledgeForeign,
+            });
           }}
           onDecline={() => {
             actions.cancel();
@@ -115,7 +134,10 @@ export function ConfigureStep({ context, focus }: StepProps) {
           {t('setup.continue')}
         </Button>
       ) : null}
-      <RollbackHints steps={context.steps} applicationObjectId={context.state.application?.objectId ?? null} />
+      <RollbackHints
+        steps={context.steps}
+        applicationObjectId={context.state.application?.objectId ?? null}
+      />
     </StepFrame>
   );
 }

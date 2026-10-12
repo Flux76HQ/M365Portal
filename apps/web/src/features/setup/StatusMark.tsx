@@ -37,7 +37,10 @@ export function StatusMark({ status, compact = false, className }: StatusMarkPro
   const { t } = useTranslator();
   const { Icon, tone } = MARKS[status];
   return (
-    <span data-status={status} className={cn('inline-flex min-h-6 items-center gap-1.5', className)}>
+    <span
+      data-status={status}
+      className={cn('inline-flex min-h-6 items-center gap-1.5', className)}
+    >
       <Icon aria-hidden="true" className={cn('size-4 shrink-0', tone)} />
       <span className={cn('text-body-sm font-medium text-fg', compact && 'sr-only')}>
         {t(`setup.status.${status}`)}

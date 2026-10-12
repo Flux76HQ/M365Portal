@@ -259,7 +259,10 @@ export type CommandActor = Pick<MeResponse, 'permissions' | 'features'> & {
 
 function isVisible(command: Command, me: CommandActor): boolean {
   if (command.feature !== undefined && !me.features[command.feature]) return false;
-  if (command.actorKinds !== undefined && !(me.actor !== undefined && command.actorKinds.includes(me.actor.kind))) {
+  if (
+    command.actorKinds !== undefined &&
+    !(me.actor !== undefined && command.actorKinds.includes(me.actor.kind))
+  ) {
     return false;
   }
   return command.anyOf === undefined || hasAccess(me, command.anyOf);

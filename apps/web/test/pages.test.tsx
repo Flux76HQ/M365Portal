@@ -28,7 +28,10 @@ describe('the Settings overview', () => {
     ).toBeInTheDocument();
     const list = within(main).getByRole('list', { name: en.t('pages.settings.list') });
     const links = within(list).getAllByRole('link');
-    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/settings/appearance', '/settings/access']);
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/settings/appearance',
+      '/settings/access',
+    ]);
     expect(links[0]).toHaveAccessibleName(new RegExp(en.t('nav.appearance')));
     expect(links[1]).toHaveAccessibleName(new RegExp(en.t('nav.access')));
     expect(within(main).getByText(en.t('pages.settings.later'))).toBeInTheDocument();
@@ -42,7 +45,10 @@ describe('the Settings overview', () => {
       await within(main).findByRole('heading', { level: 1, name: en.t('pages.settings.title') }),
     ).toBeInTheDocument();
     const links = within(main).getAllByRole('link');
-    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/settings/connection', '/settings/access']);
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/settings/connection',
+      '/settings/access',
+    ]);
     expect(within(main).getByText(en.t('pages.settings.later'))).toBeInTheDocument();
   });
 
@@ -52,7 +58,11 @@ describe('the Settings overview', () => {
     expect(
       await within(main).findByRole('heading', { level: 1, name: en.t('pages.settings.title') }),
     ).toBeInTheDocument();
-    expect(within(main).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(['/settings/access']);
+    expect(
+      within(main)
+        .getAllByRole('link')
+        .map((link) => link.getAttribute('href')),
+    ).toEqual(['/settings/access']);
   });
 
   it('is in Dutch when the page is Dutch', async () => {

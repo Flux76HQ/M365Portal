@@ -99,7 +99,9 @@ describe('step 1, the environment', () => {
     const en = tr('en');
     await screen.findByText(en.t('setup.environment.blocking'));
     expect(screen.queryByRole('button', { name: en.t('setup.continue') })).toBeNull();
-    const rows = within(document.querySelector<HTMLElement>('[data-step-panel="environment"]')!).getAllByRole('listitem');
+    const rows = within(
+      document.querySelector<HTMLElement>('[data-step-panel="environment"]')!,
+    ).getAllByRole('listitem');
     expect(rows[1]).toHaveTextContent(en.t('setup.check.fail'));
     expect(rows[1]).toHaveTextContent(en.t('setup.remedy.data_dir_not_writable'));
     await view.user.click(screen.getByRole('button', { name: en.t('setup.environment.recheck') }));
@@ -109,7 +111,9 @@ describe('step 1, the environment', () => {
   });
 
   it('shows a failed run of the checks with a way to try again', async () => {
-    const mock = api(stepsOf(), { 'POST /api/v1/setup/environment': () => problem(503, 'storage_unavailable') });
+    const mock = api(stepsOf(), {
+      'POST /api/v1/setup/environment': () => problem(503, 'storage_unavailable'),
+    });
     const view = await open(mock);
     const en = tr('en');
     expect(await screen.findByRole('alert')).toHaveTextContent(en.t('problem.storage_unavailable'));
@@ -122,9 +126,13 @@ describe('step 1, the environment', () => {
   it('is in Dutch', async () => {
     await open(api(), 'nl');
     const nl = tr('nl');
-    expect(await screen.findByRole('heading', { level: 2, name: nl.t('setup.environment.title') })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 2, name: nl.t('setup.environment.title') }),
+    ).toBeInTheDocument();
     expect(await screen.findByText(nl.t('setup.environment.allOk'))).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: nl.t('setup.environment.recheck') })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: nl.t('setup.environment.recheck') }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -185,7 +193,9 @@ describe('step 2, connect', () => {
   });
 
   it('shows why a start was refused, in words', async () => {
-    const mock = api(ready(), { 'POST /api/v1/connection/runs': () => problem(409, 'setup_step_busy') });
+    const mock = api(ready(), {
+      'POST /api/v1/connection/runs': () => problem(409, 'setup_step_busy'),
+    });
     const view = await toConnect(mock);
     const en = tr('en');
     await view.user.click(screen.getByRole('button', { name: en.t('setup.connect.start') }));
@@ -194,20 +204,24 @@ describe('step 2, connect', () => {
 
   it('shows the device-code panel from the snapshot, with the code as text and the instruction', async () => {
     const steps = stepsOf({ environment: 'succeeded', connect: 'running' });
-    const mock = api(steps, {}, {
-      snapshot: sampleSnapshot({
-        steps,
-        serverTime: new Date().toISOString(),
-        run: sampleRunStatus(),
-        deviceCode: {
-          userCode: 'AB12-CD34',
-          verificationUri: 'https://microsoft.com/devicelogin',
-          expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
-          intervalSeconds: 5,
-          state: 'waiting_for_user',
-        },
-      }),
-    });
+    const mock = api(
+      steps,
+      {},
+      {
+        snapshot: sampleSnapshot({
+          steps,
+          serverTime: new Date().toISOString(),
+          run: sampleRunStatus(),
+          deviceCode: {
+            userCode: 'AB12-CD34',
+            verificationUri: 'https://microsoft.com/devicelogin',
+            expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+            intervalSeconds: 5,
+            state: 'waiting_for_user',
+          },
+        }),
+      },
+    );
     const view = await toConnect(mock);
     const en = tr('en');
     const panel = await screen.findByRole('region', { name: en.t('setup.device.title') });
@@ -219,7 +233,9 @@ describe('step 2, connect', () => {
     expect(link).toHaveAttribute('href', 'https://microsoft.com/devicelogin');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     expect(link).toHaveAttribute('target', '_blank');
-    mock.on('POST /api/v1/connection/runs/current/cancel', () => sampleRunStatus({ cancelRequested: true }));
+    mock.on('POST /api/v1/connection/runs/current/cancel', () =>
+      sampleRunStatus({ cancelRequested: true }),
+    );
     await view.user.click(within(panel).getByRole('button', { name: en.t('setup.device.cancel') }));
     await waitFor(() => {
       expect(mock.callsTo('POST /api/v1/connection/runs/current/cancel')).toHaveLength(1);
@@ -239,10 +255,14 @@ describe('step 2, connect', () => {
     expect(alert).toHaveTextContent(en.t('setup.result.device_code_blocked'));
     expect(screen.queryByLabelText(/client id/i)).toBeNull();
     await view.user.click(screen.getByRole('button', { name: en.t('setup.connect.manualLink') }));
-    expect(await screen.findByRole('heading', { level: 3, name: en.t('setup.manual.title') })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 3, name: en.t('setup.manual.title') }),
+    ).toBeInTheDocument();
     // Back to the automatic way.
     await view.user.click(screen.getByRole('button', { name: en.t('setup.back') }));
-    expect(await screen.findByRole('button', { name: en.t('setup.connect.start') })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: en.t('setup.connect.start') }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -277,7 +297,10 @@ describe('the device-code panel (a closed set of links)', () => {
     'https://login.microsoftonline.com/common/oauth2/deviceauth',
   ])('renders a link for %s', (uri) => {
     panel(uri);
-    expect(screen.getByRole('link', { name: /Open the Microsoft sign-in page/ })).toHaveAttribute('href', uri);
+    expect(screen.getByRole('link', { name: /Open the Microsoft sign-in page/ })).toHaveAttribute(
+      'href',
+      uri,
+    );
   });
 
   it.each([
@@ -300,7 +323,12 @@ describe('the device-code panel (a closed set of links)', () => {
     const written: string[] = [];
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
-      value: { writeText: (text: string) => { written.push(text); return Promise.resolve(); } },
+      value: {
+        writeText: (text: string) => {
+          written.push(text);
+          return Promise.resolve();
+        },
+      },
     });
     panel('https://microsoft.com/devicelogin');
     const en = tr('en');
@@ -325,14 +353,22 @@ describe('the device-code panel (a closed set of links)', () => {
       const { unmount } = render(
         <LanguageProvider controller={controller}>
           <DeviceCodePanel
-            panel={{ userCode: 'AB12-CD34', verificationUri: null, expiresAt: new Date(Date.now()).toISOString(), intervalSeconds: 5, state }}
+            panel={{
+              userCode: 'AB12-CD34',
+              verificationUri: null,
+              expiresAt: new Date(Date.now()).toISOString(),
+              intervalSeconds: 5,
+              state,
+            }}
             offsetMs={0}
             busy={false}
             onCancel={() => undefined}
           />
         </LanguageProvider>,
       );
-      expect(screen.getByRole('status')).toHaveTextContent(tr('en').t(`setup.deviceState.${state}`));
+      expect(screen.getByRole('status')).toHaveTextContent(
+        tr('en').t(`setup.deviceState.${state}`),
+      );
       unmount();
     }
   });
@@ -345,7 +381,9 @@ describe('manual mode', () => {
     const view = await open(mock, language);
     const t = tr(language);
     await view.user.click(await screen.findByRole('button', { name: t.t('setup.continue') }));
-    await view.user.click(await screen.findByRole('button', { name: t.t('setup.connect.manualLink') }));
+    await view.user.click(
+      await screen.findByRole('button', { name: t.t('setup.connect.manualLink') }),
+    );
     await screen.findByRole('heading', { level: 3, name: t.t('setup.manual.title') });
     return view;
   }
@@ -359,12 +397,18 @@ describe('manual mode', () => {
     const tags = within(checklist).getByText(en.t('setup.manual.item.tags')).closest('li');
     expect(tags?.textContent).toContain('m365portal');
     expect(tags?.textContent).toContain(installTag);
-    const description = within(checklist).getByText(en.t('setup.manual.item.description')).closest('li');
-    expect(description?.textContent).toContain('Created by the M365Portal setup wizard (install 1234abcd)');
+    const description = within(checklist)
+      .getByText(en.t('setup.manual.item.description'))
+      .closest('li');
+    expect(description?.textContent).toContain(
+      'Created by the M365Portal setup wizard (install 1234abcd)',
+    );
     // The placeholder install id of the old checklist is gone.
     expect(checklist.textContent).not.toContain('0'.repeat(32));
     expect(tr('nl').t('setup.manual.item.tags')).not.toBe(en.t('setup.manual.item.tags'));
-    expect(tr('nl').t('setup.manual.item.description')).not.toBe(en.t('setup.manual.item.description'));
+    expect(tr('nl').t('setup.manual.item.description')).not.toBe(
+      en.t('setup.manual.item.description'),
+    );
   });
 
   it('shows the checklist built from the desired state, the certificate download and three inputs', async () => {
@@ -376,20 +420,30 @@ describe('manual mode', () => {
     expect(text).toContain(en.t('setup.manual.item.name'));
     expect(text).toContain('M365Portal');
     expect(text).toContain('https://panel.example.com/auth/callback');
-    for (const role of ['User.Read.All', 'GroupMember.Read.All', 'GroupMember.ReadWrite.All', 'Organization.Read.All', 'Exchange.ManageAsApp']) {
+    for (const role of [
+      'User.Read.All',
+      'GroupMember.Read.All',
+      'GroupMember.ReadWrite.All',
+      'Organization.Read.All',
+      'Exchange.ManageAsApp',
+    ]) {
       expect(text).toContain(role);
     }
     expect(text).toContain('amr');
     expect(text).toContain('auth_time');
     // A role the product never grants is not in the list.
     expect(text).not.toContain('Application.ReadWrite.All');
-    const download = within(section).getByRole('link', { name: en.t('setup.manual.downloadCertificate') });
+    const download = within(section).getByRole('link', {
+      name: en.t('setup.manual.downloadCertificate'),
+    });
     expect(download).toHaveAttribute('href', '/api/v1/setup/certificate.cer');
     expect(download).toHaveAttribute('download');
     expect(within(section).getByLabelText(en.t('setup.manual.field.clientId'))).toBeInTheDocument();
     expect(within(section).getByLabelText(en.t('setup.manual.field.tenantId'))).toBeInTheDocument();
     expect(within(section).getByLabelText(en.t('setup.manual.field.owner'))).toBeInTheDocument();
-    const links = within(section).getAllByRole('link').filter((link) => link !== download);
+    const links = within(section)
+      .getAllByRole('link')
+      .filter((link) => link !== download);
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) {
       expect(link.getAttribute('href')).toMatch(/^https:\/\/learn\.microsoft\.com\//);
@@ -407,7 +461,10 @@ describe('manual mode', () => {
     await view.user.click(screen.getByRole('button', { name: en.t('setup.manual.submit') }));
     expect((await screen.findAllByText(en.t('setup.manual.field.invalidGuid'))).length).toBe(1);
     expect(screen.getByText(en.t('setup.manual.field.invalidOwner'))).toBeInTheDocument();
-    expect(screen.getByLabelText(en.t('setup.manual.field.clientId'))).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText(en.t('setup.manual.field.clientId'))).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
     expect(mock.callsTo('PUT /api/v1/setup/manual')).toHaveLength(0);
   });
 
@@ -439,13 +496,18 @@ describe('manual mode', () => {
         tenantId: TENANT_ID,
         firstOwner: expected,
       });
-      expect(mock.callsTo('POST /api/v1/connection/runs')[0]?.body).toEqual({ steps: ['verify'], mode: 'continue' });
+      expect(mock.callsTo('POST /api/v1/connection/runs')[0]?.body).toEqual({
+        steps: ['verify'],
+        mode: 'continue',
+      });
       document.body.innerHTML = '';
     }
   });
 
   it('shows a refused hand-over in words and keeps the values', async () => {
-    const mock = api(ready(), { 'PUT /api/v1/setup/manual': () => problem(422, 'principal_unknown') });
+    const mock = api(ready(), {
+      'PUT /api/v1/setup/manual': () => problem(422, 'principal_unknown'),
+    });
     const view = await toManual(mock);
     const en = tr('en');
     await view.user.type(screen.getByLabelText(en.t('setup.manual.field.clientId')), APP_ID);
@@ -457,11 +519,33 @@ describe('manual mode', () => {
   });
 
   it('ManualFormSchema is derived from the request schema: the same GUID rule, one owner text', () => {
-    const ok = ManualFormSchema.safeParse({ applicationClientId: APP_ID, tenantId: TENANT_ID, firstOwner: 'anna@contoso.com' });
+    const ok = ManualFormSchema.safeParse({
+      applicationClientId: APP_ID,
+      tenantId: TENANT_ID,
+      firstOwner: 'anna@contoso.com',
+    });
     expect(ok.success).toBe(true);
-    expect(ManualFormSchema.safeParse({ applicationClientId: 'x', tenantId: TENANT_ID, firstOwner: 'anna@contoso.com' }).success).toBe(false);
-    expect(ManualFormSchema.safeParse({ applicationClientId: APP_ID, tenantId: TENANT_ID, firstOwner: 'a' }).success).toBe(false);
-    expect(ManualFormSchema.safeParse({ applicationClientId: APP_ID, tenantId: TENANT_ID, firstOwner: 'a\u0000b@c.d' }).success).toBe(false);
+    expect(
+      ManualFormSchema.safeParse({
+        applicationClientId: 'x',
+        tenantId: TENANT_ID,
+        firstOwner: 'anna@contoso.com',
+      }).success,
+    ).toBe(false);
+    expect(
+      ManualFormSchema.safeParse({
+        applicationClientId: APP_ID,
+        tenantId: TENANT_ID,
+        firstOwner: 'a',
+      }).success,
+    ).toBe(false);
+    expect(
+      ManualFormSchema.safeParse({
+        applicationClientId: APP_ID,
+        tenantId: TENANT_ID,
+        firstOwner: 'a\u0000b@c.d',
+      }).success,
+    ).toBe(false);
   });
 
   it('is in Dutch', async () => {

@@ -139,7 +139,9 @@ export function getLanguageController(): LanguageController {
     // The browser's list goes through detectLocale at once (the guard wants every read of
     // navigator.languages handed to it), together with the default language the setup stored, which
     // counts only when the list names neither nl nor en; detecting an already detected tag gives the same tag.
-    languages: [detectLocale(typeof navigator === 'undefined' ? [] : navigator.languages, storedDefault)],
+    languages: [
+      detectLocale(typeof navigator === 'undefined' ? [] : navigator.languages, storedDefault),
+    ],
     root: document.documentElement,
   });
   return shared;

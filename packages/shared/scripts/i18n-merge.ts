@@ -303,7 +303,9 @@ export function mergeAllFragments(files: FragmentFiles): MergeResult {
   const inNamespace = (key: string, namespace: string): boolean => key.startsWith(`${namespace}.`);
   const entry = perLanguage((language) =>
     sorted(
-      new Map([...merged[language]].filter(([key]) => !LAZY_NAMESPACES.some((n) => inNamespace(key, n)))),
+      new Map(
+        [...merged[language]].filter(([key]) => !LAZY_NAMESPACES.some((n) => inNamespace(key, n))),
+      ),
     ),
   );
   const lazy = Object.fromEntries(

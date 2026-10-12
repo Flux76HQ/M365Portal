@@ -56,9 +56,15 @@ export function RestoreAccessPage() {
 
   return (
     <>
-      <PageHeader title={t('breakglass.restore.title')} description={t('breakglass.restore.lead')} />
+      <PageHeader
+        title={t('breakglass.restore.title')}
+        description={t('breakglass.restore.lead')}
+      />
       {restore.isSuccess ? (
-        <div role="status" className="flex max-w-xl flex-col gap-3 rounded-lg border border-s-4 border-line-subtle border-s-success bg-surface-raised p-4">
+        <div
+          role="status"
+          className="flex max-w-xl flex-col gap-3 rounded-lg border border-s-4 border-line-subtle border-s-success bg-surface-raised p-4"
+        >
           <p className="text-body text-fg">{t('breakglass.restore.done')}</p>
           <Button
             variant="primary"
@@ -98,12 +104,22 @@ export function RestoreAccessPage() {
             )}
           </FormField>
           {showError ? (
-            <div role="alert" className="rounded-md border border-s-4 border-line-subtle border-s-danger bg-surface-raised p-3 text-body text-fg">
+            <div
+              role="alert"
+              className="rounded-md border border-s-4 border-line-subtle border-s-danger bg-surface-raised p-3 text-body text-fg"
+            >
               {errorText(translator, restore.error, me.publicOrigin)}
             </div>
           ) : null}
-          <Button type="submit" variant="primary" className="self-start" disabled={restore.isPending}>
-            {restore.isPending ? t('breakglass.restore.submitting') : t('breakglass.restore.submit')}
+          <Button
+            type="submit"
+            variant="primary"
+            className="self-start"
+            disabled={restore.isPending}
+          >
+            {restore.isPending
+              ? t('breakglass.restore.submitting')
+              : t('breakglass.restore.submit')}
           </Button>
         </form>
       )}

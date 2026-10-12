@@ -7,7 +7,11 @@
 // placeholder in curly braces.
 import { errorDetailMessageKey } from '@m365portal/shared/i18n/detail-codes';
 import type { MessageKey, Translator } from '@m365portal/shared/i18n';
-import { EXCHANGE_APP_ROLES, GRAPH_APP_ROLES, isExchangeRoleKey } from '@m365portal/shared/setup/graph-roles';
+import {
+  EXCHANGE_APP_ROLES,
+  GRAPH_APP_ROLES,
+  isExchangeRoleKey,
+} from '@m365portal/shared/setup/graph-roles';
 import { isResultCode } from '@m365portal/shared/setup/result-codes';
 import { ApiError } from '../../lib/api';
 import { messageForError } from '../../lib/problem';
@@ -96,7 +100,11 @@ export function resultText(translator: Translator, code: string): ResultText {
  * message of its own (`owner_changed`, `principal_disabled`, `privileged_role_group`), that message; otherwise
  * the message of the problem code. Never the server's text.
  */
-export function errorText(translator: Translator, error: unknown, publicOrigin: string | null): string {
+export function errorText(
+  translator: Translator,
+  error: unknown,
+  publicOrigin: string | null,
+): string {
   if (error instanceof ApiError) {
     for (const detail of error.errors) {
       const key = errorDetailMessageKey(detail.code);

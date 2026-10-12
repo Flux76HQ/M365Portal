@@ -8,7 +8,11 @@ function Countdown({ untilMs }: { readonly untilMs: number }) {
   const { t } = useTranslator();
   const seconds = useSecondsLeft(untilMs);
   // `role="timer"` is not announced on every tick, so the banner (a polite status) stays quiet.
-  return <span role="timer">{t('session.breakGlass.remaining', { time: formatCountdown(seconds) })}</span>;
+  return (
+    <span role="timer">
+      {t('session.breakGlass.remaining', { time: formatCountdown(seconds) })}
+    </span>
+  );
 }
 
 /**

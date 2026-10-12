@@ -129,7 +129,18 @@ describe('detectLocale: the stored default language is a second argument, used o
   });
 
   it('ignores a stored default that is not a supported language, so storage cannot smuggle anything in', () => {
-    const storedValues: unknown[] = ['de', 'NL', 'nl-BE', '', ' nl', 'constructor', 42, null, undefined, {}];
+    const storedValues: unknown[] = [
+      'de',
+      'NL',
+      'nl-BE',
+      '',
+      ' nl',
+      'constructor',
+      42,
+      null,
+      undefined,
+      {},
+    ];
     for (const [index, stored] of storedValues.entries()) {
       expect(detectLocale(['de-DE'], stored), `stored default number ${String(index)}`).toBe('en');
     }
@@ -707,14 +718,17 @@ describe('loadNamespace: lazy namespace catalogues (FR-B-604, AM-21, CB15)', () 
     ]);
   });
 
-  it.each(LAZY_NAMESPACES.flatMap((namespace) => LOCALES.map((locale) => [namespace, locale] as const)))(
+  it.each(
+    LAZY_NAMESPACES.flatMap((namespace) => LOCALES.map((locale) => [namespace, locale] as const)),
+  )(
     'loads %s in %s from locales/lazy/<namespace>.<locale>.json, every key in its own namespace',
     async (namespace, locale) => {
       const loaded = await loadNamespace(locale, namespace);
       const expected = lazyFile(locale, namespace);
       expect(Object.keys(expected).length).toBeGreaterThan(0);
       expect({ ...loaded }).toEqual(expected);
-      for (const key of Object.keys(loaded)) expect(key.startsWith(`${namespace}.`), key).toBe(true);
+      for (const key of Object.keys(loaded))
+        expect(key.startsWith(`${namespace}.`), key).toBe(true);
     },
   );
 
@@ -751,7 +765,9 @@ describe('loadNamespace: lazy namespace catalogues (FR-B-604, AM-21, CB15)', () 
   it('makes the messages available to a translator, also one made before the load', async () => {
     const dutch = createTranslator('nl');
     await loadNamespace('nl', 'setup');
-    expect(dutch.t('setup.step.environment')).toBe(lazyFile('nl', 'setup')['setup.step.environment']);
+    expect(dutch.t('setup.step.environment')).toBe(
+      lazyFile('nl', 'setup')['setup.step.environment'],
+    );
     expect(createTranslator('nl').t('setup.step.finish')).toBe(
       lazyFile('nl', 'setup')['setup.step.finish'],
     );

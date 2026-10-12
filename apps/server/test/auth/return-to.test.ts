@@ -82,7 +82,8 @@ describe('negative control', () => {
         if (out !== '/' || safeReturnTo(attack) !== '/') {
           if (out !== safeReturnTo(attack)) throw new Error(`reflected ${JSON.stringify(attack)}`);
         }
-        if (out.startsWith('//') || out.includes('\\')) throw new Error('reflected an open redirect');
+        if (out.startsWith('//') || out.includes('\\'))
+          throw new Error('reflected an open redirect');
       }
     }
     assertAttackList(safeReturnTo);

@@ -8,7 +8,10 @@ import { callbackRoute } from './callback.js';
 import { loggedOutRoute, loginRoute } from './login.js';
 import { logoutAllRoute, logoutRoute } from './logout.js';
 
-export function authRoutes(ctx: AuthContext, breakGlass: BreakGlassAttempts | undefined): RouteDefinition[] {
+export function authRoutes(
+  ctx: AuthContext,
+  breakGlass: BreakGlassAttempts | undefined,
+): RouteDefinition[] {
   return [
     loginRoute(ctx),
     callbackRoute(ctx),

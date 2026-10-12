@@ -9,7 +9,10 @@ const TONES = {
   danger: { Icon: CircleAlertIcon, iconClass: 'text-danger', barClass: 'border-s-danger' },
 } as const;
 
-export interface BannerProps extends Omit<ComponentProps<'div'>, 'title' | 'role' | 'children' | 'className'> {
+export interface BannerProps extends Omit<
+  ComponentProps<'div'>,
+  'title' | 'role' | 'children' | 'className'
+> {
   readonly tone: keyof typeof TONES;
   /** A short heading above the message. */
   readonly title?: string;

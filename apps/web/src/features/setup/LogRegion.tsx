@@ -39,7 +39,8 @@ export function LogRegion({ lines, truncated = false, className }: LogRegionProp
   const onScroll = useCallback(() => {
     const element = scroller.current;
     if (element === null) return;
-    const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight <= BOTTOM_SLACK_PX;
+    const atBottom =
+      element.scrollHeight - element.scrollTop - element.clientHeight <= BOTTOM_SLACK_PX;
     pinned.current = atBottom;
     setBehind(!atBottom);
   }, []);
@@ -59,7 +60,9 @@ export function LogRegion({ lines, truncated = false, className }: LogRegionProp
 
   return (
     <div className={cn('flex flex-col gap-2', className)} data-slot="log-region">
-      {truncated ? <p className="text-body-sm text-fg-muted">{t('setup.logRegion.truncated')}</p> : null}
+      {truncated ? (
+        <p className="text-body-sm text-fg-muted">{t('setup.logRegion.truncated')}</p>
+      ) : null}
       <div
         ref={scroller}
         role="log"
@@ -80,7 +83,11 @@ export function LogRegion({ lines, truncated = false, className }: LogRegionProp
               return (
                 <li key={line.seq} data-level={line.level} className="flex items-start gap-2">
                   <time dateTime={line.ts} className="shrink-0 tabular-nums text-fg-muted">
-                    {d(Date.parse(line.ts), { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    {d(Date.parse(line.ts), {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })}
                   </time>
                   <Icon aria-hidden="true" className={cn('mt-0.5 size-3.5 shrink-0', tone)} />
                   <span className="sr-only">{t(`setup.logLevel.${line.level}`)}: </span>

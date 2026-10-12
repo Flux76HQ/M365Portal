@@ -85,7 +85,9 @@ export default defineConfig([
     // (axe `scrollable-region-focusable`, WCAG 2.1.1), so those roles may carry `tabIndex`; every other
     // non-interactive element may not.
     files: ['apps/web/**/*.{tsx,jsx}'],
-    rules: { 'jsx-a11y/no-noninteractive-tabindex': ['error', { roles: ['log', 'region'], tags: [] }] },
+    rules: {
+      'jsx-a11y/no-noninteractive-tabindex': ['error', { roles: ['log', 'region'], tags: [] }],
+    },
   },
 
   {

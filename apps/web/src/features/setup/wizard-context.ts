@@ -3,12 +3,7 @@
 // the server a moment ago.
 import type { ApiClient } from '../../lib/api';
 import type { RunPollState } from './useRunPolling';
-import type {
-  AdoptRequest,
-  SetupStateResponse,
-  StartRunRequest,
-  StepState,
-} from './setup-api';
+import type { AdoptRequest, SetupStateResponse, StartRunRequest, StepState } from './setup-api';
 
 export interface WizardActions {
   readonly start: (request: StartRunRequest) => void;

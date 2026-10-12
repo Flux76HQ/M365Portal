@@ -72,8 +72,12 @@ describe('LogRegion', () => {
       expect(items[0]).toHaveTextContent(
         t.t('setup.log.created', { kind: t.t('setup.kind.application'), name: 'M365Portal' }),
       );
-      expect(items[1]).toHaveTextContent(t.t('setup.log.step_started', { step: t.t('setup.step.configure') }));
-      expect(items[2]).toHaveTextContent(t.t('setup.log.waiting_replication', { attempt: 2, max: 6, seconds: 8 }));
+      expect(items[1]).toHaveTextContent(
+        t.t('setup.log.step_started', { step: t.t('setup.step.configure') }),
+      );
+      expect(items[2]).toHaveTextContent(
+        t.t('setup.log.waiting_replication', { attempt: 2, max: 6, seconds: 8 }),
+      );
       expect(items[3]).toHaveTextContent(t.t('setup.result.graph_error'));
       // The level is in words too, not colour alone.
       expect(items[2]).toHaveTextContent(t.t('setup.logLevel.warn'));
@@ -83,7 +87,12 @@ describe('LogRegion', () => {
   }
 
   it('never shows a raw key for text the server could have written', () => {
-    render(inLanguage('en', <LogRegion lines={[logLine(1, 'setup.log.read', { what: 'organization' })]} />));
+    render(
+      inLanguage(
+        'en',
+        <LogRegion lines={[logLine(1, 'setup.log.read', { what: 'organization' })]} />,
+      ),
+    );
     const item = screen.getByRole('listitem');
     expect(item.textContent).not.toContain('setup.log.');
     expect(item).toHaveTextContent('Read from Microsoft: organization.');
@@ -91,12 +100,17 @@ describe('LogRegion', () => {
 
   describe('auto-scroll', () => {
     function geometry(element: HTMLElement, height: { value: number }) {
-      Object.defineProperty(element, 'scrollHeight', { configurable: true, get: () => height.value });
+      Object.defineProperty(element, 'scrollHeight', {
+        configurable: true,
+        get: () => height.value,
+      });
       Object.defineProperty(element, 'clientHeight', { configurable: true, get: () => 200 });
     }
 
     const many = (count: number) =>
-      Array.from({ length: count }, (_, index) => logLine(index + 1, 'setup.log.unchanged', { kind: 'application' }));
+      Array.from({ length: count }, (_, index) =>
+        logLine(index + 1, 'setup.log.unchanged', { kind: 'application' }),
+      );
 
     it('follows the newest line while at the bottom, and stops when the person scrolls up', () => {
       const height = { value: 1000 };
@@ -121,7 +135,9 @@ describe('LogRegion', () => {
       // The button brings the newest line back and the log follows again.
       fireEvent.click(jump);
       expect(log.scrollTop).toBe(1200);
-      expect(screen.queryByRole('button', { name: tr('en').t('setup.logRegion.toBottom') })).toBeNull();
+      expect(
+        screen.queryByRole('button', { name: tr('en').t('setup.logRegion.toBottom') }),
+      ).toBeNull();
       height.value = 1300;
       view.rerender(inLanguage('en', <LogRegion lines={many(6)} />));
       expect(log.scrollTop).toBe(1300);
@@ -129,7 +145,9 @@ describe('LogRegion', () => {
   });
 
   it('says that older lines were removed', () => {
-    render(inLanguage('en', <LogRegion lines={[logLine(1, 'setup.log.tenant_pinned')]} truncated />));
+    render(
+      inLanguage('en', <LogRegion lines={[logLine(1, 'setup.log.tenant_pinned')]} truncated />),
+    );
     expect(screen.getByText(tr('en').t('setup.logRegion.truncated'))).toBeInTheDocument();
   });
 });
@@ -141,7 +159,10 @@ describe('the run poller', () => {
       // Like the server: only the lines after the cursor.
       'GET /api/v1/connection/runs/current': (call) => {
         const after = Number(call.query.get('after') ?? '0');
-        return { ...snapshot, log: { ...snapshot.log, lines: snapshot.log.lines.filter((line) => line.seq > after) } };
+        return {
+          ...snapshot,
+          log: { ...snapshot.log, lines: snapshot.log.lines.filter((line) => line.seq > after) },
+        };
       },
     });
     const api = createApiClient({ buildVersion: null, fetch: mock.fetch });
@@ -222,7 +243,11 @@ describe('the run poller', () => {
     await advance(3000);
     expect(mock.callsTo('GET /api/v1/connection/runs/current').length).toBe(4);
     expect(settled).not.toHaveBeenCalled();
-    set(sampleSnapshot({ run: sampleRunStatus({ status: 'succeeded', finishedAt: new Date(T0).toISOString() }) }));
+    set(
+      sampleSnapshot({
+        run: sampleRunStatus({ status: 'succeeded', finishedAt: new Date(T0).toISOString() }),
+      }),
+    );
     await advance(1000);
     expect(settled).toHaveBeenCalledTimes(1);
     await advance(5000);
@@ -244,7 +269,13 @@ describe('the run poller', () => {
 
   it('counts a waiting run and an adoption prompt as active', () => {
     expect(isActive(sampleSnapshot({ run: sampleRunStatus({ status: 'waiting' }) }))).toBe(true);
-    expect(isActive(sampleSnapshot({ run: sampleRunStatus({ status: 'failed', finishedAt: new Date(T0).toISOString() }) }))).toBe(false);
+    expect(
+      isActive(
+        sampleSnapshot({
+          run: sampleRunStatus({ status: 'failed', finishedAt: new Date(T0).toISOString() }),
+        }),
+      ),
+    ).toBe(false);
     expect(isActive(null)).toBe(false);
   });
 });
@@ -279,7 +310,12 @@ describe('in the wizard', () => {
     expect(log).toHaveTextContent('Started: Connect to Microsoft (continue).');
     snapshot = {
       ...snapshot,
-      log: { lines: [logLine(2, 'setup.log.bootstrap_waiting', { seconds: 30 })], lastSeq: 2, hasMore: false, truncated: false },
+      log: {
+        lines: [logLine(2, 'setup.log.bootstrap_waiting', { seconds: 30 })],
+        lastSeq: 2,
+        hasMore: false,
+        truncated: false,
+      },
     };
     await advance(1000);
     expect(log).toHaveTextContent('Waiting for the administrator to sign in at Microsoft (30 s).');

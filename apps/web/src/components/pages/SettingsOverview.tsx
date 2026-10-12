@@ -17,10 +17,26 @@ const CARDS: readonly {
   readonly titleKey: MessageKey;
   readonly descriptionKey: MessageKey;
 }[] = [
-  { commandId: 'settings-appearance', titleKey: 'nav.appearance', descriptionKey: 'pages.settings.appearance.description' },
-  { commandId: 'settings-connection', titleKey: 'nav.connection', descriptionKey: 'pages.settings.connection.description' },
-  { commandId: 'settings-access', titleKey: 'nav.access', descriptionKey: 'pages.settings.access.description' },
-  { commandId: 'settings-restore-access', titleKey: 'nav.restoreAccess', descriptionKey: 'pages.settings.restoreAccess.description' },
+  {
+    commandId: 'settings-appearance',
+    titleKey: 'nav.appearance',
+    descriptionKey: 'pages.settings.appearance.description',
+  },
+  {
+    commandId: 'settings-connection',
+    titleKey: 'nav.connection',
+    descriptionKey: 'pages.settings.connection.description',
+  },
+  {
+    commandId: 'settings-access',
+    titleKey: 'nav.access',
+    descriptionKey: 'pages.settings.access.description',
+  },
+  {
+    commandId: 'settings-restore-access',
+    titleKey: 'nav.restoreAccess',
+    descriptionKey: 'pages.settings.restoreAccess.description',
+  },
 ];
 
 export function SettingsOverview() {

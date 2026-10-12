@@ -26,11 +26,41 @@ interface Document {
 
 const EXPECTED = [
   { id: 'auth.login', method: 'get', path: '/auth/login', access: 'public', audit: undefined },
-  { id: 'auth.callback', method: 'get', path: '/auth/callback', access: 'public', audit: 'auth.signin' },
-  { id: 'auth.loggedOut', method: 'get', path: '/auth/logged-out', access: 'public', audit: undefined },
-  { id: 'auth.logout', method: 'post', path: '/api/v1/auth/logout', access: 'authenticated', audit: 'auth.signout' },
-  { id: 'auth.logout.all', method: 'post', path: '/api/v1/auth/logout-all', access: 'authenticated', audit: 'auth.signout' },
-  { id: 'auth.breakglass', method: 'post', path: '/api/v1/auth/break-glass', access: 'public', audit: 'breakglass.signin' },
+  {
+    id: 'auth.callback',
+    method: 'get',
+    path: '/auth/callback',
+    access: 'public',
+    audit: 'auth.signin',
+  },
+  {
+    id: 'auth.loggedOut',
+    method: 'get',
+    path: '/auth/logged-out',
+    access: 'public',
+    audit: undefined,
+  },
+  {
+    id: 'auth.logout',
+    method: 'post',
+    path: '/api/v1/auth/logout',
+    access: 'authenticated',
+    audit: 'auth.signout',
+  },
+  {
+    id: 'auth.logout.all',
+    method: 'post',
+    path: '/api/v1/auth/logout-all',
+    access: 'authenticated',
+    audit: 'auth.signout',
+  },
+  {
+    id: 'auth.breakglass',
+    method: 'post',
+    path: '/api/v1/auth/break-glass',
+    access: 'public',
+    audit: 'breakglass.signin',
+  },
 ] as const;
 
 async function documentOf(configured: boolean): Promise<Document> {
@@ -48,27 +78,34 @@ async function documentOf(configured: boolean): Promise<Document> {
 }
 
 describe('the route table and the OpenAPI document', () => {
-  it.each([true, false])('P01 to P06 are documented with their access, class and audit action (configured: %s)', async (configured) => {
-    const document = await documentOf(configured);
-    for (const expected of EXPECTED) {
-      const operation = document.paths[expected.path]?.[expected.method];
-      expect(operation, expected.id).toBeDefined();
-      expect(operation?.['x-route-id']).toBe(expected.id);
-      expect(operation?.['x-access']).toBe(expected.access);
-      expect(operation?.['x-rate-limit']).toBe('auth');
-      expect(operation?.['x-audit']).toBe(expected.audit);
-    }
-  });
+  it.each([true, false])(
+    'P01 to P06 are documented with their access, class and audit action (configured: %s)',
+    async (configured) => {
+      const document = await documentOf(configured);
+      for (const expected of EXPECTED) {
+        const operation = document.paths[expected.path]?.[expected.method];
+        expect(operation, expected.id).toBeDefined();
+        expect(operation?.['x-route-id']).toBe(expected.id);
+        expect(operation?.['x-access']).toBe(expected.access);
+        expect(operation?.['x-rate-limit']).toBe('auth');
+        expect(operation?.['x-audit']).toBe(expected.audit);
+      }
+    },
+  );
 
   it('only logout-all is restricted to users and only break-glass has the gate', async () => {
     const document = await documentOf(false);
     const operations = EXPECTED.map((expected) => document.paths[expected.path]?.[expected.method]);
     const kinds = operations.flatMap((operation) =>
-      operation?.['x-actor-kinds'] === undefined ? [] : [[operation['x-route-id'], operation['x-actor-kinds']]],
+      operation?.['x-actor-kinds'] === undefined
+        ? []
+        : [[operation['x-route-id'], operation['x-actor-kinds']]],
     );
     expect(kinds).toEqual([['auth.logout.all', ['user']]]);
     const gated = operations.flatMap((operation) =>
-      operation?.['x-availability'] === undefined ? [] : [[operation['x-route-id'], operation['x-availability']]],
+      operation?.['x-availability'] === undefined
+        ? []
+        : [[operation['x-route-id'], operation['x-availability']]],
     );
     expect(gated).toEqual([['auth.breakglass', 'breakGlass']]);
   });

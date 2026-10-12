@@ -47,7 +47,11 @@ export function Wizard({ api }: WizardProps) {
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
   });
-  const { state: poll, poke, refresh: refreshSnapshot } = useRunPolling({
+  const {
+    state: poll,
+    poke,
+    refresh: refreshSnapshot,
+  } = useRunPolling({
     api,
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: setupKeys.state });
@@ -106,7 +110,9 @@ export function Wizard({ api }: WizardProps) {
 
 interface WizardBodyProps {
   readonly api: ApiClient;
-  readonly data: NonNullable<ReturnType<typeof useQuery<Awaited<ReturnType<ReturnType<typeof setupApi>['state']>>>>['data']>;
+  readonly data: NonNullable<
+    ReturnType<typeof useQuery<Awaited<ReturnType<ReturnType<typeof setupApi>['state']>>>>['data']
+  >;
   readonly poll: WizardContext['poll'];
   readonly actions: WizardActions;
   readonly refresh: () => void;

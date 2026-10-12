@@ -66,10 +66,9 @@ describe('navigationCommands(me)', () => {
   it('shows Settings to every signed-in actor, for "Mijn toegang", and to nobody else (T-B-306)', () => {
     expect(navIds(['groups:members:write', 'contacts:create'])).toEqual(['dashboard', 'settings']);
     expect(ids(navigationCommands(sampleMe({ kind: 'user' })))).toEqual(['dashboard', 'settings']);
-    expect(ids(navigationCommands(sampleMe({ kind: 'break_glass', permissions: ['rbac:manage'] })))).toEqual([
-      'dashboard',
-      'settings',
-    ]);
+    expect(
+      ids(navigationCommands(sampleMe({ kind: 'break_glass', permissions: ['rbac:manage'] }))),
+    ).toEqual(['dashboard', 'settings']);
     // The wizard's session and the anonymous visitor have no Settings.
     expect(ids(navigationCommands(sampleMe({ kind: 'setup' })))).toEqual(['dashboard']);
     expect(ids(navigationCommands(sampleMe({ kind: 'anonymous' })))).toEqual(['dashboard']);
@@ -97,7 +96,14 @@ describe('visibleCommands(me)', () => {
     expect(visible).toContain('theme-dark');
     expect(visible).toContain('language-nl');
     expect(visible).toContain('shortcuts');
-    for (const hidden of ['users', 'groups', 'settings', 'settings-appearance', 'settings-access', 'settings-connection']) {
+    for (const hidden of [
+      'users',
+      'groups',
+      'settings',
+      'settings-appearance',
+      'settings-access',
+      'settings-connection',
+    ]) {
       expect(visible).not.toContain(hidden);
     }
   });
@@ -112,29 +118,46 @@ describe('visibleCommands(me)', () => {
   });
 
   it('offers Settings, Connection by permission, and Mijn toegang to every signed-in actor (T-B-306)', () => {
-    const reader = sampleMe({ kind: 'user', permissions: ['users:read', 'groups:read'], roles: ['reader'] });
+    const reader = sampleMe({
+      kind: 'user',
+      permissions: ['users:read', 'groups:read'],
+      roles: ['reader'],
+    });
     expect(ids(visibleCommands(reader))).toContain('settings-access');
     expect(ids(visibleCommands(reader))).not.toContain('settings-connection');
     expect(ids(visibleCommands(reader))).not.toContain('settings-restore-access');
-    expect(ids(visibleCommands(sampleMe({ permissions: ['settings:connection'] })))).toContain('settings-connection');
+    expect(ids(visibleCommands(sampleMe({ permissions: ['settings:connection'] })))).toContain(
+      'settings-connection',
+    );
     expect(ids(visibleCommands(sampleSignedInMe()))).toContain('settings-connection');
     // The wizard session and the anonymous visitor are offered none of the three, even holding the permission.
     for (const kind of ['setup', 'anonymous'] as const) {
-      const visible = ids(visibleCommands({ ...sampleMe({ kind }), permissions: ['settings:connection'] }));
+      const visible = ids(
+        visibleCommands({ ...sampleMe({ kind }), permissions: ['settings:connection'] }),
+      );
       expect(visible, kind).not.toContain('settings-access');
       expect(visible, kind).not.toContain('settings-connection');
     }
   });
 
   it('offers "restore access" to the break-glass session only, by actor kind', () => {
-    const breakGlass = sampleMe({ kind: 'break_glass', breakGlass: true, permissions: ['rbac:manage'] });
+    const breakGlass = sampleMe({
+      kind: 'break_glass',
+      breakGlass: true,
+      permissions: ['rbac:manage'],
+    });
     expect(ids(visibleCommands(breakGlass))).toContain('settings-restore-access');
     expect(ids(visibleCommands(breakGlass))).toContain('settings-access');
     expect(ids(visibleCommands(breakGlass))).not.toContain('settings-connection');
     // An Owner, who holds rbac:manage too, does not get it.
-    expect(ids(visibleCommands(sampleSignedInMe({ roles: ['owner'] })))).not.toContain('settings-restore-access');
+    expect(ids(visibleCommands(sampleSignedInMe({ roles: ['owner'] })))).not.toContain(
+      'settings-restore-access',
+    );
     // A command with an actor-kind list but no actor in the argument is hidden (deny by default).
-    const bare = { permissions: ['rbac:manage'], features: { showcase: false, breakGlass: true } } as const;
+    const bare = {
+      permissions: ['rbac:manage'],
+      features: { showcase: false, breakGlass: true },
+    } as const;
     expect(ids(visibleCommands(bare as never))).not.toContain('settings-restore-access');
   });
 
@@ -188,13 +211,20 @@ describe('the sidebar reads the registry', () => {
   });
 
   it('shows a user who only has the Reader permissions neither Connection nor a write entry in the palette list (T-B-306)', async () => {
-    const reader = sampleMe({ kind: 'user', permissions: ['users:read', 'groups:read', 'audit:read'], roles: ['reader'] });
+    const reader = sampleMe({
+      kind: 'user',
+      permissions: ['users:read', 'groups:read', 'audit:read'],
+      roles: ['reader'],
+    });
     const commands = visibleCommands(reader);
     expect(ids(commands)).not.toContain('settings-connection');
     expect(ids(commands)).not.toContain('settings-appearance');
     await renderShell({ me: reader });
     const nav = await screen.findByRole('navigation', { name: en.t('a11y.mainNavigation') });
-    expect(within(nav).getByRole('link', { name: en.t('nav.settings') })).toHaveAttribute('href', '/settings');
+    expect(within(nav).getByRole('link', { name: en.t('nav.settings') })).toHaveAttribute(
+      'href',
+      '/settings',
+    );
   });
 
   it('shows an actor with users:read the Users entry and not Groups', async () => {

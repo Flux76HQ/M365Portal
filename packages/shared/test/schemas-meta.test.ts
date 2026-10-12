@@ -94,7 +94,10 @@ describe('MeResponseSchema (FR-B-413)', () => {
 
   it('accepts the stored default language nl, en or null', () => {
     for (const defaultLanguage of ['nl', 'en', null]) {
-      expect(accepts(MeResponseSchema, { ...anonymous, defaultLanguage }), String(defaultLanguage)).toBe(true);
+      expect(
+        accepts(MeResponseSchema, { ...anonymous, defaultLanguage }),
+        String(defaultLanguage),
+      ).toBe(true);
     }
   });
 

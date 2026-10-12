@@ -49,7 +49,11 @@ async function me(scene: SignInScene, headers: Record<string, string>) {
 }
 
 const readerPermissions = (): string[] =>
-  [...new Set(BUILTIN_ROLES.find((role) => role.key === 'reader')?.permissions.map((g) => g.permission))].sort();
+  [
+    ...new Set(
+      BUILTIN_ROLES.find((role) => role.key === 'reader')?.permissions.map((g) => g.permission),
+    ),
+  ].sort();
 
 const callsTo = (fragment: string): number =>
   fake.calls.all().filter((call) => call.path.includes(fragment)).length;
@@ -127,28 +131,50 @@ describe('after the TTL, the next request refreshes (FR-B-409)', () => {
 
 describe('a disabled or deleted account (EB-20)', () => {
   it.each([
-    ['disabled', (scene: SignInScene) => { const user = scene.world.graph.directory.users.get(scene.userId); if (user) user.accountEnabled = false; }],
-    ['deleted', (scene: SignInScene) => { scene.world.graph.directory.users.delete(scene.userId); }],
-  ] as const)('%s: every session of the person ends and the request answers 401', async (_name, change) => {
-    const { scene } = await groupScene();
-    const first = await scene.signIn();
-    const second = await scene.signIn();
-    expect(scene.sessionCount()).toBe(2);
-    change(scene);
-    scene.advance(TTL + SECOND);
-    const response = await scene.client(first.headers).get('/api/v1/me');
-    expect(response.status).toBe(401);
-    expect(response.headers.get('www-authenticate')).toBe('Cookie realm="m365portal"');
-    expect((await readJson<{ code: string }>(response)).code).toBe('unauthenticated');
-    expect(response.headers.getSetCookie().join('\n')).toMatch(/m365portal_session=;.*Max-Age=0/);
-    expect(scene.sessionCount()).toBe(0);
-    // The other session of the person is dead too.
-    const other = await me(scene, second.headers);
-    expect(other.actor.kind).toBe('anonymous');
-    const [entry] = scene.auditRows().filter((row) => row.action === 'auth.session.revoked');
-    expect(entry).toMatchObject({ actor_kind: 'system', actor_id: 'system', outcome: 'success', target_id: scene.userId });
-    expect(JSON.parse(entry?.detail ?? '{}')).toEqual({ reason: 'account_disabled', sessions: 2 });
-  });
+    [
+      'disabled',
+      (scene: SignInScene) => {
+        const user = scene.world.graph.directory.users.get(scene.userId);
+        if (user) user.accountEnabled = false;
+      },
+    ],
+    [
+      'deleted',
+      (scene: SignInScene) => {
+        scene.world.graph.directory.users.delete(scene.userId);
+      },
+    ],
+  ] as const)(
+    '%s: every session of the person ends and the request answers 401',
+    async (_name, change) => {
+      const { scene } = await groupScene();
+      const first = await scene.signIn();
+      const second = await scene.signIn();
+      expect(scene.sessionCount()).toBe(2);
+      change(scene);
+      scene.advance(TTL + SECOND);
+      const response = await scene.client(first.headers).get('/api/v1/me');
+      expect(response.status).toBe(401);
+      expect(response.headers.get('www-authenticate')).toBe('Cookie realm="m365portal"');
+      expect((await readJson<{ code: string }>(response)).code).toBe('unauthenticated');
+      expect(response.headers.getSetCookie().join('\n')).toMatch(/m365portal_session=;.*Max-Age=0/);
+      expect(scene.sessionCount()).toBe(0);
+      // The other session of the person is dead too.
+      const other = await me(scene, second.headers);
+      expect(other.actor.kind).toBe('anonymous');
+      const [entry] = scene.auditRows().filter((row) => row.action === 'auth.session.revoked');
+      expect(entry).toMatchObject({
+        actor_kind: 'system',
+        actor_id: 'system',
+        outcome: 'success',
+        target_id: scene.userId,
+      });
+      expect(JSON.parse(entry?.detail ?? '{}')).toEqual({
+        reason: 'account_disabled',
+        sessions: 2,
+      });
+    },
+  );
 
   it('the log event session_revoked carries no identifier', async () => {
     const { scene } = await groupScene();
@@ -167,7 +193,11 @@ describe('a disabled or deleted account (EB-20)', () => {
 
 describe('Graph fails (SC-B-008)', () => {
   function failGraph(scene: SignInScene, times = 99): void {
-    scene.world.graph.control.failWith({ times, status: 503, match: /checkMemberGroups|\/users\// });
+    scene.world.graph.control.failWith({
+      times,
+      status: 503,
+      match: /checkMemberGroups|\/users\//,
+    });
   }
 
   it('keeps direct assignments, drops the group grants, sets groups_stale, and retries only every 30 s', async () => {
@@ -235,6 +265,9 @@ describe('negative control', () => {
       if (after.permissions.length > 0) throw new Error('rights of a removed member were kept');
     }
     await assertRightsDropped(false);
-    await expectGuardFails(assertRightsDropped, true, { name: 'revalidation', reason: 'were kept' });
+    await expectGuardFails(assertRightsDropped, true, {
+      name: 'revalidation',
+      reason: 'were kept',
+    });
   });
 });

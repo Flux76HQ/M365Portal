@@ -12,7 +12,11 @@ export interface Call {
 
 export type Handler = (call: Call) => unknown;
 
-export function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
+export function json(
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Response {
   return new Response(body === null ? null : JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json', ...headers },
@@ -68,7 +72,9 @@ export function createMockApi(initial: Record<string, Handler> = {}): MockApi {
       }
     }
     if (method === 'GET' && url.pathname === '/api/v1/csrf') {
-      return Promise.resolve(json(200, { token: 'csrf-token-1', expiresAt: '2026-10-12T23:00:00.000Z' }));
+      return Promise.resolve(
+        json(200, { token: 'csrf-token-1', expiresAt: '2026-10-12T23:00:00.000Z' }),
+      );
     }
     const call: Call = { method, path: url.pathname, query: url.searchParams, body };
     calls.push(call);

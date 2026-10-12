@@ -160,7 +160,7 @@ describe('negative fixtures: each rule fails on purpose', () => {
           [
             "location.assign('/signin?returnTo=%2F');",
             "window.location.replace('/auth/login');",
-            "const link = <a href=\"/auth/login\" rel=\"noopener noreferrer\">x</a>;",
+            'const link = <a href="/auth/login" rel="noopener noreferrer">x</a>;',
           ].join('\n'),
         ),
       );

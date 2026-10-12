@@ -59,7 +59,8 @@ export function SessionTimers() {
   const me = useMe();
   const snapshot = useSessionSnapshot();
   const session = me.session;
-  if (session === null || (me.actor.kind !== 'user' && me.actor.kind !== 'break_glass')) return null;
+  if (session === null || (me.actor.kind !== 'user' && me.actor.kind !== 'break_glass'))
+    return null;
   const absolute = Date.parse(session.expiresAt);
   const warns = me.actor.kind === 'user';
   const idle = warns ? (snapshot.idleExpiresAt ?? Date.parse(session.idleExpiresAt)) : absolute;
@@ -78,10 +79,13 @@ function Timers({ idle, absolute, warns }: Deadlines) {
         const now = Date.now();
         const next = nextChange(now, { idle, absolute, warns });
         if (next === null) return;
-        timer = setTimeout(() => {
-          notify();
-          arm();
-        }, Math.min(next - now, MAX_TIMEOUT_MS));
+        timer = setTimeout(
+          () => {
+            notify();
+            arm();
+          },
+          Math.min(next - now, MAX_TIMEOUT_MS),
+        );
       };
       arm();
       return () => {
@@ -90,7 +94,9 @@ function Timers({ idle, absolute, warns }: Deadlines) {
     },
     [idle, absolute, warns],
   );
-  const phase = useSyncExternalStore(subscribe, () => phaseAt(Date.now(), { idle, absolute, warns }));
+  const phase = useSyncExternalStore(subscribe, () =>
+    phaseAt(Date.now(), { idle, absolute, warns }),
+  );
 
   // At the end, go to the sign-in page, once.
   const left = useRef(false);

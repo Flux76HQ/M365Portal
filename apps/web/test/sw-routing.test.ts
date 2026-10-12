@@ -287,12 +287,20 @@ describe('decideRoute: hostile encodings of /auth/, /api/ and /setup never reach
 });
 
 describe('a router that stores a page of the sign-in flow fails the guard (+ negative)', () => {
-  const paths = ['/signin', '/signin?error=x', '/setup', '/setup/anything', '/no-access', '/break-glass'];
+  const paths = [
+    '/signin',
+    '/signin?error=x',
+    '/setup',
+    '/setup/anything',
+    '/no-access',
+    '/break-glass',
+  ];
 
   /** The guard: no page of the flow may be decided `cache-first`, and `/auth/*` and `/api/*` must be `pass`. */
   function assertSafe(decideFunction: (path: string, mode: RequestMode) => RouteDecision): void {
     for (const path of paths) {
-      if (decideFunction(path, 'navigate') === 'cache-first') throw new Error(`${path} would be cached`);
+      if (decideFunction(path, 'navigate') === 'cache-first')
+        throw new Error(`${path} would be cached`);
     }
     for (const path of ['/auth/login', '/auth/callback?code=x', '/api/v1/me']) {
       if (decideFunction(path, 'navigate') !== 'pass') throw new Error(`${path} must be pass`);

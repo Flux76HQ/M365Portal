@@ -50,40 +50,69 @@ export function ProofList({ proof, application = null, tenant = null, className 
     const lines: string[] = [];
     switch (item.key) {
       case 'application':
-        if (application !== null) lines.push(t('connection.proofDetail.application', { name: application.displayName, appId: application.appId }));
+        if (application !== null)
+          lines.push(
+            t('connection.proofDetail.application', {
+              name: application.displayName,
+              appId: application.appId,
+            }),
+          );
         break;
       case 'service_principal': {
         const objectId = text(item, 'objectId');
-        if (objectId !== undefined) lines.push(t('connection.proofDetail.service_principal', { objectId }));
+        if (objectId !== undefined)
+          lines.push(t('connection.proofDetail.service_principal', { objectId }));
         break;
       }
       case 'certificate': {
         const thumbprint = text(item, 'thumbprint') ?? text(item, 'thumbprint8');
         const notAfter = text(item, 'notAfter');
         if (thumbprint !== undefined && notAfter !== undefined && notAfter !== '') {
-          lines.push(t('connection.proofDetail.certificate', { thumbprint, notAfter: d(Date.parse(notAfter)) }));
+          lines.push(
+            t('connection.proofDetail.certificate', {
+              thumbprint,
+              notAfter: d(Date.parse(notAfter)),
+            }),
+          );
         }
         break;
       }
       case 'graph_roles':
       case 'exchange_roles': {
         const complete = num(item, 'missing') === 0 && num(item, 'extra') === 0;
-        const names = item.key === 'graph_roles' ? [...GRAPH_APP_ROLES] : Object.values(EXCHANGE_APP_ROLES);
+        const names =
+          item.key === 'graph_roles' ? [...GRAPH_APP_ROLES] : Object.values(EXCHANGE_APP_ROLES);
         if (complete) {
           const held = num(item, 'count');
           const roles = names.slice(0, held > 0 ? held : names.length).join(', ');
           lines.push(t(`connection.proofDetail.${item.key}` as MessageKey, { roles }));
         } else {
-          lines.push(t('connection.proofDetail.roleCounts', { count: num(item, 'count'), missing: num(item, 'missing'), extra: num(item, 'extra') }));
+          lines.push(
+            t('connection.proofDetail.roleCounts', {
+              count: num(item, 'count'),
+              missing: num(item, 'missing'),
+              extra: num(item, 'extra'),
+            }),
+          );
         }
         break;
       }
       case 'entra_role':
-        if (item.status === 'ok') lines.push(t('connection.proofDetail.entra_role', { role: t('setup.exchangeRole.exchange_administrator') }));
+        if (item.status === 'ok')
+          lines.push(
+            t('connection.proofDetail.entra_role', {
+              role: t('setup.exchangeRole.exchange_administrator'),
+            }),
+          );
         break;
       case 'check_v2':
         if (item.status === 'ok' && tenant?.name != null) {
-          lines.push(t('connection.proofDetail.check_v2', { name: tenant.name, domain: tenant.initialDomain ?? '-' }));
+          lines.push(
+            t('connection.proofDetail.check_v2', {
+              name: tenant.name,
+              domain: tenant.initialDomain ?? '-',
+            }),
+          );
         }
         break;
       case 'check_v4':
@@ -96,7 +125,8 @@ export function ProofList({ proof, application = null, tenant = null, className 
             }),
           );
         }
-        if (item.params.code === 'foreign_credential_present') lines.push(t('connection.proofDetail.foreignWarning'));
+        if (item.params.code === 'foreign_credential_present')
+          lines.push(t('connection.proofDetail.foreignWarning'));
         break;
       default:
         break;
@@ -107,13 +137,21 @@ export function ProofList({ proof, application = null, tenant = null, className 
   return (
     <div className={cn('flex flex-col gap-2', className)} data-slot="proof-list">
       <p className="text-body-sm text-fg-muted">
-        {t('connection.proofGeneratedAt', { time: d(Date.parse(proof.generatedAt), { dateStyle: 'medium', timeStyle: 'short' }) })}
+        {t('connection.proofGeneratedAt', {
+          time: d(Date.parse(proof.generatedAt), { dateStyle: 'medium', timeStyle: 'short' }),
+        })}
       </p>
       <ul className="flex flex-col gap-2">
         {proof.items.map((item) => {
           const { Icon, tone } = MARKS[item.status];
           const code = typeof item.params.code === 'string' ? item.params.code : null;
-          const why = code !== null && item.status !== 'ok' && item.status !== 'not_checked' && code !== 'foreign_credential_present' ? resultText(translator, code) : null;
+          const why =
+            code !== null &&
+            item.status !== 'ok' &&
+            item.status !== 'not_checked' &&
+            code !== 'foreign_credential_present'
+              ? resultText(translator, code)
+              : null;
           return (
             <li
               key={item.key}
@@ -122,10 +160,14 @@ export function ProofList({ proof, application = null, tenant = null, className 
               className="flex flex-col gap-1 rounded-md border border-line-subtle bg-surface-raised px-3 py-2"
             >
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="text-body font-medium text-fg">{t(`connection.proof.${item.key}`)}</span>
+                <span className="text-body font-medium text-fg">
+                  {t(`connection.proof.${item.key}`)}
+                </span>
                 <span className="ms-auto inline-flex items-center gap-1.5">
                   <Icon aria-hidden="true" className={cn('size-4', tone)} />
-                  <span className="text-body-sm font-medium text-fg">{t(`connection.proofStatus.${item.status}`)}</span>
+                  <span className="text-body-sm font-medium text-fg">
+                    {t(`connection.proofStatus.${item.status}`)}
+                  </span>
                 </span>
               </div>
               {item.at === null ? null : (

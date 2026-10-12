@@ -100,11 +100,16 @@ describe('negative control', () => {
       readonly body: string;
     }
     function assertInterstitial(answer: Answer): void {
-      if (answer.status !== 200) throw new Error(`a successful callback answered ${String(answer.status)}`);
+      if (answer.status !== 200)
+        throw new Error(`a successful callback answered ${String(answer.status)}`);
       if (answer.contentType?.startsWith('text/html') !== true) throw new Error('not html');
       if (!answer.body.includes('http-equiv="refresh"')) throw new Error('no meta refresh');
     }
-    assertInterstitial({ status: 200, contentType: 'text/html; charset=utf-8', body: interstitialHtml('/') });
+    assertInterstitial({
+      status: 200,
+      contentType: 'text/html; charset=utf-8',
+      body: interstitialHtml('/'),
+    });
     expectGuardFails(
       assertInterstitial,
       { status: 303, contentType: null, body: '' },
@@ -117,4 +122,3 @@ describe('negative control', () => {
     );
   });
 });
-

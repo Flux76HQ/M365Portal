@@ -36,8 +36,12 @@ export function AdoptionPrompt({ prompt, busy, onAdopt, onDecline }: AdoptionPro
       <h3 id={heading} className="text-subtitle font-semibold text-fg">
         {t('setup.adopt.title')}
       </h3>
-      <p className="text-body text-fg">{t('setup.adopt.message', { name: candidate.displayName })}</p>
-      {needs ? <p className="text-body text-fg-secondary">{t('setup.adopt.foreign', { keys, owners })}</p> : null}
+      <p className="text-body text-fg">
+        {t('setup.adopt.message', { name: candidate.displayName })}
+      </p>
+      {needs ? (
+        <p className="text-body text-fg-secondary">{t('setup.adopt.foreign', { keys, owners })}</p>
+      ) : null}
       {needs ? (
         <div className="flex items-start gap-2">
           <Checkbox

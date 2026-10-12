@@ -16,7 +16,9 @@ describe('completeSetupInTx', () => {
     const scene = await startSignInScene({ state: 'awaiting_first_signin' });
     const result = await signInAttempt(scene);
     expect(result.status).toBe(200);
-    expect(scene.query('SELECT state FROM setup_state')).toEqual([{ state: 'awaiting_first_signin' }]);
+    expect(scene.query('SELECT state FROM setup_state')).toEqual([
+      { state: 'awaiting_first_signin' },
+    ]);
     expect(scene.sessionCount()).toBe(1);
   });
 
@@ -27,11 +29,13 @@ describe('completeSetupInTx', () => {
       calls.push({
         oid,
         inTransaction: tx.sqlite.inTransaction,
-        sessionsSoFar: (tx.sqlite.prepare('SELECT count(*) AS n FROM session').get() as { n: number }).n,
+        sessionsSoFar: (
+          tx.sqlite.prepare('SELECT count(*) AS n FROM session').get() as { n: number }
+        ).n,
       });
-      tx.sqlite.prepare("UPDATE setup_state SET state = 'completed', completed_at = ? WHERE id = 1").run(
-        '2026-10-10T12:00:00.000Z',
-      );
+      tx.sqlite
+        .prepare("UPDATE setup_state SET state = 'completed', completed_at = ? WHERE id = 1")
+        .run('2026-10-10T12:00:00.000Z');
     });
     const result = await signInAttempt(scene);
     expect(result.status).toBe(200);
@@ -54,15 +58,17 @@ describe('completeSetupInTx', () => {
   it('a hook that fails leaves no session, no state change and no success entry', async () => {
     const scene = await startSignInScene({ state: 'awaiting_first_signin' });
     authHoldersOf(scene.deps()).completeSetupInTx.set((tx) => {
-      tx.sqlite.prepare("UPDATE setup_state SET state = 'completed', completed_at = ? WHERE id = 1").run(
-        '2026-10-10T12:00:00.000Z',
-      );
+      tx.sqlite
+        .prepare("UPDATE setup_state SET state = 'completed', completed_at = ? WHERE id = 1")
+        .run('2026-10-10T12:00:00.000Z');
       throw new Error('injected fault');
     });
     const result = await signInAttempt(scene);
     expect(result.status).toBe(303);
     expect(result.headers.get('location')).toBe('/signin?error=temporarily_unavailable');
-    expect(scene.query('SELECT state FROM setup_state')).toEqual([{ state: 'awaiting_first_signin' }]);
+    expect(scene.query('SELECT state FROM setup_state')).toEqual([
+      { state: 'awaiting_first_signin' },
+    ]);
     expect(scene.sessionCount()).toBe(0);
     expect(scene.auditRows().filter((row) => row.action === 'auth.signin')).toEqual([]);
     expect(scene.logs.text()).not.toContain('injected fault');

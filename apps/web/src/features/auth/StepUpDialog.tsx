@@ -38,9 +38,7 @@ export function StepUpDialog() {
           <Button
             variant="primary"
             onClick={() => {
-              location.assign(
-                loginUrl({ purpose: 'stepup', returnTo: currentReturnTo(location) }),
-              );
+              location.assign(loginUrl({ purpose: 'stepup', returnTo: currentReturnTo(location) }));
             }}
           >
             {t('session.stepUp.confirm')}

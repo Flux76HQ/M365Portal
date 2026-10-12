@@ -32,8 +32,12 @@ describe('the dialog', () => {
     const { dialog } = await openDialog();
     expect(dialog).toHaveAccessibleName(en.t('session.stepUp.title'));
     expect(dialog).toHaveAccessibleDescription(en.t('session.stepUp.message'));
-    expect(within(dialog).getByRole('button', { name: en.t('session.stepUp.confirm') })).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: en.t('session.stepUp.cancel') })).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: en.t('session.stepUp.confirm') }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: en.t('session.stepUp.cancel') }),
+    ).toBeInTheDocument();
   });
 
   it('is in Dutch when the page is Dutch: "Bevestig met opnieuw aanmelden"', async () => {
@@ -78,7 +82,9 @@ describe('the dialog', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
     expect(dialog.isConnected).toBe(false);
-    expect(document.activeElement === document.body || document.body.contains(document.activeElement)).toBe(true);
+    expect(
+      document.activeElement === document.body || document.body.contains(document.activeElement),
+    ).toBe(true);
   });
 
   it('does not carry an unsafe current path into returnTo', async () => {

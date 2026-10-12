@@ -1556,8 +1556,8 @@ function previewProblems(
     }
   }
   for (const [path, text] of [...tree].sort(([a], [b]) => a.localeCompare(b))) {
-    if (!PREVIEW_SCANNED.test(path) || isTestPath(path) || path.endsWith(".d.ts")) continue;
-    if (path.endsWith("routeTree.gen.ts")) continue;
+    if (!PREVIEW_SCANNED.test(path) || isTestPath(path) || path.endsWith('.d.ts')) continue;
+    if (path.endsWith('routeTree.gen.ts')) continue;
     const code = viewsOf(path, text).code;
     for (const [what, pattern] of PREVIEW_TRACES) {
       const match = pattern.exec(code);
@@ -2822,11 +2822,7 @@ describe('repository conventions: the preview mode is gone (FR-B-102, T-B-393)',
   it('does not read tests, fixtures or comments', () => {
     const code = "// PREVIEW_MODE was removed; kind: 'preview' too\nexport const x = 1;\n";
     expect(previewProblems(withFile(realTree, 'apps/server/src/x.ts', code))).toEqual([]);
-    for (const path of [
-      'apps/web/test/x.tsx',
-      'apps/server/test/x.ts',
-      'apps/web/src/x.ts.txt',
-    ]) {
+    for (const path of ['apps/web/test/x.tsx', 'apps/server/test/x.ts', 'apps/web/src/x.ts.txt']) {
       expect(
         previewProblems(withFile(realTree, path, "export const a = 'PREVIEW_MODE';\n")),
       ).toEqual([]);

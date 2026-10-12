@@ -7,7 +7,13 @@ import { RUN_STATUSES } from '@m365portal/shared/schemas/connection';
 import { isResultCode } from '@m365portal/shared/setup/result-codes';
 import { STEP_KEYS, SUB_ACTION_KEYS } from '@m365portal/shared/setup/steps';
 
-const KINDS = ['app_role_assignment', 'application', 'certificate', 'directory_role_assignment', 'service_principal'];
+const KINDS = [
+  'app_role_assignment',
+  'application',
+  'certificate',
+  'directory_role_assignment',
+  'service_principal',
+];
 
 function word(t: Translator['t'], name: string, value: string): string {
   const has = (list: readonly string[]): boolean => list.includes(value);
@@ -35,11 +41,20 @@ function word(t: Translator['t'], name: string, value: string): string {
 }
 
 /** The line as a sentence in the language of `translator`. An unknown key reads as the key itself. */
-export function logLineText(translator: Translator, key: string, params: Readonly<Record<string, string | number | boolean>>): string {
+export function logLineText(
+  translator: Translator,
+  key: string,
+  params: Readonly<Record<string, string | number | boolean>>,
+): string {
   const { t } = translator;
   const text: Record<string, string | number> = {};
   for (const [name, value] of Object.entries(params)) {
-    text[name] = typeof value === 'string' ? word(t, name, value) : typeof value === 'boolean' ? String(value) : value;
+    text[name] =
+      typeof value === 'string'
+        ? word(t, name, value)
+        : typeof value === 'boolean'
+          ? String(value)
+          : value;
   }
   return t(key as MessageKey, text);
 }

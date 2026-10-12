@@ -1,4 +1,8 @@
-import { buildDesiredState, desiredStateChecklist, INSTALL_TAG_PREFIX } from '@m365portal/shared/setup/desired-state';
+import {
+  buildDesiredState,
+  desiredStateChecklist,
+  INSTALL_TAG_PREFIX,
+} from '@m365portal/shared/setup/desired-state';
 import { EXCHANGE_APP_ROLES, GRAPH_APP_ROLES } from '@m365portal/shared/setup/graph-roles';
 import { GuidSchema } from '@m365portal/shared/schemas/common';
 import { ManualRequestSchema } from '@m365portal/shared/schemas/setup';
@@ -21,7 +25,10 @@ const NO_CONTROL = /^[^\p{Cc}\u2028\u2029]*$/u;
  * and the first Owner is one line of text, an object id or a user principal name, that
  * `toManualRequest` turns into the request's `firstOwner`.
  */
-export const ManualFormSchema = ManualRequestSchema.pick({ applicationClientId: true, tenantId: true }).extend({
+export const ManualFormSchema = ManualRequestSchema.pick({
+  applicationClientId: true,
+  tenantId: true,
+}).extend({
   firstOwner: z.string().trim().min(3).max(256).regex(NO_CONTROL),
 });
 export type ManualForm = z.infer<typeof ManualFormSchema>;
@@ -32,16 +39,30 @@ export function toManualRequest(form: ManualForm): ManualRequest {
   return {
     applicationClientId: form.applicationClientId,
     tenantId: form.tenantId,
-    firstOwner: GuidSchema.safeParse(owner).success ? { kind: 'oid', value: owner } : { kind: 'upn', value: owner },
+    firstOwner: GuidSchema.safeParse(owner).success
+      ? { kind: 'oid', value: owner }
+      : { kind: 'upn', value: owner },
   };
 }
 
 // Pages of Microsoft Learn the checklist points to (the catalogue holds the link texts).
 export const MANUAL_LEARN_LINKS = Object.freeze([
-  ['setup.manual.learn.register', 'https://learn.microsoft.com/entra/identity-platform/quickstart-register-app'],
-  ['setup.manual.learn.certificate', 'https://learn.microsoft.com/entra/identity-platform/how-to-add-credentials'],
-  ['setup.manual.learn.permissions', 'https://learn.microsoft.com/entra/identity-platform/quickstart-configure-app-access-web-apis'],
-  ['setup.manual.learn.role', 'https://learn.microsoft.com/entra/identity/role-based-access-control/manage-roles-portal'],
+  [
+    'setup.manual.learn.register',
+    'https://learn.microsoft.com/entra/identity-platform/quickstart-register-app',
+  ],
+  [
+    'setup.manual.learn.certificate',
+    'https://learn.microsoft.com/entra/identity-platform/how-to-add-credentials',
+  ],
+  [
+    'setup.manual.learn.permissions',
+    'https://learn.microsoft.com/entra/identity-platform/quickstart-configure-app-access-web-apis',
+  ],
+  [
+    'setup.manual.learn.role',
+    'https://learn.microsoft.com/entra/identity/role-based-access-control/manage-roles-portal',
+  ],
 ] as const);
 
 interface Item {
@@ -65,7 +86,12 @@ function checklistFor(
   t: (key: never) => string,
 ): Item[] {
   const names = [...GRAPH_APP_ROLES, ...(exchange ? [EXCHANGE_APP_ROLES.required] : [])];
-  const roleIds = Object.fromEntries(names.map((name, index) => [name, `00000000-0000-4000-8000-${(index + 1).toString(16).padStart(12, '0')}`]));
+  const roleIds = Object.fromEntries(
+    names.map((name, index) => [
+      name,
+      `00000000-0000-4000-8000-${(index + 1).toString(16).padStart(12, '0')}`,
+    ]),
+  );
   const desired = buildDesiredState({
     baseUrl: publicBaseUrl,
     installId: installTag.slice(INSTALL_TAG_PREFIX.length),
@@ -87,13 +113,24 @@ function checklistFor(
     { label: off, values: [] },
     { label: t('setup.manual.item.graphPermissions' as never), values: list('graph_roles') },
   ];
-  if (exchange) items.push({ label: t('setup.manual.item.exchangePermissions' as never), values: list('exchange_roles') });
+  if (exchange)
+    items.push({
+      label: t('setup.manual.item.exchangePermissions' as never),
+      values: list('exchange_roles'),
+    });
   items.push(
     { label: t('setup.manual.item.consent' as never), values: [] },
     { label: t('setup.manual.item.optionalClaims' as never), values: list('optional_claims') },
-    { label: t('setup.manual.item.certificate' as never), values: thumbprint === null ? [] : [thumbprint] },
+    {
+      label: t('setup.manual.item.certificate' as never),
+      values: thumbprint === null ? [] : [thumbprint],
+    },
   );
-  if (exchange) items.push({ label: t('setup.manual.item.entraRole' as never), values: [t('setup.exchangeRole.exchange_administrator' as never)] });
+  if (exchange)
+    items.push({
+      label: t('setup.manual.item.entraRole' as never),
+      values: [t('setup.exchangeRole.exchange_administrator' as never)],
+    });
   return items;
 }
 
@@ -113,7 +150,14 @@ export function ManualMode({ context, onBack }: ManualModeProps) {
   // checklist asks for its permissions, as the server's own checklist does (`manualChecklist`, default true).
   const withExchange = state.mode === 'manual' ? state.exchangeEnabled : true;
   const items = useMemo(
-    () => checklistFor(state.publicBaseUrl, state.installTag, withExchange, state.certificate?.thumbprintSha1.toLowerCase() ?? null, t as never),
+    () =>
+      checklistFor(
+        state.publicBaseUrl,
+        state.installTag,
+        withExchange,
+        state.certificate?.thumbprintSha1.toLowerCase() ?? null,
+        t as never,
+      ),
     [state.publicBaseUrl, state.installTag, withExchange, state.certificate, t],
   );
   const send = useMutation({
@@ -138,7 +182,8 @@ export function ManualMode({ context, onBack }: ManualModeProps) {
       const next: typeof errors = {};
       for (const issue of parsed.error.issues) {
         const field = issue.path[0];
-        if (field === 'applicationClientId' || field === 'tenantId') next[field] = t('setup.manual.field.invalidGuid');
+        if (field === 'applicationClientId' || field === 'tenantId')
+          next[field] = t('setup.manual.field.invalidGuid');
         else if (field === 'firstOwner') next.firstOwner = t('setup.manual.field.invalidOwner');
       }
       setErrors(next);
@@ -149,7 +194,11 @@ export function ManualMode({ context, onBack }: ManualModeProps) {
   };
 
   const field = (name: keyof typeof values, label: string, hint?: string) => (
-    <FormField label={label} {...(hint === undefined ? {} : { hint })} {...(errors[name] === undefined ? {} : { error: errors[name] })}>
+    <FormField
+      label={label}
+      {...(hint === undefined ? {} : { hint })}
+      {...(errors[name] === undefined ? {} : { error: errors[name] })}
+    >
       {(control) => (
         <Input
           {...control}
@@ -173,13 +222,18 @@ export function ManualMode({ context, onBack }: ManualModeProps) {
       <p className="max-w-prose text-body text-fg-secondary">{t('setup.manual.lead')}</p>
       <ol aria-label={t('setup.manual.checklist')} className="flex flex-col gap-2">
         {items.map((item) => (
-          <li key={item.label} className="rounded-md border border-line-subtle bg-surface-raised px-3 py-2">
+          <li
+            key={item.label}
+            className="rounded-md border border-line-subtle bg-surface-raised px-3 py-2"
+          >
             <p className="text-body font-medium text-fg">{item.label}</p>
             {item.values.length === 0 ? null : (
               <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                 {item.values.map((value) => (
                   <li key={value}>
-                    <code className="select-all break-all font-mono text-body-sm text-fg-secondary">{value}</code>
+                    <code className="select-all break-all font-mono text-body-sm text-fg-secondary">
+                      {value}
+                    </code>
                   </li>
                 ))}
               </ul>

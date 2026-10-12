@@ -31,7 +31,8 @@ const WEB = join(SERVER_ROOT, 'test', 'fixtures', 'web-dist');
 const MIGRATIONS = join(SERVER_ROOT, 'drizzle');
 const INSTALL_ID = '0123456789abcdef0123456789abcdef';
 
-export type SceneSetupState = 'unconfigured' | 'in_progress' | 'awaiting_first_signin' | 'completed';
+export type SceneSetupState =
+  'unconfigured' | 'in_progress' | 'awaiting_first_signin' | 'completed';
 
 export interface SceneOptions {
   /** Default `completed`. */
@@ -218,7 +219,8 @@ export async function startSignInScene(options: SceneOptions = {}): Promise<Sign
           ? {}
           : { headers: { 'x-forwarded-for': browserOptions.forwardedFor } }),
       }),
-    query: <T>(sql: string, ...params: unknown[]) => reader.sqlite.prepare(sql).all(...params) as T[],
+    query: <T>(sql: string, ...params: unknown[]) =>
+      reader.sqlite.prepare(sql).all(...params) as T[],
     exec: (sql, ...params) => {
       reader.sqlite.prepare(sql).run(...params);
     },
@@ -239,16 +241,21 @@ export async function startSignInScene(options: SceneOptions = {}): Promise<Sign
         headers,
       }),
     signIn: async (signInOptions = {}) => {
-      if (signInOptions.user !== undefined) world.entra.control.nextSignIn({ user: signInOptions.user });
+      if (signInOptions.user !== undefined)
+        world.entra.control.nextSignIn({ user: signInOptions.user });
       const browser = scene.browser(
-        signInOptions.forwardedFor === undefined ? {} : { forwardedFor: signInOptions.forwardedFor },
+        signInOptions.forwardedFor === undefined
+          ? {}
+          : { forwardedFor: signInOptions.forwardedFor },
       );
       const login = await browser.navigate('/auth/login', { stopBeforePanel: true });
       const callback = await browser.request(new URL(login.headers.get('location') ?? ''), {
         from: 'microsoft',
       });
       if (callback.status !== 200) {
-        throw new Error(`the sign-in did not complete (${callback.headers.get('location') ?? String(callback.status)})`);
+        throw new Error(
+          `the sign-in did not complete (${callback.headers.get('location') ?? String(callback.status)})`,
+        );
       }
       const sessionId = browser.cookie('m365portal_session') ?? '';
       return { browser, headers: { cookie: `m365portal_session=${sessionId}` }, sessionId };
@@ -283,4 +290,3 @@ export async function pump<T>(scene: SignInScene, work: Promise<T>, maxSeconds =
   }
   return await tracked;
 }
-

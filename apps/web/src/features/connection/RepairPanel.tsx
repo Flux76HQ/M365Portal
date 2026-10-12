@@ -7,7 +7,14 @@ import type { RunPollState } from '../setup/useRunPolling';
 import type { WizardActions } from '../setup/wizard-context';
 
 /** The parts of the connection that a repair puts back. */
-const REPAIRABLE = ['application', 'service_principal', 'certificate', 'graph_roles', 'exchange_roles', 'entra_role'] as const;
+const REPAIRABLE = [
+  'application',
+  'service_principal',
+  'certificate',
+  'graph_roles',
+  'exchange_roles',
+  'entra_role',
+] as const;
 
 export interface RepairPanelProps {
   readonly connection: ConnectionState;
@@ -26,7 +33,9 @@ export interface RepairPanelProps {
 export function RepairPanel({ connection, poll, actions, verify }: RepairPanelProps) {
   const { t } = useLanguage().translator;
   const run = poll.snapshot?.run ?? null;
-  const active = connection.runActive || (run !== null && (run.status === 'running' || run.status === 'waiting'));
+  const active =
+    connection.runActive ||
+    (run !== null && (run.status === 'running' || run.status === 'waiting'));
   const deviceCode = poll.snapshot?.deviceCode ?? null;
   const manual = connection.mode === 'manual';
   const drifted =
@@ -36,21 +45,33 @@ export function RepairPanel({ connection, poll, actions, verify }: RepairPanelPr
   const repair = (): void => {
     actions.start({ steps: 'repair', mode: 'reconcile' });
   };
-  const finished = !active && run?.kind === 'repair' && (run.status === 'succeeded' || run.status === 'warning');
+  const finished =
+    !active && run?.kind === 'repair' && (run.status === 'succeeded' || run.status === 'warning');
 
   return (
     <div className="flex flex-col gap-3">
       <p className="max-w-prose text-body text-fg-secondary">{t('connection.repair.lead')}</p>
       {active ? (
         <>
-          <p role="status" className="text-body font-medium text-fg">{t('connection.repair.running')}</p>
+          <p role="status" className="text-body font-medium text-fg">
+            {t('connection.repair.running')}
+          </p>
           {deviceCode === null ? null : (
-            <DeviceCodePanel panel={deviceCode} offsetMs={poll.offsetMs} busy={actions.busy} onCancel={actions.cancel} />
+            <DeviceCodePanel
+              panel={deviceCode}
+              offsetMs={poll.offsetMs}
+              busy={actions.busy}
+              onCancel={actions.cancel}
+            />
           )}
         </>
       ) : (
         <>
-          {finished ? <p role="status" className="text-body text-fg">{t('connection.repair.done')}</p> : null}
+          {finished ? (
+            <p role="status" className="text-body text-fg">
+              {t('connection.repair.done')}
+            </p>
+          ) : null}
           {manual ? (
             <p className="text-body text-fg-secondary">{t('connection.repair.manualNote')}</p>
           ) : (
@@ -62,7 +83,12 @@ export function RepairPanel({ connection, poll, actions, verify }: RepairPanelPr
                   {t('connection.repair.all')}
                 </Button>
                 {drifted.map((item) => (
-                  <Button key={item.key} variant="secondary" disabled={actions.busy} onClick={repair}>
+                  <Button
+                    key={item.key}
+                    variant="secondary"
+                    disabled={actions.busy}
+                    onClick={repair}
+                  >
                     {t('connection.repair.oneFor', { part: t(`connection.proof.${item.key}`) })}
                   </Button>
                 ))}

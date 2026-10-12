@@ -50,7 +50,10 @@ export interface SignInUrlOptions {
   readonly error?: SignInErrorParam;
 }
 
-function withQuery(path: string, entries: readonly (readonly [string, string | undefined])[]): string {
+function withQuery(
+  path: string,
+  entries: readonly (readonly [string, string | undefined])[],
+): string {
   const parameters = new URLSearchParams();
   for (const [name, value] of entries) {
     if (value !== undefined) parameters.set(name, value);

@@ -58,7 +58,10 @@ export function stepsOf(
         status,
         attempt: status === 'pending' ? 0 : 1,
         startedAt: status === 'pending' ? null : iso(-60_000),
-        finishedAt: status === 'pending' || status === 'running' || status === 'waiting' ? null : iso(-30_000),
+        finishedAt:
+          status === 'pending' || status === 'running' || status === 'waiting'
+            ? null
+            : iso(-30_000),
         errorCode: null,
         hint: null,
         waiting: null,

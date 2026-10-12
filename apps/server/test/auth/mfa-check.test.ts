@@ -36,7 +36,9 @@ const LEARN_TABLE: readonly (readonly [string, readonly string[], boolean])[] = 
 describe('the policy with AUTH_REQUIRE_MFA=true', () => {
   it.each(LEARN_TABLE)('%s %j', (_name, amr, passes) => {
     const decision = decideMfa(amr, POLICY);
-    expect(decision).toEqual(passes ? { ok: true, mfa: true } : { ok: false, reason: 'mfa_required' });
+    expect(decision).toEqual(
+      passes ? { ok: true, mfa: true } : { ok: false, reason: 'mfa_required' },
+    );
   });
 
   it('an absent claim is amr_missing (the tenant never emits it)', () => {
@@ -66,7 +68,9 @@ describe('the policy with AUTH_REQUIRE_MFA=true', () => {
 
 describe('negative control', () => {
   it('a gate that lets pwd alone through fails the table', () => {
-    function assertTable(decide: (amr: readonly string[] | null, policy: MfaPolicy) => MfaDecision): void {
+    function assertTable(
+      decide: (amr: readonly string[] | null, policy: MfaPolicy) => MfaDecision,
+    ): void {
       for (const [name, amr, passes] of LEARN_TABLE) {
         if (decide(amr, POLICY).ok !== passes) throw new Error(`wrong decision for ${name}`);
       }

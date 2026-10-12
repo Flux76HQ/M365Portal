@@ -16,17 +16,31 @@ export function useSecondsUntil(iso: string, offsetMs: number): number {
   return useSecondsLeft(Date.parse(iso) - offsetMs);
 }
 
-function WaitingNote({ sub, context }: { readonly sub: SubActionState; readonly context: WizardContext }) {
+function WaitingNote({
+  sub,
+  context,
+}: {
+  readonly sub: SubActionState;
+  readonly context: WizardContext;
+}) {
   const { t } = useLanguage().translator;
   const waiting = sub.waiting;
   // A hook may not be conditional: a sub-action that does not wait never renders this component.
-  const seconds = useSecondsUntil(waiting?.nextAttemptAt ?? new Date(0).toISOString(), context.offsetMs);
+  const seconds = useSecondsUntil(
+    waiting?.nextAttemptAt ?? new Date(0).toISOString(),
+    context.offsetMs,
+  );
   if (waiting === null) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-body-sm text-fg-secondary">
       <span>{t('setup.configure.waitingFor', { seconds })}</span>
       <span>{t('setup.configure.attempt', { attempt: waiting.attempt })}</span>
-      <Button variant="secondary" size="sm" onClick={context.actions.retryNow} disabled={context.actions.busy}>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={context.actions.retryNow}
+        disabled={context.actions.busy}
+      >
         {t('setup.configure.retryNow')}
       </Button>
     </div>
@@ -51,15 +65,21 @@ export function SubActionList({ step, context }: SubActionListProps) {
           className="flex flex-col gap-1 rounded-md border border-line-subtle bg-surface-raised px-3 py-2"
         >
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="text-body font-medium text-fg">{t(`setup.sub.${sub.key}` as never)}</span>
+            <span className="text-body font-medium text-fg">
+              {t(`setup.sub.${sub.key}` as never)}
+            </span>
             <StatusMark status={sub.status} className="ms-auto" />
           </div>
           {sub.attempt > 1 && sub.waiting === null ? (
-            <p className="text-body-sm text-fg-muted">{t('setup.configure.attempt', { attempt: sub.attempt })}</p>
+            <p className="text-body-sm text-fg-muted">
+              {t('setup.configure.attempt', { attempt: sub.attempt })}
+            </p>
           ) : null}
           {sub.waiting === null ? null : <WaitingNote sub={sub} context={context} />}
           {sub.errorCode !== null && sub.status !== 'waiting' && sub.status !== 'failed' ? (
-            <p className="text-body-sm text-fg-secondary">{resultText(translator, sub.errorCode).message}</p>
+            <p className="text-body-sm text-fg-secondary">
+              {resultText(translator, sub.errorCode).message}
+            </p>
           ) : null}
         </li>
       ))}
@@ -84,7 +104,11 @@ export function RollbackHints({ steps, applicationObjectId }: RollbackHintsProps
   );
   if (items.length === 0) return null;
   return (
-    <section aria-labelledby="rollback-hints" className="flex flex-col gap-2" data-slot="rollback-hints">
+    <section
+      aria-labelledby="rollback-hints"
+      className="flex flex-col gap-2"
+      data-slot="rollback-hints"
+    >
       <h3 id="rollback-hints" className="text-subtitle font-semibold text-fg">
         {translator.t('setup.hintTitle')}
       </h3>
@@ -112,7 +136,9 @@ export function ErrorSummary({ step, children }: ErrorSummaryProps) {
   const { t } = translator;
   const ref = useRef<HTMLDivElement>(null);
   const failed = step.subActions.filter((sub) => sub.status === 'failed');
-  const signature = failed.map((sub) => `${sub.key}:${String(sub.errorCode)}:${String(sub.attempt)}`).join('|');
+  const signature = failed
+    .map((sub) => `${sub.key}:${String(sub.errorCode)}:${String(sub.attempt)}`)
+    .join('|');
   useEffect(() => {
     ref.current?.focus();
   }, [signature]);
@@ -173,7 +199,16 @@ export interface StepFrameProps {
  * The frame of one step: the heading that takes the focus when the step changes, the line of help, the
  * error summary of a failed step, then the step's own content and its sub-actions.
  */
-export function StepFrame({ step, context, focus, title, recovery, subActions = true, errorSummary = true, children }: StepFrameProps) {
+export function StepFrame({
+  step,
+  context,
+  focus,
+  title,
+  recovery,
+  subActions = true,
+  errorSummary = true,
+  children,
+}: StepFrameProps) {
   const { t } = useLanguage().translator;
   const id = useId();
   const heading = useRef<HTMLHeadingElement>(null);
@@ -219,7 +254,8 @@ export function ActionError({ error }: { readonly error: unknown }) {
         <p className="text-fg">{errorText(translator, error, me.publicOrigin)}</p>
         {error instanceof ApiError && error.requestId !== null ? (
           <p className="text-caption text-fg-muted">
-            {t('common.table.requestId')}: <code className="font-mono select-all">{error.requestId}</code>
+            {t('common.table.requestId')}:{' '}
+            <code className="font-mono select-all">{error.requestId}</code>
           </p>
         ) : null}
       </div>

@@ -19,8 +19,7 @@ import type { ValidatedIdToken } from '../ports/identity.js';
 export const AUTH_TIME_SKEW_SECONDS = 60;
 
 export type StepUpVerdict =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly check: StepupCheck };
+  { readonly ok: true } | { readonly ok: false; readonly check: StepupCheck };
 
 /**
  * The checks of the step-up callback that the ID-token validator does not make: the same person

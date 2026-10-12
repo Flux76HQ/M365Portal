@@ -14,23 +14,40 @@ import { renderApp } from './helpers/render-shell';
 const translator = (language: Locale) => createTranslator(language);
 
 async function openNoAccess(search: string, language: Locale = 'en') {
-  return renderApp({ me: sampleMe(), branding: sampleBranding('Acme'), path: `/no-access${search}`, language });
+  return renderApp({
+    me: sampleMe(),
+    branding: sampleBranding('Acme'),
+    path: `/no-access${search}`,
+    language,
+  });
 }
 
 describe('the reason', () => {
   for (const language of ['en', 'nl'] as const) {
-    it.each(NO_ACCESS_REASONS)(`renders the explanation and the remedy of %s in ${language}`, async (reason) => {
-      await openNoAccess(`?reason=${reason}`, language);
-      const t = translator(language);
-      const main = await screen.findByRole('main');
-      expect(await within(main).findByRole('heading', { level: 1 })).toHaveTextContent(t.t('noaccess.title'));
-      expect(main).toHaveTextContent(t.t(`noaccess.reason.${reason}`));
-      expect(main).toHaveTextContent(t.t(`noaccess.remedy.${reason}`));
-    });
+    it.each(NO_ACCESS_REASONS)(
+      `renders the explanation and the remedy of %s in ${language}`,
+      async (reason) => {
+        await openNoAccess(`?reason=${reason}`, language);
+        const t = translator(language);
+        const main = await screen.findByRole('main');
+        expect(await within(main).findByRole('heading', { level: 1 })).toHaveTextContent(
+          t.t('noaccess.title'),
+        );
+        expect(main).toHaveTextContent(t.t(`noaccess.reason.${reason}`));
+        expect(main).toHaveTextContent(t.t(`noaccess.remedy.${reason}`));
+      },
+    );
   }
 
   it('renders no_role for anything else: another value, nothing, an array', async () => {
-    for (const search of ['?reason=admin', '', '?reason=', '?reason=NO_ROLE', '?reason=%3Cscript%3E', '?reason=a&reason=b']) {
+    for (const search of [
+      '?reason=admin',
+      '',
+      '?reason=',
+      '?reason=NO_ROLE',
+      '?reason=%3Cscript%3E',
+      '?reason=a&reason=b',
+    ]) {
       const { unmount } = await openNoAccess(search);
       const main = await screen.findByRole('main');
       expect(main, search).toHaveTextContent(translator('en').t('noaccess.reason.no_role'));
@@ -51,7 +68,15 @@ describe('the reference', () => {
   });
 
   it('is not shown otherwise: too short, too long, spaces, markup, other characters', async () => {
-    for (const ref of ['abc', 'a'.repeat(65), 'req 0123456789', '<b>req-0123456789</b>', 'req_0123456789', 'req-0123456789%0D%0A', '../../etc/passwd']) {
+    for (const ref of [
+      'abc',
+      'a'.repeat(65),
+      'req 0123456789',
+      '<b>req-0123456789</b>',
+      'req_0123456789',
+      'req-0123456789%0D%0A',
+      '../../etc/passwd',
+    ]) {
       const { unmount } = await openNoAccess(`?reason=no_role&ref=${encodeURIComponent(ref)}`);
       const main = await screen.findByRole('main');
       expect(main, ref).not.toHaveTextContent(t.t('noaccess.reference'));
@@ -89,6 +114,8 @@ describe('the page', () => {
 
   it('is the same page for a signed-in actor who opens it by hand', async () => {
     await renderApp({ me: sampleSignedInMe(), path: '/no-access' });
-    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(translator('en').t('noaccess.title'));
+    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(
+      translator('en').t('noaccess.title'),
+    );
   });
 });

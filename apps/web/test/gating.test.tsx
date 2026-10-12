@@ -593,7 +593,12 @@ describe('an anonymous visitor of a gated route is replaced by /signin?returnTo=
   });
 
   it('does not touch /setup* for any setup state: the server decides, not the client', async () => {
-    for (const setupState of ['unconfigured', 'in_progress', 'awaiting_first_signin', 'completed'] as const) {
+    for (const setupState of [
+      'unconfigured',
+      'in_progress',
+      'awaiting_first_signin',
+      'completed',
+    ] as const) {
       const { router, unmount } = await renderApp({ me: sampleMe({ setupState }), path: '/setup' });
       await screen.findByRole('main');
       expect(router.state.location.pathname, setupState).toBe('/setup');
@@ -604,9 +609,15 @@ describe('an anonymous visitor of a gated route is replaced by /signin?returnTo=
 
 describe('a signed-in actor without the permission stays on the page and sees the No-access content', () => {
   it('shows it in place, at the same URL', async () => {
-    const { router } = await renderApp({ me: sampleMe({ kind: 'user', roles: ['reader'] }), path: '/settings/appearance' });
+    const { router } = await renderApp({
+      me: sampleMe({ kind: 'user', roles: ['reader'] }),
+      path: '/settings/appearance',
+    });
     expect(
-      await screen.findByRole('heading', { level: 1, name: createTranslator('en').t('pages.noAccess.title') }),
+      await screen.findByRole('heading', {
+        level: 1,
+        name: createTranslator('en').t('pages.noAccess.title'),
+      }),
     ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/settings/appearance');
   });

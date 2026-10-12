@@ -58,7 +58,8 @@ export function createBreakGlassAttempts(options: {
   const clientWindowMs = limits.failsPerClientWindowMinutes * MINUTE_MS;
   const globalWindowMs = limits.failsGlobalWindowMinutes * MINUTE_MS;
   const queue =
-    options.queue ?? createBoundedQueue({ running: limits.queueRunning, waiting: limits.queueWaiting });
+    options.queue ??
+    createBoundedQueue({ running: limits.queueRunning, waiting: limits.queueWaiting });
   /** Failure instants, oldest first, per client key; and overall. */
   const perClient = new Map<string, number[]>();
   let overall: number[] = [];
@@ -68,7 +69,12 @@ export function createBreakGlassAttempts(options: {
   }
 
   /** Seconds until fewer than `max` failures remain inside the window, or `undefined` when under it. */
-  function retryAfter(times: readonly number[], max: number, windowMs: number, now: number): number | undefined {
+  function retryAfter(
+    times: readonly number[],
+    max: number,
+    windowMs: number,
+    now: number,
+  ): number | undefined {
     const live = within(times, windowMs, now);
     if (live.length < max) return undefined;
     const decisive = live[live.length - max] ?? now;
@@ -156,7 +162,10 @@ export function breakGlassRoute(
     description:
       'Signs in with the break-glass account of the operator: a session that lasts 30 minutes and holds only rbac:manage. Exists only when the account is configured.',
     request: {
-      body: { required: true, content: { 'application/json': { schema: BreakGlassRequestSchema } } },
+      body: {
+        required: true,
+        content: { 'application/json': { schema: BreakGlassRequestSchema } },
+      },
     },
     responses: {
       200: {
@@ -164,7 +173,9 @@ export function breakGlassRoute(
         content: { 'application/json': { schema: BreakGlassResponseSchema } },
       },
       409: { description: 'No tenant is pinned yet (setup_required).' },
-      429: { description: 'Locked after failed attempts, or the line is full (break_glass_locked).' },
+      429: {
+        description: 'Locked after failed attempts, or the line is full (break_glass_locked).',
+      },
     },
     handler: async (c, input) => {
       // The gate keeps this out of reach when the account is not configured; this is the second line.

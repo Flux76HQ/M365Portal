@@ -3,7 +3,10 @@
 // URI; null until a tenant is pinned; offered for `consent_required` and `admin_approval_required`
 // (AADSTS65001, AADSTS90093, AADSTS90094) and no other error. Delivered to the page as
 // `MeResponse.adminConsentUrl`. What Entra does with it for OIDC-only scopes is UNVERIFIED (U30, OV-12).
-import { SIGNIN_ERROR_CODES, signinCodeForMicrosoftError } from '@m365portal/shared/auth/signin-errors';
+import {
+  SIGNIN_ERROR_CODES,
+  signinCodeForMicrosoftError,
+} from '@m365portal/shared/auth/signin-errors';
 import { MeResponseSchema } from '@m365portal/shared/schemas/meta';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { describe, expect, it } from 'vitest';
@@ -56,7 +59,9 @@ describe('which errors get the link', () => {
   });
 
   it('the plain consent_required error string is offered too', () => {
-    expect(offersConsentLink(signinCodeForMicrosoftError({ error: 'consent_required' }))).toBe(true);
+    expect(offersConsentLink(signinCodeForMicrosoftError({ error: 'consent_required' }))).toBe(
+      true,
+    );
   });
 
   it('no other sign-in code gets a link', () => {
@@ -65,14 +70,19 @@ describe('which errors get the link', () => {
   });
 
   it('negative: a rule that offers the link for every error fails', () => {
-    function assertOnlyConsent(offers: (code: (typeof SIGNIN_ERROR_CODES)[number]) => boolean): void {
+    function assertOnlyConsent(
+      offers: (code: (typeof SIGNIN_ERROR_CODES)[number]) => boolean,
+    ): void {
       for (const code of SIGNIN_ERROR_CODES) {
         const expected = code === 'consent_required' || code === 'admin_approval_required';
         if (offers(code) !== expected) throw new Error(`wrong answer for ${code}`);
       }
     }
     assertOnlyConsent(offersConsentLink);
-    expectGuardFails(assertOnlyConsent, () => true, { name: 'consent link rule', reason: 'wrong answer' });
+    expectGuardFails(assertOnlyConsent, () => true, {
+      name: 'consent link rule',
+      reason: 'wrong answer',
+    });
   });
 });
 

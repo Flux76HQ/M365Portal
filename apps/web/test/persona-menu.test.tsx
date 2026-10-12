@@ -101,7 +101,11 @@ describe('the persona', () => {
 describe('the items', () => {
   it('lists "My access", "Sign out" and "Sign out everywhere" for a user, in this order', async () => {
     const { menu } = await openMenu({ me: sampleSignedInMe({ label: 'Alice Example' }) });
-    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual([
       en.t('session.menu.myAccess'),
       en.t('session.menu.signOut'),
       en.t('session.menu.signOutAll'),
@@ -115,29 +119,39 @@ describe('the items', () => {
       path: '/settings',
     });
     await view.user.click(
-      await screen.findByRole('button', { name: nl.t('session.persona.menuLabel', { name: 'Alice Example' }) }),
+      await screen.findByRole('button', {
+        name: nl.t('session.persona.menuLabel', { name: 'Alice Example' }),
+      }),
     );
     const menu = await screen.findByRole('menu');
-    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
-      'Mijn toegang',
-      'Uitloggen',
-      'Overal uitloggen',
-    ]);
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Mijn toegang', 'Uitloggen', 'Overal uitloggen']);
   });
 
   it('lists only "My access" and "Sign out" for a break-glass session: there is one session to end', async () => {
     const { menu } = await openMenu({
-      me: sampleMe({ kind: 'break_glass', label: 'Break-glass', breakGlass: true, permissions: ['rbac:manage'] }),
+      me: sampleMe({
+        kind: 'break_glass',
+        label: 'Break-glass',
+        breakGlass: true,
+        permissions: ['rbac:manage'],
+      }),
       name: en.t('session.actor.breakGlass'),
     });
-    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
-      en.t('session.menu.myAccess'),
-      en.t('session.menu.signOut'),
-    ]);
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual([en.t('session.menu.myAccess'), en.t('session.menu.signOut')]);
   });
 
   it('takes the person to "My access" at /settings/access', async () => {
-    const { menu, user, router } = await openMenu({ me: sampleSignedInMe({ label: 'Alice Example' }) });
+    const { menu, user, router } = await openMenu({
+      me: sampleSignedInMe({ label: 'Alice Example' }),
+    });
     await user.click(within(menu).getByRole('menuitem', { name: en.t('session.menu.myAccess') }));
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/settings/access');
@@ -208,7 +222,10 @@ describe('signing out', () => {
         fetch,
       });
       await user.click(within(menu).getByRole('menuitem', { name: en.t('session.menu.signOut') }));
-      expect(await screen.findByText(en.t('session.menu.signOutFailed')), redirect).toBeInTheDocument();
+      expect(
+        await screen.findByText(en.t('session.menu.signOutFailed')),
+        redirect,
+      ).toBeInTheDocument();
       expect(moves, redirect).toEqual([]);
       unmount();
     }
@@ -218,7 +235,11 @@ describe('signing out', () => {
     const { fetch } = server({
       'POST /api/v1/auth/logout': () =>
         new Response(
-          JSON.stringify({ code: 'storage_unavailable', status: 503, detail: 'SQLITE_BUSY secret detail' }),
+          JSON.stringify({
+            code: 'storage_unavailable',
+            status: 503,
+            detail: 'SQLITE_BUSY secret detail',
+          }),
           { status: 503, headers: { 'Content-Type': 'application/problem+json' } },
         ),
     });

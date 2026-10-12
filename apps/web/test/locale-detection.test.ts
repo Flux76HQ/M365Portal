@@ -90,7 +90,9 @@ describe('the default language the setup stored (FR-B-219 d)', () => {
     expect(chooseLanguage(storage, ['nl-BE'], 'en')).toBe('nl');
     expect(chooseLanguage(storage, ['en-GB'], 'nl')).toBe('en');
     expect(chooseLanguage(storage, ['de-DE'], null)).toBe('en');
-    expect(chooseLanguage(createStorage(backend({ [STORAGE_KEYS.locale]: 'en' })), ['de-DE'], 'nl')).toBe('en');
+    expect(
+      chooseLanguage(createStorage(backend({ [STORAGE_KEYS.locale]: 'en' })), ['de-DE'], 'nl'),
+    ).toBe('en');
   });
 
   it('is applied by the shared controller once the boot data delivered it, before the first render', async () => {

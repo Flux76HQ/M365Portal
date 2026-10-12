@@ -36,7 +36,9 @@ describe('POST /api/v1/auth/logout (P04)', () => {
     );
     expect(isLogoutRedirect(body.redirect)).toBe(true);
     // The row is gone and the cookie is cleared.
-    expect(scene.query('SELECT 1 FROM session WHERE id_hash = ?', await sha256(sessionId))).toEqual([]);
+    expect(scene.query('SELECT 1 FROM session WHERE id_hash = ?', await sha256(sessionId))).toEqual(
+      [],
+    );
     expect(response.headers.getSetCookie().join('\n')).toMatch(/m365portal_session=;.*Max-Age=0/);
     expect(response.headers.get('cache-control')).toBe('no-store');
     // The old cookie is dead.
@@ -78,7 +80,9 @@ describe('POST /api/v1/auth/logout (P04)', () => {
     });
     const response = await scene.client(seeded.headers).post('/api/v1/auth/logout', { json: {} });
     expect(response.status).toBe(200);
-    expect(LogoutResponseSchema.parse(await readJson(response)).redirect).toBe(LOCAL_SIGNED_OUT_PATH);
+    expect(LogoutResponseSchema.parse(await readJson(response)).redirect).toBe(
+      LOCAL_SIGNED_OUT_PATH,
+    );
     const [entry] = signoutEntries(scene);
     expect(entry).toMatchObject({
       actor_kind: 'break_glass',
@@ -134,19 +138,17 @@ describe('POST /api/v1/auth/logout (P04)', () => {
 });
 
 describe('POST /api/v1/auth/logout-all (P05)', () => {
-  it('ends every session of the same principal and no other principal\'s', async () => {
+  it("ends every session of the same principal and no other principal's", async () => {
     const scene = await startSignInScene();
-    const mine = [
-      await scene.signIn(),
-      await scene.signIn(),
-      await scene.signIn(),
-    ];
+    const mine = [await scene.signIn(), await scene.signIn(), await scene.signIn()];
     const other = seedSession(scene.database(), scene.origin, {
       oid: guid(77),
       now: testClock.nowMs(),
     });
     expect(scene.sessionCount()).toBe(4);
-    const response = await scene.client(mine[0]?.headers).post('/api/v1/auth/logout-all', { json: {} });
+    const response = await scene
+      .client(mine[0]?.headers)
+      .post('/api/v1/auth/logout-all', { json: {} });
     expect(response.status).toBe(200);
     const body = LogoutAllResponseSchema.parse(await readJson(response));
     expect(body.sessionsEnded).toBe(3);
@@ -169,7 +171,9 @@ describe('POST /api/v1/auth/logout-all (P05)', () => {
       kind: 'break_glass',
       now: testClock.nowMs(),
     });
-    const response = await scene.client(seeded.headers).post('/api/v1/auth/logout-all', { json: {} });
+    const response = await scene
+      .client(seeded.headers)
+      .post('/api/v1/auth/logout-all', { json: {} });
     expect(response.status).toBe(403);
     expect((await readJson<{ code: string }>(response)).code).toBe('permission_denied');
     expect(scene.sessionCount()).toBe(1);
@@ -181,7 +185,9 @@ describe('GET /auth/logged-out (P03) and what does not exist', () => {
     const scene = await startSignInScene();
     const { browser } = await scene.signIn();
     const before = scene.auditRows().length;
-    const result = await browser.request(new URL('/auth/logged-out', scene.origin), { from: 'microsoft' });
+    const result = await browser.request(new URL('/auth/logged-out', scene.origin), {
+      from: 'microsoft',
+    });
     expect(result.status).toBe(303);
     expect(result.headers.get('location')).toBe('/signin?signedout=1');
     expect(result.setCookies).toEqual([]);
@@ -192,7 +198,12 @@ describe('GET /auth/logged-out (P03) and what does not exist', () => {
 
   it('has no front-channel or back-channel logout route', async () => {
     const scene = await startSignInScene();
-    const paths = ['/auth/logout', '/auth/frontchannel-logout', '/auth/backchannel-logout', '/auth/signout'];
+    const paths = [
+      '/auth/logout',
+      '/auth/frontchannel-logout',
+      '/auth/backchannel-logout',
+      '/auth/signout',
+    ];
     for (const path of paths) {
       // An API client (no text/html in Accept) gets the problem, not the page shell.
       const result = await scene.client().get(path);

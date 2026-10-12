@@ -48,7 +48,10 @@ const envFor = (hash: string): Record<string, string> => ({
 
 describe('the verification', () => {
   it('accepts the right pair and refuses a wrong password, a wrong username and both wrong', async () => {
-    const verifier = createBreakGlassVerifier({ username: USERNAME, passwordHash: await quickHash() });
+    const verifier = createBreakGlassVerifier({
+      username: USERNAME,
+      passwordHash: await quickHash(),
+    });
     expect(await verifier.verify(USERNAME, PASSWORD)).toBe(true);
     expect(await verifier.verify(USERNAME, `${PASSWORD}x`)).toBe(false);
     expect(await verifier.verify('someone-else', PASSWORD)).toBe(false);
@@ -57,9 +60,23 @@ describe('the verification', () => {
   });
 
   it('does the same work for an unknown username: one scrypt of the configured parameters', async () => {
-    const calls: { saltLength: number; keylen: number; n: number; r: number; p: number; maxmem: number }[] = [];
+    const calls: {
+      saltLength: number;
+      keylen: number;
+      n: number;
+      r: number;
+      p: number;
+      maxmem: number;
+    }[] = [];
     const spy: ScryptFunction = (password, salt, keylen, options, callback) => {
-      calls.push({ saltLength: salt.length, keylen, n: options.N, r: options.r, p: options.p, maxmem: options.maxmem });
+      calls.push({
+        saltLength: salt.length,
+        keylen,
+        n: options.N,
+        r: options.r,
+        p: options.p,
+        maxmem: options.maxmem,
+      });
       nodeScrypt(password, salt, keylen, options, callback);
     };
     const verifier = createBreakGlassVerifier({
@@ -80,7 +97,11 @@ describe('the verification', () => {
       seen.push(options.maxmem);
       nodeScrypt(password, salt, keylen, options, callback);
     };
-    for (const [n, r, p] of [[16_384, 8, 1], [32_768, 16, 2], [131_072, 8, 1]] as const) {
+    for (const [n, r, p] of [
+      [16_384, 8, 1],
+      [32_768, 16, 2],
+      [131_072, 8, 1],
+    ] as const) {
       const verifier = createBreakGlassVerifier({
         username: USERNAME,
         passwordHash: await quickHash(PASSWORD, n, r, p),
@@ -100,9 +121,15 @@ describe('the verification', () => {
 
   it('refuses a hash below the floors or above the memory limit at creation', () => {
     expect(() =>
-      createBreakGlassVerifier({ username: USERNAME, passwordHash: 'scrypt:8192:8:1:AAAAAAAAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }),
+      createBreakGlassVerifier({
+        username: USERNAME,
+        passwordHash:
+          'scrypt:8192:8:1:AAAAAAAAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      }),
     ).toThrow();
-    expect(() => createBreakGlassVerifier({ username: USERNAME, passwordHash: 'not a hash' })).toThrow();
+    expect(() =>
+      createBreakGlassVerifier({ username: USERNAME, passwordHash: 'not a hash' }),
+    ).toThrow();
   });
 
   it('hashes the password like the hash-password command: UTF-8 bytes minus one trailing newline', async () => {
@@ -153,7 +180,9 @@ describe('the verification', () => {
     } finally {
       clearInterval(timer);
     }
-    expect(peak - baseline).toBeLessThanOrEqual(LIMITS.breakGlass.scrypt.maxMemoryBytes + 32 * 1024 * 1024);
+    expect(peak - baseline).toBeLessThanOrEqual(
+      LIMITS.breakGlass.scrypt.maxMemoryBytes + 32 * 1024 * 1024,
+    );
   }, 60_000);
 });
 
@@ -177,10 +206,12 @@ describe('the one-slot queue', () => {
     );
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(order).toEqual(['start 0']);
-    const refused = await queue.run(() => Promise.resolve()).then(
-      () => 'ran',
-      () => 'refused',
-    );
+    const refused = await queue
+      .run(() => Promise.resolve())
+      .then(
+        () => 'ran',
+        () => 'refused',
+      );
     expect(refused).toBe('refused');
     for (const gate of gates) gate.resolve();
     await Promise.all(tasks);
@@ -191,7 +222,9 @@ describe('the one-slot queue', () => {
 });
 
 describe('POST /api/v1/auth/break-glass', () => {
-  async function scene(options: { env?: Record<string, string>; hash?: string } = {}): Promise<SignInScene> {
+  async function scene(
+    options: { env?: Record<string, string>; hash?: string } = {},
+  ): Promise<SignInScene> {
     return await startSignInScene({
       env: { TRUST_PROXY: '1', ...envFor(options.hash ?? (await quickHash())), ...options.env },
     });
@@ -244,7 +277,10 @@ describe('POST /api/v1/auth/break-glass', () => {
 
   it('a wrong password and an unknown username are indistinguishable: 401 unauthenticated', async () => {
     const server = await scene();
-    const wrongPassword = await attempt(server, { username: USERNAME, password: 'not-the-password' });
+    const wrongPassword = await attempt(server, {
+      username: USERNAME,
+      password: 'not-the-password',
+    });
     const unknownUser = await attempt(server, { username: 'nobody', password: PASSWORD });
     for (const response of [wrongPassword, unknownUser]) {
       expect(response.status).toBe(401);
@@ -263,7 +299,10 @@ describe('POST /api/v1/auth/break-glass', () => {
   it('5 failures per client in 15 minutes lock the route: 429 with an integer Retry-After, not audited', async () => {
     const server = await scene();
     for (let index = 0; index < 5; index += 1) {
-      const response = await attempt(server, { username: USERNAME, password: `wrong-${String(index)}` });
+      const response = await attempt(server, {
+        username: USERNAME,
+        password: `wrong-${String(index)}`,
+      });
       expect(response.status).toBe(401);
     }
     expect(server.auditRows().filter((row) => row.action === 'breakglass.signin')).toHaveLength(5);
@@ -309,19 +348,29 @@ describe('POST /api/v1/auth/break-glass', () => {
       );
       expect(response.status).toBe(401);
     }
-    const locked = await attempt(server, { username: USERNAME, password: PASSWORD }, '203.0.113.99');
+    const locked = await attempt(
+      server,
+      { username: USERNAME, password: PASSWORD },
+      '203.0.113.99',
+    );
     expect(locked.status).toBe(429);
     expect(await code(locked)).toBe('break_glass_locked');
     expect(Number(locked.headers.get('retry-after'))).toBeLessThanOrEqual(60 * 60);
     server.advance(60 * MINUTE + 1_000);
-    expect((await attempt(server, { username: USERNAME, password: PASSWORD }, '203.0.113.99')).status).toBe(200);
+    expect(
+      (await attempt(server, { username: USERNAME, password: PASSWORD }, '203.0.113.99')).status,
+    ).toBe(200);
   });
 
   it('a full queue (1 running, 2 waiting) answers 429 break_glass_locked', async () => {
     const server = await scene({ hash: await quickHash(PASSWORD, 131_072, 8, 1) });
     const responses = await Promise.all(
       Array.from({ length: 5 }, (_value, index) =>
-        attempt(server, { username: USERNAME, password: 'wrong-password-value' }, `198.51.100.${String(100 + index)}`),
+        attempt(
+          server,
+          { username: USERNAME, password: 'wrong-password-value' },
+          `198.51.100.${String(100 + index)}`,
+        ),
       ),
     );
     const statuses = responses.map((response) => response.status).sort();
@@ -346,7 +395,9 @@ describe('POST /api/v1/auth/break-glass', () => {
     ]) {
       expect(loadConfig({ PUBLIC_BASE_URL: 'http://localhost:9300', ...half }).ok).toBe(false);
     }
-    const me = await readJson<{ features: { breakGlass: boolean } }>(await server.client().get('/api/v1/me'));
+    const me = await readJson<{ features: { breakGlass: boolean } }>(
+      await server.client().get('/api/v1/me'),
+    );
     expect(me.features.breakGlass).toBe(false);
   });
 
@@ -367,14 +418,25 @@ describe('POST /api/v1/auth/break-glass', () => {
     const server = await scene();
     const client = server.client({ 'x-forwarded-for': '198.51.100.7' });
     const body = { username: USERNAME, password: PASSWORD };
-    expect((await client.post('/api/v1/auth/break-glass', { json: body, origin: null })).status).toBe(403);
+    expect(
+      (await client.post('/api/v1/auth/break-glass', { json: body, origin: null })).status,
+    ).toBe(403);
     const noCsrf = await client.post('/api/v1/auth/break-glass', { json: body, csrf: 'none' });
     expect(noCsrf.status).toBe(403);
     expect(await code(noCsrf)).toBe('csrf_invalid');
-    expect((await client.post('/api/v1/auth/break-glass', { json: { ...body, extra: 1 } })).status).toBe(422);
-    expect((await client.post('/api/v1/auth/break-glass', { json: { username: '', password: 'x' } })).status).toBe(422);
     expect(
-      (await client.post('/api/v1/auth/break-glass', { json: { username: 'u', password: 'p'.repeat(5_000) } })).status,
+      (await client.post('/api/v1/auth/break-glass', { json: { ...body, extra: 1 } })).status,
+    ).toBe(422);
+    expect(
+      (await client.post('/api/v1/auth/break-glass', { json: { username: '', password: 'x' } }))
+        .status,
+    ).toBe(422);
+    expect(
+      (
+        await client.post('/api/v1/auth/break-glass', {
+          json: { username: 'u', password: 'p'.repeat(5_000) },
+        })
+      ).status,
     ).toBe(413);
     expect(server.sessionCount()).toBe(0);
     expect(server.auditRows().filter((row) => row.action === 'breakglass.signin')).toEqual([]);
@@ -384,7 +446,9 @@ describe('POST /api/v1/auth/break-glass', () => {
 describe('negative control', () => {
   it('a verifier that skips the work for an unknown username fails the same-work rule', async () => {
     const hash = await quickHash();
-    async function assertSameWork(make: (spy: ScryptFunction) => { verify(u: string, p: string): Promise<boolean> }): Promise<void> {
+    async function assertSameWork(
+      make: (spy: ScryptFunction) => { verify(u: string, p: string): Promise<boolean> },
+    ): Promise<void> {
       let calls = 0;
       const spy: ScryptFunction = (password, salt, keylen, options, callback) => {
         calls += 1;
@@ -394,11 +458,20 @@ describe('negative control', () => {
       await verifier.verify('unknown-user', PASSWORD);
       if (calls !== 1) throw new Error('no work was done for an unknown username');
     }
-    await assertSameWork((spy) => createBreakGlassVerifier({ username: USERNAME, passwordHash: hash, scrypt: spy }));
+    await assertSameWork((spy) =>
+      createBreakGlassVerifier({ username: USERNAME, passwordHash: hash, scrypt: spy }),
+    );
     const shortcut = (spy: ScryptFunction): { verify(u: string, p: string): Promise<boolean> } => {
-      const inner = createBreakGlassVerifier({ username: USERNAME, passwordHash: hash, scrypt: spy });
+      const inner = createBreakGlassVerifier({
+        username: USERNAME,
+        passwordHash: hash,
+        scrypt: spy,
+      });
       return { verify: async (u, p) => (u === USERNAME ? await inner.verify(u, p) : false) };
     };
-    await expectGuardFails(assertSameWork, shortcut, { name: 'same work', reason: 'no work was done' });
+    await expectGuardFails(assertSameWork, shortcut, {
+      name: 'same work',
+      reason: 'no work was done',
+    });
   });
 });

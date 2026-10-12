@@ -10,7 +10,9 @@ export function ExchangeNotice({ context }: { readonly context: WizardContext })
   const { t } = useLanguage().translator;
   const skipped =
     !context.state.exchangeEnabled ||
-    stepOf(context, 'verify').subActions.some((sub) => sub.key === 'exchange_probe' && sub.status === 'warning');
+    stepOf(context, 'verify').subActions.some(
+      (sub) => sub.key === 'exchange_probe' && sub.status === 'warning',
+    );
   if (!skipped) return null;
   return (
     <div
@@ -39,8 +41,18 @@ export function VerifyStep({ context, focus }: StepProps) {
     </Button>
   );
   return (
-    <StepFrame step="verify" context={context} focus={focus} title={t('setup.verify.title')} recovery={button}>
-      {active ? <p role="status" className="text-body text-fg-secondary">{t('setup.verify.running')}</p> : null}
+    <StepFrame
+      step="verify"
+      context={context}
+      focus={focus}
+      title={t('setup.verify.title')}
+      recovery={button}
+    >
+      {active ? (
+        <p role="status" className="text-body text-fg-secondary">
+          {t('setup.verify.running')}
+        </p>
+      ) : null}
       <ExchangeNotice context={context} />
       {step.status === 'pending' && !active ? <div>{button}</div> : null}
     </StepFrame>

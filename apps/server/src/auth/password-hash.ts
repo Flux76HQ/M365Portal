@@ -52,7 +52,8 @@ export interface BreakGlassVerifierOptions {
 /** Throws at creation for a hash the configuration would have refused: it never reaches a sign-in. */
 export function createBreakGlassVerifier(options: BreakGlassVerifierOptions): BreakGlassVerifier {
   const parsed = parseScryptHash(options.passwordHash);
-  if (!parsed.ok) throw new Error(`the break-glass password hash is not acceptable: ${parsed.reason}`);
+  if (!parsed.ok)
+    throw new Error(`the break-glass password hash is not acceptable: ${parsed.reason}`);
   const { n, r, p, salt, hash } = parsed.value;
   const expectedHash = Buffer.from(hash);
   const expectedUser = digest(options.username);
@@ -77,7 +78,8 @@ export function createBreakGlassVerifier(options: BreakGlassVerifierOptions): Br
   return {
     async verify(username, password) {
       const key = await derived(password);
-      const passwordMatches = key.length === expectedHash.length && timingSafeEqual(key, expectedHash);
+      const passwordMatches =
+        key.length === expectedHash.length && timingSafeEqual(key, expectedHash);
       const userMatches = timingSafeEqual(digest(username), expectedUser);
       return userMatches && passwordMatches;
     },

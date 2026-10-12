@@ -29,8 +29,7 @@ export function insertAssignmentDirectly(dataDir: string, assignment: DirectAssi
   const database = open(dataDir);
   try {
     const role = database.prepare('SELECT id FROM rbac_role WHERE key = ?').get(assignment.role) as
-      | { id: string }
-      | undefined;
+      { id: string } | undefined;
     if (role === undefined) throw new Error(`no role ${assignment.role} in the database`);
     const id = randomUUID();
     database

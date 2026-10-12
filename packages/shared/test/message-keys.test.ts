@@ -29,7 +29,14 @@ import { ERROR_DETAIL_CODES, ERROR_DETAIL_MESSAGE_KEYS } from '../src/i18n/detai
 import { LAZY_NAMESPACES, LOCALES, placeholdersOf, type Locale } from '../src/i18n/index.js';
 import { PROBLEM_CODES, problemMessageKey } from '../src/problem.js';
 import { ALL_LABEL_KEYS } from '../src/rbac/labels.js';
-import { PROOF_KEYS, PROOF_STATUSES, CERTIFICATE_LEVELS, RUN_STATUSES, SECRETS_STATUSES, DEVICE_CODE_STATES } from '../src/schemas/connection.js';
+import {
+  PROOF_KEYS,
+  PROOF_STATUSES,
+  CERTIFICATE_LEVELS,
+  RUN_STATUSES,
+  SECRETS_STATUSES,
+  DEVICE_CODE_STATES,
+} from '../src/schemas/connection.js';
 import { LOG_KEYS } from '../src/setup/log-keys.js';
 import {
   ENVIRONMENT_CHECK_KEYS,
@@ -63,7 +70,10 @@ function readMessages(locale: Locale): Messages {
     if (!name.endsWith(`.${locale}.json`)) continue;
     Object.assign(
       merged,
-      JSON.parse(readFileSync(join(localesDirectory, 'lazy', name), 'utf8')) as Record<string, string>,
+      JSON.parse(readFileSync(join(localesDirectory, 'lazy', name), 'utf8')) as Record<
+        string,
+        string
+      >,
     );
   }
   return merged;
@@ -126,10 +136,15 @@ const HINT_PARAMS: Readonly<Record<string, readonly string[]>> = {
 /** Everything the registries name, as the messages they require. */
 function requiredMessages(): Required[] {
   const required: Required[] = [];
-  const add = (key: string, source: string, params?: Partial<Pick<Required, 'exactParams' | 'allowedParams'>>) => {
+  const add = (
+    key: string,
+    source: string,
+    params?: Partial<Pick<Required, 'exactParams' | 'allowedParams'>>,
+  ) => {
     required.push({ key, source, ...params });
   };
-  for (const code of Object.keys(PROBLEM_CODES)) add(problemMessageKey(code), `problem code ${code}`);
+  for (const code of Object.keys(PROBLEM_CODES))
+    add(problemMessageKey(code), `problem code ${code}`);
   add(problemMessageKey('not-a-code'), 'the fallback for an unknown problem code');
   for (const code of RESULT_CODES) {
     add(resultMessageKey(code), `result code ${code}`);
@@ -156,14 +171,21 @@ function requiredMessages(): Required[] {
   for (const sub of SUB_ACTION_KEYS) add(subActionMessageKey(sub), `sub-action ${sub}`);
   for (const status of STEP_STATUSES) add(`setup.status.${status}`, `step status ${status}`);
   for (const status of RUN_STATUSES) add(`setup.runStatus.${status}`, `run status ${status}`);
-  for (const kind of [...SETUP_OBJECT_KINDS, 'certificate']) add(`setup.kind.${kind}`, `object kind ${kind}`);
-  for (const check of ENVIRONMENT_CHECK_KEYS) add(`setup.checkOk.${check}`, `environment check ${check} (ok)`);
-  for (const status of ENVIRONMENT_CHECK_STATUSES) add(`setup.check.${status}`, `environment check status ${status}`);
-  for (const state of DEVICE_CODE_STATES) add(`setup.deviceState.${state}`, `device-code state ${state}`);
+  for (const kind of [...SETUP_OBJECT_KINDS, 'certificate'])
+    add(`setup.kind.${kind}`, `object kind ${kind}`);
+  for (const check of ENVIRONMENT_CHECK_KEYS)
+    add(`setup.checkOk.${check}`, `environment check ${check} (ok)`);
+  for (const status of ENVIRONMENT_CHECK_STATUSES)
+    add(`setup.check.${status}`, `environment check status ${status}`);
+  for (const state of DEVICE_CODE_STATES)
+    add(`setup.deviceState.${state}`, `device-code state ${state}`);
   for (const key of PROOF_KEYS) add(`connection.proof.${key}`, `proof item ${key}`);
-  for (const status of PROOF_STATUSES) add(`connection.proofStatus.${status}`, `proof status ${status}`);
-  for (const level of CERTIFICATE_LEVELS) add(`connection.certificate.level.${level}`, `certificate level ${level}`);
-  for (const status of SECRETS_STATUSES) add(`connection.secrets.${status}`, `secrets status ${status}`);
+  for (const status of PROOF_STATUSES)
+    add(`connection.proofStatus.${status}`, `proof status ${status}`);
+  for (const level of CERTIFICATE_LEVELS)
+    add(`connection.certificate.level.${level}`, `certificate level ${level}`);
+  for (const status of SECRETS_STATUSES)
+    add(`connection.secrets.${status}`, `secrets status ${status}`);
   for (const key of ALL_LABEL_KEYS) add(key, 'label registry');
   for (const key of SESSION_KEYS) add(key, 'session notice');
   return required;
@@ -185,10 +207,15 @@ function checkMessageKeys(required: readonly Required[], catalogues: Catalogues)
     const en = placeholders.en;
     const nl = placeholders.nl;
     if (en !== undefined && nl !== undefined && [...en].sort().join() !== [...nl].sort().join()) {
-      problems.push(`"${key}" uses different placeholders in en ({${en.join(', ')}}) and nl ({${nl.join(', ')}})`);
+      problems.push(
+        `"${key}" uses different placeholders in en ({${en.join(', ')}}) and nl ({${nl.join(', ')}})`,
+      );
     }
     for (const [locale, names] of Object.entries(placeholders)) {
-      if (exactParams !== undefined && [...names].sort().join() !== [...exactParams].sort().join()) {
+      if (
+        exactParams !== undefined &&
+        [...names].sort().join() !== [...exactParams].sort().join()
+      ) {
         problems.push(
           `${locale}: "${key}" must use exactly {${exactParams.join(', ')}} (${source}), it uses {${names.join(', ')}}`,
         );
@@ -206,7 +233,10 @@ function checkMessageKeys(required: readonly Required[], catalogues: Catalogues)
   return problems;
 }
 
-function assertMessageKeys(required: readonly Required[], catalogues: Catalogues = CATALOGUES): void {
+function assertMessageKeys(
+  required: readonly Required[],
+  catalogues: Catalogues = CATALOGUES,
+): void {
   const problems = checkMessageKeys(required, catalogues);
   if (problems.length > 0) throw new Error(problems.join('\n'));
 }
@@ -249,7 +279,8 @@ describe('every key a registry names has a message in both languages', () => {
 
   it('covers every problem code, wizard result code, sign-in code and no-access reason of the registries', () => {
     const keys = new Set(required.map((entry) => entry.key));
-    for (const code of Object.keys(PROBLEM_CODES)) expect(keys.has(`problem.${code}`), code).toBe(true);
+    for (const code of Object.keys(PROBLEM_CODES))
+      expect(keys.has(`problem.${code}`), code).toBe(true);
     for (const code of RESULT_CODES) {
       expect(keys.has(`setup.result.${code}`), code).toBe(true);
       expect(keys.has(`setup.remedy.${code}`), code).toBe(true);
@@ -258,14 +289,22 @@ describe('every key a registry names has a message in both languages', () => {
       expect(keys.has(`signin.error.${code}`), code).toBe(true);
       expect(keys.has(`signin.remedy.${code}`), code).toBe(true);
     }
-    for (const reason of NO_ACCESS_REASONS) expect(keys.has(`noaccess.reason.${reason}`), reason).toBe(true);
+    for (const reason of NO_ACCESS_REASONS)
+      expect(keys.has(`noaccess.reason.${reason}`), reason).toBe(true);
   });
 
   it('has a message for the errors[] detail codes privileged_role_group, principal_disabled and owner_changed', () => {
-    expect([...ERROR_DETAIL_CODES].sort()).toEqual(['owner_changed', 'principal_disabled', 'privileged_role_group']);
+    expect([...ERROR_DETAIL_CODES].sort()).toEqual([
+      'owner_changed',
+      'principal_disabled',
+      'privileged_role_group',
+    ]);
     for (const code of ERROR_DETAIL_CODES) {
       for (const locale of LOCALES) {
-        expect(CATALOGUES[locale][ERROR_DETAIL_MESSAGE_KEYS[code]], `${locale}: ${code}`).toBeTruthy();
+        expect(
+          CATALOGUES[locale][ERROR_DETAIL_MESSAGE_KEYS[code]],
+          `${locale}: ${code}`,
+        ).toBeTruthy();
       }
     }
   });
@@ -308,9 +347,10 @@ describe('every key a registry names has a message in both languages', () => {
   it('declares the parameters of the rollback hints and of the log lines, and no others', () => {
     for (const key of ROLLBACK_HINT_KEYS) {
       for (const locale of LOCALES) {
-        expect([...placeholdersOf(CATALOGUES[locale][key] ?? '')].sort(), `${locale}: ${key}`).toEqual(
-          [...(HINT_PARAMS[key] ?? [])].sort(),
-        );
+        expect(
+          [...placeholdersOf(CATALOGUES[locale][key] ?? '')].sort(),
+          `${locale}: ${key}`,
+        ).toEqual([...(HINT_PARAMS[key] ?? [])].sort());
       }
     }
     for (const [key, names] of Object.entries(LOG_KEYS)) {
@@ -327,7 +367,8 @@ describe('every key a registry names has a message in both languages', () => {
     for (const [key, names] of Object.entries(LOG_KEYS)) {
       for (const locale of LOCALES) {
         const used = placeholdersOf(CATALOGUES[locale][key] ?? '');
-        for (const name of names) expect(used, `${locale}: ${key} does not print {${name}}`).toContain(name);
+        for (const name of names)
+          expect(used, `${locale}: ${key} does not print {${name}}`).toContain(name);
       }
     }
   });
@@ -374,15 +415,21 @@ describe('the other direction: a registry-owned namespace holds no message witho
       for (const key of Object.keys(CATALOGUES[locale])) {
         if (!OWNED_PREFIXES.some((prefix) => key.startsWith(prefix))) continue;
         if (EXTRA.has(key)) continue;
-        expect(keys.has(key), `${locale}: "${key}" is in a registry namespace but no registry names it`).toBe(true);
+        expect(
+          keys.has(key),
+          `${locale}: "${key}" is in a registry namespace but no registry names it`,
+        ).toBe(true);
       }
     }
   });
 
   it('keeps the lazy namespaces apart from the entry catalogue (nothing of the wizard in the entry file)', () => {
-    const entry: Messages = JSON.parse(readFileSync(join(localesDirectory, 'en.json'), 'utf8')) as Messages;
+    const entry: Messages = JSON.parse(
+      readFileSync(join(localesDirectory, 'en.json'), 'utf8'),
+    ) as Messages;
     for (const key of Object.keys(entry)) {
-      for (const namespace of LAZY_NAMESPACES) expect(key.startsWith(`${namespace}.`), key).toBe(false);
+      for (const namespace of LAZY_NAMESPACES)
+        expect(key.startsWith(`${namespace}.`), key).toBe(false);
     }
   });
 });
@@ -402,8 +449,16 @@ describe('negative fixtures: each rule fails on purpose', () => {
   const options = (reason: string) => ({ name: 'message-keys', reason });
 
   it('a registry key without a message fails, in either language', () => {
-    expectGuardFails(guard, { required: one(), catalogues: set({}, { 'x.title': 'Titel' }) }, options('en: no message for "x.title" (a registry)'));
-    expectGuardFails(guard, { required: one(), catalogues: set({ 'x.title': 'Title' }, {}) }, options('nl: no message for "x.title" (a registry)'));
+    expectGuardFails(
+      guard,
+      { required: one(), catalogues: set({}, { 'x.title': 'Titel' }) },
+      options('en: no message for "x.title" (a registry)'),
+    );
+    expectGuardFails(
+      guard,
+      { required: one(), catalogues: set({ 'x.title': 'Title' }, {}) },
+      options('nl: no message for "x.title" (a registry)'),
+    );
     expectGuardFails(
       guard,
       { required: one(), catalogues: set({ 'x.title': 'Title' }, { 'x.title': '  ' }) },
@@ -426,7 +481,10 @@ describe('negative fixtures: each rule fails on purpose', () => {
   it('placeholders that differ between the languages fail', () => {
     expectGuardFails(
       guard,
-      { required: one(), catalogues: set({ 'x.title': 'Hello {name}' }, { 'x.title': 'Hallo {naam}' }) },
+      {
+        required: one(),
+        catalogues: set({ 'x.title': 'Hello {name}' }, { 'x.title': 'Hallo {naam}' }),
+      },
       options('"x.title" uses different placeholders in en ({name}) and nl ({naam})'),
     );
   });
@@ -436,7 +494,10 @@ describe('negative fixtures: each rule fails on purpose', () => {
       guard,
       {
         required: one({ allowedParams: ['step'] }),
-        catalogues: set({ 'x.title': 'Step {step} {secret}' }, { 'x.title': 'Stap {step} {secret}' }),
+        catalogues: set(
+          { 'x.title': 'Step {step} {secret}' },
+          { 'x.title': 'Stap {step} {secret}' },
+        ),
       },
       options('"x.title" uses {secret}, which the key does not declare'),
     );

@@ -433,7 +433,9 @@ describe('a full run leaves no secret anywhere (FR-B-715, FR-B-107, SC-B-013)', 
     const surfaces = surfacesOf(current);
     expect(surfaces.files.some((file) => file.path.includes('pre-rotate-'))).toBe(true);
     expect(
-      surfaces.files.some((file) => file.path.endsWith(".sqlite-wal") || file.path.endsWith(".sqlite")),
+      surfaces.files.some(
+        (file) => file.path.endsWith('.sqlite-wal') || file.path.endsWith('.sqlite'),
+      ),
     ).toBe(true);
     expect(surfaces.exchanges.some((exchange) => exchange.path === '/api/v1/openapi.json')).toBe(
       true,

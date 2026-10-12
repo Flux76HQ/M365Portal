@@ -63,15 +63,13 @@ export async function recheckBootSession(options: RecheckOptions): Promise<Reche
     api.observeVersion(me.version);
   }
 
-  const answer = api
-    .get('/api/v1/me', { schema: MeResponseSchema })
-    .then(
-      (me): RecheckOutcome => {
-        apply(me);
-        return { outcome: me.actor.kind === 'anonymous' ? 'anonymous' : 'signed_in' };
-      },
-      (): RecheckOutcome => ({ outcome: 'failed' }),
-    );
+  const answer = api.get('/api/v1/me', { schema: MeResponseSchema }).then(
+    (me): RecheckOutcome => {
+      apply(me);
+      return { outcome: me.actor.kind === 'anonymous' ? 'anonymous' : 'signed_in' };
+    },
+    (): RecheckOutcome => ({ outcome: 'failed' }),
+  );
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<RecheckOutcome>((resolve) => {

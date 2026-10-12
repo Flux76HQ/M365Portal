@@ -31,8 +31,7 @@ const SIGN_IN_STATES: ReadonlySet<SetupState> = new Set(['awaiting_first_signin'
 /** The setup state, or `unconfigured` when the row is absent. */
 export function setupStateOf(db: DatabaseHandle): SetupState {
   const row = db.sqlite.prepare('SELECT state FROM setup_state WHERE id = 1').get() as
-    | { state: string }
-    | undefined;
+    { state: string } | undefined;
   return SETUP_STATES.find((state) => state === row?.state) ?? 'unconfigured';
 }
 

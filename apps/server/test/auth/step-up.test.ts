@@ -86,7 +86,11 @@ describe('the demand: 403 step_up_required inside and outside the window', () =>
       expect((await readJson<{ code: string }>(response)).code).toBe('step_up_required');
       const denial = auditOf(scene, 'test.stepup');
       expect(denial).toHaveLength(1);
-      expect(denial[0]).toMatchObject({ outcome: 'denied', reason_code: 'step_up_required', actor_id: scene.userId });
+      expect(denial[0]).toMatchObject({
+        outcome: 'denied',
+        reason_code: 'step_up_required',
+        actor_id: scene.userId,
+      });
     } else {
       expect(auditOf(scene, 'test.stepup')).toEqual([]);
     }
@@ -104,9 +108,9 @@ describe('the demand: 403 step_up_required inside and outside the window', () =>
 
   it('the OpenAPI document marks the route x-step-up', async () => {
     const scene = await startSignInScene({ modules: [stepUpRoute] });
-    const document = await readJson<{ paths: Record<string, Record<string, Record<string, unknown>>> }>(
-      await scene.client().get('/api/v1/openapi.json'),
-    );
+    const document = await readJson<{
+      paths: Record<string, Record<string, Record<string, unknown>>>;
+    }>(await scene.client().get('/api/v1/openapi.json'));
     expect(document.paths['/api/v1/test/stepup']?.post?.['x-step-up']).toBe(true);
   });
 });
@@ -124,16 +128,21 @@ describe('the flow', () => {
   it('rotates the session id, sets step_up_at and keeps the absolute deadline', async () => {
     const scene = await startSignInScene({ modules: [stepUpRoute] });
     const session = await scene.signIn();
-    const [before] = scene.query<{ created_at: string; absolute_expires_at: string; step_up_at: string | null }>(
-      'SELECT created_at, absolute_expires_at, step_up_at FROM session',
-    );
+    const [before] = scene.query<{
+      created_at: string;
+      absolute_expires_at: string;
+      step_up_at: string | null;
+    }>('SELECT created_at, absolute_expires_at, step_up_at FROM session');
     expect(before?.step_up_at).toBeNull();
     scene.advance(3 * MINUTE);
     const { result } = await stepUp(scene, session);
     expect(result.status).toBe(200);
-    const rows = scene.query<{ id_hash: string; created_at: string; absolute_expires_at: string; step_up_at: string }>(
-      'SELECT id_hash, created_at, absolute_expires_at, step_up_at FROM session',
-    );
+    const rows = scene.query<{
+      id_hash: string;
+      created_at: string;
+      absolute_expires_at: string;
+      step_up_at: string;
+    }>('SELECT id_hash, created_at, absolute_expires_at, step_up_at FROM session');
     expect(rows).toHaveLength(1);
     const newId = session.browser.cookie('m365portal_session') ?? '';
     expect(newId).not.toBe(session.sessionId);
@@ -157,7 +166,9 @@ describe('the flow', () => {
     const scene = await startSignInScene({ modules: [stepUpRoute] });
     const session = await scene.signIn();
     await stepUp(scene, session);
-    const cookie = { cookie: `m365portal_session=${session.browser.cookie('m365portal_session') ?? ''}` };
+    const cookie = {
+      cookie: `m365portal_session=${session.browser.cookie('m365portal_session') ?? ''}`,
+    };
     expect((await scene.client(cookie).post('/api/v1/test/stepup', { json: {} })).status).toBe(200);
     scene.advance(10 * MINUTE + 1_000);
     const late = await scene.client(cookie).post('/api/v1/test/stepup', { json: {} });
@@ -174,14 +185,18 @@ describe('the callback refuses', () => {
     const { result } = await stepUp(scene, session, spec, query);
     const [entry] = auditOf(scene, 'auth.stepup');
     // The session is untouched: same id, no step-up.
-    const rows = scene.query<{ id_hash: string; step_up_at: string | null }>('SELECT id_hash, step_up_at FROM session');
+    const rows = scene.query<{ id_hash: string; step_up_at: string | null }>(
+      'SELECT id_hash, step_up_at FROM session',
+    );
     expect(rows).toEqual([{ id_hash: sha(session.sessionId), step_up_at: null }]);
     return { scene, result, entry };
   }
 
   it('another oid: stepup_failed, check oid_mismatch', async () => {
     const scene = await startSignInScene({ modules: [stepUpRoute] });
-    const other = scene.world.graph.directory.addUser({ userPrincipalName: 'bob@contoso-fake.example' });
+    const other = scene.world.graph.directory.addUser({
+      userPrincipalName: 'bob@contoso-fake.example',
+    });
     const session = await scene.signIn();
     const { result } = await stepUp(scene, session, { user: other.id });
     expect(result.headers.get('location')).toBe('/signin?error=stepup_failed');
@@ -230,7 +245,9 @@ describe('the callback refuses', () => {
   it('the session ended while the person signed in again: session_expired', async () => {
     const scene = await startSignInScene({ modules: [stepUpRoute] });
     const session = await scene.signIn();
-    const login = await session.browser.navigate('/auth/login?purpose=stepup', { stopBeforePanel: true });
+    const login = await session.browser.navigate('/auth/login?purpose=stepup', {
+      stopBeforePanel: true,
+    });
     // The person signed out elsewhere (sign-out everywhere) while the Entra page was open.
     scene.exec('DELETE FROM session');
     const result = await session.browser.request(new URL(login.headers.get('location') ?? ''), {
@@ -242,15 +259,24 @@ describe('the callback refuses', () => {
 });
 
 describe('checkStepUp', () => {
-  const TOKEN = { tid: 't', oid: 'o', upn: null, name: null, amr: ['mfa'], authTime: 1_000 } as const;
+  const TOKEN = {
+    tid: 't',
+    oid: 'o',
+    upn: null,
+    name: null,
+    amr: ['mfa'],
+    authTime: 1_000,
+  } as const;
 
   it('accepts the boundary and refuses one second below it', () => {
     const startedAt = 1_000_000 + AUTH_TIME_SKEW_SECONDS * 1000;
     expect(checkStepUp({ token: TOKEN, sessionOid: 'O', startedAt })).toEqual({ ok: true });
-    expect(checkStepUp({ token: { ...TOKEN, authTime: 999 }, sessionOid: 'o', startedAt })).toEqual({
-      ok: false,
-      check: 'auth_time_stale',
-    });
+    expect(checkStepUp({ token: { ...TOKEN, authTime: 999 }, sessionOid: 'o', startedAt })).toEqual(
+      {
+        ok: false,
+        check: 'auth_time_stale',
+      },
+    );
   });
 
   it('negative: a check that ignores auth_time fails the table', () => {
@@ -259,10 +285,9 @@ describe('checkStepUp', () => {
       if (verdict.ok) throw new Error('a missing auth_time was accepted');
     }
     assertAuthTimeChecked(checkStepUp);
-    expectGuardFails(
-      assertAuthTimeChecked,
-      () => ({ ok: true }) as const,
-      { name: 'step-up check', reason: 'was accepted' },
-    );
+    expectGuardFails(assertAuthTimeChecked, () => ({ ok: true }) as const, {
+      name: 'step-up check',
+      reason: 'was accepted',
+    });
   });
 });

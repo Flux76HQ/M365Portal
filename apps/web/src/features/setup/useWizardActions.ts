@@ -30,4 +30,3 @@ export function useWizardActions(api: ApiClient, poke: () => void): WizardAction
     error,
   };
 }
-

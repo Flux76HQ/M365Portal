@@ -515,16 +515,15 @@ describe('the contract routes P01 to P32 on the real application (T-B-392)', () 
       access: 'public',
       rateClass: 'read',
     };
-    const documentWith = (extra: Record<string, unknown>): OpenApiDocument =>
-      ({
-        openapi: '3.1.0',
-        info: { title: 't', version: '1' },
-        paths: {
-          '/api/v1/x': {
-            get: { 'x-route-id': 'x.route', 'x-rate-limit': 'read', 'x-public': true, ...extra },
-          },
+    const documentWith = (extra: Record<string, unknown>): OpenApiDocument => ({
+      openapi: '3.1.0',
+      info: { title: 't', version: '1' },
+      paths: {
+        '/api/v1/x': {
+          get: { 'x-route-id': 'x.route', 'x-rate-limit': 'read', 'x-public': true, ...extra },
         },
-      });
+      },
+    });
 
     it('a contract route that is not documented', () => {
       expectGuardFails(

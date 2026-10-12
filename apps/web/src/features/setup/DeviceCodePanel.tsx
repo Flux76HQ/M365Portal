@@ -71,8 +71,16 @@ export function DeviceCodePanel({ panel, offsetMs, busy, onCancel }: DeviceCodeP
               <CopyIcon aria-hidden="true" className="size-4" />
               {t('setup.device.copy')}
             </Button>
-            {copy === 'copied' ? <span role="status" className="text-body-sm text-success">{t('setup.device.copied')}</span> : null}
-            {copy === 'failed' ? <span role="status" className="text-body-sm text-danger">{t('setup.device.copyFailed')}</span> : null}
+            {copy === 'copied' ? (
+              <span role="status" className="text-body-sm text-success">
+                {t('setup.device.copied')}
+              </span>
+            ) : null}
+            {copy === 'failed' ? (
+              <span role="status" className="text-body-sm text-danger">
+                {t('setup.device.copyFailed')}
+              </span>
+            ) : null}
           </div>
           <p className="text-body-sm text-fg-secondary">
             {t('setup.device.expires', { time: formatCountdown(seconds) })}

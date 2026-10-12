@@ -25,7 +25,10 @@ export function ConnectStep({ context, focus }: StepProps) {
 
   const snapshot = context.poll.snapshot;
   const run = snapshot?.run ?? null;
-  const active = run !== null && (run.status === 'running' || run.status === 'waiting') && run.steps.includes('connect');
+  const active =
+    run !== null &&
+    (run.status === 'running' || run.status === 'waiting') &&
+    run.steps.includes('connect');
   const deviceCode = snapshot?.deviceCode ?? null;
   // A code that has ended (blocked, declined, expired) gives the form back: the error summary above says
   // why, and the way out by hand (or a new code) must stay one click away (FR-B-218, EB-04).
@@ -46,7 +49,13 @@ export function ConnectStep({ context, focus }: StepProps) {
   };
 
   return (
-    <StepFrame step="connect" context={context} focus={focus} title={t('setup.connect.title')} subActions={false}>
+    <StepFrame
+      step="connect"
+      context={context}
+      focus={focus}
+      title={t('setup.connect.title')}
+      subActions={false}
+    >
       {manual ? (
         <ManualMode
           context={context}
@@ -61,7 +70,9 @@ export function ConnectStep({ context, focus }: StepProps) {
       ) : active || deviceCode?.state === 'waiting_for_user' ? (
         <div className="flex flex-col gap-3">
           {deviceCode === null ? (
-            <p role="status" className="text-body text-fg-secondary">{t('setup.connect.starting')}</p>
+            <p role="status" className="text-body text-fg-secondary">
+              {t('setup.connect.starting')}
+            </p>
           ) : (
             <DeviceCodePanel
               panel={deviceCode}
@@ -111,7 +122,9 @@ export function ConnectStep({ context, focus }: StepProps) {
             </Button>
           </div>
           <div className="flex flex-col items-start gap-1 border-t border-line-subtle pt-3">
-            <p className="text-body-sm text-fg-secondary">{blocked ? t('setup.device.blockedHelp') : t('setup.connect.manualPrompt')}</p>
+            <p className="text-body-sm text-fg-secondary">
+              {blocked ? t('setup.device.blockedHelp') : t('setup.connect.manualPrompt')}
+            </p>
             <Button
               type="button"
               variant="secondary"

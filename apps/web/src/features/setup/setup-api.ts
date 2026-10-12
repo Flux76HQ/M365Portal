@@ -51,11 +51,17 @@ export const setupKeys = Object.freeze({
 
 export const setupApi = (api: ApiClient) => ({
   status: (signal?: AbortSignal) =>
-    api.get('/api/v1/setup/status', { schema: SetupStatusResponseSchema, ...(signal ? { signal } : {}) }),
+    api.get('/api/v1/setup/status', {
+      schema: SetupStatusResponseSchema,
+      ...(signal ? { signal } : {}),
+    }),
   unlock: (token: string) =>
     api.post('/api/v1/setup/unlock', { body: { token }, schema: UnlockResponseSchema }),
   state: (signal?: AbortSignal) =>
-    api.get('/api/v1/setup/state', { schema: SetupStateResponseSchema, ...(signal ? { signal } : {}) }),
+    api.get('/api/v1/setup/state', {
+      schema: SetupStateResponseSchema,
+      ...(signal ? { signal } : {}),
+    }),
   environment: () =>
     api.post('/api/v1/setup/environment', { body: EMPTY, schema: EnvironmentResultSchema }),
   manual: (request: ManualRequest) =>
@@ -75,7 +81,10 @@ export const setupApi = (api: ApiClient) => ({
 
 export const connectionApi = (api: ApiClient) => ({
   get: (signal?: AbortSignal) =>
-    api.get('/api/v1/connection', { schema: ConnectionResponseSchema, ...(signal ? { signal } : {}) }),
+    api.get('/api/v1/connection', {
+      schema: ConnectionResponseSchema,
+      ...(signal ? { signal } : {}),
+    }),
   snapshot: (after: number, signal?: AbortSignal) =>
     api.get('/api/v1/connection/runs/current', {
       query: { after },

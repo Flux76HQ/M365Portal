@@ -81,7 +81,11 @@ function startTopology() {
     });
     child.once('error', reject);
     child.once('exit', (code) => {
-      reject(new Error(`the topology ended with ${String(code)} before it was ready: ${err.slice(-1500)}`));
+      reject(
+        new Error(
+          `the topology ended with ${String(code)} before it was ready: ${err.slice(-1500)}`,
+        ),
+      );
     });
   });
 }
@@ -209,7 +213,12 @@ function groupsOf(topology, routesOf, UNKNOWN_ROUTE) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const { ROUTES, UNKNOWN_ROUTE } = await import('../routes.ts');
-  for (const file of [serverEntry, join(repoRoot, 'apps/web/dist/index.html'), lighthouseCli, tsxCli]) {
+  for (const file of [
+    serverEntry,
+    join(repoRoot, 'apps/web/dist/index.html'),
+    lighthouseCli,
+    tsxCli,
+  ]) {
     if (!existsSync(file)) {
       throw new Error(
         `${file} is missing: run pnpm install and pnpm build first (Lighthouse judges the production build)`,
@@ -228,7 +237,13 @@ async function main() {
         mkdirSync(join(options.out, name, preset), { recursive: true });
         for (const [route, query] of group.pages) {
           if (options.routes !== null && !options.routes.includes(route)) continue;
-          const cell = { instance: name, preset, route, reportOnly: !group.gated, measurements: [] };
+          const cell = {
+            instance: name,
+            preset,
+            route,
+            reportOnly: !group.gated,
+            measurements: [],
+          };
           cells.push(cell);
           const url = `${group.origin}${route}${query}`;
           while (

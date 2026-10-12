@@ -14,7 +14,12 @@ import { HOSTILE_DESCRIPTION, type SignInSpec } from '../fakes/fake-tenant/entra
 import { assign } from '../helpers/rbac-db.js';
 import { fake, testClock } from '../support/msw.js';
 import type { FakeBrowser, Navigation } from './support/fake-browser.js';
-import { pump, startSignInScene, type SceneOptions, type SignInScene } from './support/signin-scene.js';
+import {
+  pump,
+  startSignInScene,
+  type SceneOptions,
+  type SignInScene,
+} from './support/signin-scene.js';
 
 // ---------------------------------------------------------------------------------------------
 // The harness
@@ -30,7 +35,8 @@ interface Started {
 async function startFlow(browser: FakeBrowser, query = ''): Promise<Started> {
   const nav = await browser.navigate(`/auth/login${query}`, { stopBeforePanel: true });
   const location = nav.headers.get('location');
-  if (location === null) throw new Error(`the sign-in did not reach Entra (status ${String(nav.status)})`);
+  if (location === null)
+    throw new Error(`the sign-in did not reach Entra (status ${String(nav.status)})`);
   const callbackUrl = new URL(location);
   return {
     callbackUrl,
@@ -58,7 +64,9 @@ interface AuditExpectation {
   readonly check?: string;
 }
 
-function auditOf(scene: SignInScene): { action: string; outcome: string; detail: Record<string, unknown> }[] {
+function auditOf(
+  scene: SignInScene,
+): { action: string; outcome: string; detail: Record<string, unknown> }[] {
   return scene
     .auditRows()
     .filter((row) => row.action === 'auth.signin' || row.action === 'auth.stepup')
@@ -146,7 +154,11 @@ async function standardFlow(scene: SignInScene, row: Row): Promise<Outcome> {
 }
 
 const SIGNIN_FAILED = '/signin?error=signin_failed';
-const denied = (check: string): AuditExpectation => ({ outcome: 'denied', reason: 'token_invalid', check });
+const denied = (check: string): AuditExpectation => ({
+  outcome: 'denied',
+  reason: 'token_invalid',
+  check,
+});
 const SUCCESS: AuditExpectation = { outcome: 'success' };
 
 function tenantOf(scene: SignInScene): string {
@@ -162,9 +174,26 @@ const ISSUER_NEAR_MISSES: readonly [string, (tid: string) => string][] = [
 
 const SECOND_SEGMENT = 'eyJhbGciOiJSUzI1NiJ9';
 const ROWS: readonly Row[] = [
-  { id: 'F-01 member with an assignment, valid token, amr holds mfa', target: 'interstitial', audit: SUCCESS, sessions: 1 },
-  { id: 'F-02 attacker key that reuses a real kid', spec: { signer: 'attacker-real-kid' }, target: SIGNIN_FAILED, audit: denied('signature'), sessions: 0 },
-  { id: 'F-03 kid absent from the key set, also after one refresh', spec: { signer: 'attacker' }, target: SIGNIN_FAILED, audit: denied('kid'), sessions: 0 },
+  {
+    id: 'F-01 member with an assignment, valid token, amr holds mfa',
+    target: 'interstitial',
+    audit: SUCCESS,
+    sessions: 1,
+  },
+  {
+    id: 'F-02 attacker key that reuses a real kid',
+    spec: { signer: 'attacker-real-kid' },
+    target: SIGNIN_FAILED,
+    audit: denied('signature'),
+    sessions: 0,
+  },
+  {
+    id: 'F-03 kid absent from the key set, also after one refresh',
+    spec: { signer: 'attacker' },
+    target: SIGNIN_FAILED,
+    audit: denied('kid'),
+    sessions: 0,
+  },
   {
     id: 'F-05 foreign tid and issuer, validly signed by that tenant key',
     prepare: (scene) => {
@@ -189,23 +218,27 @@ const ROWS: readonly Row[] = [
     audit: denied('issuer'),
     sessions: 0,
   },
-  ...ISSUER_NEAR_MISSES.map(
-    ([name, build]): Row => ({
-      id: `F-07 iss near-miss: ${name}`,
-      run: async (scene) =>
-        await standardFlow(scene, {
-          id: 'x',
-          spec: { claims: { iss: build(tenantOf(scene)) } },
-          target: '',
-          audit: null,
-          sessions: 0,
-        }),
-      target: SIGNIN_FAILED,
-      audit: denied('issuer'),
-      sessions: 0,
-    }),
-  ),
-  { id: 'F-08 aud is another client id', spec: { claims: { aud: '00000000-0000-4000-8000-000000000001' } }, target: SIGNIN_FAILED, audit: denied('audience'), sessions: 0 },
+  ...ISSUER_NEAR_MISSES.map(([name, build]): Row => ({
+    id: `F-07 iss near-miss: ${name}`,
+    run: async (scene) =>
+      await standardFlow(scene, {
+        id: 'x',
+        spec: { claims: { iss: build(tenantOf(scene)) } },
+        target: '',
+        audit: null,
+        sessions: 0,
+      }),
+    target: SIGNIN_FAILED,
+    audit: denied('issuer'),
+    sessions: 0,
+  })),
+  {
+    id: 'F-08 aud is another client id',
+    spec: { claims: { aud: '00000000-0000-4000-8000-000000000001' } },
+    target: SIGNIN_FAILED,
+    audit: denied('audience'),
+    sessions: 0,
+  },
   {
     id: 'F-09 aud is an array holding our id and another',
     run: async (scene) =>
@@ -220,38 +253,178 @@ const ROWS: readonly Row[] = [
     audit: denied('audience'),
     sessions: 0,
   },
-  { id: 'F-10 nonce differs', spec: { nonce: 'a-nonce-that-this-sign-in-never-sent' }, target: SIGNIN_FAILED, audit: denied('nonce'), sessions: 0 },
-  { id: 'F-11 nonce missing', spec: { nonce: null }, target: SIGNIN_FAILED, audit: denied('nonce'), sessions: 0 },
-  { id: 'F-12 exp 61 s in the past', spec: { timing: { exp: -61 } }, target: SIGNIN_FAILED, audit: denied('expired'), sessions: 0 },
-  { id: 'F-13 exp 59 s in the past, inside the tolerance', spec: { timing: { exp: -59 } }, target: 'interstitial', audit: SUCCESS, sessions: 1 },
-  { id: 'F-14 nbf 61 s in the future', spec: { timing: { nbf: 61 } }, target: SIGNIN_FAILED, audit: denied('not_before'), sessions: 0 },
-  { id: 'F-15 nbf 59 s in the future, inside the tolerance', spec: { timing: { nbf: 59 } }, target: 'interstitial', audit: SUCCESS, sessions: 1 },
-  { id: 'F-16 iat 120 s in the future', spec: { timing: { iat: 120 } }, target: SIGNIN_FAILED, audit: denied('issued_at'), sessions: 0 },
-  { id: 'F-17 alg none, unsigned', spec: { signer: 'none' }, target: SIGNIN_FAILED, audit: denied('alg'), sessions: 0 },
-  { id: 'F-18 alg HS256 signed with the public key as the secret', spec: { signer: 'hs256-public-key' }, target: SIGNIN_FAILED, audit: denied('alg'), sessions: 0 },
-  ...(['ps256', 'rs384', 'es256'] as const).map(
-    (signer): Row => ({ id: `F-19 alg ${signer} with a valid signature`, spec: { signer }, target: SIGNIN_FAILED, audit: denied('alg'), sessions: 0 }),
-  ),
-  { id: 'F-20 header jku pointing at an attacker URL', spec: { header: { jku: 'https://attacker.example/keys' } }, target: SIGNIN_FAILED, audit: denied('header'), sessions: 0 },
-  { id: 'F-21 header jwk with an embedded key', spec: { header: { jwk: { kty: 'RSA', n: 'AQAB', e: 'AQAB' } } }, target: SIGNIN_FAILED, audit: denied('header'), sessions: 0 },
-  { id: 'F-22 header x5u', spec: { header: { x5u: 'https://attacker.example/cert' } }, target: SIGNIN_FAILED, audit: denied('header'), sessions: 0 },
-  { id: 'F-22 header crit', spec: { header: { crit: ['exp'] } }, target: SIGNIN_FAILED, audit: denied('header'), sessions: 0 },
-  { id: 'F-23 ver is 1.0', spec: { claims: { ver: '1.0' } }, target: SIGNIN_FAILED, audit: denied('version'), sessions: 0 },
-  { id: 'F-24 oid missing', spec: { omitClaims: ['oid'] }, target: SIGNIN_FAILED, audit: denied('oid'), sessions: 0 },
-  { id: 'F-24 oid not a GUID', spec: { claims: { oid: 'not-a-guid' } }, target: SIGNIN_FAILED, audit: denied('oid'), sessions: 0 },
-  { id: 'F-25 token over 8,192 bytes', spec: { padBytes: 9_000 }, target: SIGNIN_FAILED, audit: denied('size'), sessions: 0 },
-  { id: 'F-26 two segments', spec: { rawIdToken: `${SECOND_SEGMENT}.e30` }, target: SIGNIN_FAILED, audit: denied('format'), sessions: 0 },
-  { id: 'F-26 not base64url', spec: { rawIdToken: '!!!.@@@.###' }, target: SIGNIN_FAILED, audit: denied('format'), sessions: 0 },
-  { id: 'F-26 payload that is a JSON array', spec: { rawIdToken: `${SECOND_SEGMENT}.${Buffer.from('[1,2]').toString('base64url')}.c2ln` }, target: SIGNIN_FAILED, audit: denied('format'), sessions: 0 },
+  {
+    id: 'F-10 nonce differs',
+    spec: { nonce: 'a-nonce-that-this-sign-in-never-sent' },
+    target: SIGNIN_FAILED,
+    audit: denied('nonce'),
+    sessions: 0,
+  },
+  {
+    id: 'F-11 nonce missing',
+    spec: { nonce: null },
+    target: SIGNIN_FAILED,
+    audit: denied('nonce'),
+    sessions: 0,
+  },
+  {
+    id: 'F-12 exp 61 s in the past',
+    spec: { timing: { exp: -61 } },
+    target: SIGNIN_FAILED,
+    audit: denied('expired'),
+    sessions: 0,
+  },
+  {
+    id: 'F-13 exp 59 s in the past, inside the tolerance',
+    spec: { timing: { exp: -59 } },
+    target: 'interstitial',
+    audit: SUCCESS,
+    sessions: 1,
+  },
+  {
+    id: 'F-14 nbf 61 s in the future',
+    spec: { timing: { nbf: 61 } },
+    target: SIGNIN_FAILED,
+    audit: denied('not_before'),
+    sessions: 0,
+  },
+  {
+    id: 'F-15 nbf 59 s in the future, inside the tolerance',
+    spec: { timing: { nbf: 59 } },
+    target: 'interstitial',
+    audit: SUCCESS,
+    sessions: 1,
+  },
+  {
+    id: 'F-16 iat 120 s in the future',
+    spec: { timing: { iat: 120 } },
+    target: SIGNIN_FAILED,
+    audit: denied('issued_at'),
+    sessions: 0,
+  },
+  {
+    id: 'F-17 alg none, unsigned',
+    spec: { signer: 'none' },
+    target: SIGNIN_FAILED,
+    audit: denied('alg'),
+    sessions: 0,
+  },
+  {
+    id: 'F-18 alg HS256 signed with the public key as the secret',
+    spec: { signer: 'hs256-public-key' },
+    target: SIGNIN_FAILED,
+    audit: denied('alg'),
+    sessions: 0,
+  },
+  ...(['ps256', 'rs384', 'es256'] as const).map((signer): Row => ({
+    id: `F-19 alg ${signer} with a valid signature`,
+    spec: { signer },
+    target: SIGNIN_FAILED,
+    audit: denied('alg'),
+    sessions: 0,
+  })),
+  {
+    id: 'F-20 header jku pointing at an attacker URL',
+    spec: { header: { jku: 'https://attacker.example/keys' } },
+    target: SIGNIN_FAILED,
+    audit: denied('header'),
+    sessions: 0,
+  },
+  {
+    id: 'F-21 header jwk with an embedded key',
+    spec: { header: { jwk: { kty: 'RSA', n: 'AQAB', e: 'AQAB' } } },
+    target: SIGNIN_FAILED,
+    audit: denied('header'),
+    sessions: 0,
+  },
+  {
+    id: 'F-22 header x5u',
+    spec: { header: { x5u: 'https://attacker.example/cert' } },
+    target: SIGNIN_FAILED,
+    audit: denied('header'),
+    sessions: 0,
+  },
+  {
+    id: 'F-22 header crit',
+    spec: { header: { crit: ['exp'] } },
+    target: SIGNIN_FAILED,
+    audit: denied('header'),
+    sessions: 0,
+  },
+  {
+    id: 'F-23 ver is 1.0',
+    spec: { claims: { ver: '1.0' } },
+    target: SIGNIN_FAILED,
+    audit: denied('version'),
+    sessions: 0,
+  },
+  {
+    id: 'F-24 oid missing',
+    spec: { omitClaims: ['oid'] },
+    target: SIGNIN_FAILED,
+    audit: denied('oid'),
+    sessions: 0,
+  },
+  {
+    id: 'F-24 oid not a GUID',
+    spec: { claims: { oid: 'not-a-guid' } },
+    target: SIGNIN_FAILED,
+    audit: denied('oid'),
+    sessions: 0,
+  },
+  {
+    id: 'F-25 token over 8,192 bytes',
+    spec: { padBytes: 9_000 },
+    target: SIGNIN_FAILED,
+    audit: denied('size'),
+    sessions: 0,
+  },
+  {
+    id: 'F-26 two segments',
+    spec: { rawIdToken: `${SECOND_SEGMENT}.e30` },
+    target: SIGNIN_FAILED,
+    audit: denied('format'),
+    sessions: 0,
+  },
+  {
+    id: 'F-26 not base64url',
+    spec: { rawIdToken: '!!!.@@@.###' },
+    target: SIGNIN_FAILED,
+    audit: denied('format'),
+    sessions: 0,
+  },
+  {
+    id: 'F-26 payload that is a JSON array',
+    spec: { rawIdToken: `${SECOND_SEGMENT}.${Buffer.from('[1,2]').toString('base64url')}.c2ln` },
+    target: SIGNIN_FAILED,
+    audit: denied('format'),
+    sessions: 0,
+  },
   {
     id: 'F-27 key endpoint unreachable on a cold start',
-    scene: { beforeStart: (world) => { world.entra.control.failKeys('unavailable'); } },
+    scene: {
+      beforeStart: (world) => {
+        world.entra.control.failKeys('unavailable');
+      },
+    },
     target: '/signin?error=temporarily_unavailable',
     audit: { outcome: 'denied', reason: 'keys_unavailable' },
     sessions: 0,
   },
-  { id: 'F-28 state differs from the stored one', rewrite: (url) => withParam(url, 'state', 'a-different-state-value'), target: SIGNIN_FAILED, audit: null, sessions: 0 },
-  { id: 'F-29 state missing', rewrite: (url) => withParam(url, 'state', null), target: SIGNIN_FAILED, audit: null, sessions: 0 },
+  {
+    id: 'F-28 state differs from the stored one',
+    rewrite: (url) => withParam(url, 'state', 'a-different-state-value'),
+    target: SIGNIN_FAILED,
+    audit: null,
+    sessions: 0,
+  },
+  {
+    id: 'F-29 state missing',
+    rewrite: (url) => withParam(url, 'state', null),
+    target: SIGNIN_FAILED,
+    audit: null,
+    sessions: 0,
+  },
   {
     id: 'F-30 transaction cookie absent (the browser blocks cookies)',
     run: async (scene) => {
@@ -315,11 +488,41 @@ const ROWS: readonly Row[] = [
     audit: null,
     sessions: 0,
   },
-  { id: 'F-35 error=interaction_required', spec: { authorizeError: { error: 'interaction_required' } }, target: '/signin?error=interaction_required', audit: null, sessions: 0 },
-  { id: 'F-36 AADSTS65001', spec: { authorizeError: { error: 'invalid_grant', aadsts: 65001 } }, target: '/signin?error=consent_required', audit: null, sessions: 0 },
-  { id: 'F-36 AADSTS90093', spec: { authorizeError: { error: 'invalid_grant', aadsts: 90093 } }, target: '/signin?error=admin_approval_required', audit: null, sessions: 0 },
-  { id: 'F-36 AADSTS90094', spec: { authorizeError: { error: 'invalid_grant', aadsts: 90094 } }, target: '/signin?error=admin_approval_required', audit: null, sessions: 0 },
-  { id: 'F-36 AADSTS50105', spec: { authorizeError: { error: 'access_denied', aadsts: 50105 } }, target: '/signin?error=assignment_required', audit: null, sessions: 0 },
+  {
+    id: 'F-35 error=interaction_required',
+    spec: { authorizeError: { error: 'interaction_required' } },
+    target: '/signin?error=interaction_required',
+    audit: null,
+    sessions: 0,
+  },
+  {
+    id: 'F-36 AADSTS65001',
+    spec: { authorizeError: { error: 'invalid_grant', aadsts: 65001 } },
+    target: '/signin?error=consent_required',
+    audit: null,
+    sessions: 0,
+  },
+  {
+    id: 'F-36 AADSTS90093',
+    spec: { authorizeError: { error: 'invalid_grant', aadsts: 90093 } },
+    target: '/signin?error=admin_approval_required',
+    audit: null,
+    sessions: 0,
+  },
+  {
+    id: 'F-36 AADSTS90094',
+    spec: { authorizeError: { error: 'invalid_grant', aadsts: 90094 } },
+    target: '/signin?error=admin_approval_required',
+    audit: null,
+    sessions: 0,
+  },
+  {
+    id: 'F-36 AADSTS50105',
+    spec: { authorizeError: { error: 'access_denied', aadsts: 50105 } },
+    target: '/signin?error=assignment_required',
+    audit: null,
+    sessions: 0,
+  },
   {
     id: 'F-37 invalid_request with a 5,000-character hostile description',
     spec: { authorizeError: { error: 'invalid_request', description: HOSTILE_DESCRIPTION } },
@@ -330,7 +533,10 @@ const ROWS: readonly Row[] = [
   {
     id: 'F-38 token endpoint answers invalid_grant',
     prepare: (scene) => {
-      scene.world.entra.control.failToken({ times: 1, answer: { status: 400, error: 'invalid_grant' } });
+      scene.world.entra.control.failToken({
+        times: 1,
+        answer: { status: 400, error: 'invalid_grant' },
+      });
     },
     target: SIGNIN_FAILED,
     audit: null,
@@ -339,7 +545,10 @@ const ROWS: readonly Row[] = [
   {
     id: 'F-39 token endpoint answers invalid_client',
     prepare: (scene) => {
-      scene.world.entra.control.failToken({ times: 1, answer: { status: 401, error: 'invalid_client', aadsts: 700027 } });
+      scene.world.entra.control.failToken({
+        times: 1,
+        answer: { status: 401, error: 'invalid_client', aadsts: 700027 },
+      });
     },
     target: SIGNIN_FAILED,
     audit: null,
@@ -348,7 +557,10 @@ const ROWS: readonly Row[] = [
   {
     id: 'F-40 token endpoint answers temporarily_unavailable once, then succeeds',
     run: async (scene) => {
-      scene.world.entra.control.failToken({ times: 1, answer: { status: 400, error: 'temporarily_unavailable' } });
+      scene.world.entra.control.failToken({
+        times: 1,
+        answer: { status: 400, error: 'temporarily_unavailable' },
+      });
       const browser = scene.browser();
       const started = await startFlow(browser);
       const nav = await pump(scene, deliver(browser, started.callbackUrl));
@@ -384,15 +596,21 @@ const ROWS: readonly Row[] = [
     audit: null,
     sessions: 0,
   },
-  ...['//evil', '/\\evil', 'https://evil', '/api/v1/me', '/setup', '/x\r\nSet-Cookie: a=b', `/${'a'.repeat(300)}`].map(
-    (attack): Row => ({
-      id: `F-43 returnTo attack ${JSON.stringify(attack).slice(0, 24)}`,
-      query: `?returnTo=${encodeURIComponent(attack)}`,
-      target: 'interstitial',
-      audit: SUCCESS,
-      sessions: 1,
-    }),
-  ),
+  ...[
+    '//evil',
+    '/\\evil',
+    'https://evil',
+    '/api/v1/me',
+    '/setup',
+    '/x\r\nSet-Cookie: a=b',
+    `/${'a'.repeat(300)}`,
+  ].map((attack): Row => ({
+    id: `F-43 returnTo attack ${JSON.stringify(attack).slice(0, 24)}`,
+    query: `?returnTo=${encodeURIComponent(attack)}`,
+    target: 'interstitial',
+    audit: SUCCESS,
+    sessions: 1,
+  })),
   {
     id: 'F-44a Global Administrator without an assignment (wids is ignored)',
     scene: { role: false },
@@ -407,7 +625,11 @@ const ROWS: readonly Row[] = [
       role: false,
       grantGraph: false,
       seed: (db) => {
-        assign(db, { principalType: 'group', principalId: '22222222-2222-4222-8222-222222222222', role: 'owner' });
+        assign(db, {
+          principalType: 'group',
+          principalId: '22222222-2222-4222-8222-222222222222',
+          role: 'owner',
+        });
       },
     },
     target: 'no-access:graph_unavailable',
@@ -505,14 +727,15 @@ describe('the fixtures that need their own setup', () => {
 });
 
 /** F-42: the `amr` shapes, with and without the switch. */
-const AMR_ROWS: readonly (readonly [string, SignInSpec, 'ok' | 'amr_missing' | 'mfa_required'])[] = [
-  ['absent', { omitClaims: ['amr'] }, 'amr_missing'],
-  ['pwd only', { claims: { amr: ['pwd'] } }, 'mfa_required'],
-  ['the string mfa instead of an array', { claims: { amr: 'mfa' } }, 'amr_missing'],
-  ['pwd and mfa', { claims: { amr: ['pwd', 'mfa'] } }, 'ok'],
-  ['ngcmfa alone', { claims: { amr: ['ngcmfa'] } }, 'mfa_required'],
-  ['rsa, ngcmfa and mfa', { claims: { amr: ['rsa', 'ngcmfa', 'mfa'] } }, 'ok'],
-];
+const AMR_ROWS: readonly (readonly [string, SignInSpec, 'ok' | 'amr_missing' | 'mfa_required'])[] =
+  [
+    ['absent', { omitClaims: ['amr'] }, 'amr_missing'],
+    ['pwd only', { claims: { amr: ['pwd'] } }, 'mfa_required'],
+    ['the string mfa instead of an array', { claims: { amr: 'mfa' } }, 'amr_missing'],
+    ['pwd and mfa', { claims: { amr: ['pwd', 'mfa'] } }, 'ok'],
+    ['ngcmfa alone', { claims: { amr: ['ngcmfa'] } }, 'mfa_required'],
+    ['rsa, ngcmfa and mfa', { claims: { amr: ['rsa', 'ngcmfa', 'mfa'] } }, 'ok'],
+  ];
 
 describe('F-42 the amr variants (EB-26, EB-27)', () => {
   it.each(AMR_ROWS)('AUTH_REQUIRE_MFA=true, amr %s', async (_name, spec, verdict) => {
@@ -537,13 +760,22 @@ describe('F-42 the amr variants (EB-26, EB-27)', () => {
     }
   });
 
-  it.each(AMR_ROWS)('AUTH_REQUIRE_MFA=false, amr %s: signs in with mfa = 0', async (_name, spec) => {
-    const scene = await startSignInScene({ env: { AUTH_REQUIRE_MFA: 'false' } });
-    const outcome = await standardFlow(scene, { id: 'amr', spec, target: '', audit: null, sessions: 0 });
-    expect(outcome.target).toBe('interstitial');
-    expect(scene.query('SELECT mfa FROM session')).toEqual([{ mfa: 0 }]);
-    expect(auditOf(scene)[0]?.detail.mfa).toBe(false);
-  });
+  it.each(AMR_ROWS)(
+    'AUTH_REQUIRE_MFA=false, amr %s: signs in with mfa = 0',
+    async (_name, spec) => {
+      const scene = await startSignInScene({ env: { AUTH_REQUIRE_MFA: 'false' } });
+      const outcome = await standardFlow(scene, {
+        id: 'amr',
+        spec,
+        target: '',
+        audit: null,
+        sessions: 0,
+      });
+      expect(outcome.target).toBe('interstitial');
+      expect(scene.query('SELECT mfa FROM session')).toEqual([{ mfa: 0 }]);
+      expect(auditOf(scene)[0]?.detail.mfa).toBe(false);
+    },
+  );
 });
 
 describe('what the fixtures leave in the log and the world', () => {

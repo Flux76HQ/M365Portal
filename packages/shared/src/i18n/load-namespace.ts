@@ -125,7 +125,9 @@ export function loadNamespace<Namespace extends LazyNamespace>(
   if (!isLazyNamespace(namespace)) {
     const known = (LAZY_NAMESPACES as readonly string[]).join(', ');
     return Promise.reject(
-      new RangeError(`not a lazy namespace: ${String(namespace)} (the lazy namespaces are ${known})`),
+      new RangeError(
+        `not a lazy namespace: ${String(namespace)} (the lazy namespaces are ${known})`,
+      ),
     );
   }
   requested.add(namespace);
@@ -153,7 +155,9 @@ export function loadedNamespaces(locale: Locale): readonly LazyNamespace[] {
 
 /** The namespaces that were asked for in some language and are not loaded in `locale` yet. */
 export function missingNamespaces(locale: Locale): readonly LazyNamespace[] {
-  return LAZY_NAMESPACES.filter((namespace) => requested.has(namespace) && !loaded[locale].has(namespace));
+  return LAZY_NAMESPACES.filter(
+    (namespace) => requested.has(namespace) && !loaded[locale].has(namespace),
+  );
 }
 
 /**

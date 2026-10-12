@@ -52,15 +52,26 @@ export function EnvironmentStep({ context, focus, onContinue }: StepProps) {
   const fromResult: readonly CheckView[] | null =
     run.data === undefined
       ? null
-      : run.data.checks.map((check) => ({ key: check.key, status: check.status, code: check.code }));
+      : run.data.checks.map((check) => ({
+          key: check.key,
+          status: check.status,
+          code: check.code,
+        }));
   const fromState: readonly CheckView[] = ENVIRONMENT_CHECK_KEYS.map((key) => {
     const sub = step.subActions.find((candidate) => candidate.key === key);
     const status: CheckStatus =
-      sub?.status === 'succeeded' ? 'ok' : sub?.status === 'warning' ? 'warn' : sub?.status === 'failed' ? 'fail' : 'pending';
+      sub?.status === 'succeeded'
+        ? 'ok'
+        : sub?.status === 'warning'
+          ? 'warn'
+          : sub?.status === 'failed'
+            ? 'fail'
+            : 'pending';
     return { key, status, code: sub?.errorCode ?? null };
   });
   const checks = fromResult ?? fromState;
-  const checking = run.isPending || (step.status === 'pending' && run.data === undefined && !run.isError);
+  const checking =
+    run.isPending || (step.status === 'pending' && run.data === undefined && !run.isError);
   const blocking = checks.some((check) => check.status === 'fail');
   const warned = checks.some((check) => check.status === 'warn');
   const finished = !checking && checks.every((check) => check.status !== 'pending');
@@ -76,7 +87,11 @@ export function EnvironmentStep({ context, focus, onContinue }: StepProps) {
       errorSummary={false}
     >
       <div aria-busy={checking} className="flex flex-col gap-3">
-        {checking ? <p role="status" className="text-body text-fg-secondary">{t('setup.environment.checking')}</p> : null}
+        {checking ? (
+          <p role="status" className="text-body text-fg-secondary">
+            {t('setup.environment.checking')}
+          </p>
+        ) : null}
         {run.isError ? <ActionError error={run.error} /> : null}
         <ul className="flex flex-col gap-2">
           {checks.map((check) => {
@@ -90,16 +105,22 @@ export function EnvironmentStep({ context, focus, onContinue }: StepProps) {
                 className="flex flex-col gap-1 rounded-md border border-line-subtle bg-surface-raised px-3 py-2"
               >
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="text-body font-medium text-fg">{t(`setup.sub.${check.key}` as never)}</span>
+                  <span className="text-body font-medium text-fg">
+                    {t(`setup.sub.${check.key}` as never)}
+                  </span>
                   <span className="ms-auto inline-flex items-center gap-1.5">
                     <Icon aria-hidden="true" className={cn('size-4', tone)} />
                     <span className="text-body-sm font-medium text-fg">
-                      {check.status === 'pending' ? t('setup.status.pending') : t(`setup.check.${check.status}`)}
+                      {check.status === 'pending'
+                        ? t('setup.status.pending')
+                        : t(`setup.check.${check.status}`)}
                     </span>
                   </span>
                 </div>
                 {check.status === 'ok' ? (
-                  <p className="text-body-sm text-fg-secondary">{t(`setup.checkOk.${check.key}` as never)}</p>
+                  <p className="text-body-sm text-fg-secondary">
+                    {t(`setup.checkOk.${check.key}` as never)}
+                  </p>
                 ) : null}
                 {text === null ? null : (
                   <>
@@ -116,11 +137,21 @@ export function EnvironmentStep({ context, focus, onContinue }: StepProps) {
         </ul>
         {finished ? (
           <p role="status" className="text-body text-fg">
-            {blocking ? t('setup.environment.blocking') : warned ? t('setup.environment.warnings') : t('setup.environment.allOk')}
+            {blocking
+              ? t('setup.environment.blocking')
+              : warned
+                ? t('setup.environment.warnings')
+                : t('setup.environment.allOk')}
           </p>
         ) : null}
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" disabled={run.isPending} onClick={() => { mutate(); }}>
+          <Button
+            variant="secondary"
+            disabled={run.isPending}
+            onClick={() => {
+              mutate();
+            }}
+          >
             {t('setup.environment.recheck')}
           </Button>
           {canContinue ? (

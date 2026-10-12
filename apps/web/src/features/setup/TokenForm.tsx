@@ -59,7 +59,9 @@ export function TokenForm({ api, onUnlocked }: TokenFormProps) {
   const error = unlock.error;
   const finished = error instanceof ApiError && error.code === 'setup_step_not_ready';
   const errorText =
-    error === null || finished ? undefined : messageForError({ t }, error, { publicOrigin: me.publicOrigin });
+    error === null || finished
+      ? undefined
+      : messageForError({ t }, error, { publicOrigin: me.publicOrigin });
 
   return (
     <form
@@ -72,7 +74,10 @@ export function TokenForm({ api, onUnlocked }: TokenFormProps) {
     >
       <p className="text-body text-fg-secondary">{t('setup.token.lead')}</p>
       {finished ? (
-        <div role="alert" className="flex flex-col gap-2 rounded-lg border border-s-4 border-line-subtle border-s-info bg-surface-raised p-4">
+        <div
+          role="alert"
+          className="flex flex-col gap-2 rounded-lg border border-s-4 border-line-subtle border-s-info bg-surface-raised p-4"
+        >
           <p className="text-fg">{t('setup.token.finished')}</p>
           <Button asChild variant="primary" className="self-start">
             <a href="/auth/login">{t('setup.finish.signIn')}</a>

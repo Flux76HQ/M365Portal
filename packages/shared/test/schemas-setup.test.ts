@@ -382,7 +382,13 @@ describe('SetupStateResponseSchema (P13)', () => {
       ok(SetupStateResponseSchema, response({ publicBaseUrl: 'https://panel.example.test/path' })),
     ).toBe(false);
     expect(ok(SetupStateResponseSchema, response({ defaultLanguage: 'de' }))).toBe(false);
-    for (const installTag of ['', 'm365portal', `m365portal-install-${'a'.repeat(31)}`, `other-install-${'a'.repeat(32)}`, `m365portal-install-${'A'.repeat(32)}`]) {
+    for (const installTag of [
+      '',
+      'm365portal',
+      `m365portal-install-${'a'.repeat(31)}`,
+      `other-install-${'a'.repeat(32)}`,
+      `m365portal-install-${'A'.repeat(32)}`,
+    ]) {
       expect(ok(SetupStateResponseSchema, response({ installTag })), installTag).toBe(false);
     }
     const withoutTag = response();

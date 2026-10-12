@@ -24,13 +24,20 @@ function recordingRandom(): RandomSource & { readonly draws: number[] } {
     bytes(length) {
       draws.push(length);
       // Distinct for every draw: the hash of the draw's number.
-      return new Uint8Array(createHash('sha256').update(`draw-${String(draws.length)}`).digest()).slice(0, length);
+      return new Uint8Array(
+        createHash('sha256')
+          .update(`draw-${String(draws.length)}`)
+          .digest(),
+      ).slice(0, length);
     },
     float: () => 0.5,
   };
 }
 
-function store(now: { value: number }, random: RandomSource = recordingRandom()): LoginTransactions {
+function store(
+  now: { value: number },
+  random: RandomSource = recordingRandom(),
+): LoginTransactions {
   return createLoginTransactions({ clock: { now: () => now.value }, random });
 }
 
@@ -54,8 +61,10 @@ describe('the login transaction (FR-B-402)', () => {
     ]) {
       expect(value).toMatch(/^[A-Za-z0-9_-]{43}$/);
     }
-    expect(new Set([transaction.id, transaction.state, transaction.nonce, transaction.codeVerifier]).size)
-      .toBe(4);
+    expect(
+      new Set([transaction.id, transaction.state, transaction.nonce, transaction.codeVerifier])
+        .size,
+    ).toBe(4);
     expect(transaction.startedAt).toBe(0);
     expect(transaction.stepUpSessionHash).toBeNull();
   });
@@ -132,7 +141,10 @@ describe('the login transaction (FR-B-402)', () => {
       const inner = store(now);
       return {
         start: (input) => {
-          const transaction = inner.start({ ...input, clientKey: `${input.clientKey}-${String(kept.size)}` });
+          const transaction = inner.start({
+            ...input,
+            clientKey: `${input.clientKey}-${String(kept.size)}`,
+          });
           kept.set(transaction.id, transaction);
           return transaction;
         },

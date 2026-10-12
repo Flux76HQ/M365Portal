@@ -32,10 +32,7 @@ export function SignInPage() {
   const name = branding?.orgName ?? '';
 
   return (
-    <PublicPage
-      title={t('signin.heading', { name })}
-      icon={<LogInIcon />}
-    >
+    <PublicPage title={t('signin.heading', { name })} icon={<LogInIcon />}>
       {signedOut ? (
         <div
           role="status"
@@ -64,7 +61,12 @@ export function SignInPage() {
         ) : (
           <>
             <Button asChild variant="primary">
-              <a href={loginUrl({ prompt: 'login', ...(returnTo === undefined ? {} : { returnTo }) })}>
+              <a
+                href={loginUrl({
+                  prompt: 'login',
+                  ...(returnTo === undefined ? {} : { returnTo }),
+                })}
+              >
                 {t('signin.action.again')}
               </a>
             </Button>

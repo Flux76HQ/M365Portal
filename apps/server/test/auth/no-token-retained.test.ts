@@ -28,7 +28,9 @@ function databaseText(scene: SignInScene): string {
   const tables = scene.query<{ name: string }>(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
   );
-  return tables.map(({ name }) => JSON.stringify(scene.query(`SELECT * FROM "${name}"`))).join('\n');
+  return tables
+    .map(({ name }) => JSON.stringify(scene.query(`SELECT * FROM "${name}"`)))
+    .join('\n');
 }
 
 describe('after 200 sign-ins (FR-B-418)', () => {
@@ -96,7 +98,9 @@ describe('after 200 sign-ins (FR-B-418)', () => {
       const markerHeld = Buffer.from(`heap-marker-${'m'.repeat(40)}`).toString('latin1');
       v8.writeHeapSnapshot(file);
       expect(readFileSync(file).includes(Buffer.from(markerHeld, 'latin1'))).toBe(true);
-      const found = fragments.flatMap((fragment, index) => (heap.includes(fragment) ? [index % 2 === 0 ? 'access' : 'id'] : []));
+      const found = fragments.flatMap((fragment, index) =>
+        heap.includes(fragment) ? [index % 2 === 0 ? 'access' : 'id'] : [],
+      );
       expect(found).toEqual([]);
     } finally {
       rmSync(file, { force: true });

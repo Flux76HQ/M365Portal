@@ -50,7 +50,12 @@ function sessionOf(idleMinutes: number, absoluteMinutes: number) {
 
 async function open(
   session: ReturnType<typeof sessionOf>,
-  options: { fetch?: FetchFunction; language?: 'en' | 'nl'; path?: string; breakGlass?: boolean } = {},
+  options: {
+    fetch?: FetchFunction;
+    language?: 'en' | 'nl';
+    path?: string;
+    breakGlass?: boolean;
+  } = {},
 ) {
   const me = options.breakGlass
     ? sampleMe({ kind: 'break_glass', breakGlass: true, permissions: ['rbac:manage'], session })
@@ -89,7 +94,9 @@ describe('two minutes before the idle deadline', () => {
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAccessibleName(en.t('session.idle.title'));
     expect(dialog).toHaveTextContent(en.t('session.idle.message', { time: '2:00' }));
-    expect(within(dialog).getByRole('button', { name: en.t('session.idle.extend') })).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: en.t('session.idle.extend') }),
+    ).toBeInTheDocument();
   });
 
   it('counts down in the dialog', async () => {
@@ -187,7 +194,9 @@ describe('two minutes before the idle deadline', () => {
     const fetchFunction: FetchFunction = (input, init) => {
       requests.push(`${init?.method ?? 'GET'} ${input}`);
       if (input === '/api/v1/csrf') {
-        return Promise.resolve(Response.json({ token: 't-1', expiresAt: '2099-01-01T00:00:00.000Z' }));
+        return Promise.resolve(
+          Response.json({ token: 't-1', expiresAt: '2099-01-01T00:00:00.000Z' }),
+        );
       }
       return Promise.resolve(Response.json({ redirect: '/signin?signedout=1' }));
     };
@@ -211,7 +220,9 @@ describe('five minutes before the absolute end', () => {
     await advance(1);
     const notice = screen.getByRole('status');
     expect(notice).toHaveTextContent(
-      en.t('session.expiry.notice', { time: en.d(new Date(T0 + 20 * MINUTE), { timeStyle: 'short' }) }),
+      en.t('session.expiry.notice', {
+        time: en.d(new Date(T0 + 20 * MINUTE), { timeStyle: 'short' }),
+      }),
     );
     expect(within(notice).queryByRole('button')).not.toBeInTheDocument();
   });
@@ -221,7 +232,9 @@ describe('five minutes before the absolute end', () => {
     await ready();
     await advance(15 * MINUTE);
     expect(screen.getByRole('status')).toHaveTextContent(
-      nl.t('session.expiry.notice', { time: nl.d(new Date(T0 + 20 * MINUTE), { timeStyle: 'short' }) }),
+      nl.t('session.expiry.notice', {
+        time: nl.d(new Date(T0 + 20 * MINUTE), { timeStyle: 'short' }),
+      }),
     );
   });
 });

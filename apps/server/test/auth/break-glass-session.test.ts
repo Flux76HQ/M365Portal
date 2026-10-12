@@ -19,10 +19,19 @@ const SALT = Buffer.from('fedcba9876543210');
 
 function hash(): Promise<string> {
   return new Promise((resolve, reject) => {
-    nodeScrypt(Buffer.from(PASSWORD), SALT, 32, { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (error, key) => {
-      if (error !== null) reject(error);
-      else resolve(formatScryptHash({ n: 16_384, r: 8, p: 1, salt: SALT, hash: new Uint8Array(key) }));
-    });
+    nodeScrypt(
+      Buffer.from(PASSWORD),
+      SALT,
+      32,
+      { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 },
+      (error, key) => {
+        if (error !== null) reject(error);
+        else
+          resolve(
+            formatScryptHash({ n: 16_384, r: 8, p: 1, salt: SALT, hash: new Uint8Array(key) }),
+          );
+      },
+    );
   });
 }
 
@@ -37,7 +46,9 @@ const probes: AppModuleFactory = () => ({
       path: '/api/v1/test/bg-stepup',
       access: { permission: 'rbac:manage', stepUp: true },
       rateLimit: 'write',
-      responses: { 200: { description: 'Done.', content: { 'application/json': { schema: okBody } } } },
+      responses: {
+        200: { description: 'Done.', content: { 'application/json': { schema: okBody } } },
+      },
       handler: (c) => c.json({ done: true as const }, 200),
     }),
     defineRoute({
@@ -46,13 +57,18 @@ const probes: AppModuleFactory = () => ({
       path: '/api/v1/test/bg-branding',
       access: { permission: 'settings:branding' },
       rateLimit: 'write',
-      responses: { 200: { description: 'Done.', content: { 'application/json': { schema: okBody } } } },
+      responses: {
+        200: { description: 'Done.', content: { 'application/json': { schema: okBody } } },
+      },
       handler: (c) => c.json({ done: true as const }, 200),
     }),
   ],
 });
 
-async function signedInBreakGlass(): Promise<{ scene: SignInScene; headers: Record<string, string> }> {
+async function signedInBreakGlass(): Promise<{
+  scene: SignInScene;
+  headers: Record<string, string>;
+}> {
   const scene = await startSignInScene({
     modules: [probes],
     env: { BREAK_GLASS_USERNAME: USERNAME, BREAK_GLASS_PASSWORD_HASH: await hash() },
@@ -68,11 +84,23 @@ async function signedInBreakGlass(): Promise<{ scene: SignInScene; headers: Reco
 describe('the session', () => {
   it('is of kind break_glass with an empty oid and the pinned tenant, expiring after 30 minutes', async () => {
     const { scene } = await signedInBreakGlass();
-    const [row] = scene.query<{ kind: string; oid: string; tid: string; created_at: string; absolute_expires_at: string; step_up_at: string | null }>(
-      'SELECT kind, oid, tid, created_at, absolute_expires_at, step_up_at FROM session',
+    const [row] = scene.query<{
+      kind: string;
+      oid: string;
+      tid: string;
+      created_at: string;
+      absolute_expires_at: string;
+      step_up_at: string | null;
+    }>('SELECT kind, oid, tid, created_at, absolute_expires_at, step_up_at FROM session');
+    expect(row).toMatchObject({
+      kind: 'break_glass',
+      oid: '',
+      tid: scene.world.tenantId,
+      step_up_at: null,
+    });
+    expect(Date.parse(row?.absolute_expires_at ?? '') - Date.parse(row?.created_at ?? '')).toBe(
+      30 * MINUTE,
     );
-    expect(row).toMatchObject({ kind: 'break_glass', oid: '', tid: scene.world.tenantId, step_up_at: null });
-    expect(Date.parse(row?.absolute_expires_at ?? '') - Date.parse(row?.created_at ?? '')).toBe(30 * MINUTE);
   });
 
   it('never slides: requests do not extend it, and it ends at 30 minutes', async () => {

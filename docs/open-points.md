@@ -475,6 +475,21 @@ Date of the register: 2026-10-10 (Microsoft Learn only), closed items marked on 
 | U48 | `assignedLicenses` is returned for `GET /users?$select=assignedLicenses` with `User.Read.All` alone | Phase C | user-list page: its property exceptions do not list it | the Phase C spec |
 | U49 | Application `tags`: maximum count and length, so that `m365portal-install-<32 hex>` is accepted | FR-B-303 | none on Learn | OV-03 |
 | U50 | `$select` of `passwordCredentials` and `keyCredentials` on `GET /applications/{id}` and `GET /servicePrincipals(appId='...')`, and `GET .../owners?$select=id`, return the collections (without secret text) to a delegated caller holding `Application.ReadWrite.All`; the properties are named on the application, service principal and passwordCredential resource pages and both owner lists name `Application.Read.All`, but no page shows a `$select` of the credential collections | FR-B-318, FR-B-319 | resource pages and both owner-list pages read on 2026-10-10 | OV-03; fallback: an unreadable count stops adoption (fail closed) and V4 shows `not_checked` for it |
+| U51 | Whether Graph sends `Retry-After` as seconds only or also as an HTTP date (both are read) | FR-B-312 | Learn's Graph throttling page says seconds | OV-01 |
+| U52 | The status of a duplicate `POST /servicePrincipals` (the fake answers 409) | FR-B-310 | none on Learn | OV-03 |
+| U53 | The permissions needed to list role assignments, and whether Application Administrator may grant non-Graph roles (the fake allows Global Administrator and Privileged Role Administrator only) | FR-B-310, FR-B-318 | none on Learn | OV-02 |
+| U54 | Admin API error statuses and bodies: unknown group (404), wrong tenant in the URL (403), missing `X-AnchorMailbox` (400), wrong content type (415), expired continuation link (400) | FR-B-314 | none on Learn | OV-06 |
+| U55 | `Guid` is not among the documented recipient properties; it is requested with `$select` and read as null when absent | FR-B-314 | none on Learn | OV-06 |
+| U56 | The `/users('$x@y.com')` key form for a user principal name that starts with `$` | FR-B-312 | Learn's tip on keys | OV-01 |
+| U57 | Whether `appRoleAssignment` ids are opaque strings (only role assignment ids are shown on Learn) | FR-B-310 | none on Learn | OV-03 |
+| U58 | The maximum lifetime of a client assertion: Learn says 5 to 10 minutes and also that Entra places no restriction on `exp`; the product keeps 300 s, the fake enforces 600 s | FR-B-112 | certificate-credentials page | OV-04 |
+| U59 | Whether Entra rejects a replayed assertion `jti` (Learn says it must be unique; the fake refuses a reuse) | FR-B-112 | certificate-credentials page | OV-04 |
+| U60 | The wording of MSAL 7.0.1 errors that the bootstrap parses (`Error(s): <code> - ...`, `post_request_failed`) | FR-B-214 | library behaviour, pinned by tests | OV-01 |
+| U61 | What the device-code poll answers when Conditional Access blocks (the fake answers `access_denied` with AADSTS53003) | FR-B-214 | none on Learn | OV-01 |
+| U62 | The error code for client credentials sent with an `Origin` header (the fake answers `invalid_request`) | FR-B-112 | Learn says only that they are refused | OV-04 |
+| U63 | Whether `prompt=login` yields a fresh `auth_time` in the ID token, which the step-up check relies on | FR-B-411 | Learn lists `auth_time` as optional | OV-07 |
+| U64 | Whether a browser stores a `SameSite=Strict` cookie set on the callback response (reached by a cross-site redirect) and sends it on the follow-up request | FR-B-412 | browser behaviour; e2e only | OV-14 |
+| U65 | Whether `end_session_endpoint` accepts `post_logout_redirect_uri` `http://localhost:<port>` when the registration holds the port-less `http://localhost/auth/logged-out` | FR-B-410 | extends U29 | OV-09 |
 
 Updates made by the plan to earlier items: U22 (the default `interval` is 5 s and `expires_in` 900, observed;
 `slow_down` stays undocumented), U31 (`$filter` on `principalId` is documented; the behaviour of a duplicate

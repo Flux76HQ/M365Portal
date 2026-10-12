@@ -34,16 +34,27 @@ const LOADERS: readonly (readonly [string, readonly string[]])[] = [
 /** Does the source load `namespace`: a literal call, or one of the named groups that holds it. */
 function loads(source: string, namespace: string): boolean {
   if (new RegExp(String.raw`loadLazyNamespace\('${namespace}'\)`).test(source)) return true;
-  if (source.includes('ACCESS_NAMESPACES') && (ACCESS_NAMESPACES as readonly string[]).includes(namespace)) return true;
-  return source.includes('APPEARANCE_NAMESPACES') && (APPEARANCE_NAMESPACES as readonly string[]).includes(namespace);
+  if (
+    source.includes('ACCESS_NAMESPACES') &&
+    (ACCESS_NAMESPACES as readonly string[]).includes(namespace)
+  )
+    return true;
+  return (
+    source.includes('APPEARANCE_NAMESPACES') &&
+    (APPEARANCE_NAMESPACES as readonly string[]).includes(namespace)
+  );
 }
 
-function problems(loaders: readonly (readonly [string, readonly string[]])[], reader: (file: string) => string): string[] {
+function problems(
+  loaders: readonly (readonly [string, readonly string[]])[],
+  reader: (file: string) => string,
+): string[] {
   const found: string[] = [];
   for (const [file, namespaces] of loaders) {
     const source = reader(file);
     for (const namespace of namespaces) {
-      if (!loads(source, namespace)) found.push(`${file} does not load the lazy namespace ${namespace}`);
+      if (!loads(source, namespace))
+        found.push(`${file} does not load the lazy namespace ${namespace}`);
     }
   }
   const covered = new Set(loaders.flatMap(([, namespaces]) => namespaces));
@@ -67,19 +78,31 @@ describe('lazy namespaces', () => {
   it('negative: a route that forgets its loader fails', () => {
     expectGuardFails(
       () => {
-        const broken = (file: string): string => (file === 'routes/signin.tsx' ? 'export const Route = {};' : read(file));
+        const broken = (file: string): string =>
+          file === 'routes/signin.tsx' ? 'export const Route = {};' : read(file);
         expect(problems(LOADERS, broken)).toEqual([]);
       },
-      { name: 'lazy namespace loaders (signin forgot)', reason: /routes\/signin\.tsx does not load the lazy namespace signin/ },
+      {
+        name: 'lazy namespace loaders (signin forgot)',
+        reason: /routes\/signin\.tsx does not load the lazy namespace signin/,
+      },
     );
   });
 
   it('negative: a lazy namespace nobody loads fails', () => {
     expectGuardFails(
       () => {
-        expect(problems(LOADERS.filter(([file]) => file !== 'routes/design.tsx'), read)).toEqual([]);
+        expect(
+          problems(
+            LOADERS.filter(([file]) => file !== 'routes/design.tsx'),
+            read,
+          ),
+        ).toEqual([]);
       },
-      { name: 'lazy namespace without a route (showcase)', reason: /no route loads the lazy namespace showcase/ },
+      {
+        name: 'lazy namespace without a route (showcase)',
+        reason: /no route loads the lazy namespace showcase/,
+      },
     );
   });
 });

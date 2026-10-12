@@ -6,7 +6,10 @@
 // consent codes, the administrator's consent link from `me.adminConsentUrl`. A visitor who already has a
 // session is sent on to `returnTo` after `safeReturnTo`, so a hostile value lands on `/`.
 import { createTranslator, type Locale } from '@m365portal/shared/i18n';
-import { SIGNIN_CONSENT_LINK_CODES, SIGNIN_ERROR_CODES } from '@m365portal/shared/auth/signin-errors';
+import {
+  SIGNIN_CONSENT_LINK_CODES,
+  SIGNIN_ERROR_CODES,
+} from '@m365portal/shared/auth/signin-errors';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -18,7 +21,10 @@ const CONSENT_URL =
 
 const translator = (language: Locale) => createTranslator(language);
 
-async function openSignIn(search: string, options: { language?: Locale; adminConsentUrl?: string | null } = {}) {
+async function openSignIn(
+  search: string,
+  options: { language?: Locale; adminConsentUrl?: string | null } = {},
+) {
   return renderApp({
     me: sampleMe({ adminConsentUrl: options.adminConsentUrl ?? null }),
     branding: sampleBranding('Acme'),
@@ -31,7 +37,10 @@ describe('the page', () => {
   it('shows the organisation mark and name, and the sign-in action as a link to /auth/login', async () => {
     await openSignIn('?returnTo=%2Fusers');
     const en = translator('en');
-    const heading = await screen.findByRole('heading', { level: 1, name: en.t('signin.heading', { name: 'Acme' }) });
+    const heading = await screen.findByRole('heading', {
+      level: 1,
+      name: en.t('signin.heading', { name: 'Acme' }),
+    });
     expect(heading).toBeInTheDocument();
     expect(document.querySelector('[data-slot="org-mark"]')).not.toBeNull();
     expect(screen.getAllByText('Acme').length).toBeGreaterThan(0);
@@ -52,7 +61,9 @@ describe('the page', () => {
       'href',
       '/auth/login',
     );
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(nl.t('signin.heading', { name: 'Acme' }));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      nl.t('signin.heading', { name: 'Acme' }),
+    );
   });
 
   it('has no navigation menu and no data: it is a public page', async () => {
@@ -73,17 +84,27 @@ describe('the page', () => {
 
 describe('every ?error= value of the allow-list', () => {
   for (const language of ['en', 'nl'] as const) {
-    it.each(SIGNIN_ERROR_CODES)(`renders its explanation and its remedy in ${language}: %s`, async (code) => {
-      await openSignIn(`?error=${code}&returnTo=%2Fusers`, { language });
-      const t = translator(language);
-      const alert = await screen.findByRole('alert');
-      expect(alert).toHaveTextContent(t.t(`signin.error.${code}`));
-      expect(alert).toHaveTextContent(t.t(`signin.remedy.${code}`));
-    });
+    it.each(SIGNIN_ERROR_CODES)(
+      `renders its explanation and its remedy in ${language}: %s`,
+      async (code) => {
+        await openSignIn(`?error=${code}&returnTo=%2Fusers`, { language });
+        const t = translator(language);
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent(t.t(`signin.error.${code}`));
+        expect(alert).toHaveTextContent(t.t(`signin.remedy.${code}`));
+      },
+    );
   }
 
   it('renders signin_failed for any other value, and never prints the value', async () => {
-    for (const value of ['nope', 'AUTH_REQUIRE_MFA', '<script>alert(1)</script>', 'constructor', '__proto__', '']) {
+    for (const value of [
+      'nope',
+      'AUTH_REQUIRE_MFA',
+      '<script>alert(1)</script>',
+      'constructor',
+      '__proto__',
+      '',
+    ]) {
       const { unmount } = await openSignIn(`?error=${encodeURIComponent(value)}`);
       const alert = await screen.findByRole('alert');
       expect(alert, value).toHaveTextContent(translator('en').t('signin.error.signin_failed'));
@@ -120,12 +141,17 @@ describe('every ?error= value of the allow-list', () => {
   it('shows no consent link when the server gave none (no tenant is pinned)', async () => {
     await openSignIn('?error=consent_required', { adminConsentUrl: null });
     await screen.findByRole('alert');
-    expect(screen.queryByRole('link', { name: translator('en').t('signin.consent.link') })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: translator('en').t('signin.consent.link') }),
+    ).not.toBeInTheDocument();
   });
 
   it('links setup_required to the setup wizard', async () => {
     await openSignIn('?error=setup_required');
-    expect(await screen.findByRole('link', { name: 'Go to the setup wizard' })).toHaveAttribute('href', '/setup');
+    expect(await screen.findByRole('link', { name: 'Go to the setup wizard' })).toHaveAttribute(
+      'href',
+      '/setup',
+    );
   });
 
   it('names AUTH_REQUIRE_MFA and the optional claim amr where those codes need them', async () => {
@@ -147,7 +173,9 @@ describe('?signedout=1', () => {
   it('is not triggered by another value', async () => {
     await openSignIn('?signedout=0');
     await screen.findByRole('heading', { level: 1 });
-    expect(screen.queryByText(translator('en').t('signin.signedOut.title'))).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(translator('en').t('signin.signedOut.title')),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -183,17 +211,28 @@ describe('a visitor who already has a session is sent on to returnTo (FR-B-402)'
   });
 
   it('is proven by a guard that fails for a page that navigates to the raw value (+ negative)', () => {
-    const hostile = ['//evil.example', 'https://evil.example', 'javascript:alert(1)', '/\\evil.example'];
+    const hostile = [
+      '//evil.example',
+      'https://evil.example',
+      'javascript:alert(1)',
+      '/\\evil.example',
+    ];
     const assertSafeLanding = (land: (raw: string) => string): void => {
       for (const raw of hostile) {
         if (land(raw) !== '/') throw new Error(`navigated to ${raw}`);
       }
     };
-    expectGuardFails(assertSafeLanding, (raw) => raw, { name: 'a page that navigates to the raw returnTo', reason: 'navigated to //evil.example' });
+    expectGuardFails(assertSafeLanding, (raw) => raw, {
+      name: 'a page that navigates to the raw returnTo',
+      reason: 'navigated to //evil.example',
+    });
   });
 
   it('also sends a setup session and a break-glass session on', async () => {
-    for (const me of [sampleMe({ kind: 'setup', setupState: 'in_progress' }), sampleMe({ kind: 'break_glass', breakGlass: true })]) {
+    for (const me of [
+      sampleMe({ kind: 'setup', setupState: 'in_progress' }),
+      sampleMe({ kind: 'break_glass', breakGlass: true }),
+    ]) {
       const { router } = await renderApp({ me, path: '/signin?returnTo=%2Fno-access' });
       expect(router.state.location.pathname, me.actor.kind).toBe('/no-access');
     }
@@ -202,7 +241,12 @@ describe('a visitor who already has a session is sent on to returnTo (FR-B-402)'
 
 describe('the page is reachable without a session even when the setup is unconfigured', () => {
   it('renders for an anonymous actor in every setup state', async () => {
-    for (const setupState of ['unconfigured', 'in_progress', 'awaiting_first_signin', 'completed'] as const) {
+    for (const setupState of [
+      'unconfigured',
+      'in_progress',
+      'awaiting_first_signin',
+      'completed',
+    ] as const) {
       const { unmount } = await renderApp({ me: sampleMe({ setupState }), path: '/signin' });
       expect(await screen.findByRole('heading', { level: 1 }), setupState).toBeInTheDocument();
       unmount();

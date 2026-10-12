@@ -67,16 +67,30 @@ export function FinishStep({ context, focus }: StepProps) {
     search.mutate(q);
   };
 
-  const finished = finish.data !== undefined || state.state === 'awaiting_first_signin' || step.status === 'succeeded';
+  const finished =
+    finish.data !== undefined ||
+    state.state === 'awaiting_first_signin' ||
+    step.status === 'succeeded';
   if (finished) {
     const name = owner === null ? '-' : ownerName(owner);
     return (
-      <StepFrame step="finish" context={context} focus={focus} title={t('setup.finish.title')} subActions={false}>
-        <div role="status" className="flex flex-col gap-3 rounded-lg border border-s-4 border-line-subtle border-s-success bg-surface-raised p-4">
+      <StepFrame
+        step="finish"
+        context={context}
+        focus={focus}
+        title={t('setup.finish.title')}
+        subActions={false}
+      >
+        <div
+          role="status"
+          className="flex flex-col gap-3 rounded-lg border border-s-4 border-line-subtle border-s-success bg-surface-raised p-4"
+        >
           <p className="text-subtitle font-semibold text-fg">{t('setup.finish.done.title')}</p>
           <p className="text-body text-fg-secondary">{t('setup.finish.done.message', { name })}</p>
           <Button asChild variant="primary" className="self-start">
-            <a href={finish.data?.signinUrl ?? '/auth/login?returnTo=%2F'}>{t('setup.finish.signIn')}</a>
+            <a href={finish.data?.signinUrl ?? '/auth/login?returnTo=%2F'}>
+              {t('setup.finish.signIn')}
+            </a>
           </Button>
         </div>
       </StepFrame>
@@ -84,7 +98,13 @@ export function FinishStep({ context, focus }: StepProps) {
   }
 
   return (
-    <StepFrame step="finish" context={context} focus={focus} title={t('setup.finish.title')} subActions={false}>
+    <StepFrame
+      step="finish"
+      context={context}
+      focus={focus}
+      title={t('setup.finish.title')}
+      subActions={false}
+    >
       <ExchangeNotice context={context} />
 
       <section aria-labelledby="finish-owner" className="flex flex-col gap-2">
@@ -95,7 +115,9 @@ export function FinishStep({ context, focus }: StepProps) {
           <p className="text-body text-fg-secondary">{t('setup.finish.owner.unknown')}</p>
         ) : (
           <>
-            <p className="text-body text-fg">{t('setup.finish.owner.message', { name: ownerName(owner) })}</p>
+            <p className="text-body text-fg">
+              {t('setup.finish.owner.message', { name: ownerName(owner) })}
+            </p>
             <div className="flex items-start gap-2">
               <Checkbox
                 id={confirmId}
@@ -150,12 +172,21 @@ export function FinishStep({ context, focus }: StepProps) {
                 />
               )}
             </FormField>
-            <Button variant="secondary" className="self-start" disabled={search.isPending || query.trim() === ''} onClick={runSearch}>
-              {search.isPending ? t('setup.finish.group.searching') : t('setup.finish.group.search')}
+            <Button
+              variant="secondary"
+              className="self-start"
+              disabled={search.isPending || query.trim() === ''}
+              onClick={runSearch}
+            >
+              {search.isPending
+                ? t('setup.finish.group.searching')
+                : t('setup.finish.group.search')}
             </Button>
             {search.isError ? <ActionError error={search.error} /> : null}
             {search.data === undefined ? null : search.data.groups.length === 0 ? (
-              <p role="status" className="text-body-sm text-fg-secondary">{t('setup.finish.group.none')}</p>
+              <p role="status" className="text-body-sm text-fg-secondary">
+                {t('setup.finish.group.none')}
+              </p>
             ) : (
               <ul className="flex flex-col gap-1">
                 {search.data.groups.map((candidate) => (
@@ -176,7 +207,9 @@ export function FinishStep({ context, focus }: StepProps) {
           </>
         ) : (
           <div className="flex flex-wrap items-center gap-3">
-            <p role="status" className="text-body text-fg">{t('setup.finish.group.selected', { name: group.name })}</p>
+            <p role="status" className="text-body text-fg">
+              {t('setup.finish.group.selected', { name: group.name })}
+            </p>
             <Button
               variant="secondary"
               size="sm"
@@ -217,7 +250,9 @@ export function FinishStep({ context, focus }: StepProps) {
         </h3>
         <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-body">
           <dt className="text-fg-secondary">{t('setup.finish.summary.tenant')}</dt>
-          <dd className="text-fg">{state.tenant.name ?? state.tenant.initialDomain ?? state.tenant.tenantId ?? '-'}</dd>
+          <dd className="text-fg">
+            {state.tenant.name ?? state.tenant.initialDomain ?? state.tenant.tenantId ?? '-'}
+          </dd>
           <dt className="text-fg-secondary">{t('setup.finish.summary.application')}</dt>
           <dd className="text-fg">{state.application?.displayName ?? '-'}</dd>
           <dt className="text-fg-secondary">{t('setup.finish.summary.mode')}</dt>

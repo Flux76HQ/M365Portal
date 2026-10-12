@@ -574,10 +574,18 @@ describe('renderCatalogue', () => {
 // ---------------------------------------------------------------------------------------------
 
 /** The valid set plus a lazy namespace (`setup`), one extra entry namespace (`pages`). */
-function withLazy(changes: Readonly<Record<string, string | undefined>> = {}): Record<string, string> {
+function withLazy(
+  changes: Readonly<Record<string, string | undefined>> = {},
+): Record<string, string> {
   return with_({
-    'setup.en.json': fragment({ 'setup.step.connect': 'Connect', 'setup.step.environment': 'Environment' }),
-    'setup.nl.json': fragment({ 'setup.step.connect': 'Verbinden', 'setup.step.environment': 'Omgeving' }),
+    'setup.en.json': fragment({
+      'setup.step.connect': 'Connect',
+      'setup.step.environment': 'Environment',
+    }),
+    'setup.nl.json': fragment({
+      'setup.step.connect': 'Verbinden',
+      'setup.step.environment': 'Omgeving',
+    }),
     'pages.en.json': fragment({ 'pages.title': 'Sign in' }),
     'pages.nl.json': fragment({ 'pages.title': 'Aanmelden' }),
     ...changes,
@@ -594,7 +602,10 @@ describe('mergeAllFragments: entry namespaces and lazy namespaces go to differen
       'shell.subtitle',
       'shell.title',
     ]);
-    expect(Object.keys(all.lazy.setup.nl)).toEqual(['setup.step.connect', 'setup.step.environment']);
+    expect(Object.keys(all.lazy.setup.nl)).toEqual([
+      'setup.step.connect',
+      'setup.step.environment',
+    ]);
     expect(all.lazy.setup.nl['setup.step.connect']).toBe('Verbinden');
     expect(all.lazy.setup.en['setup.step.connect']).toBe('Connect');
     // A lazy namespace with no fragment yet is an empty catalogue, not a missing one.
@@ -649,7 +660,10 @@ describe('the lazy files must equal the merge', () => {
     expectGuardFails(
       assertFresh,
       { ...rendered, 'setup.nl.json': '{}\n' },
-      { name: 'lazy freshness', reason: /locales\/lazy\/setup\.nl\.json is stale.*pnpm i18n:merge/s },
+      {
+        name: 'lazy freshness',
+        reason: /locales\/lazy\/setup\.nl\.json is stale.*pnpm i18n:merge/s,
+      },
     );
   });
 
@@ -657,7 +671,10 @@ describe('the lazy files must equal the merge', () => {
     expectGuardFails(
       assertFresh,
       { 'setup.en.json': rendered['setup.en.json'] ?? '' },
-      { name: 'lazy freshness', reason: /locales\/lazy\/setup\.nl\.json is missing.*pnpm i18n:merge/s },
+      {
+        name: 'lazy freshness',
+        reason: /locales\/lazy\/setup\.nl\.json is missing.*pnpm i18n:merge/s,
+      },
     );
   });
 
@@ -665,7 +682,10 @@ describe('the lazy files must equal the merge', () => {
     expectGuardFails(
       assertFresh,
       { ...rendered, 'common.en.json': '{}\n' },
-      { name: 'lazy freshness', reason: /locales\/lazy\/common\.en\.json is not produced by the merge.*delete it/s },
+      {
+        name: 'lazy freshness',
+        reason: /locales\/lazy\/common\.en\.json is not produced by the merge.*delete it/s,
+      },
     );
   });
 });

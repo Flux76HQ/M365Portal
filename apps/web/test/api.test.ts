@@ -845,10 +845,7 @@ describe('what the client does when the session is the problem', () => {
     return { location, moves };
   }
 
-  function sessionClient(
-    handler: Handler,
-    where: { pathname?: string; search?: string } = {},
-  ) {
+  function sessionClient(handler: Handler, where: { pathname?: string; search?: string } = {}) {
     const { location, moves } = fakeLocation(where.pathname, where.search);
     const store = createSessionStore();
     const net = network(handler);
@@ -876,12 +873,18 @@ describe('what the client does when the session is the problem', () => {
   });
 
   it('leaves out returnTo when the current page is the dashboard, and never returns to a path the sign-in refuses', async () => {
-    const dashboard = sessionClient(() => problem(401, 'unauthenticated'), { pathname: '/', search: '' });
+    const dashboard = sessionClient(() => problem(401, 'unauthenticated'), {
+      pathname: '/',
+      search: '',
+    });
     await expect(dashboard.client.get('/api/v1/me')).rejects.toBeInstanceOf(ApiError);
     expect(dashboard.moves).toEqual(['replace /signin']);
 
     for (const pathname of ['/api/v1/me', '//evil.example', '/a\\b']) {
-      const hostile = sessionClient(() => problem(401, 'unauthenticated'), { pathname, search: '' });
+      const hostile = sessionClient(() => problem(401, 'unauthenticated'), {
+        pathname,
+        search: '',
+      });
       await expect(hostile.client.get('/api/v1/me'), pathname).rejects.toBeInstanceOf(ApiError);
       expect(hostile.moves, pathname).toEqual(['replace /signin']);
     }
@@ -898,12 +901,18 @@ describe('what the client does when the session is the problem', () => {
 
   it('does not leave the pages that answer their own 401: the break-glass form and the setup wizard', async () => {
     for (const pathname of ['/break-glass', '/setup', '/setup/anything']) {
-      const { client, moves } = sessionClient(() => problem(401, 'unauthenticated'), { pathname, search: '' });
+      const { client, moves } = sessionClient(() => problem(401, 'unauthenticated'), {
+        pathname,
+        search: '',
+      });
       await expect(client.get('/api/v1/me'), pathname).rejects.toBeInstanceOf(ApiError);
       expect(moves, pathname).toEqual([]);
     }
     // A look-alike path is a different page and still goes to the sign-in.
-    const other = sessionClient(() => problem(401, 'unauthenticated'), { pathname: '/break-glassy', search: '' });
+    const other = sessionClient(() => problem(401, 'unauthenticated'), {
+      pathname: '/break-glassy',
+      search: '',
+    });
     await expect(other.client.get('/api/v1/me')).rejects.toBeInstanceOf(ApiError);
     expect(other.moves).toEqual(['replace /signin?returnTo=%2Fbreak-glassy']);
   });
@@ -947,7 +956,9 @@ describe('what the client does when the session is the problem', () => {
     expect(store.getSnapshot().stepUpRequested).toBe(true);
     expect(moves).toEqual([]);
     // One CSRF request and exactly one attempt at the write: nothing was replayed.
-    expect(calls.filter((call) => call.method === 'POST' && pathOf(call) !== '/api/v1/csrf')).toHaveLength(1);
+    expect(
+      calls.filter((call) => call.method === 'POST' && pathOf(call) !== '/api/v1/csrf'),
+    ).toHaveLength(1);
   });
 
   it('keeps the single refetch-and-retry for csrf_invalid, and does not treat it as a session problem', async () => {

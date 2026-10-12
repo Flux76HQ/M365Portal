@@ -22,7 +22,8 @@ export function AccessPage() {
   const { api } = useRouterContext();
   const query = useQuery({
     queryKey: ['me', 'access'],
-    queryFn: ({ signal }) => api.get('/api/v1/me/access', { schema: MyAccessResponseSchema, signal }),
+    queryFn: ({ signal }) =>
+      api.get('/api/v1/me/access', { schema: MyAccessResponseSchema, signal }),
     staleTime: 0,
   });
 
@@ -49,12 +50,21 @@ export function AccessPage() {
       <div className="flex flex-col gap-6">
         <p className="text-body text-fg">{t('access.who', { name: data.principal.label })}</p>
         {data.groupsStale ? (
-          <Banner tone="warning" title={t('access.stale.title')} className="rounded-md border border-line-subtle">
+          <Banner
+            tone="warning"
+            title={t('access.stale.title')}
+            className="rounded-md border border-line-subtle"
+          >
             {t('access.stale.message')}
             {data.groupsResolvedAt === null ? null : (
               <>
                 {' '}
-                {t('access.stale.checked', { time: d(Date.parse(data.groupsResolvedAt), { dateStyle: 'long', timeStyle: 'short' }) })}
+                {t('access.stale.checked', {
+                  time: d(Date.parse(data.groupsResolvedAt), {
+                    dateStyle: 'long',
+                    timeStyle: 'short',
+                  }),
+                })}
               </>
             )}
           </Banner>
@@ -70,9 +80,14 @@ export function AccessPage() {
           ) : (
             <ul aria-label={t('access.assignment.list')} className="flex flex-col gap-2">
               {data.assignments.map((assignment) => (
-                <li key={assignment.id} className="flex flex-col gap-1 rounded-lg border border-line-subtle bg-surface-raised p-3">
+                <li
+                  key={assignment.id}
+                  className="flex flex-col gap-1 rounded-lg border border-line-subtle bg-surface-raised p-3"
+                >
                   <p className="text-body font-semibold text-fg">
-                    {assignment.role.builtin ? t(`role.${assignment.role.key}` as MessageKey) : assignment.role.key}
+                    {assignment.role.builtin
+                      ? t(`role.${assignment.role.key}` as MessageKey)
+                      : assignment.role.key}
                   </p>
                   <p className="text-body-sm text-fg-secondary">
                     {assignment.origin.type === 'direct'
@@ -88,7 +103,9 @@ export function AccessPage() {
                   <p className="text-body-sm text-fg-secondary">
                     {assignment.expiresAt === null
                       ? t('access.assignment.noExpiry')
-                      : t('access.assignment.expires', { date: d(Date.parse(assignment.expiresAt), { dateStyle: 'long' }) })}
+                      : t('access.assignment.expires', {
+                          date: d(Date.parse(assignment.expiresAt), { dateStyle: 'long' }),
+                        })}
                   </p>
                 </li>
               ))}

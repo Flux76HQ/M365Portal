@@ -11,6 +11,18 @@ import nlLogo from '@m365portal/shared/i18n/locales/lazy/logo.nl.json';
 import nlAccent from '@m365portal/shared/i18n/locales/lazy/accent.nl.json';
 import nlPreview from '@m365portal/shared/i18n/locales/lazy/preview.nl.json';
 
-export const enCatalogue: Readonly<Record<string, string>> = { ...en, ...enAppearance, ...enLogo, ...enAccent, ...enPreview };
+export const enCatalogue: Readonly<Record<string, string>> = {
+  ...en,
+  ...enAppearance,
+  ...enLogo,
+  ...enAccent,
+  ...enPreview,
+};
 
-export const nlCatalogue: Readonly<Record<string, string>> = { ...nl, ...nlAppearance, ...nlLogo, ...nlAccent, ...nlPreview };
+export const nlCatalogue: Readonly<Record<string, string>> = {
+  ...nl,
+  ...nlAppearance,
+  ...nlLogo,
+  ...nlAccent,
+  ...nlPreview,
+};
