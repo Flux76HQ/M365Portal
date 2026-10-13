@@ -817,6 +817,7 @@ Date of the register: 2026-10-13 (Microsoft Learn only). Source of each: `specs/
 | ODD-01 | Group member writes (Graph) are in Phase D | closed 2026-10-13 (owner) |
 | ODD-02 | Delivery in three steps D1, D2, D3 with an owner test after each | closed 2026-10-13 (owner) |
 | ODD-03 | RBAC administration in full as the brief describes | closed 2026-10-13 (owner) |
+| OV-C2 | The owner has no users with a manager in the test tenant, so OV-C2 (U66, the manager call) cannot be tested now; U66 stays open and the designed "not available" degradation stays the behaviour (ODC-05) | recorded 2026-10-13 |
 | ODD-04 to ODD-08 | Audit retention, denial cap, break-glass hardening, export rate, Ubuntu runtime: defaults in `specs/004-phase-d/spec.md` section 10 | defaults; owner agrees at GD0 |
 
 ## Nederlands
