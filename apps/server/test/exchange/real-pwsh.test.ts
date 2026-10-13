@@ -574,12 +574,14 @@ describe.skipIf(!hasPwsh)(
           FAKE_EXO_AADSTS: '700016',
         });
         const answers = run.out.map((line) => JSON.parse(line) as Record<string, unknown>);
-        expect(answers[0]).toEqual({
+        expect(answers[0]).toMatchObject({
           v: 1,
           id: 'connect-0001',
           ok: false,
           error: { code: 'permission_denied', aadsts: 700016 },
         });
+        // Amendment 3: a type name at most, never text.
+        expect(JSON.stringify(answers[0])).not.toMatch(/Canary|was not found|Invalid scope/);
         expect(answers[1]).toMatchObject({
           id: 'call-00001',
           ok: false,

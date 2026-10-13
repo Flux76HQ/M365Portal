@@ -178,6 +178,11 @@ describe('responses', () => {
     expect(answer({ code: 'permission_denied', aadsts: 0 })).toBe(false);
     expect(answer({ code: 'permission_denied', aadsts: 1.5 })).toBe(false);
     expect(answer({ code: 'permission_denied', aadsts: 10_000_000 })).toBe(false);
+    expect(
+      answer({ code: 'internal', detail: { type: 'System.IO.IOException', errorId: 'X.Y' } }),
+    ).toBe(true);
+    expect(answer({ code: 'internal', detail: { type: 'has a space' } })).toBe(false);
+    expect(answer({ code: 'internal', detail: { message: 'text' } })).toBe(false);
   });
 
   it('refuses free-text error messages, unknown codes and a mix of data and error (FR-D-107)', () => {

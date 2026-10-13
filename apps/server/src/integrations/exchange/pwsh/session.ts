@@ -344,6 +344,8 @@ export class ExchangeWorkerSession implements ExchangeSession {
           reason: 'connect_refused',
           code: hello.error.code,
           aadsts: hello.error.aadsts ?? null,
+          errorType: hello.error.detail?.type ?? null,
+          errorId: hello.error.detail?.errorId ?? null,
         },
         'exchange worker connect refused',
       );

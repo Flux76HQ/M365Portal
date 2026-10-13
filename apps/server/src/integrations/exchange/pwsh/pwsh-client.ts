@@ -388,6 +388,17 @@ export class PwshExchangeClient implements ExchangeClient {
         const { response } = answer;
         if (response.ok) return dataOf(response.data);
         const { code, retryAfterMs } = response.error;
+        // Codes and .NET type names only (FR-D-107): enough to tell the faults of a real tenant apart.
+        this.#deps.log?.warn(
+          {
+            event: 'exchange_fault',
+            cmdlet: call.cmdlet,
+            result: code,
+            errorType: response.error.detail?.type ?? null,
+            errorId: response.error.detail?.errorId ?? null,
+          },
+          'exchange call failed',
+        );
         if (code === 'throttled') {
           const wait = this.#throttleWait(throttles, retryAfterMs);
           if (throttles >= RETRY_MAX || wait === null) {
@@ -425,6 +436,12 @@ export class PwshExchangeClient implements ExchangeClient {
         }
         throw errorFor(code, retryAfterMs, answer.id);
       } catch (failure) {
+        if (failure instanceof ExchangeUnavailableError) {
+          this.#deps.log?.warn(
+            { event: 'exchange_fault', cmdlet: call.cmdlet, result: failure.reason },
+            'exchange call unavailable',
+          );
+        }
         if (
           failure instanceof ExchangeUnavailableError &&
           (failure.reason === 'worker_timeout' || failure.reason === 'worker_crashed') &&

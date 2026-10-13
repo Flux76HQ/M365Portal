@@ -126,6 +126,20 @@ export const ExchangeResponseSchema = z.discriminatedUnion('ok', [
       // GD1-0 Amendment 2: the number of an Entra `AADSTS<n>` code when a connect was refused by the
       // sign-in service. Digits only, never text: it tells a missing consent or role from other faults.
       aadsts: z.number().int().min(1).max(9_999_999).optional(),
+      // GD1-0 Amendment 3: the .NET type name of the innermost exception and the first part of the
+      // error id, letters, digits, dots and underscores only (never message text), to tell faults apart.
+      detail: z
+        .strictObject({
+          type: z
+            .string()
+            .regex(/^[A-Za-z0-9_.]{1,120}$/)
+            .optional(),
+          errorId: z
+            .string()
+            .regex(/^[A-Za-z0-9_.]{1,120}$/)
+            .optional(),
+        })
+        .optional(),
     }),
   }),
 ]);
