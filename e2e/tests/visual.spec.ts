@@ -22,6 +22,7 @@ import {
   SIGNIN_ERROR_STATES,
   WIZARD_STATES,
 } from '../routes.js';
+import { isSelfHostedFont } from '../support/self-hosted-font.mjs';
 import { allowStaleCsrfAfterUnlock } from '../support/wizard-page.js';
 import { reachWizardState } from '../support/wizard-states.js';
 
@@ -45,11 +46,18 @@ async function assertSelfHostedFont(page: Page): Promise<void> {
   const fetched = await page.evaluate(() =>
     performance
       .getEntriesByType('resource')
-      .map((entry) => new URL(entry.name).pathname)
-      .filter((path) => /\.woff2?$/.test(path)),
+      .map((entry) => entry.name)
+      .filter((url) => /\.woff2?$/.test(new URL(url).pathname)),
   );
   expect(fetched.length, 'the font file was fetched from the server').toBeGreaterThan(0);
-  for (const path of fetched) expect(path).toMatch(/^\/assets\/inter-latin-wght-normal.*\.woff2$/);
+  // Only the self-hosted subsets (latin, and latin-ext for the diacritics of the directory pages); a
+  // font from another origin is reported by its URL, and the rule has unit tests with negatives.
+  const origin = new URL(page.url()).origin;
+  for (const url of fetched) {
+    expect(isSelfHostedFont(url, origin), `${url} is a self-hosted /assets/inter-* file`).toBe(
+      true,
+    );
+  }
 }
 
 async function prepare(
@@ -148,6 +156,10 @@ const MOVING = (page: Page) => [
   page.locator('[role="progressbar"]'),
   page.locator('[data-slot="proof-list"] p', { hasText: /Thumbprint/ }),
   page.getByText(/Last verified/),
+  // The certificate's end date is now + 360 days: it changes with the calendar day.
+  page
+    .locator('dt', { hasText: /^(Valid until|Geldig tot)$/ })
+    .locator('xpath=following-sibling::dd[1]'),
   // The row of a waiting sub-action: countdown, attempt and the button move against each other.
   page.locator('[data-slot="waiting-note"]'),
 ];

@@ -62,3 +62,4 @@ Spec and tasks were amended at the closing of Phase C where they disagreed with 
 - Tick T-C-069 and T-C-070 only after the full run; amend this note with its numbers.
 - T-C-064 stays open until the baselines from the CI artefact are committed.
 - `docs/open-points.md`: T-C-071 is done; the owner's answers to OV-C1 to OV-C6 will close U66 to U74.
+- First CI e2e run on PR #9, fixed locally: stale Phase C placeholder tests (`pages.spec.ts`); sideways scroll of `/users` at 320 px (`relative` on the table region in `DirectoryTable`, so the screen-reader-only cell text no longer escapes the clip); 24 px filter radios (`size-6` in `FilterChoice`) and manager link (`min-h-target`); date-dependent "Valid until" pinned and masked, and the `latin-ext` Inter subset allowed (`visual.spec.ts`, `support/self-hosted-font.mjs` with unit tests); users and groups states added to the 320 px and target-size specs.

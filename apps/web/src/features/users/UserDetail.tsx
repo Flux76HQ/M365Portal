@@ -56,7 +56,7 @@ function Manager({ manager }: { readonly manager: ManagerState }) {
       <Link
         to="/users/$id"
         params={{ id: row.id }}
-        className="text-accent-text underline underline-offset-4 hover:decoration-2"
+        className="inline-flex min-h-target items-center text-accent-text underline underline-offset-4 hover:decoration-2"
       >
         {name}
       </Link>

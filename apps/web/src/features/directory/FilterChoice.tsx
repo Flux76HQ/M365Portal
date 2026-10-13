@@ -31,7 +31,7 @@ export function FilterChoice({ label, options, value, onValueChange }: FilterCho
               onChange={() => {
                 onValueChange(option.value);
               }}
-              className="size-4 accent-accent"
+              className="size-6 accent-accent"
             />
             {option.label}
           </label>

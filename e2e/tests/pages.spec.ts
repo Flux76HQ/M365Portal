@@ -7,18 +7,6 @@ import { expect, test, type StoredPrincipalName } from '../fixtures.js';
 
 const PLACEHOLDERS = [
   {
-    path: '/users',
-    title: 'Users',
-    phase: 'C',
-    does: 'Look up the users of your Microsoft 365 tenant and see their details and group memberships.',
-  },
-  {
-    path: '/groups',
-    title: 'Groups',
-    phase: 'C',
-    does: 'Browse the groups of your Microsoft 365 tenant and manage their members.',
-  },
-  {
     path: '/distribution-lists',
     title: 'Distribution lists',
     phase: 'D',
@@ -58,8 +46,8 @@ test.describe('placeholder pages', () => {
     await page.addInitScript(() => {
       window.localStorage.setItem('m365portal.locale', 'nl');
     });
-    await app.goto('/users');
-    await expect(page.getByText('Niet beschikbaar tot fase C')).toBeVisible();
+    await app.goto('/contacts');
+    await expect(page.getByText('Niet beschikbaar tot fase D')).toBeVisible();
     await expect(page.getByRole('heading', { level: 2, name: 'Wat het gaat doen' })).toBeVisible();
   });
 

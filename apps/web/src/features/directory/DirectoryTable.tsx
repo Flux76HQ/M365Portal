@@ -63,7 +63,7 @@ export function DirectoryTable<Row>({
       role="region"
       aria-label={caption}
       tabIndex={0}
-      className="overflow-x-auto rounded-lg border border-line-subtle bg-surface-raised"
+      className="relative overflow-x-auto rounded-lg border border-line-subtle bg-surface-raised"
     >
       <table className="w-full border-collapse text-start text-body">
         <caption className="sr-only">{caption}</caption>
