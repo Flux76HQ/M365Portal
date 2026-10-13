@@ -7,7 +7,7 @@
 > close or narrow the unverified claims **U75 to U85, U89, U90 and U92 to U100** (register in
 > [open-points.md](open-points.md)). The phase report [phase-D1.md](phase-reports/phase-D1.md) hands you this
 > sheet; fill in the result table at the end and send back only what "What to report back" allows. The sheet also
-> asks you for one decision, **the image size ceiling** (section J).
+> records one decision that is already taken, **the image size ceiling** (section J: 600 MB).
 
 ## English
 
@@ -313,11 +313,13 @@ is a second source you cross-check.
     and exit 0 (the chain is intact after the writes). Report the exit code. (The panel's own audit entries are
     visible in the audit screen of step D2; until then the chain check is all you can see.)
 
-### J. The image size decision (3 minutes)
+### J. The image size decision (recorded, 2026-10-13)
 
-The new image is larger than the old ceiling of 400 MB (estimated 500 to 550 MB, never measured), and the CI step
-`Image size budget` fails until the ceiling is set. **Decision requested from you:** the ceiling for the runtime
-image. Step 2 gave you the measured size in MB. Options:
+**Decided.** CI measured the new image at 538.2 MB (amd64, run 38394173673), over the old ceiling of 400 MB. On
+2026-10-13 the owner decided: **the ceiling becomes 600 MB** (option A below, with a margin of about 11 percent). It
+is changed in `scripts/check_image_size.py` and `packages/shared/src/limits.ts` together and recorded in ADR-0180
+(ODD-10). Nothing is asked of you here; step 2 still asks for the size you measure yourself, to compare with the
+538.2 MB and the 600 MB. The options that were put to the owner:
 
 - **A.** Set the ceiling to the measured size plus a margin you accept (for example +10 percent). Tell the number;
   it is then changed in `scripts/check_image_size.py` and `packages/shared/src/limits.ts` together and written
@@ -325,7 +327,7 @@ image. Step 2 gave you the measured size in MB. Options:
 - **B.** The size is too large for you: ask for a smaller image (the options are a smaller set of libraries, a
   slimmer module, or a separate worker container, which is ODB-01 B and a new decision).
 
-Write the measured size and your choice in the result table. The ceiling is yours; nobody raises it to make CI green.
+Write the size you measured in the result table. The ceiling is the owner's; nobody raises it to make CI green.
 
 ### K. Clean up and report back (4 minutes)
 
@@ -351,11 +353,11 @@ these.
 | OV-D2 (steps 13 to 24) | | Words for each step: group add, repeat and remove (13); list add (14, U78 with bypass) and the seconds until it showed (15, U82); repeat add (16); no-mailbox reason (17); the four `ok` and `code` pairs of step 18 (U78 without the bypass, U94); remove (19); dynamic and synchronised lists read-only (20); step-up above 20 (21); role-assignable group reason (22, U96); other read-only groups (23); any status other than 200 (24). Whether you ever saw "Microsoft refused the change" for a plain add or remove (U92, U93). |
 | OV-D4 (steps 36 to 38) | | Counts per operation for the five cmdlets (U90); whether the user field of the panel's entry shows a person, the application, a GUID or nothing (U89); whether `BypassSecurityGroupManagerCheck` appears in the parameters; the exit code of `verify-audit`. |
 | OV-D5 (steps 25 to 35) | | Created, duplicate address refused (yes or no, U97), duplicate alias refused, same display name created (U95), saved and "Change at least one field" (U15), the contact in L1 and "Already a member" (U98), the contact's Distribution lists section listed L1 (U97), search and kind filter work and the count is right (U79, U99), Managers as names, addresses or empty (U98), delete message and lists count, wrong name refused, synchronised objects read-only (U80). |
-| Image size decision (J) | | The measured size in MB and your choice (A with the ceiling in MB, or B). |
+| Image size (J) | | The size you measured in MB (CI measured 538.2 MB; the ceiling is 600 MB). |
 
 If you see something you cannot explain, describe in words what you saw and stop. Do not try again in a way that
 changes data. The questions that follow from your answers (keep the in-memory path or switch to `tmpfs`, a narrower
-role than Exchange Administrator, the bypass, the image size ceiling, whether to continue to step D2) are decisions
+role than Exchange Administrator, the bypass, whether to continue to step D2) are decisions
 for the report of step D1.
 
 ## Nederlands
@@ -367,7 +369,7 @@ for the report of step D1.
 > verkleinen de ongeverifieerde claims **U75 tot en met U85, U89, U90 en U92 tot en met U100** (register in
 > [open-points.md](open-points.md)). Het fase-rapport [phase-D1.md](phase-reports/phase-D1.md) geeft je dit blad;
 > vul aan het eind de resultaattabel in en stuur alleen terug wat "Wat je terugmeldt" toestaat. Het blad vraagt
-> ook om één besluit: **het plafond voor de grootte van de image** (sectie J).
+> legt ook één al genomen besluit vast: **het plafond voor de grootte van de image** (sectie J: 600 MB).
 
 ### Hoe lang, en wat je nodig hebt
 
@@ -581,15 +583,16 @@ schrijfactie; het Exchange-log is een tweede bron om mee te vergelijken.
     eindigen (de keten is intact na de schrijfacties). Meld de afsluitcode. (De auditregels zelf zijn te zien in het
     auditscherm van stap D2; tot dan is de ketencontrole alles wat je ziet.)
 
-### J. Het besluit over de grootte van de image (3 minuten)
+### J. Het besluit over de grootte van de image (vastgelegd, 13-10-2026)
 
-De nieuwe image is groter dan het oude plafond van 400 MB (geschat op 500 tot 550 MB, nooit gemeten) en de CI-stap
-`Image size budget` faalt tot het plafond is gezet. **Gevraagd besluit:** het plafond voor de runtime-image. Stap 2 gaf
-je de gemeten grootte in MB. **A:** zet het plafond op de gemeten grootte plus een marge die je accepteert (bijvoorbeeld
-+10 procent); meld het getal, dat dan in `scripts/check_image_size.py` en `packages/shared/src/limits.ts` samen wordt
-gewijzigd en in ADR-0180 wordt vastgelegd. **B:** de grootte is te veel: vraag om een kleinere image (minder
-bibliotheken, een slankere module, of een aparte workercontainer, ODB-01 B en een nieuw besluit). Schrijf de gemeten
-grootte en je keuze in de resultaattabel. Het plafond is van jou; niemand verhoogt het om CI groen te krijgen.
+**Besloten.** CI mat de nieuwe image op 538,2 MB (amd64, run 38394173673), boven het oude plafond van 400 MB. Op
+13-10-2026 besloot de eigenaar: **het plafond wordt 600 MB** (optie A hieronder, met een marge van ongeveer 11
+procent). Het is samen gewijzigd in `scripts/check_image_size.py` en `packages/shared/src/limits.ts` en vastgelegd in
+ADR-0180 (ODD-10). Hier wordt je niets gevraagd; stap 2 vraagt nog wel de grootte die je zelf meet, om te vergelijken
+met de 538,2 MB en de 600 MB. De opties die de eigenaar zijn voorgelegd: **A:** het plafond op de gemeten grootte plus
+een marge die je accepteert (bijvoorbeeld +10 procent). **B:** de grootte is te veel: vraag om een kleinere image
+(minder bibliotheken, een slankere module, of een aparte workercontainer, ODB-01 B en een nieuw besluit). Het plafond
+is van jou; niemand verhoogt het om CI groen te krijgen.
 
 ### K. Opruimen en terugmelden (4 minuten)
 
@@ -605,9 +608,9 @@ grootte en je keuze in de resultaattabel. Het plafond is van jou; niemand verhoo
 
 Eén regel per controle in de tabel van de Engelse versie (Item, Resultaat: Geslaagd, Mislukt of Niet getest, en de
 feiten): OV-D1 (stappen 1 tot en met 12), OV-D2 (13 tot en met 24), OV-D4 (36 tot en met 38), OV-D5 (25 tot en met 35)
-en het besluit over de grootte van de image (J). Toegestaan: een resultaatwoord, getallen, seconden, milliseconden,
+en de grootte van de image die je zelf meet (J). Toegestaan: een resultaatwoord, getallen, seconden, milliseconden,
 MiB, MB, HTTP-statuscodes, de `code` van de worker, de redenwoorden van het paneel, versienummers en namen van rollen en
 machtigingen. **Niet toegestaan:** namen, adressen, id's, tokens, de sleutel, bestandsinhoud of schermafbeeldingen
 daarvan. Zie je iets dat je niet kunt verklaren, beschrijf het dan in woorden en stop; probeer het niet opnieuw op een
 manier die gegevens wijzigt. De besluiten die volgen (geheugenpad of `tmpfs`, een smallere rol dan Exchange-beheerder,
-de bypass, het plafond voor de image, of we doorgaan met stap D2) staan in het rapport van stap D1.
+de bypass, of we doorgaan met stap D2) staan in het rapport van stap D1.

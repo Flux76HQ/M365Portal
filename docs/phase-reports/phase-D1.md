@@ -2,9 +2,9 @@
 
 Date / datum: 2026-10-13 · Branch `claude/modest-bohr-45f4kf`, build `0.3.58` (HEAD `44287d2` plus the documentation of this report) · Spec: `specs/004-phase-d/spec.md` · Gate notes: `specs/004-phase-d/gate-notes/GD1-0.md`, `GD1-web.md`, `GD1-server-a.md`, `GD1-server-b.md`
 
-Status: **Step D1 of Phase D is built; the owner test against a real Microsoft 365 test tenant is open; CI results (quality, e2e, image, CodeQL, Trivy, visual baselines) are pending.** Two things are not finished and are named here first: **(1)** the credential source of the worker is **built** (decided on 2026-10-13: PEM, option C) but **not proven**: nothing has run against a real `pwsh` or a tenant (U75, OV-D1); **(2)** the Ubuntu image has never been built or measured, and its **size ceiling is the owner's decision**. Nothing in this report claims what only a real tenant or a built image can show.
+Status: **Step D1 of Phase D is built; the owner test against a real Microsoft 365 test tenant is open; CI results (quality, e2e, image, CodeQL, Trivy, visual baselines) are pending.** Two things are not finished and are named here first: **(1)** the credential source of the worker is **built** (decided on 2026-10-13: PEM, option C) but **not proven**: nothing has run against a real `pwsh` or a tenant (U75, OV-D1); **(2)** the Ubuntu image was not built in this environment; CI measured it at **538.2 MB** (amd64) and the owner decided on 2026-10-13 that its **size ceiling is 600 MB** (arm64 and the memory of a long-running worker are not measured). Nothing in this report claims what only a real tenant or a built image can show.
 
-Status: **Stap D1 van Fase D is gebouwd; de test van de eigenaar op een echte Microsoft 365-testtenant staat open; de CI-resultaten (quality, e2e, image, CodeQL, Trivy, visuele baselines) zijn "pending".** Twee dingen zijn niet af en staan hier vooraan: **(1)** de bron van de inloggegevens van de worker is **gebouwd** (besloten op 2026-10-13: PEM, optie C) maar **niet bewezen**: niets is gedraaid tegen een echte `pwsh` of een tenant (U75, OV-D1); **(2)** de Ubuntu-image is nooit gebouwd of gemeten en het **plafond voor zijn grootte is jouw besluit**. Dit rapport beweert niets wat alleen een echte tenant of een gebouwde image kan laten zien.
+Status: **Stap D1 van Fase D is gebouwd; de test van de eigenaar op een echte Microsoft 365-testtenant staat open; de CI-resultaten (quality, e2e, image, CodeQL, Trivy, visuele baselines) zijn "pending".** Twee dingen zijn niet af en staan hier vooraan: **(1)** de bron van de inloggegevens van de worker is **gebouwd** (besloten op 2026-10-13: PEM, optie C) maar **niet bewezen**: niets is gedraaid tegen een echte `pwsh` of een tenant (U75, OV-D1); **(2)** de Ubuntu-image is hier niet gebouwd; CI mat **538,2 MB** (amd64) en de eigenaar besloot op 13-10-2026 tot een **plafond van 600 MB** (arm64 en het geheugen van een langlopende worker zijn niet gemeten). Dit rapport beweert niets wat alleen een echte tenant of een gebouwde image kan laten zien.
 
 ---
 
@@ -16,9 +16,9 @@ Status: **Stap D1 van Fase D is gebouwd; de test van de eigenaar op een echte Mi
 
 **Wat niet zeker is.** Hoe Microsoft echt antwoordt: **U75 tot en met U100** (onder andere of het certificaat op Linux uit het geheugen werkt, of de rol van de service principal de beheerderscontrole van een lijst vervult, hoe lang Exchange nodig heeft om een wijziging te tonen en of het Exchange-auditlog de uitvoeringen van het paneel bevat). Die sluit alleen jouw test, **OV-D1, OV-D2, OV-D4 en OV-D5**, met het stappenplan in [`docs/owner-test-phase-d1.md`](../owner-test-phase-d1.md) (ongeveer 90 minuten plus 30 minuten wachten). Ook niet bewezen: de gebouwde image (`docker build`, grootte, starttijd, de arm64-ping), de volledige e2e-matrix en de visuele baselines; die komen van de CI.
 
-**Twee dingen die nog niet af zijn.** (1) De bron van de inloggegevens is gebouwd (jij koos PEM) maar niet bewezen tegen een echte `pwsh` of tenant; kan Exchange niet verbinden, dan antwoorden de Exchange-pagina's "Exchange is niet beschikbaar". Groepsledenbeheer via Graph werkt wel. (2) De image is geschat op 500 tot 550 MB tegen een plafond van 400 MB; de CI-stap faalt tot jij een plafond kiest.
+**Twee dingen die nog niet af zijn.** (1) De bron van de inloggegevens is gebouwd (jij koos PEM) maar niet bewezen tegen een echte `pwsh` of tenant; kan Exchange niet verbinden, dan antwoorden de Exchange-pagina's "Exchange is niet beschikbaar". Groepsledenbeheer via Graph werkt wel. (2) De image mat in CI 538,2 MB (amd64); de eigenaar besloot op 13-10-2026 tot een plafond van 600 MB (was 400 MB). arm64 en het geheugen van een langlopende worker zijn niet gemeten.
 
-**De vraag.** Mag stap D2 (CSV-export en auditscherm) beginnen, en welk plafond kies je voor de image? Zie sectie 5.
+**De vraag.** Mag stap D2 (CSV-export en auditscherm) beginnen? Het plafond voor de image is besloten (600 MB). Zie sectie 5.
 
 ---
 
@@ -61,7 +61,7 @@ From the gate notes (2026-10-13, Node v22, pnpm 10), each on the working tree of
 
 ### 2.2 Only on GitHub, or not yet run / Alleen op GitHub of nog niet gedraaid
 
-**CI results: pending.** Not run anywhere: `docker build` of the new Dockerfile, `pnpm image:smoke` (including the worker ping and `workerPingMs`), `check_image_size.py` against a real image (it will fail until the ceiling is set), the arm64 worker ping, Trivy and CodeQL on the new base, the full `pnpm e2e` matrix (`e2e/tests/pages.spec.ts` and `nav-gating.spec.ts` still describe the two pages as placeholders, FD-20), the visual baselines of the new pages (never from the sandbox), `pnpm lint` and `pnpm test` of the whole repository on one tree, and the gate note `GD1.md` (T-D-198).
+**CI results: pending.** Not run anywhere: `docker build` of the new Dockerfile, `pnpm image:smoke` (including the worker ping and `workerPingMs`), `check_image_size.py` against a real image (CI has since measured 538.2 MB on amd64 and the owner set the ceiling to 600 MB on 2026-10-13), the arm64 worker ping, Trivy and CodeQL on the new base, the full `pnpm e2e` matrix (`e2e/tests/pages.spec.ts` and `nav-gating.spec.ts` still describe the two pages as placeholders, FD-20), the visual baselines of the new pages (never from the sandbox), `pnpm lint` and `pnpm test` of the whole repository on one tree, and the gate note `GD1.md` (T-D-198).
 
 ### 2.3 Simulated / Gesimuleerd
 
@@ -87,7 +87,7 @@ De volledige lijst, in het Engels en Nederlands, staat in [`docs/owner-test-phas
 | OV-D2 | Member writes without manager rights (with the bypass in the panel, without it at the worker); read-back delay; role-assignable group; read-only lists and groups | U78, U82, U92, U93, U94, U96, U98, U100 | not tested |
 | OV-D4 | The Exchange audit log shows the panel's changes | U89, U90 | not tested |
 | OV-D5 | Contacts (create, duplicate, same name, edit, delete), the filters and searches, synchronised objects | U15 (answered), U79, U80, U95, U97, U98, U99 | not tested |
-| (decision) | Image size ceiling | U84, ODD-10 | not decided |
+| (decision) | Image size ceiling | U84, ODD-10 | decided 2026-10-13: 600 MB (CI measured 538.2 MB); arm64 and long-running memory not measured |
 
 ---
 
@@ -98,7 +98,7 @@ Full registers: `docs/open-points.md`, section "Phase D" (U75 to U100 with statu
 ### 4.1 Not yet done in step D1 / Nog niet gedaan
 
 1. **The credential source of the worker (FD-01).** Decided: PEM (option C). **Built** (`SecretsRuntime.withCertificateMaterial`, `credential-source.ts`, the tmpfs fallback derives a PKCS#12 from the PEMs; GD1-0 Amendment 1) and **not proven** against a real `pwsh` or a tenant (`CreateFromPem`, `Connect-ExchangeOnline`: U75, OV-D1). If the source cannot produce the certificate every Exchange route answers 503 `exchange_unavailable`; Graph features work.
-2. **The image has never been built or measured** (FD-02, FD-03); the ceiling is the owner's.
+2. **The image was not built here**; CI measured it at 538.2 MB (amd64) and the owner decided the ceiling of 600 MB on 2026-10-13 (FD-02, FD-03). arm64 and the memory of a long-running worker are not measured.
 3. U75 to U100 and OV-D1, OV-D2, OV-D4, OV-D5: the owner test (all `open`).
 4. CI for the step (FD-21), the e2e specs for the two pages and the visual baselines (FD-20), the gate note `GD1.md`.
 5. Dynamic lists show no members and nothing says why (FD-05); the `narrow_search` message was missing at the gate and now exists (FD-06, FD-24); a list of more than about 2,500 members cannot be read (FD-07).
@@ -134,22 +134,22 @@ The code is right in each case; spec and tasks were amended and say so.
 | ODD-01 | Group member writes through Graph in Phase D | closed 2026-10-13; built in D1 |
 | ODD-08 | Distroless is dropped for an Ubuntu LTS runtime | implemented in D1 |
 | ODD-09 | Certificate format handed to the worker: PKCS#12 (A or B) or PEM (C) | **decided C, PEM, 2026-10-13; built, not proven against `pwsh` or a tenant** |
-| ODD-10 | The image size ceiling | **owner, open** |
+| ODD-10 | The image size ceiling | **closed 2026-10-13: 600 MB** (CI measured 538.2 MB, amd64) |
 | ODD-11 | Bundle budget for the three steps (+2,048 B gzip JS, +3,072 B Brotli first load) | recorded 2026-10-13 |
 
 ---
 
 ## 5. Decisions needed from the owner, and the question / Besluiten en de vraag
 
-1. **The image size ceiling (ODD-10).** The new image is estimated at 500 to 550 MB against 400 MB, and unmeasured. Measure the first build (`docker image inspect --format '{{.Size}}' <image>`; OV-D1 step 2 asks for the number) and tell the ceiling you accept, or ask for a smaller image. The CI step `Image size budget` fails until then; nobody else raises it.
+1. **The image size ceiling (ODD-10): decided.** CI measured the new image at 538.2 MB (amd64, run 38394173673) and on 2026-10-13 the owner decided that the ceiling becomes 600 MB (was 400 MB). Nothing is asked here any more. arm64 and the memory of a long-running worker are not measured (U84).
 2. **Large lists (FD-07).** A list with more than about 2,500 members cannot be read through a 1 MiB protocol line. Tell whether that is acceptable for your tenant or whether the line or the projection should change before D2.
 3. **Already decided, for the record:** PKCS#12 against PEM for the worker's certificate was **decided on 2026-10-13: PEM**; it is built (GD1-0 Amendment 1) and not proven against a real `pwsh` or a tenant.
 4. **Bundle room.** About 1.8 KB of first-load room is left for D2 and D3; any more needs a further approval.
 
 ### The question / De vraag
 
-Approve proceeding to step D2 (CSV export and the audit screen), and decide the image size ceiling? The owner fills in the approval line below; nobody else does. Nothing for step D2 is started before it is filled in.
+Approve proceeding to step D2 (CSV export and the audit screen)? (The image size ceiling is already decided: 600 MB.) The owner fills in the approval line below; nobody else does. Nothing for step D2 is started before it is filled in.
 
-Akkoord om door te gaan met stap D2, en een besluit over het plafond voor de grootte van de image?
+Akkoord om door te gaan met stap D2? (Het plafond voor de grootte van de image is al besloten: 600 MB.)
 
 Naam en datum / Name and date:

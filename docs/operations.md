@@ -382,7 +382,7 @@ There is still one container, one volume and one replica.
 - **Retries.** Throttled and transient answers are retried at most `exchange.retryMax` (3) times, 1 s doubling to
   15 s with jitter, `Retry-After` first; then 503 `exchange_throttled` or `exchange_unavailable`. The numbers
   are ours (U81).
-- **Memory and CPU** of a warm worker are unmeasured (U84); owner test OV-D1 step 11 records the resident memory.
+- **Memory and CPU** of a warm worker: CI measured 148 MB resident idle and 173 MB at the peak during two concurrent largest uploads (amd64); the memory of a long-running worker and arm64 are unmeasured (U84); owner test OV-D1 step 11 records the resident memory.
   Size your container limit with room for a second process.
 - **Outbound.** The worker needs the same hosts as the panel: `login.microsoftonline.com` and
   `outlook.office365.com`. Whether the module contacts any other host is not verified; if you restrict egress
@@ -441,23 +441,19 @@ and the Exchange module run on Ubuntu LTS only (ADR-0180, owner decision ODD-08 
 | Container hardening | Unchanged and required: read-only root file system, `/tmp` as tmpfs, `cap_drop: ALL`, `no-new-privileges`, uid 65532 |
 | Checks | `scripts/check_dockerfile_pins.py`, `scripts/check_image_contents.py`, `scripts/image-smoke.ts` (a worker ping inside the restricted container), and the arm64 step of `image.yml` (the same ping, `continue-on-error`) |
 
-**What the owner must decide: the image size ceiling.** The distroless image measured 193.5 MB (Phase A) against
-a ceiling of 400 MB (`imageSizeCeilingMegabytes`). The new image is **estimated at 500 to 550 MB, unmeasured**
-(PowerShell about 180 MB, the module about 40 MB, the Ubuntu base and libraries about 100 MB, plus the
-application). **The `Image size budget` step of the `image` job will fail until the owner sets a new ceiling.**
-Nobody else raises it, and it is not raised "to make CI green" (ADR-0180, FR-D-106). To decide:
+**The image size ceiling: measured and decided.** The distroless image measured 193.5 MB (Phase A) against a
+ceiling of 400 MB. CI measured the new Ubuntu image at **538.2 MB** (amd64, run 38394173673), and on 2026-10-13 the
+owner decided that the ceiling becomes **600 MB** (`imageSizeCeilingMegabytes`, ODD-10, ADR-0180). The number lives
+in two places that a test compares: `CEILING_MEGABYTES` in `scripts/check_image_size.py` and
+`imageSizeCeilingMegabytes` in `packages/shared/src/limits.ts`. Nobody else raises it, and it is not raised "to make
+CI green" (FR-D-106). `python scripts/check_image_size.py <image>` prints the size in megabytes of 1,000,000 bytes
+(`docker image inspect --format '{{.Size}}' <image>` gives bytes, uncompressed). The `Image size budget` step of the `image` job enforces it.
 
-1. Build or pull the first Phase D image and read its size: `docker image inspect --format '{{.Size}}' <image>`
-   (bytes, uncompressed; `python scripts/check_image_size.py <image>` prints megabytes of 1,000,000 bytes).
-   Owner test OV-D1 step 2 asks for this number.
-2. Say which ceiling you accept (the measured size plus a margin). The change is then one number in two places,
-   `CEILING_MEGABYTES` in `scripts/check_image_size.py` and `imageSizeCeilingMegabytes` in
-   `packages/shared/src/limits.ts` (a test compares them), the measured size written into ADR-0180, and the new
-   value stated as a number in the pull request.
-
-The start time of the first Exchange call (the `pwsh` start plus the module import) and the resident memory
-are unmeasured as well (U84); the image smoke test records `workerPingMs`, and OV-D1 steps 3 and 11 ask for
-both.
+What the same CI run measured (amd64; the container smoke test passed 33 of 34 checks, only the size check failed
+against the old ceiling): `/readyz` answered 200 after 1,184 ms; the Exchange worker answered a ping in 1,473 ms
+inside the restricted container (module 3.10.1, PowerShell 7.6.6); resident memory was 148 MB idle and 173 MB at
+the peak during two concurrent largest uploads; `docker stop` exited 0 in 152 ms. **Not measured:** arm64, and the
+memory of a long-running worker (U84).
 
 ### Deployment-file changes of step D1 (for the pull request statement)
 
@@ -535,7 +531,7 @@ to `contacts.addressMaxChars` are the limits of step D1 (the export class is use
 | Audit entry detail | 4,096 bytes | the app | row size |
 | Organisation name | 64 grapheme clusters, 256 bytes | the app | validation |
 | HSTS `max-age` default | 31,536,000 seconds | the app | override with `HSTS_MAX_AGE` |
-| Image size ceiling | 400 MB uncompressed, recalibrated after the first build. **Phase D step D1: the Ubuntu image is expected to exceed it (estimate 500 to 550 MB, unmeasured); the step fails until the owner sets the number** | `image` job | FR-A-168, FR-D-106, ADR-0180 |
+| Image size ceiling | 600 MB uncompressed. Owner decision (ODD-10, ADR-0180): the Ubuntu image of Phase D step D1 measured 538.2 MB in CI (amd64); it was 400 MB for the distroless image | `image` job | FR-A-168, FR-D-106, ADR-0180 |
 | `SETUP_UNLOCK_FAILS_PER_CLIENT` | 5 failures per 15 minutes per client address | the app | lock of that address for `SETUP_LOCK_MINUTES` (FR-B-204) |
 | `SETUP_UNLOCK_FAILS_GLOBAL` | 30 failures per 60 minutes | the app | lock of unlocking for everyone for `SETUP_LOCK_MINUTES` |
 | `SETUP_LOCK_MINUTES` | 15 minutes | the app | `Retry-After` of 429 `setup_token_locked` is the remaining seconds |
@@ -602,8 +598,8 @@ to `contacts.addressMaxChars` are the limits of step D1 (the export class is use
 The single source of every number is `packages/shared/src/limits.ts` (`LIMITS`); this table is a
 mirror, compared with it by `limits-doc.test.ts`. A pull request that raises a size, rate or timeout
 limit states the new value as a number, never as one proxy's setting. The measured image size of the
-first local build was 193.5 MB against the ceiling (the distroless image of Phase A; the Phase D image has not
-been measured).
+first local build was 193.5 MB (the distroless image of Phase A, against the old ceiling of 400 MB); the Ubuntu image
+of Phase D measured 538.2 MB in CI (amd64) against the ceiling of 600 MB.
 
 ## Repository settings (recommended)
 
@@ -742,7 +738,7 @@ bij de eerste Exchange-aanroep (niet bij het opstarten), met regelgebonden JSON 
 - **Herhalen**: gethrottlede en tijdelijke antwoorden hoogstens 3 keer (`exchange.retryMax`), 1 s oplopend tot
   15 s met jitter, `Retry-After` eerst; daarna 503 `exchange_throttled` of `exchange_unavailable`. De getallen zijn
   van ons (U81).
-- **Geheugen en CPU** van een warme worker zijn ongemeten (U84); OV-D1 stap 11 noteert het geheugen.
+- **Geheugen en CPU** van een warme worker: CI mat 148 MB resident in rust en 173 MB op het hoogtepunt bij twee gelijktijdige grootste uploads (amd64); het geheugen van een langlopende worker en arm64 zijn ongemeten (U84); OV-D1 stap 11 noteert het geheugen.
 - **Uitgaand**: dezelfde hosts als het paneel, `login.microsoftonline.com` en `outlook.office365.com`; of de
   module nog een andere host aanroept, is niet geverifieerd.
 - **Logs**: alleen verzoek-id, cmdletnaam, uitkomst en duur; nooit een naam, adres, ledenlijst of zoektekst.
@@ -779,14 +775,19 @@ Ubuntu-archief (**niet op versie vastgezet**; een snapshot-mirror zou dat doen e
 werkt; er is nog steeds geen `curl`, `unzip` of compiler in de runtime. Alleen-lezen root, `/tmp` als tmpfs,
 `cap_drop: ALL` en `no-new-privileges` blijven vereist en ongewijzigd.
 
-**Wat de eigenaar moet besluiten: het plafond voor de grootte van de image.** De distroless-image mat 193,5 MB
-(Fase A) tegen een plafond van 400 MB (`imageSizeCeilingMegabytes`). De nieuwe image is **geschat op 500 tot 550 MB,
-ongemeten**. **De stap `Image size budget` van de job `image` faalt tot de eigenaar een nieuw plafond zet.** Niemand
-anders verhoogt het, en niet "om CI groen te krijgen". Meet met `docker image inspect --format '{{.Size}}' <image>`
-(bytes, ongecomprimeerd) of `python scripts/check_image_size.py <image>`, kies het plafond (gemeten grootte plus een
-marge die je accepteert); de wijziging is één getal op twee plaatsen (`CEILING_MEGABYTES` in
-`scripts/check_image_size.py` en `imageSizeCeilingMegabytes` in `packages/shared/src/limits.ts`), de gemeten grootte
-in ADR-0180 en het nieuwe getal in de pull request. Starttijd en geheugen zijn ook ongemeten (U84).
+**Het plafond voor de grootte van de image: gemeten en besloten.** De distroless-image mat 193,5 MB (Fase A) tegen een
+plafond van 400 MB. CI mat de nieuwe Ubuntu-image op **538,2 MB** (amd64, run 38394173673) en de eigenaar besloot op
+13-10-2026 dat het plafond **600 MB** wordt (`imageSizeCeilingMegabytes`, ODD-10, ADR-0180). Het getal staat op twee
+plaatsen die een test vergelijkt: `CEILING_MEGABYTES` in `scripts/check_image_size.py` en `imageSizeCeilingMegabytes`
+in `packages/shared/src/limits.ts`. Niemand anders verhoogt het, en niet "om CI groen te krijgen". Meet met
+`docker image inspect --format '{{.Size}}' <image>` (bytes, ongecomprimeerd) of `python scripts/check_image_size.py
+<image>`. De stap `Image size budget` van de job `image` handhaaft het.
+
+Wat dezelfde CI-run mat (amd64; de rooktest van de container slaagde voor 33 van 34 controles, alleen de grootte-
+controle faalde tegen het oude plafond): `/readyz` antwoordde 200 na 1.184 ms; de Exchange-worker beantwoordde een ping
+in 1.473 ms binnen de beperkte container (module 3.10.1, PowerShell 7.6.6); het residente geheugen was 148 MB in rust
+en 173 MB op het hoogtepunt bij twee gelijktijdige grootste uploads; `docker stop` eindigde met 0 in 152 ms. **Niet
+gemeten:** arm64 en het geheugen van een langlopende worker (U84).
 
 **Deployment-bestanden van stap D1.** `Dockerfile` (nieuwe stage `pwsh-fetch`, Ubuntu-runtime), `image.yml` (de
 arm64-rooktest pingt ook de worker; geen stap toegevoegd of hernoemd), `docker-compose.yml` (`EXCHANGE_KEY_HANDOVER:`

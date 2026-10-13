@@ -26,7 +26,7 @@ from pathlib import Path
 DEFAULT_IMAGE = "m365portal:local"
 
 # The one constant. Docker prints MB as 1,000,000 bytes.
-CEILING_MEGABYTES = 400
+CEILING_MEGABYTES = 600
 MEGABYTE = 1_000_000
 CEILING_BYTES = CEILING_MEGABYTES * MEGABYTE
 

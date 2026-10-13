@@ -83,8 +83,8 @@ const SPEC_6_5: Readonly<Record<string, number>> = {
   'orgName.maxBytes': 256,
   // HSTS max-age default: 31,536,000 seconds
   hstsMaxAgeSeconds: 31_536_000,
-  // Image size ceiling: 400 MB uncompressed
-  imageSizeCeilingMegabytes: 400,
+  // Image size ceiling: 600 MB uncompressed
+  imageSizeCeilingMegabytes: 600,
 };
 
 /**

@@ -41,9 +41,9 @@ def write_inspect(directory: Path, size_bytes: int | None) -> Path:
 
 
 class Ceiling(unittest.TestCase):
-    def test_the_ceiling_is_one_constant_of_400_megabytes(self):
-        self.assertEqual(size.CEILING_MEGABYTES, 400)
-        self.assertEqual(size.CEILING_BYTES, 400 * MEGABYTE)
+    def test_the_ceiling_is_one_constant_of_600_megabytes(self):
+        self.assertEqual(size.CEILING_MEGABYTES, 600)
+        self.assertEqual(size.CEILING_BYTES, 600 * MEGABYTE)
 
     def test_the_ceiling_equals_the_one_in_the_shared_limits(self):
         """LIMITS is the single source (spec 6.5); this script must not drift from it."""
@@ -54,7 +54,7 @@ class Ceiling(unittest.TestCase):
 
     def test_a_drifting_copy_of_the_limit_is_noticed(self):
         """The comparison above fails for a different number (the negative of the parity check)."""
-        self.assertNotEqual(500, size.CEILING_MEGABYTES)
+        self.assertNotEqual(400, size.CEILING_MEGABYTES)
 
 
 class Verdict(unittest.TestCase):
@@ -69,9 +69,9 @@ class Verdict(unittest.TestCase):
         self.assertEqual(len(problems), 1)
 
     def test_the_failure_says_what_to_do(self):
-        text = "\n".join(size.check(450 * MEGABYTE))
-        self.assertIn("450.0 MB", text)
-        self.assertIn("400 MB", text)
+        text = "\n".join(size.check(650 * MEGABYTE))
+        self.assertIn("650.0 MB", text)
+        self.assertIn("600 MB", text)
         self.assertIn("docker history", text)
         self.assertIn("scripts/check_image_size.py", text)
         self.assertIn("packages/shared/src/limits.ts", text)
@@ -84,7 +84,7 @@ class Verdict(unittest.TestCase):
 
     def test_format_uses_decimal_megabytes_like_docker(self):
         self.assertEqual(size.megabytes(197_000_000), "197.0 MB")
-        self.assertEqual(size.megabytes(400_000_000), "400.0 MB")
+        self.assertEqual(size.megabytes(600_000_000), "600.0 MB")
 
 
 class ReadingTheSize(unittest.TestCase):
@@ -108,18 +108,18 @@ class Command(unittest.TestCase):
         result = run_script("--size-bytes", str(197 * MEGABYTE))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("197.0 MB", result.stdout)
-        self.assertIn("400 MB", result.stdout)
+        self.assertIn("600 MB", result.stdout)
 
     def test_size_bytes_over_the_ceiling_exits_one_with_the_remediation(self):
-        result = run_script("--size-bytes", str(401 * MEGABYTE))
+        result = run_script("--size-bytes", str(601 * MEGABYTE))
         self.assertEqual(result.returncode, 1)
         self.assertIn("docker history", result.stderr)
-        self.assertIn("401.0 MB", result.stderr)
+        self.assertIn("601.0 MB", result.stderr)
 
     def test_an_inspect_fixture_is_read(self):
         ok = run_script("--inspect-json", str(write_inspect(self.directory, 300 * MEGABYTE)))
         self.assertEqual(ok.returncode, 0, ok.stderr)
-        bad = run_script("--inspect-json", str(write_inspect(self.directory, 500 * MEGABYTE)))
+        bad = run_script("--inspect-json", str(write_inspect(self.directory, 700 * MEGABYTE)))
         self.assertEqual(bad.returncode, 1)
 
     def test_a_broken_fixture_is_an_error_not_a_pass(self):

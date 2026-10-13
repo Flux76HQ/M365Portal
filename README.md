@@ -44,9 +44,9 @@ What does **not** exist yet:
   certificate reaches the worker as PEM); it has not been run against a real `pwsh` or a tenant (U75, OV-D1). If
   Exchange cannot be reached, every Exchange page answers "Exchange is unavailable" while the rest of the panel,
   group member editing included, works ([docs/open-points.md](docs/open-points.md), FD-01).
-- **The image size ceiling is the owner's decision.** The new image is estimated at 500 to 550 MB against the
-  old ceiling of 400 MB and has not been measured; the `Image size budget` step of the CI `image` job fails until
-  the ceiling is set ([docs/operations.md](docs/operations.md#the-exchange-worker-phase-d-step-d1)).
+- **The image size ceiling is decided.** CI measured the new Ubuntu image at 538.2 MB (amd64, CI run 38394173673);
+  the owner set the ceiling to 600 MB on 2026-10-13 (it was 400 MB). arm64 and the memory of a long-running worker
+  are not measured ([docs/operations.md](docs/operations.md#the-exchange-worker-phase-d-step-d1)).
 - Users and groups themselves are not created, changed or deleted, there is no password reset and no licence
   (U17, U48 deferred). Dynamic distribution lists are shown but their members are not listed and cannot be changed.
 - No Phase D feature has run against a real Microsoft 365 tenant yet; the claims U75 to U100 are closed by the
@@ -282,9 +282,9 @@ Wat er **nog niet** is:
   gebouwd (het certificaat komt als PEM bij de worker); ze is niet gedraaid tegen een echte `pwsh` of een tenant (U75,
   OV-D1). Is Exchange niet te bereiken, dan antwoordt elke Exchange-pagina "Exchange is niet beschikbaar" terwijl de
   rest van het paneel, groepsledenbeheer inbegrepen, werkt ([docs/open-points.md](docs/open-points.md), FD-01).
-- **Het plafond voor de grootte van de image is aan de eigenaar.** De nieuwe image is geschat op 500 tot 550 MB
-  tegen het oude plafond van 400 MB en niet gemeten; de stap `Image size budget` van de CI-job `image` faalt tot het
-  plafond is gezet ([docs/operations.md](docs/operations.md#de-exchange-worker-fase-d-stap-d1)).
+- **Het plafond voor de grootte van de image is besloten.** CI mat de nieuwe Ubuntu-image op 538,2 MB (amd64, CI-run
+  38394173673); de eigenaar zette het plafond op 13-10-2026 op 600 MB (het was 400 MB). arm64 en het geheugen van een
+  langlopende worker zijn niet gemeten ([docs/operations.md](docs/operations.md#de-exchange-worker-fase-d-stap-d1)).
 - Gebruikers en groepen zelf worden niet aangemaakt, gewijzigd of verwijderd, er is geen wachtwoordreset en geen
   licentie (U17, U48 uitgesteld). Dynamische distributielijsten worden getoond maar hun leden niet en ze zijn niet
   te wijzigen.

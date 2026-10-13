@@ -37,3 +37,17 @@ Dockerfile (Ubuntu 24.04 runtime with PowerShell 7.6.6 and ExchangeOnlineManagem
 ## Open for the next step
 
 D2 flips the export check of `bestuur.spec.ts` from 404 to 403 (P55 arrives), decides the class of P46 (a POST rated `read` is refused by the route table), and adds the audit screen. Dynamic distribution lists show no members (FD-05); lists over about 2,500 members are unreadable (FD-07).
+
+## After CI (addendum, 2026-10-13)
+
+CI has since built and measured the image (amd64, run 38394173673). The container smoke test passed 33 of 34 checks; only the size check failed, against the old ceiling of 400 MB. This note's "Not run" entry for the Docker build, the image size and the image smoke test is therefore answered for amd64:
+
+| Measured in CI (amd64) | Value |
+|---|---|
+| Image size | 538.2 MB |
+| `/readyz` | 200 after 1,184 ms |
+| Exchange worker ping, inside the restricted container | 1,473 ms (module 3.10.1, PowerShell 7.6.6) |
+| Resident memory | 148 MB idle; 173 MB peak during two concurrent largest uploads |
+| `docker stop` | exit 0 in 152 ms |
+
+Owner decision of 2026-10-13 (ODD-10): the image size ceiling becomes **600 MB** (was 400 MB). `LIMITS.imageSizeCeilingMegabytes`, `scripts/check_image_size.py` and their tests were changed to 600; the documents were updated (README, `docs/operations.md`, ADR-0180, `docs/owner-test-phase-d1.md`, the phase report, `docs/open-points.md`). Still not measured: arm64, and the memory of a long-running worker (U84). Real `pwsh` against a tenant (U75) is unchanged and still open.

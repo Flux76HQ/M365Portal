@@ -1,10 +1,10 @@
 # ADR-0180: The runtime image moves from distroless to Ubuntu 24.04 with PowerShell and the Exchange Online module
 
-Samenvatting (NL): De runtime-image verlaat distroless en wordt Ubuntu 24.04 (op digest) met PowerShell 7.6.6 en de module ExchangeOnlineManagement 3.10.1 op exacte versie, omdat Exchange Online voor distributielijsten en contacten alleen via PowerShell te beheren is (R-D-03). De image wordt groter; de grootte is nog NIET gemeten (geen Docker in deze omgeving) en het plafond is aan de eigenaar.
+Samenvatting (NL): De runtime-image verlaat distroless en wordt Ubuntu 24.04 (op digest) met PowerShell 7.6.6 en de module ExchangeOnlineManagement 3.10.1 op exacte versie, omdat Exchange Online voor distributielijsten en contacten alleen via PowerShell te beheren is (R-D-03). De image wordt groter: CI mat 538,2 MB (amd64) en de eigenaar besloot op 13-10-2026 tot een plafond van 600 MB (was 400 MB).
 
 ## Status
 
-Plan. Proposed, awaiting the owner's decision on the size ceiling. Built in step D1 (T-D-117, spec FR-D-106, risk RD-02, option ODB-01 A). Size and start time are **unmeasured**: the builder had no Docker daemon, so the numbers below that are not marked "measured" are estimates and must be replaced by a real build before this ADR is accepted.
+Accepted. Built in step D1 (T-D-117, spec FR-D-106, risk RD-02, option ODB-01 A). **Measured by CI and the size ceiling decided.** CI measured the image at 538.2 MB (amd64, run 38394173673) and on 2026-10-13 the owner decided that the ceiling becomes 600 MB (was 400 MB; ODD-10). The builder had no Docker daemon, so the figures that the first revision of this ADR gave as estimates are replaced below by the measured ones. arm64 and the memory of a long-running worker are not measured.
 
 Source: `specs/004-phase-d/spec.md` FR-D-106, option ODB-01 A and risk RD-02, `specs/004-phase-d/research-microsoft-d.md` R-D-03, ADR-0018 (the decision this one replaces for the runtime stage).
 
@@ -25,12 +25,12 @@ Phase D writes distribution list members and mail contacts. The Exchange Online 
 
 ## Consequences
 
-- **Size.** The distroless image measured 193.5 MB at gate G6 (Phase A, `specs/001-m365portal/gate-notes/G6.md`; later phases were not re-measured here) against the ceiling of 400 MB (`LIMITS.imageSizeCeilingMegabytes`). The distroless base itself is small, so most of that is the application. Known additions: PowerShell about 180 MB and the module about 40 MB after removing `netFramework` (both measured as unpacked components), plus the Ubuntu base and the runtime libraries (estimated at about 100 MB together). The total is **estimated at about 500 to 550 MB, unmeasured**. That is over the current ceiling, so the `Image size budget` step of the `image` job will fail until the owner decides.
-- **Ceiling request.** The ceiling is the owner's number (RD-02) and this builder did not change it. Requested: measure the first build (`docker image inspect`), then set the ceiling to the measured size plus a margin the owner accepts, in `LIMITS.imageSizeCeilingMegabytes` and `scripts/check_image_size.py`, with the measured number written into this ADR.
-- **Start time.** `pwsh` starts lazily on the first Exchange call, not with the server (FR-D-104). The first call pays the PowerShell start and the module import; the smoke test records the time of a ping (`workerPingMs`). Unmeasured here.
+- **Size.** The distroless image measured 193.5 MB at gate G6 (Phase A, `specs/001-m365portal/gate-notes/G6.md`) against the old ceiling of 400 MB. Known additions: PowerShell about 180 MB and the module about 40 MB after removing `netFramework` (both measured as unpacked components), plus the Ubuntu base and the runtime libraries. **Measured by CI: 538.2 MB** (amd64, run 38394173673), inside the range that was estimated before the build (500 to 550 MB). That was over the old ceiling of 400 MB, so only the size check failed in that run (the container smoke test passed 33 of 34).
+- **Ceiling decision.** The ceiling is the owner's number (RD-02). On 2026-10-13 the owner decided: **600 MB** (`LIMITS.imageSizeCeilingMegabytes` in `packages/shared/src/limits.ts` and `CEILING_MEGABYTES` in `scripts/check_image_size.py`, compared by a test), a margin of 61.8 MB over the measured size. It was 400 MB for the distroless image.
+- **Start time.** `pwsh` starts lazily on the first Exchange call, not with the server (FR-D-104). The first call pays the PowerShell start and the module import. Measured by CI (amd64, inside the restricted container): `/readyz` answered 200 after 1,184 ms; the Exchange worker answered a ping in 1,473 ms (module 3.10.1, PowerShell 7.6.6); resident memory 148 MB idle and 173 MB at the peak during two concurrent largest uploads; `docker stop` exited 0 in 152 ms. Not measured: the memory of a long-running worker (U84).
 - **Attack surface.** A shell and a package database are now in the image. There is no `curl`, `unzip` or compiler in the runtime stage (they stay in `pwsh-fetch`), and the user cannot write outside `/data` and `/tmp`.
 - **Supply chain.** Two downloads (PowerShell release, Gallery package) are verified by checksum written in the repository, so a changed upstream file fails the build. A bump is a deliberate edit of three ARGs and the module version constants, which `check_image_contents.py` compares.
-- **arm64.** The arm64 archive has its own checksum; whether PowerShell and the module start under QEMU is not proven (the CI step is `continue-on-error`).
+- **arm64.** The arm64 archive has its own checksum; whether PowerShell and the module start under QEMU is not proven and arm64 was not measured (the CI step is `continue-on-error`).
 
 ## Evidence
 

@@ -440,8 +440,8 @@ export const LIMITS = deepFreeze({
   /** `Strict-Transport-Security` max-age default: one year, in seconds (override: `HSTS_MAX_AGE`). */
   hstsMaxAgeSeconds: 31_536_000,
 
-  /** Image size ceiling of the `image` CI job: 400 MB uncompressed, recalibrated after the first build. */
-  imageSizeCeilingMegabytes: 400,
+  /** Image size ceiling of the `image` CI job: 600 MB uncompressed. Owner decision of 2026-10-13 (ODD-10), after CI measured the Ubuntu image at 538.2 MB. */
+  imageSizeCeilingMegabytes: 600,
 } as const);
 
 /** The names of the rate limit classes: `read`, `write`, `upload`, `auth`, `setup` and `export`. */
