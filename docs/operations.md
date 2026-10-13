@@ -1,6 +1,6 @@
 # Operations
 
-> **Status:** Phase B. How to set up, run, stop, update, back up and monitor M365Portal, and the
+> **Status:** Phase D step D1 (the Exchange worker and the Ubuntu image are new; the rest is as in Phase B and C). How to set up, run, stop, update, back up and monitor M365Portal, and the
 > numbers that whatever sits in front of it must honour. Short deployment notes live in
 > [`deploy/README.md`](../deploy/README.md). Nederlandse versie: zie [Nederlands](#nederlands).
 
@@ -8,8 +8,9 @@
 
 You need Docker (Compose v2 recommended). The image is `ghcr.io/flux76hq/m365portal`; it is built and
 published by the `publish` workflow on GitHub, which has not run yet at the time of writing, so until
-the first publish build the image yourself (below). The image has no shell and no curl; the process
-runs as uid 65532 with all capabilities dropped.
+the first publish build the image yourself (below). Since Phase D step D1 the image is Ubuntu 24.04 with
+PowerShell: it has a shell (`sh`) but no curl; the process runs as uid 65532 with all capabilities dropped
+([the image and the worker](#the-exchange-worker-phase-d-step-d1)).
 
 ```sh
 cp .env.example .env     # optional: without a .env every default applies
@@ -361,6 +362,131 @@ outbound traffic: Node 22 may honour `NODE_USE_ENV_PROXY=1` together with `HTTPS
 UNVERIFIED (U41: accepted with an experimental warning, effect unproven), so test it with step 1 of the wizard.
 A proxy that inspects TLS needs its CA certificate in the container (`NODE_EXTRA_CA_CERTS`).
 
+## The Exchange worker (Phase D, step D1)
+
+> **Status:** step D1 (2026-10-13), built, **not run against a real tenant and not measured in a real image**:
+> there was no Docker daemon where it was built. Sizes and times below that are not marked "measured" are
+> estimates. Decisions: ADR-0180 (the runtime image), ADR-0181 (the worker protocol and its allow-list).
+
+Distribution lists and mail contacts are managed in Exchange Online, which Microsoft Graph cannot do. The
+panel therefore runs **one long-lived PowerShell 7 process (the worker) inside the same container**, started
+by the server on the first Exchange call (not at start), speaking line-delimited JSON on stdin and stdout.
+There is still one container, one volume and one replica.
+
+- **What the worker may do.** Ten cmdlets and nothing else (ADR-0181); the server refuses anything else before
+  it reaches the worker. It runs serially, one call at a time, with a deadline of
+  `exchange.callDeadlineSeconds` (120 s): a call that overruns kills the worker, which is started again.
+- **Recycling.** The worker is replaced after `exchange.workerMaxCalls` (500) calls or `exchange.workerMaxAgeSeconds`
+  (3,600 s), whichever comes first, because repeated connect and disconnect can leak memory (Learn). The worker is then started again
+  (once per failed call, EC-D1).
+- **Retries.** Throttled and transient answers are retried at most `exchange.retryMax` (3) times, 1 s doubling to
+  15 s with jitter, `Retry-After` first; then 503 `exchange_throttled` or `exchange_unavailable`. The numbers
+  are ours (U81).
+- **Memory and CPU** of a warm worker are unmeasured (U84); owner test OV-D1 step 11 records the resident memory.
+  Size your container limit with room for a second process.
+- **Outbound.** The worker needs the same hosts as the panel: `login.microsoftonline.com` and
+  `outlook.office365.com`. Whether the module contacts any other host is not verified; if you restrict egress
+  and the worker cannot connect, the proxy or firewall log names it, and OV-D1 step 5 reports `code` values.
+- **Logs.** The worker and its client log the request id, the cmdlet name, the outcome and the duration, and
+  nothing else: no display name, address, member list, search text or id from a result. The worker's own
+  output (the module prints) is discarded and never logged.
+
+### The certificate and the key
+
+The worker connects with the application id, the tenant's `.onmicrosoft.com` domain and the **certificate of the
+panel**. The private key never reaches the disk of the container in the default mode.
+
+| `EXCHANGE_KEY_HANDOVER` | What happens | When to use it |
+|---|---|---|
+| `memory` (default) | The server sends the certificate and key to the worker as one `connect` line on the pipe; the script builds the certificate object in memory and passes it to `Connect-ExchangeOnline -Certificate`. Nothing is written. | Always, unless OV-D1 shows that the module will not take it on Linux (U75) |
+| `tmpfs` (fallback) | The script writes the key to a file with mode 0600 in a private directory under `/dev/shm` (a tmpfs), connects, and removes the file at once. The first use is refused when that directory is not a tmpfs. | Only after OV-D1 says the in-memory path fails. A residual risk remains: the key exists in a file for the time of the connect |
+
+- **Which format the connect line carries is decided but not finished.** The first contract carried a PKCS#12
+  container and a password, which Phase B cannot produce (it stores a sealed PKCS#8 key and a public
+  certificate; Node cannot write PKCS#12). The owner decided on 2026-10-13 for **PEM**: the script builds the
+  certificate with `X509Certificate2.CreateFromPem` from the certificate and the PKCS#8 key, with no password.
+  That change, and the narrow, audited method that hands the key to the server's hand-over code once and zeroes
+  it after, are **in progress** in a separate change (finding FD-01). **Until a credential source exists every
+  Exchange route answers 503 `exchange_unavailable`**; the process starts and every Graph feature (users,
+  groups and group members) works. When it lands, this paragraph and OV-D1 are updated.
+- **No key on disk is a tested property**, not a promise: a canary key is planted and the container's files are
+  searched after a connect, in both modes (`no-key-on-disk.test.ts`). The real behaviour of the module on Linux is
+  OV-D1 step 10.
+- Memory residue: the key can stay in the memory of the Node and PowerShell processes after use, in core dumps
+  and in swap. Run without swap or with encrypted swap if that matters to you (accepted risk, see
+  [security.md](security.md)).
+
+### The image: Ubuntu 24.04 instead of distroless
+
+Phase D step D1 **replaces the distroless runtime by `ubuntu:24.04`** (pinned by digest), because PowerShell
+and the Exchange module run on Ubuntu LTS only (ADR-0180, owner decision ODD-08 and ODB-01 A).
+
+| Item | Now |
+|---|---|
+| Base | `ubuntu:24.04@sha256:...` for the PowerShell fetch stage and for the runtime (the build stage stays `node:22-bookworm-slim` by digest); Node is copied from the build stage to `/nodejs/bin/node` (entry point and command unchanged) |
+| PowerShell | 7.6.6 from the release tarball, SHA-256 checked in the same `RUN`; only `/opt/microsoft/powershell/7` is copied |
+| Module | `ExchangeOnlineManagement` 3.10.1 from the PowerShell Gallery as a `.nupkg`, SHA-512 checked, `netFramework` removed; no `Install-Module` |
+| Libraries | `ca-certificates libgcc-s1 libgssapi-krb5-2 libicu74 libssl3t64 libstdc++6 zlib1g` from the Ubuntu archive. **Not pinned by version** (the base digest pins the archive only at the moment it was resolved); a snapshot mirror would pin them and is not done |
+| User | `nonroot`, uid and gid 65532, no home, login shell `nologin`; the worker gets `HOME` under `/tmp` |
+| Shell | **Present now** (`sh`), so `docker exec <container> sh -c ...` works; there is still no `curl`, `unzip` or compiler in the runtime stage. The image is no longer "without a shell" |
+| Telemetry | `POWERSHELL_TELEMETRY_OPTOUT=1`, `POWERSHELL_UPDATECHECK=Off`, `DOTNET_CLI_TELEMETRY_OPTOUT=1`, `DOTNET_NOLOGO=1` as image `ENV` |
+| Container hardening | Unchanged and required: read-only root file system, `/tmp` as tmpfs, `cap_drop: ALL`, `no-new-privileges`, uid 65532 |
+| Checks | `scripts/check_dockerfile_pins.py`, `scripts/check_image_contents.py`, `scripts/image-smoke.ts` (a worker ping inside the restricted container), and the arm64 step of `image.yml` (the same ping, `continue-on-error`) |
+
+**What the owner must decide: the image size ceiling.** The distroless image measured 193.5 MB (Phase A) against
+a ceiling of 400 MB (`imageSizeCeilingMegabytes`). The new image is **estimated at 500 to 550 MB, unmeasured**
+(PowerShell about 180 MB, the module about 40 MB, the Ubuntu base and libraries about 100 MB, plus the
+application). **The `Image size budget` step of the `image` job will fail until the owner sets a new ceiling.**
+Nobody else raises it, and it is not raised "to make CI green" (ADR-0180, FR-D-106). To decide:
+
+1. Build or pull the first Phase D image and read its size: `docker image inspect --format '{{.Size}}' <image>`
+   (bytes, uncompressed; `python scripts/check_image_size.py <image>` prints megabytes of 1,000,000 bytes).
+   Owner test OV-D1 step 2 asks for this number.
+2. Say which ceiling you accept (the measured size plus a margin). The change is then one number in two places,
+   `CEILING_MEGABYTES` in `scripts/check_image_size.py` and `imageSizeCeilingMegabytes` in
+   `packages/shared/src/limits.ts` (a test compares them), the measured size written into ADR-0180, and the new
+   value stated as a number in the pull request.
+
+The start time of the first Exchange call (the `pwsh` start plus the module import) and the resident memory
+are unmeasured as well (U84); the image smoke test records `workerPingMs`, and OV-D1 steps 3 and 11 ask for
+both.
+
+### Deployment-file changes of step D1 (for the pull request statement)
+
+| File | Change | An existing deployment |
+|---|---|---|
+| `Dockerfile` | New stage `pwsh-fetch`; runtime stage is Ubuntu 24.04 with PowerShell and the module (above) | Keeps working: pull the new image, recreate the container. The volume, uid 65532, port and entry point are unchanged |
+| `.github/workflows/image.yml` | The arm64 smoke step also pings the Exchange worker; no step added or renamed | Not an operator file |
+| `docker-compose.yml` | `EXCHANGE_KEY_HANDOVER:` passed through from the environment (unset or empty means the default) | Keeps working untouched; the variable is optional |
+| `.env.example` | `EXCHANGE_KEY_HANDOVER=memory` with its comment | Add the line by hand only if you want to change it (`tmpfs`); the default is `memory` |
+
+New variable: **`EXCHANGE_KEY_HANDOVER`**, default `memory`, values `memory` or `tmpfs`, in the environment table
+above. No new Compose mapping line, no new volume, no migration. The largest request the application accepts
+is unchanged at 9,437,184 bytes.
+
+### Symptoms of the Exchange worker
+
+| You see | Likely cause |
+|---|---|
+| Every distribution list, contact and Exchange-backed page answers 503 `exchange_unavailable` | The Exchange credential source is not built yet (FD-01), or the role was granted minutes ago (`exchange_role_pending`, wait and retry), or the worker could not start (`pwsh` missing: an image that is not the Phase D image) |
+| 503 `exchange_unavailable` with `exchange_timeout` | A call exceeded 120 seconds; the worker was restarted. Try again |
+| 503 `exchange_throttled` | Exchange asked for a wait and the retry budget is spent; `Retry-After` says how long |
+| 503 `exchange_permission_missing` | Exchange refused the application: the Entra role is missing (Settings, Connection) or a manager check failed |
+| A member change says "Microsoft refused the change" or "no permission" for one member | The member's own answer (`rejected`, `permission_missing`): for a group, a role-assignable group answers this (U96) |
+| The change is made but the member list does not show it | `readBackPending`: Exchange can take a while (U82); refresh the members |
+| The image is "unhealthy" or the container does not start after the update | The first Phase D image is much larger and slower to pull; check `docker logs`. The Node health check is unchanged |
+
+### Secret files and stack managers
+
+A stack manager that runs **in a container itself** (Dockhand and similar) reads your Compose file from inside
+its own container. If the secret file is given as an **absolute host path** (`file: /srv/m365/secrets/app_key`),
+the manager may show a warning such as `secret file ... does not exist` although the file is there: the manager
+looks for the path in its own file system, not on the Docker host. The warning is harmless for the panel. The
+proof that the secret arrived is **inside the panel's container**: `docker exec <container> ls -l /run/secrets/app_key`
+shows the mounted file (at most 1,024 bytes) and the panel starting without `APP_KEY` complaints
+confirms it. Do not print the file. To silence the warning, give the stack manager the
+same path in its own container, or use a path relative to the Compose file.
+
 ## Limits outside the repository
 
 The repository ships no reverse proxy, CDN or ingress, so it has no limits of its own outside the
@@ -370,7 +496,10 @@ request bodies of at least 9,437,184 bytes (the branding import, the largest req
 HTML, and must preserve the `Host` header. Phase B adds no larger request: its bodies are small, the largest
 being the 4,096-byte bodies of the authentication routes and 262,144 bytes for any other JSON body. Phase C adds
 no request body at all (its seven routes are `GET`), so the largest request stays 9,437,184 bytes; the five
-rows `searchMaxChars` to `cursorEntries` below are the limits of the users and groups lists.
+rows `searchMaxChars` to `cursorEntries` below are the limits of the users and groups lists. Phase D step D1
+adds write bodies (a list of at most 200 GUIDs, about 8 KB, and small contact bodies), all far below the
+262,144 bytes of any JSON body, so the largest request is still 9,437,184 bytes; the rows from `RATE_EXPORT`
+to `contacts.addressMaxChars` are the limits of step D1 (the export class is used from step D2).
 
 | Limit | Value | Enforced by | Constrains |
 |---|---|---|---|
@@ -398,7 +527,7 @@ rows `searchMaxChars` to `cursorEntries` below are the limits of the users and g
 | Audit entry detail | 4,096 bytes | the app | row size |
 | Organisation name | 64 grapheme clusters, 256 bytes | the app | validation |
 | HSTS `max-age` default | 31,536,000 seconds | the app | override with `HSTS_MAX_AGE` |
-| Image size ceiling | 400 MB uncompressed, recalibrated after the first build | `image` job | FR-A-168 |
+| Image size ceiling | 400 MB uncompressed, recalibrated after the first build. **Phase D step D1: the Ubuntu image is expected to exceed it (estimate 500 to 550 MB, unmeasured); the step fails until the owner sets the number** | `image` job | FR-A-168, FR-D-106, ADR-0180 |
 | `SETUP_UNLOCK_FAILS_PER_CLIENT` | 5 failures per 15 minutes per client address | the app | lock of that address for `SETUP_LOCK_MINUTES` (FR-B-204) |
 | `SETUP_UNLOCK_FAILS_GLOBAL` | 30 failures per 60 minutes | the app | lock of unlocking for everyone for `SETUP_LOCK_MINUTES` |
 | `SETUP_LOCK_MINUTES` | 15 minutes | the app | `Retry-After` of 429 `setup_token_locked` is the remaining seconds |
@@ -465,7 +594,8 @@ rows `searchMaxChars` to `cursorEntries` below are the limits of the users and g
 The single source of every number is `packages/shared/src/limits.ts` (`LIMITS`); this table is a
 mirror, compared with it by `limits-doc.test.ts`. A pull request that raises a size, rate or timeout
 limit states the new value as a number, never as one proxy's setting. The measured image size of the
-first local build was 193.5 MB against the ceiling.
+first local build was 193.5 MB against the ceiling (the distroless image of Phase A; the Phase D image has not
+been measured).
 
 ## Repository settings (recommended)
 
@@ -484,7 +614,7 @@ op GitHub bouwt en publiceert hem en heeft bij het schrijven nog niet gedraaid, 
 zelf met `docker build --build-arg VERSION="$(cat VERSION)" -t m365portal:local .` (zonder het argument
 staat het versielabel bewust op `unknown`). Daarna: `cp .env.example .env` (optioneel) en
 `docker compose up -d`. Het paneel antwoordt op `http://localhost:9300`; `docker compose ps` toont
-"healthy" na ongeveer een halve minuut. De container draait als uid 65532 zonder capabilities en zonder shell.
+"healthy" na ongeveer een halve minuut. De container draait als uid 65532 zonder capabilities; sinds Fase D stap D1 is de image Ubuntu 24.04 met PowerShell en dus mét een shell (`sh`), maar zonder curl.
 
 ### Poorten en omgevingsvariabelen
 
@@ -550,7 +680,7 @@ persoonsgegevens, beveilig ze zoals de database. Met `verify-audit` controleer j
 nieuwste `seq` en `hash` (logregel `audit_head`) en geef ze mee als `--expect-seq` en `--expect-hash`, want
 de keten alleen ziet niet dat rijen aan het einde verwijderd zijn. Anonieme geweigerde schrijfacties worden
 ook gelogd en laten de audittabel dus onbegrensd kunnen groeien; houd de omvang van `/data` in de gaten
-(retentie volgt in Fase D).
+(retentie volgt in Fase D, stap D2).
 
 ### Eerste installatie, setup-token en setup-reopen
 
@@ -581,20 +711,101 @@ herstart verloren.
 ### Uitgaande verbindingen
 
 Het paneel roept drie Microsoft-hosts aan: `login.microsoftonline.com`, `graph.microsoft.com` en
-`outlook.office365.com`. Soevereine (nationale) clouds worden niet ondersteund. Verzoeken tot 9,437,184 bytes
+`outlook.office365.com` (sinds Fase D stap D1 ook de Exchange-worker, zie hierboven). Soevereine (nationale) clouds worden niet ondersteund. Verzoeken tot 9,437,184 bytes
 moeten door de reverse proxy kunnen (de brandingimport is het grootste verzoek; Fase B voegt geen groter verzoek
 toe). De variabele `NODE_USE_ENV_PROXY` voor een uitgaande proxy is ONGEVERIFIEERD (U41).
+
+### De Exchange-worker (Fase D, stap D1)
+
+Stap D1 (2026-10-13) is gebouwd maar **niet tegen een echte tenant gedraaid en niet in een echte image
+gemeten** (er was geen Docker-daemon); getallen die hieronder niet "gemeten" heten, zijn schattingen.
+Besluiten: ADR-0180 (het runtime-image) en ADR-0181 (het worker-protocol en de toegestane lijst).
+
+Distributielijsten en mailcontacten beheer je in Exchange Online; dat kan Microsoft Graph niet. Het paneel
+draait daarom **één langlevend PowerShell 7-proces (de worker) in dezelfde container**, door de server gestart
+bij de eerste Exchange-aanroep (niet bij het opstarten), met regelgebonden JSON over stdin en stdout. Het blijft
+één container, één volume, één replica.
+
+- **Wat de worker mag**: tien cmdlets en niets anders; de server weigert al het andere voordat het de worker
+  bereikt. Eén aanroep tegelijk, met een deadline van 120 seconden (`exchange.callDeadlineSeconds`): wie die
+  overschrijdt, laat de worker doden en opnieuw starten.
+- **Verversen**: na 500 aanroepen of 3.600 seconden (`exchange.workerMaxCalls`, `exchange.workerMaxAgeSeconds`),
+  wat het eerst komt, omdat herhaald verbinden en loskoppelen geheugen kan lekken.
+- **Herhalen**: gethrottlede en tijdelijke antwoorden hoogstens 3 keer (`exchange.retryMax`), 1 s oplopend tot
+  15 s met jitter, `Retry-After` eerst; daarna 503 `exchange_throttled` of `exchange_unavailable`. De getallen zijn
+  van ons (U81).
+- **Geheugen en CPU** van een warme worker zijn ongemeten (U84); OV-D1 stap 11 noteert het geheugen.
+- **Uitgaand**: dezelfde hosts als het paneel, `login.microsoftonline.com` en `outlook.office365.com`; of de
+  module nog een andere host aanroept, is niet geverifieerd.
+- **Logs**: alleen verzoek-id, cmdletnaam, uitkomst en duur; nooit een naam, adres, ledenlijst of zoektekst.
+
+**Certificaat en sleutel.** De worker verbindt met applicatie-id, het `.onmicrosoft.com`-domein en het certificaat
+van het paneel. `EXCHANGE_KEY_HANDOVER=memory` (standaard): certificaat en sleutel gaan als één `connect`-regel
+over de pipe en het script bouwt het certificaat in het geheugen; er wordt niets geschreven. `tmpfs` is de
+terugval (bestand met modus 0600 in een privémap onder `/dev/shm`, direct na het verbinden verwijderd, met een
+restrisico) en alleen nodig als OV-D1 laat zien dat het geheugenpad op Linux niet werkt (U75). **Het formaat van
+de `connect`-regel is besloten maar niet af**: het eerste contract droeg een PKCS#12 en een wachtwoord, wat
+Fase B niet kan maken; de eigenaar besloot op 2026-10-13 voor **PEM** (`X509Certificate2.CreateFromPem`, geen
+wachtwoord). Die wijziging en de smalle, geauditeerde methode die de sleutel eenmalig aan de overdracht geeft
+zijn **in uitvoering** (bevinding FD-01). **Zolang er geen bron voor de inloggegevens is, antwoordt elke
+Exchange-route 503 `exchange_unavailable`**; het proces start en alles via Graph (gebruikers, groepen,
+groepsleden) werkt. Dat er geen sleutel op schijf komt is een geteste eigenschap (een kanariesleutel wordt
+geplant en na het verbinden wordt in de bestanden gezocht, in beide modi); het echte gedrag van de module is
+OV-D1 stap 10. Geheugenresten van de sleutel zijn een aanvaard risico (zie [security.md](security.md)).
+
+**De image: Ubuntu 24.04 in plaats van distroless.** PowerShell en de Exchange-module draaien alleen op Ubuntu
+LTS (ADR-0180, ODD-08 en ODB-01 A). De runtime is `ubuntu:24.04` op digest, met PowerShell 7.6.6 (SHA-256
+gecontroleerd), de module `ExchangeOnlineManagement` 3.10.1 (SHA-512 gecontroleerd, `netFramework` verwijderd) en
+de bibliotheken `ca-certificates libgcc-s1 libgssapi-krb5-2 libicu74 libssl3t64 libstdc++6 zlib1g` uit het
+Ubuntu-archief (**niet op versie vastgezet**; een snapshot-mirror zou dat doen en is niet gedaan). Gebruiker
+`nonroot` (uid 65532), telemetrie uit. Er is nu **wel een shell** (`sh`), dus `docker exec <container> sh -c ...`
+werkt; er is nog steeds geen `curl`, `unzip` of compiler in de runtime. Alleen-lezen root, `/tmp` als tmpfs,
+`cap_drop: ALL` en `no-new-privileges` blijven vereist en ongewijzigd.
+
+**Wat de eigenaar moet besluiten: het plafond voor de grootte van de image.** De distroless-image mat 193,5 MB
+(Fase A) tegen een plafond van 400 MB (`imageSizeCeilingMegabytes`). De nieuwe image is **geschat op 500 tot 550 MB,
+ongemeten**. **De stap `Image size budget` van de job `image` faalt tot de eigenaar een nieuw plafond zet.** Niemand
+anders verhoogt het, en niet "om CI groen te krijgen". Meet met `docker image inspect --format '{{.Size}}' <image>`
+(bytes, ongecomprimeerd) of `python scripts/check_image_size.py <image>`, kies het plafond (gemeten grootte plus een
+marge die je accepteert); de wijziging is één getal op twee plaatsen (`CEILING_MEGABYTES` in
+`scripts/check_image_size.py` en `imageSizeCeilingMegabytes` in `packages/shared/src/limits.ts`), de gemeten grootte
+in ADR-0180 en het nieuwe getal in de pull request. Starttijd en geheugen zijn ook ongemeten (U84).
+
+**Deployment-bestanden van stap D1.** `Dockerfile` (nieuwe stage `pwsh-fetch`, Ubuntu-runtime), `image.yml` (de
+arm64-rooktest pingt ook de worker; geen stap toegevoegd of hernoemd), `docker-compose.yml` (`EXCHANGE_KEY_HANDOVER:`
+doorgegeven; leeg betekent de standaard) en `.env.example` (`EXCHANGE_KEY_HANDOVER=memory`). Een bestaande
+installatie blijft ongewijzigd werken: image ophalen en de container opnieuw maken; volume, uid, poort en
+entrypoint zijn gelijk. Geen nieuwe Compose-mappingregel, geen volume, geen migratie; het grootste verzoek blijft
+9.437.184 bytes.
+
+**Symptomen.** Elke Exchange-pagina antwoordt 503 `exchange_unavailable`: de bron van de inloggegevens is nog niet
+gebouwd (FD-01), de rol is minuten geleden verleend (`exchange_role_pending`, wacht en probeer opnieuw) of
+`pwsh` ontbreekt (een image die niet de Fase D-image is). `exchange_timeout`: een aanroep duurde langer dan 120
+seconden. 503 `exchange_throttled`: de herhaalruimte is op; `Retry-After` zegt hoe lang. 503
+`exchange_permission_missing`: de Entra-rol ontbreekt (Instellingen, Verbinding) of de beheerderscontrole faalde.
+"Microsoft heeft de wijziging geweigerd" bij één lid: het antwoord voor dat lid (een rol-toewijsbare groep geeft
+dit, U96). De wijziging is gedaan maar de ledenlijst toont haar niet: `readBackPending`, ververs de leden (U82).
+
+**Geheimbestanden en stackbeheerders.** Een stackbeheerder die zelf **in een container** draait (Dockhand en
+vergelijkbaar) leest je Compose-bestand vanuit zijn eigen container. Staat het geheimbestand als **absoluut pad van
+de host** (`file: /srv/m365/secrets/app_key`), dan kan de beheerder een waarschuwing tonen als `secret file ... does
+not exist` terwijl het bestand er gewoon is: hij zoekt het pad in zijn eigen bestandssysteem, niet op de Docker-host.
+De waarschuwing is onschadelijk voor het paneel. Het bewijs dat het geheim is aangekomen zit **in de container van
+het paneel**: `docker exec <container> ls -l /run/secrets/app_key` toont het gemonteerde bestand (hoogstens 1.024
+bytes) en een paneel dat zonder `APP_KEY`-klachten start bevestigt het. Druk het bestand niet af. Wil je de
+waarschuwing weg, geef de beheerder hetzelfde pad in zijn eigen container of gebruik een pad relatief aan het
+Compose-bestand.
 
 ### Grenzen buiten de repository
 
 De repository levert zelf geen reverse proxy, CDN of ingress en heeft dus buiten de applicatie geen eigen
 grenzen. Alles wat ervoor staat moet verzoeken met een body van minimaal 9437184 bytes (9 MiB, de
 branding-import, het grootste verzoek) doorlaten, mag HTML niet cachen en moet de `Host`-header behouden.
-De tabel hierboven telt 79 rijen; elke rij noemt een of meer grenzen als getal, met wat ze afdwingt en wat ze begrenst (aangepast bij het sluiten van fase C: er stond 'alle 25 grenzen', een aantal dat al sinds fase B niet meer klopte); de bron van elk
+De tabel hierboven telt 87 rijen; elke rij noemt een of meer grenzen als getal, met wat ze afdwingt en wat ze begrenst (aangepast bij het sluiten van fase C: er stond 'alle 25 grenzen', een aantal dat al sinds fase B niet meer klopte); de bron van elk
 getal is `packages/shared/src/limits.ts`. Belangrijk voor wat ervoor staat: de keep-alive van het paneel is
 65 seconden (de idle-timeout van de proxy richting het paneel moet korter zijn, bijvoorbeeld 60 seconden),
 het ontvangen van een verzoek mag tot 60 seconden duren, en `docker stop` moet minstens 10 seconden wachten.
-Fase C voegt geen verzoekbody toe (de zeven routes zijn `GET`): het grootste verzoek blijft 9437184 bytes. De vijf
+Fase C voegt geen verzoekbody toe (de zeven routes zijn `GET`): het grootste verzoek blijft 9437184 bytes. Fase D stap D1 voegt schrijfbodies toe (hoogstens 200 GUID's, circa 8 KB), ver onder de 262144 bytes van elke JSON-body: het grootste verzoek blijft 9437184 bytes. De rijen `RATE_EXPORT` tot en met `contacts.addressMaxChars` zijn de grenzen van stap D1. De vijf
 rijen `searchMaxChars` tot en met `cursorEntries` zijn de grenzen van de lijsten met gebruikers en groepen.
 
 ### Aanbevolen repository-instellingen

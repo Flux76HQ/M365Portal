@@ -1,18 +1,21 @@
-# API reference: users and groups (Phase C)
+# API reference: users and groups (Phase C), distribution lists, contacts and group members (Phase D step D1)
 
 > Nederlandse versie: zie [Nederlands](#nederlands). The machine-readable contract of every route is the
 > OpenAPI 3.1 document the server generates from its route table, served at `GET /api/v1/openapi.json`; the
-> wire schemas are in `packages/shared/src/schemas/directory.ts`. This page is the human reading of the seven
-> routes Phase C adds (P33 to P39). Routes of the earlier phases are in
-> [`specs/002-phase-b/contracts/phase-b-api.md`](../specs/002-phase-b/contracts/phase-b-api.md).
+> wire schemas are in `packages/shared/src/schemas/` (`directory.ts` for Phase C; `distribution-lists.ts`,
+> `contacts.ts` and `member-writes.ts` for step D1). This page is the human reading of the seven read-only
+> routes Phase C adds (P33 to P39) and of the fourteen routes of Phase D step D1 (P40 to P45 and P47 to P54,
+> which write). Routes of the earlier phases are in
+> [`specs/002-phase-b/contracts/phase-b-api.md`](../specs/002-phase-b/contracts/phase-b-api.md). Steps D2
+> (export, audit) and D3 (roles, rotation) add their routes later.
 
 ## English
 
-### What is common to the seven routes
+### What is common to the seven routes of Phase C
 
 - All are `GET` under `/api/v1`, rate class `read` (capacity 120, refill 2 per second per client address,
   [limits](operations.md#limits-outside-the-repository)), and need a signed-in session. Every response has
-  `Cache-Control: no-store`. No route writes anything; any other method on these paths is 405.
+  `Cache-Control: no-store`. No route of Phase C writes anything; any other method on these paths is 405.
 - The permissions and the scopes are those of the panel's role model ([permissions.md](permissions.md),
   Part 3 and Part 4). The server enforces them; the pages only hide.
 - A query is strict: an unknown parameter, a text longer than 64 characters or with control characters, a
@@ -149,15 +152,217 @@ The numbers (search text 64 characters, page size 100 and at most 200, Microsoft
 Microsoft pages per scoped request, cursor lifetime 600 seconds and 1,000 cursors) are in
 [operations.md](operations.md#limits-outside-the-repository). Phase C adds no request body, so the largest
 request the application accepts stays 9,437,184 bytes, and no environment variable, Compose line,
-`.env.example` entry or database migration.
+`.env.example` entry or database migration. (Step D1 adds write bodies and one variable, below.)
+
+### Phase D step D1: distribution lists, contacts and group members
+
+> **Status:** step D1 (2026-10-13). Fourteen routes: P40 to P45 (distribution lists), P47 to P52 (mail
+> contacts) and P53 and P54 (members of Microsoft 365 and security groups). P46 (export preview) and
+> everything after it belong to steps D2 and D3. The wire schemas are in
+> `packages/shared/src/schemas/{distribution-lists,contacts,member-writes}.ts`; the spec table is section
+> 6.11.1 of `specs/004-phase-d/spec.md`. **Nothing here has run against a real Microsoft 365 tenant**: what
+> Exchange and Graph answer is the subject of the owner test [owner-test-phase-d1.md](owner-test-phase-d1.md).
+
+**Route ids are lower case** (`distributionlists.list`, not `distributionLists.list`): the id of a route is
+the `action` of its denial entries in the audit log, and the audit action grammar has no capital letter. The
+OpenAPI tag stays `distributionLists`.
+
+#### What is common to the fourteen routes
+
+- All are under `/api/v1`, need a signed-in session and are answered with `Cache-Control: no-store`. The
+  reads are class `read` (capacity 120, refill 2 per second per client address); the writes are class
+  `write` (capacity 10, refill 0.5 per second) and need the CSRF token and a same-origin `Origin` like every
+  write ([limits](operations.md#limits-outside-the-repository)). Any other method on a path is 405.
+- The permission and the scope are those of the role model ([permissions.md](permissions.md), Parts 3 to
+  5), checked on the server for the one object (`distributionList`, `contact` or `group`). The order of the
+  checks is: existence (404), then scope (403 `permission_denied`, audited with reason `scope_mismatch`),
+  then the state of the object (409 `read_only_object`).
+- **Ids are GUIDs.** A distribution list and a contact are identified by their Exchange GUID, a Microsoft 365
+  or security group by its Entra object id, a user by its Entra object id (also as a member of a list; that
+  `ExternalDirectoryObjectId` is UNVERIFIED on member rows, OV-D1 and OV-D5). A member of a list without an
+  Entra id is shown by its Exchange GUID.
+- A query is strict, as in Phase C: an unknown parameter, a text of more than 64 characters or with control
+  characters, a `limit` outside 1 to 200 or an `id` that is not a GUID is 422 `validation_failed`.
+- **No total anywhere**, and the Phase C paging rules apply: `{ "items": [...], "nextCursor": "..." }`, an
+  opaque 24-character cursor bound to the actor, route and parameters, valid 600 seconds, kept in memory
+  (a restart ends it: 400 `cursor_invalid`), and a page may hold fewer rows than `limit`
+  ([ADR-0179](adr/0179-directory-cursor-store-and-restricted-rows.md)). The lists and contacts come from
+  Exchange, which does not page: the server reads the result once, keeps it in memory for the cursor
+  (`exchange.listBufferMax`, 10,000 rows) and pages over it. A search that matches more than 10,000 rows is
+  422 `validation_failed` with `errors[0] = { "pointer": "/q", "code": "narrow_search" }`; at the
+  gate the catalogue had no message for that detail code, so the web app fell back to the generic validation
+  text; a separate change adds the message (finding FD-06 in [open-points.md](open-points.md)).
+- Names and addresses are data: the web app renders them as text, the logs never contain them, and no audit
+  entry holds a name, an address or a field value (only ids and field names).
+- Microsoft text never reaches a response. The `detail` of a problem is generic English.
+
+| Id | Request | Permission (scoped) | Audit | Answers |
+|---|---|---|---|---|
+| P40 `distributionlists.list` | `GET /api/v1/distribution-lists` | `distributionlists:read`, scoped | denials | 200, 400, 422, 503 |
+| P41 `distributionlists.get` | `GET /api/v1/distribution-lists/{id}` | `distributionlists:read` on that list | denials | 200, 403, 404, 422, 503 |
+| P42 `distributionlists.members` | `GET /api/v1/distribution-lists/{id}/members` | `distributionlists:read` on that list | denials | 200, 400, 403, 404, 422, 503 |
+| P43 `distributionlists.members.add` | `POST /api/v1/distribution-lists/{id}/members` | `distributionlists:members:write` on that list | `dl.member.add` | 200, 403, 404, 409, 422, 503 |
+| P44 `distributionlists.members.remove` | `DELETE /api/v1/distribution-lists/{id}/members` | `distributionlists:members:write` on that list | `dl.member.remove` | 200, 403, 404, 409, 422, 503 |
+| P45 `distributionlists.search` | `GET /api/v1/distribution-lists/{id}/candidates?q=` | `distributionlists:members:write` on that list, plus `users:read` and `contacts:read` for what is offered | denials | 200, 400, 403, 404, 409, 422, 503 |
+| P47 `contacts.list` | `GET /api/v1/contacts` | `contacts:read`, scoped | denials | 200, 400, 422, 503 |
+| P48 `contacts.get` | `GET /api/v1/contacts/{id}` | `contacts:read` on that contact | denials | 200, 403, 404, 422, 503 |
+| P49 `contacts.create` | `POST /api/v1/contacts` | `contacts:create`, scoped by the proposed name, alias and address | `contact.create` | 201, 403, 409, 422, 503 |
+| P50 `contacts.update` | `PATCH /api/v1/contacts/{id}` | `contacts:update` on that contact (before and after the change) | `contact.update` | 200, 403, 404, 409, 422, 503 |
+| P51 `contacts.delete` | `DELETE /api/v1/contacts/{id}` | `contacts:delete` on that contact | `contact.delete` | 200, 403, 404, 409, 422, 503 |
+| P52 `contacts.memberships` | `GET /api/v1/contacts/{id}/lists` | `contacts:read` on that contact and `distributionlists:read` | denials | 200, 400, 403, 404, 422, 503 |
+| P53 `groups.members.add` | `POST /api/v1/groups/{id}/members` | `groups:members:write` on that group | `group.member.add` | 200, 403, 404, 409, 422, 503 |
+| P54 `groups.members.remove` | `DELETE /api/v1/groups/{id}/members` | `groups:members:write` on that group | `group.member.remove` | 200, 403, 404, 409, 422, 503 |
+
+"Denials" means a success is not audited (ODC-01) and every refusal of an authenticated actor is, under the
+route id. P43, P44, P53 and P54 audit successes too, one entry per member (below). Step-up: a write that
+changes **more than 20 members** needs a fresh sign-in (403 `step_up_required`, audited as a denial);
+`LIMITS.distributionLists.stepUpAbove` and `LIMITS.groupMembers.stepUpAbove`. The web app warns beforehand and,
+on `step_up_required`, opens the sign-in dialog; the write is not replayed on its own.
+
+#### Distribution lists (P40 to P42, P45)
+
+- **P40.** Query: `q` (prefix, 1 to 64 characters, on name, alias and address), `kind` (`all` default,
+  `standard`, `dynamic`, `synced`), `order` (`asc` default, `desc`; by display name), `limit`, `cursor`. A row
+  is `{ id, displayName, primarySmtpAddress, kind, securityEnabled, memberCount, managers }`. `kind` is
+  `standard` (a distribution group or mail-enabled security group that Exchange manages), `dynamic` or
+  `synced` (synchronised from on-premises; read-only). `memberCount` is **`null` on rows** (counting every list
+  would cost one Exchange call each) and `managers` is `null` unless the caller sees every user, because
+  `ManagedBy` can name people the caller may not see. Unknown values are `null`, never a missing key.
+  Dynamic lists are found through `Get-Recipient` (the group cmdlet does not return them).
+- **P41.** The same row plus `alias` and `createdDateTime`; `memberCount` is counted here (`null` for a dynamic
+  list or when the count failed).
+- **P42.** Query: `limit`, `cursor`. Answers `{ items, nextCursor? }`. A row is
+  `{ kind: "user" | "contact" | "group" | "other", id, displayName, primarySmtpAddress }` or, for a member the
+  caller may not see, the **restricted row** `{ kind, restricted: true }` without id, name or address (the same
+  single function as in Phase C). **A dynamic list has no member list**: its members follow a rule and the
+  cmdlet that would list them (`Get-DynamicDistributionGroupMember`) is not on the worker's allow-list, so the
+  answer is `{ "items": [] }`. Nothing in the answer says "empty because it cannot be listed"
+  (finding FD-05).
+- **P45.** Query: `q` (required, 1 to 64 characters), `limit`. The users and contacts the caller may see that
+  match, as `{ kind: "user" | "contact", id, displayName, mail, alreadyMember }` (`alreadyMember` is `null`
+  when the member read failed). A user without a mailbox address is not offered. **No cursor is issued**: the
+  first page is the answer (the picker asks for 25), and a `cursor` in the request is 400 `cursor_invalid`. A
+  dynamic or synchronised list is 409 `read_only_object`.
+
+#### Member writes (P43, P44, P53, P54)
+
+Request body, the same for all four (`DELETE` carries a body too):
+
+```json
+{ "members": ["<guid>", "<guid>"] }
+```
+
+`members` has 1 to **200** distinct GUIDs (`bulkMax`); a duplicate, a non-GUID or 201 entries is 422
+`validation_failed`. Answer 200, always with one result per member in the order sent:
+
+```json
+{
+  "results": [{ "id": "<guid>", "result": "added" }, { "id": "<guid>", "result": "failed", "reason": "mail_disabled" }],
+  "summary": { "total": 2, "added": 1, "removed": 0, "already": 0, "failed": 1 },
+  "readBackPending": false
+}
+```
+
+- `result` is `added`, `removed`, `already` (the member was already in the state asked for: no write was
+  sent) or `failed`. `reason` is present if and only if `failed`: `not_found`, `member_type_not_allowed`,
+  `mail_disabled`, `rejected`, `permission_missing`, `throttled`, `unavailable`, `timeout`. The summary counts
+  must equal the results (a schema check).
+- **`readBackPending`** (lists only, P43 and P44; the group answer has no such field): true when a changed
+  member is not (yet) in the member list read after the write, or when that read failed. Exchange is
+  eventually consistent; the delay is not documented (U82). The member list may need a refresh.
+- **The membership is read first** and "already" is decided from that read, not from Microsoft's answer to a
+  duplicate (U92, U93, U94). The members are written in chunks (lists: 50 per chunk; groups: 20 per chunk,
+  one Graph call per member), one transaction of audit entries per chunk.
+- **Reasons before any call:** `not_found` (the id is not a user or contact of the tenant), `mail_disabled`
+  (a user without a mailbox address; lists only), `member_type_not_allowed` (a group on a list; anything but a
+  user on a group). **Reasons after a call:** `permission_missing` (Microsoft refused the application, for
+  example a role-assignable group, U96), `rejected`, `throttled`, `unavailable`, `timeout`. A throttled or
+  unavailable Exchange stops the rest of the request: the remaining members fail with the same reason.
+- **When the first write fails for the role, the manager check or Exchange being down, the whole request is
+  the problem** (503 `exchange_unavailable` or `exchange_permission_missing`) and nothing is claimed as done.
+- **Lists (P43, P44).** A user is added by mailbox address, a contact by its GUID; the worker always sends
+  `-BypassSecurityGroupManagerCheck` (U78: the service principal is not in `ManagedBy`). A list that is
+  `dynamic` or `synced` is 409 `read_only_object` before any call.
+- **Groups (P53, P54).** Users only. The membership is the direct membership, read 999 per page up to 50
+  pages. A 404 on a removal counts as "already" (U93). A group that is dynamic, synchronised, a distribution
+  or mail-enabled security group, of an unknown kind or has hidden membership is 409 `read_only_object`
+  before any Graph call (with hidden membership the membership cannot be read, so "already" cannot be
+  decided). The delete path always ends in `/$ref`, built by one function; a path without it would delete the
+  member object itself (R-D-08).
+- **Audit.** For each member one entry: action `dl.member.add`, `dl.member.remove`, `group.member.add` or
+  `group.member.remove`, target the list or group id, outcome `success` (added, removed, already) or `error`
+  with the reason as `reasonCode`, detail `{ memberId, result }`. Then one **summary entry**
+  `{ summary: true, total, added, removed, already, failed }` (outcome `error` when nothing was done and
+  something failed). A request that fails as a whole writes the summary alone, outcome `error`, with the
+  problem code. No name or address is in any entry.
+
+#### Contacts (P47 to P52)
+
+- **P47.** Query: `q` (prefix on name, alias and address), `order`, `limit`, `cursor`. A row is
+  `{ id, displayName, alias, externalEmailAddress, synced }` (`synced` is `null` when Exchange did not say;
+  U12).
+- **P48 and the 201 of P49.** The row plus `firstName`, `lastName`, `hiddenFromAddressLists`,
+  `createdDateTime`.
+- **P49.** Body `{ displayName, alias, externalEmailAddress, firstName?, lastName? }`. The address must
+  already be normalised (trimmed, lower case); a client that sends anything else gets 422
+  `address_not_normalised`. Limits: display name 256, alias 64, names 64, address 254 characters. The
+  alias set is letters, digits and ``! # % * + - / = ? ^ _ ~``, periods only between other characters. The
+  Exchange `-Name` is **derived** (the alias cut to 57 characters, a hyphen and 6 hexadecimal characters) and
+  never typed (U95). The scope of the caller is checked against the proposed display name, alias and
+  address; an id scope never covers a new contact. 201 with a `Location` header and the contact as read back.
+  A duplicate address or alias is 409 `conflict` with `errors[0] = { "pointer": "/externalEmailAddress" |
+  "/alias", "code": "conflict" }` and **no id of the existing contact** (a problem body has no member for it).
+- **P50.** Body with at least one of `displayName`, `alias`, `externalEmailAddress` (names cannot be changed:
+  `Set-MailContact` has no first or last name, U15). Only fields that differ from the current value are sent
+  and audited; if nothing differs the answer is 200 with no call and no audit entry. The contact must stay
+  inside the caller's scope after the change (403 otherwise). A synchronised contact is 409
+  `read_only_object`; a duplicate is 409 `conflict` as above.
+- **P51.** Body `{ confirmName }`, which must equal the display name exactly: otherwise 422 with
+  `errors[0] = { "pointer": "/confirmName", "code": "confirm_mismatch" }` (or `display_name_characters` for a
+  name with padding or control characters, which cannot be confirmed by typing). Exchange removes the contact
+  from the lists it is in; the answer is `{ "removedFromLists": [{ id, displayName }] }`, cut to the lists the
+  caller may see. A synchronised contact is 409.
+- **P52.** Query: `limit`, `cursor`. The lists the contact is a member of, as list rows. Needs `contacts:read` on the contact and `distributionlists:read`; the lists are found by
+  `Get-DistributionGroup -Filter "Members -eq ..."`, whose use of that filter is UNVERIFIED (OV-D5).
+- Validation codes (`errors[].code` of a 422, message keys `contacts.validation.<code>`): `display_name_empty`,
+  `display_name_too_long`, `display_name_characters`, `alias_empty`, `alias_too_long`, `alias_characters`,
+  `address_invalid`, `address_not_normalised`, `address_too_long`, `person_name_too_long`,
+  `nothing_to_change`, `confirm_mismatch`. The pointer is `/<field>`.
+
+#### Problem codes added by step D1
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `cursor_invalid` | As in Phase C; also a cursor sent to P45 |
+| 403 | `permission_denied`, `step_up_required` | Missing permission or scope; more than 20 members without a fresh step-up |
+| 404 | `not_found` | Unknown list, contact or group |
+| 409 | `read_only_object` | Dynamic or synchronised list; synchronised contact; group of a kind or with hidden membership that Graph cannot write |
+| 409 | `conflict` | Duplicate contact address or alias (pointer `/externalEmailAddress` or `/alias`, no id) |
+| 422 | `validation_failed` | Bad query, path or body; detail codes `narrow_search` (`/q`), the contact validation codes, `confirm_mismatch` |
+| 503 | `exchange_unavailable` | The worker, the Exchange role or Exchange is not available (`Retry-After: 30`). Detail codes `exchange_role_pending` (the role was granted recently and has not propagated) and `exchange_timeout`. **Until the Exchange credential source is built (finding FD-01), every Exchange route answers this** |
+| 503 | `exchange_throttled` | Exchange throttled the request after the retry budget (`Retry-After` from the hint) |
+| 503 | `exchange_permission_missing` | Exchange refused the application: the role, or the manager check |
+| 503 | `graph_unavailable`, `graph_throttled`, `secrets_unavailable` | As in Phase C; for P45, P53 and P54 |
+
+`builtin_role` and `rotation_failed` exist in the registry for step D3 and are not answered by D1.
+
+#### Limits of step D1
+
+Numbers are in [operations.md](operations.md#limits-outside-the-repository): `bulkMax` 200 and `bulkChunk` 50
+(lists) or 20 (groups), step-up above 20 members, the worker's recycling and deadline, the retry budget, the
+list buffer of 10,000 rows, the protocol line of 1,048,576 bytes, and the contact field lengths. A write body
+holds at most 200 GUIDs (about 8 KB), so the largest request the application accepts stays **9,437,184 bytes**
+and nothing in front of the panel needs a new setting. Step D1 adds one environment variable
+(`EXCHANGE_KEY_HANDOVER`, default `memory`), changes the image base and the Compose file, and has no
+migration; see [operations.md](operations.md#the-exchange-worker-phase-d-step-d1).
 
 ## Nederlands
 
-### Wat de zeven routes gemeen hebben
+### Wat de zeven routes van Fase C gemeen hebben
 
 - Allemaal `GET` onder `/api/v1`, ratelimitklasse `read` (capaciteit 120, aanvulling 2 per seconde per
   clientadres, [grenzen](operations.md#grenzen-buiten-de-repository)) en een ingelogde sessie nodig. Elk
-  antwoord heeft `Cache-Control: no-store`. Geen route schrijft iets; elke andere methode op deze paden is 405.
+  antwoord heeft `Cache-Control: no-store`. Geen route van Fase C schrijft iets; elke andere methode op deze paden is 405.
 - Rechten en scopes zijn die van het rollenmodel van het panel ([permissions.md](permissions.md), Deel 3 en
   Deel 4). De server dwingt ze af; de pagina's verbergen alleen.
 - Een query is streng: een onbekende parameter, een tekst van meer dan 64 tekens of met stuurtekens, een
@@ -229,3 +434,152 @@ Microsoft-pagina's per verzoek voor een beperkte aanvrager, cursor 600 seconden 
 [operations.md](operations.md#grenzen-buiten-de-repository). Fase C voegt geen verzoekbody toe: het grootste
 verzoek blijft 9.437.184 bytes, en er is geen nieuwe omgevingsvariabele, Compose-regel,
 `.env.example`-regel of migratie.
+
+### Fase D stap D1: distributielijsten, contacten en groepsleden
+
+> **Status:** stap D1 (2026-10-13). Veertien routes: P40 tot en met P45 (distributielijsten), P47 tot en met
+> P52 (mailcontacten) en P53 en P54 (leden van Microsoft 365- en beveiligingsgroepen). P46 (voorbeeld van de
+> export) en alles daarna horen bij de stappen D2 en D3. De schema's staan in
+> `packages/shared/src/schemas/{distribution-lists,contacts,member-writes}.ts`; de routetabel is sectie 6.11.1
+> van `specs/004-phase-d/spec.md`. **Niets hiervan is tegen een echte Microsoft 365-tenant gedraaid**: wat
+> Exchange en Graph antwoorden is de vraag van de eigenaarstest [owner-test-phase-d1.md](owner-test-phase-d1.md).
+
+**Route-id's zijn kleine letters** (`distributionlists.list`, niet `distributionLists.list`): het id van een
+route is de `action` van de weigeringsregels in het auditlog en de actiegrammatica kent geen hoofdletters.
+De OpenAPI-tag blijft `distributionLists`.
+
+#### Wat de veertien routes gemeen hebben
+
+- Allemaal onder `/api/v1`, een ingelogde sessie nodig en `Cache-Control: no-store`. Lezen is klasse `read`
+  (capaciteit 120, aanvulling 2 per seconde per clientadres), schrijven is klasse `write` (capaciteit 10,
+  aanvulling 0,5 per seconde) en vraagt het CSRF-token en een `Origin` van dezelfde oorsprong, zoals elke
+  schrijfactie ([grenzen](operations.md#grenzen-buiten-de-repository)). Elke andere methode op een pad is 405.
+- Recht en scope zijn die van het rollenmodel ([permissions.md](permissions.md), Deel 3 tot en met 5) en
+  worden op de server voor het ene object gecontroleerd. Volgorde: bestaan (404), scope (403
+  `permission_denied`, geaudit met reden `scope_mismatch`), dan de toestand van het object (409
+  `read_only_object`).
+- **Id's zijn GUID's.** Een distributielijst en een contact hebben hun Exchange-GUID, een Microsoft 365- of
+  beveiligingsgroep zijn Entra-objectid, een gebruiker zijn Entra-objectid (ook als lid van een lijst;
+  `ExternalDirectoryObjectId` op ledenrijen is ONGEVERIFIEERD, OV-D1 en OV-D5). Een lid zonder Entra-id
+  toont zijn Exchange-GUID.
+- Een query is streng, net als in Fase C: onbekende parameter, tekst langer dan 64 tekens of met
+  stuurtekens, `limit` buiten 1 tot 200 of een `id` dat geen GUID is geeft 422 `validation_failed`.
+- **Nergens een totaal**; de pagineerregels van Fase C gelden: `{ "items": [...], "nextCursor": "..." }`, een
+  ondoorzichtige cursor van 24 tekens, gebonden aan aanvrager, route en parameters, 600 seconden geldig, in
+  het geheugen (een herstart beëindigt hem: 400 `cursor_invalid`); een pagina kan minder rijen dan `limit`
+  hebben. Lijsten en contacten komen uit Exchange, dat niet pagineert: de server leest het resultaat één keer,
+  houdt het voor de cursor in het geheugen (`exchange.listBufferMax`, 10.000 rijen) en pagineert daarover. Een
+  zoekopdracht met meer dan 10.000 treffers geeft 422 `validation_failed` met `errors[0] = { "pointer":
+  "/q", "code": "narrow_search" }`; bij de poort had de catalogus nog geen melding voor die
+  detailcode, dus de webapp viel terug op de algemene validatietekst; een aparte wijziging voegt de melding toe
+  (bevinding FD-06 in [open-points.md](open-points.md)).
+- Namen en adressen zijn gegevens: de webapp toont ze als tekst, de logs bevatten ze nooit en geen
+  auditregel bevat een naam, adres of veldwaarde (alleen id's en veldnamen). Microsoft-tekst komt nooit in
+  een antwoord; de `detail` is algemeen Engels.
+
+Routes, rechten en auditacties staan in de Engelse tabel hierboven. "Alleen weigeringen" betekent: een
+geslaagde actie wordt niet geaudit (ODC-01) en elke weigering van een ingelogde aanvrager wel, onder het
+route-id. P43, P44, P53 en P54 auditen ook successen, per lid één regel. **Step-up**: een schrijfactie op
+**meer dan 20 leden** vraagt een verse aanmelding (403 `step_up_required`, geaudit als weigering); de webapp
+waarschuwt vooraf en opent bij die fout het aanmeldvenster; de schrijfactie wordt niet vanzelf herhaald.
+
+#### Distributielijsten (P40 tot en met P42, P45)
+
+- **P40.** Query: `q` (voorvoegsel van 1 tot 64 tekens op naam, alias en adres), `kind` (`all`, `standard`,
+  `dynamic`, `synced`), `order`, `limit`, `cursor`. Een rij: `id`, `displayName`, `primarySmtpAddress`, `kind`,
+  `securityEnabled`, `memberCount`, `managers`. `kind` is `standard`, `dynamic` of `synced` (gesynchroniseerd
+  vanuit on-premises, alleen lezen). `memberCount` is op rijen **altijd `null`** (tellen kost per lijst een
+  Exchange-aanroep) en `managers` is `null` tenzij de aanvrager alle gebruikers ziet (`ManagedBy` kan mensen
+  noemen die de aanvrager niet mag zien). Dynamische lijsten komen via `Get-Recipient`.
+- **P41.** Dezelfde rij plus `alias` en `createdDateTime`; `memberCount` wordt hier geteld (`null` voor een
+  dynamische lijst of als het tellen mislukte).
+- **P42.** Leden, gepagineerd: `kind` (`user`, `contact`, `group`, `other`), `id`, `displayName`,
+  `primarySmtpAddress`, of een **beperkte rij** `{ kind, restricted: true }` zonder id, naam of adres. **Een
+  dynamische lijst heeft geen ledenlijst**: de cmdlet daarvoor staat niet op de toegestane lijst van de worker,
+  dus het antwoord is `{ "items": [] }` zonder aanwijzing dat het "leeg omdat niet te lezen" is
+  (bevinding FD-05).
+- **P45.** Query: `q` (verplicht), `limit`. De gebruikers en contacten die de aanvrager mag zien en die
+  passen, als `{ kind, id, displayName, mail, alreadyMember }` (`null` als het lezen van de leden mislukte).
+  Een gebruiker zonder mailadres wordt niet aangeboden. **Er komt geen cursor**; een meegestuurde `cursor`
+  is 400 `cursor_invalid`. Een dynamische of gesynchroniseerde lijst is 409 `read_only_object`.
+
+#### Ledenwijzigingen (P43, P44, P53, P54)
+
+Body voor alle vier (ook `DELETE` heeft een body): `{ "members": ["<guid>", ...] }`, 1 tot **200**
+verschillende GUID's; een dubbele, een niet-GUID of 201 stuks is 422 `validation_failed`. Antwoord 200 met
+per lid een resultaat in de volgorde van het verzoek, een `summary` (`total`, `added`, `removed`, `already`,
+`failed`, gelijk aan de resultaten) en, alleen bij lijsten, `readBackPending`.
+
+- `result` is `added`, `removed`, `already` (stond al in de gevraagde toestand: er is niets geschreven) of
+  `failed`; `reason` staat er dan en alleen dan bij: `not_found`, `member_type_not_allowed`,
+  `mail_disabled`, `rejected`, `permission_missing`, `throttled`, `unavailable`, `timeout`.
+- **`readBackPending`**: waar als een gewijzigd lid na het schrijven nog niet in de ledenlijst staat of als
+  die lezing mislukte. Exchange is uiteindelijk consistent; de vertraging is niet gedocumenteerd (U82).
+- **Eerst wordt het lidmaatschap gelezen**; "already" volgt uit die lezing, niet uit het antwoord van
+  Microsoft op een dubbele toevoeging (U92, U93, U94). Het schrijven gaat in brokken (lijsten 50, groepen 20,
+  per lid één aanroep), per brok één transactie met auditregels.
+- **Redenen vóór een aanroep**: `not_found`, `mail_disabled` (gebruiker zonder mailadres; alleen lijsten),
+  `member_type_not_allowed` (een groep in een lijst; bij een groep alles behalve een gebruiker). **Na een
+  aanroep**: `permission_missing` (Microsoft weigert de applicatie, bijvoorbeeld een rol-toewijsbare groep,
+  U96), `rejected`, `throttled`, `unavailable`, `timeout`. Een gethrottlede of onbereikbare Exchange stopt
+  de rest: de overige leden falen met dezelfde reden. **Mislukt de eerste schrijfactie door de rol, de
+  beheerderscontrole of een onbereikbare Exchange, dan is het hele verzoek het probleem** (503) en wordt
+  niets als gedaan gemeld.
+- **Lijsten**: een gebruiker wordt op mailadres toegevoegd, een contact op GUID; de worker stuurt altijd
+  `-BypassSecurityGroupManagerCheck` (U78). **Groepen**: alleen gebruikers; het directe lidmaatschap wordt per
+  999 gelezen, hoogstens 50 pagina's; een 404 bij verwijderen telt als "already" (U93); een dynamische,
+  gesynchroniseerde, distributie- of e-mailbeveiligde groep, een groep van onbekend soort of met verborgen
+  lidmaatschap is 409 `read_only_object` vóór elke Graph-aanroep. Het verwijderpad eindigt altijd op `/$ref`
+  (anders verwijdert Graph mogelijk het lid zelf; R-D-08).
+- **Audit**: per lid een regel (`dl.member.add`, `dl.member.remove`, `group.member.add`,
+  `group.member.remove`; doel is het lijst- of groepsid; uitkomst `success` of `error` met de reden als
+  `reasonCode`; detail `{ memberId, result }`), daarna één **samenvattingsregel** `{ summary: true, total,
+  added, removed, already, failed }`. Mislukt een verzoek als geheel, dan schrijft het alleen de samenvatting
+  met uitkomst `error` en de probleemcode. Geen naam of adres in een regel.
+
+#### Contacten (P47 tot en met P52)
+
+- **P47.** `q` (voorvoegsel op naam, alias en adres), `order`, `limit`, `cursor`; rij `id`, `displayName`,
+  `alias`, `externalEmailAddress`, `synced` (`null` als Exchange het niet zegt, U12). **P48 en de 201 van
+  P49** voegen `firstName`, `lastName`, `hiddenFromAddressLists` en `createdDateTime` toe.
+- **P49.** Body `displayName`, `alias`, `externalEmailAddress`, optioneel `firstName` en `lastName`. Het adres
+  moet al genormaliseerd zijn (zonder spaties, kleine letters), anders 422 `address_not_normalised`.
+  Lengtes: weergavenaam 256, alias 64, namen 64, adres 254. De Exchange-`-Name` wordt **afgeleid** (alias op
+  57 tekens, een streepje en 6 hexadecimale tekens) en nooit getypt (U95). De scope wordt gecontroleerd tegen de
+  voorgestelde naam, alias en adres; een id-scope dekt een nieuw contact nooit. 201 met `Location`. Een
+  dubbel adres of alias is 409 `conflict` met `errors[0] = { "pointer": "/externalEmailAddress" | "/alias",
+  "code": "conflict" }` en **zonder id** van het bestaande contact.
+- **P50.** Minstens één van `displayName`, `alias`, `externalEmailAddress` (namen niet wijzigbaar:
+  `Set-MailContact` heeft geen voor- of achternaam, U15). Alleen afwijkende velden worden verstuurd en geaudit;
+  verschilt niets, dan 200 zonder aanroep en zonder auditregel. Het contact moet na de wijziging binnen de
+  scope blijven (anders 403). Gesynchroniseerd: 409 `read_only_object`.
+- **P51.** Body `{ confirmName }` gelijk aan de weergavenaam, anders 422 met pointer `/confirmName` en code
+  `confirm_mismatch` (of `display_name_characters` bij een naam met spaties aan de rand of stuurtekens).
+  Exchange haalt het contact uit zijn lijsten; antwoord `{ "removedFromLists": [{ id, displayName }] }`, beperkt
+  tot de lijsten die de aanvrager mag zien.
+- **P52.** De lijsten waarvan het contact lid is, als lijstrijen; nodig zijn `contacts:read` op het contact en
+  `distributionlists:read`. Het filter `Members -eq ...` op `Get-DistributionGroup` is ONGEVERIFIEERD (OV-D5).
+- Validatiecodes (`errors[].code` bij 422): `display_name_empty`, `display_name_too_long`,
+  `display_name_characters`, `alias_empty`, `alias_too_long`, `alias_characters`, `address_invalid`,
+  `address_not_normalised`, `address_too_long`, `person_name_too_long`, `nothing_to_change`,
+  `confirm_mismatch`.
+
+#### Foutcodes die stap D1 toevoegt
+
+400 `cursor_invalid` (ook een cursor op P45); 403 `permission_denied` en `step_up_required`; 404 `not_found`;
+409 `read_only_object` (dynamische of gesynchroniseerde lijst, gesynchroniseerd contact, groep die Graph niet
+kan schrijven of met verborgen lidmaatschap) en `conflict` (dubbel adres of alias, zonder id); 422
+`validation_failed` (met onder meer `narrow_search`, de contactcodes en `confirm_mismatch`); 503
+`exchange_unavailable` (worker, rol of Exchange niet beschikbaar; `Retry-After: 30`; detailcodes
+`exchange_role_pending` en `exchange_timeout`; **zolang de bron van het Exchange-certificaat niet is gebouwd,
+bevinding FD-01, antwoordt elke Exchange-route zo**), 503 `exchange_throttled`, 503
+`exchange_permission_missing` (rol of beheerderscontrole geweigerd) en de Graph-codes van Fase C.
+`builtin_role` en `rotation_failed` staan in het register voor stap D3.
+
+#### Grenzen van stap D1
+
+De getallen staan in [operations.md](operations.md#grenzen-buiten-de-repository). Een schrijfbody bevat
+hoogstens 200 GUID's (circa 8 KB), dus het grootste verzoek blijft **9.437.184 bytes**. Stap D1 voegt één
+omgevingsvariabele toe (`EXCHANGE_KEY_HANDOVER`, standaard `memory`), verandert het basisbeeld van de image en
+het Compose-bestand en heeft geen migratie; zie
+[operations.md](operations.md#de-exchange-worker-fase-d-stap-d1).

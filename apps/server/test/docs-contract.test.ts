@@ -980,13 +980,14 @@ describe('docs/architecture.md (FR-A-006, FR-A-185)', () => {
 // =============================================================================================
 
 const ADR_PHASE_A_COUNT = 56;
-/** ADR-0001 to 0056 (Phase A), 0101 to 0126 (assumptions B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (Phase C, PC-02) and 0180 (Phase D, ODB-01, the runtime base). */
+/** ADR-0001 to 0056 (Phase A), 0101 to 0126 (assumptions B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (Phase C, PC-02), 0180 (Phase D, ODB-01, the runtime base) and 0181 (Phase D, FR-D-102, the worker protocol and allow-list). */
 const ADR_NUMBERS: readonly number[] = [
   ...Array.from({ length: ADR_PHASE_A_COUNT }, (_unused, index) => index + 1),
   ...Array.from({ length: 26 }, (_unused, index) => 101 + index),
   ...Array.from({ length: 28 }, (_unused, index) => 151 + index),
   179,
   180,
+  181,
 ];
 const ADR_COUNT = ADR_NUMBERS.length;
 const ADR_FIELDS = ['Status', 'Context', 'Decision', 'Consequences', 'Evidence'];
@@ -1056,6 +1057,8 @@ function assertAdrDirectory(directory: string): void {
       throw new Error(`${name}: does not name its decision PC-02`);
     if (number === 180 && !markdown.includes('ODB-01'))
       throw new Error(`${name}: does not name its decision ODB-01`);
+    if (number === 181 && !markdown.includes('FR-D-102'))
+      throw new Error(`${name}: does not name its requirement FR-D-102`);
   };
   check('0000-template.md', 0);
   for (const number of ADR_NUMBERS) {
@@ -1069,6 +1072,7 @@ function assertAdrDirectory(directory: string): void {
 }
 
 function adrLink(number: number): string {
+  if (number >= 181) return 'FR-D-102';
   if (number >= 180) return 'ODB-01';
   if (number >= 179) return 'PC-02';
   if (number >= 151) return `PB-${pad(number - 150, 2)}`;
@@ -1129,7 +1133,7 @@ describe('docs/adr (FR-A-185)', () => {
       adrDirectory((files) => {
         files.delete('0030-decision.md');
       }),
-      { reason: /has 111 ADRs, expected 112/ },
+      { reason: /has 112 ADRs, expected 113/ },
     );
     expectGuardFails(
       assertAdrDirectory,
@@ -1222,13 +1226,20 @@ describe('docs/adr (FR-A-185)', () => {
     expectGuardFails(
       assertAdrDirectory,
       adrDirectory((files) => {
+        files.set('0181-decision.md', adrSample(181).replace('FR-D-102', 'FR-D-103'));
+      }),
+      { reason: /0181-decision\.md: does not name its requirement FR-D-102/ },
+    );
+    expectGuardFails(
+      assertAdrDirectory,
+      adrDirectory((files) => {
         files.delete('0126-decision.md');
       }),
-      { reason: /has 111 ADRs|ADR-0126: 0 files/ },
+      { reason: /has 112 ADRs|ADR-0126: 0 files/ },
     );
   });
 
-  it('has the template and ADR-0001 to ADR-0056, 0101 to 0126 (B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (PC-02) and 0180 (ODB-01) with their fields', () => {
+  it('has the template and ADR-0001 to ADR-0056, 0101 to 0126 (B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (PC-02), 0180 (ODB-01) and 0181 (FR-D-102) with their fields', () => {
     assertAdrDirectory(join(repositoryRoot, 'docs/adr'));
   });
 });
@@ -1870,6 +1881,256 @@ describe('Phase C documents (FR-C-603)', () => {
     for (const text of [english, dutch]) {
       expect(text).toContain('docs/api.md');
       expect(text).toContain('docs/owner-test-phase-c.md');
+    }
+  });
+});
+
+// =============================================================================================
+// Phase D step D1 documents (FR-D-807, T-D-190 to T-D-192)
+// =============================================================================================
+// The same shape as the Phase C guards: each guard names the item that is missing, and a negative
+// takes that item out. What these documents may NOT do is claim more than the gate notes say, so the
+// credential source (FD-01) must read "decided, in progress" and the approval line must stay empty.
+
+const PHASE_D1_ROUTE_IDS = [
+  'distributionlists.list',
+  'distributionlists.get',
+  'distributionlists.members',
+  'distributionlists.members.add',
+  'distributionlists.members.remove',
+  'distributionlists.search',
+  'contacts.list',
+  'contacts.get',
+  'contacts.create',
+  'contacts.update',
+  'contacts.delete',
+  'contacts.memberships',
+  'groups.members.add',
+  'groups.members.remove',
+] as const;
+
+const PHASE_D1_CMDLETS = [
+  'Get-DistributionGroup',
+  'Get-DistributionGroupMember',
+  'Add-DistributionGroupMember',
+  'Remove-DistributionGroupMember',
+  'Get-MailContact',
+  'New-MailContact',
+  'Set-MailContact',
+  'Remove-MailContact',
+  'Get-Recipient',
+  'Get-OrganizationConfig',
+] as const;
+
+/** The U-numbers the owner sheet of step D1 must name in each language. */
+const PHASE_D1_CLAIMS = [
+  75, 76, 77, 78, 79, 80, 82, 83, 84, 85, 89, 90, 92, 93, 94, 95, 96, 97, 98, 99, 100,
+] as const;
+
+function assertPhaseD1Api(markdown: string): void {
+  for (const id of PHASE_D1_ROUTE_IDS) {
+    if (!markdown.includes(`\`${id}\``)) throw new Error(`api.md: route ${id} is not described`);
+  }
+  const { english, dutch } = halves(markdown);
+  for (const [label, text] of [
+    ['English', english],
+    ['Dutch', dutch],
+  ] as const) {
+    for (const needle of [
+      'narrow_search',
+      'read_only_object',
+      'conflict',
+      'exchange_unavailable',
+      'exchange_throttled',
+      'exchange_permission_missing',
+      'step_up_required',
+      'readBackPending',
+      '/$ref',
+    ]) {
+      if (!text.includes(needle))
+        throw new Error(`api.md (${label}): "${needle}" is not described`);
+    }
+  }
+}
+
+function assertPhaseD1Permissions(markdown: string): void {
+  const { english, dutch } = halves(markdown);
+  for (const [label, text, heading, used] of [
+    ['English', english, /^Part 5:/, /GroupMember\.ReadWrite\.All[^\n]{0,400}?\*\*Used\*\*/],
+    ['Dutch', dutch, /^Deel 5:/, /GroupMember\.ReadWrite\.All[^\n]{0,400}?\*\*Gebruikt\*\*/],
+  ] as const) {
+    const part = sectionOf(text, heading);
+    if (part === undefined) throw new Error(`permissions.md (${label}): Part 5 is missing`);
+    if (!used.test(part))
+      throw new Error(
+        `permissions.md (${label}): Part 5 does not say that GroupMember.ReadWrite.All is used`,
+      );
+    for (const needle of ['Exchange.ManageAsApp', 'Confirm', 'U96']) {
+      if (!part.includes(needle))
+        throw new Error(`permissions.md (${label}): Part 5 does not name ${needle}`);
+    }
+    for (const cmdlet of PHASE_D1_CMDLETS) {
+      if (!part.includes(cmdlet))
+        throw new Error(`permissions.md (${label}): Part 5 does not list the cmdlet ${cmdlet}`);
+    }
+  }
+}
+
+function assertOwnerTestSheetD1(markdown: string): void {
+  const { english, dutch } = halves(markdown);
+  for (const [label, text, report, ceiling] of [
+    ['English', english, /What to report back/, /image size ceiling/i],
+    ['Dutch', dutch, /Wat je terugmeldt/, /plafond voor de grootte van de image/i],
+  ] as const) {
+    for (const id of ['OV-D1', 'OV-D2', 'OV-D4', 'OV-D5']) {
+      if (!text.includes(id))
+        throw new Error(`owner-test-phase-d1.md (${label}): ${id} is missing`);
+    }
+    for (const number of PHASE_D1_CLAIMS) {
+      if (!new RegExp(`\\bU${String(number)}\\b`).test(text))
+        throw new Error(`owner-test-phase-d1.md (${label}): U${String(number)} is missing`);
+    }
+    if (!report.test(text))
+      throw new Error(`owner-test-phase-d1.md (${label}): the report-back section is missing`);
+    if (!ceiling.test(text))
+      throw new Error(`owner-test-phase-d1.md (${label}): the image size decision is missing`);
+  }
+  // One result field per item: a row of the English table for each of the four items and the decision.
+  for (const id of ['OV-D1', 'OV-D2', 'OV-D4', 'OV-D5']) {
+    if (!new RegExp(`^\\| ${id} \\([^)]*\\) \\| +\\|`, 'm').test(english))
+      throw new Error(`owner-test-phase-d1.md (English): ${id} has no result row`);
+  }
+}
+
+function assertOpenPointsPhaseD1(markdown: string): void {
+  const row = (id: string): RegExp => new RegExp(`^\\|\\s*${id}\\s*\\|\\s*\\S`, 'm');
+  for (let number = 75; number <= 100; number += 1) {
+    if (!row(`U${String(number)}`).test(markdown))
+      throw new Error(`open-points.md: the register row U${String(number)} is missing`);
+  }
+  for (let number = 1; number <= 9; number += 1) {
+    if (!row(`OV-D${String(number)}`).test(markdown))
+      throw new Error(`open-points.md: the ledger row OV-D${String(number)} is missing`);
+  }
+  for (const id of ['ODD-09', 'ODD-10', 'ODD-11', 'AD-01', 'AD-05', 'RD-01', 'RD-09']) {
+    if (!row(id).test(markdown)) throw new Error(`open-points.md: the row ${id} is missing`);
+  }
+  for (let number = 1; number <= 22; number += 1) {
+    const id = `FD-${String(number).padStart(2, '0')}`;
+    if (!row(id).test(markdown)) throw new Error(`open-points.md: the finding ${id} is missing`);
+  }
+  const credential = /^\|\s*FD-01\s*\|.*$/m.exec(markdown)?.[0] ?? '';
+  if (!/in progress/i.test(credential) || !/PEM/.test(credential))
+    throw new Error(
+      'open-points.md: FD-01 must say that the PEM credential source is decided and in progress',
+    );
+}
+
+function assertPhaseReportD1(markdown: string): void {
+  if (!/pending/i.test(markdown)) throw new Error('phase-D1.md: CI results must be marked pending');
+  const lines = markdown.split('\n').filter((line) => line.trim() !== '');
+  const last = lines[lines.length - 1] ?? '';
+  const question = lines[lines.length - 2] ?? '';
+  if (last !== 'Naam en datum / Name and date:')
+    throw new Error(`phase-D1.md: the approval line must stay empty, found "${last}"`);
+  if (!question.startsWith('Akkoord om door te gaan met stap D2'))
+    throw new Error('phase-D1.md: the question about step D2 is missing before the approval line');
+}
+
+describe('Phase D step D1 documents (FR-D-807)', () => {
+  it('docs/api.md describes the fourteen routes, the problem codes, the read-back and the /$ref guard, in both languages', () => {
+    const real = readDocument('docs/api.md', 'T-D-190');
+    assertPhaseD1Api(real);
+    expectGuardFails(assertPhaseD1Api, everywhere(real, '`contacts.memberships`'), {
+      name: 'a route not described',
+      reason: /route contacts\.memberships is not described/,
+    });
+    expectGuardFails(assertPhaseD1Api, everywhere(real, 'readBackPending'), {
+      name: 'the read-back flag not described',
+      reason: /"readBackPending" is not described/,
+    });
+  });
+
+  it('docs/permissions.md Part 5 and Deel 5 say that GroupMember.ReadWrite.All is used and list the ten cmdlets; the Phase C statement stays', () => {
+    const real = readDocument('docs/permissions.md', 'T-D-190');
+    assertPhaseD1Permissions(real);
+    assertPhaseCPermissions(real);
+    runNegatives(assertPhaseD1Permissions, real, [
+      [
+        'a cmdlet missing',
+        (t) => everywhere(t, 'Remove-MailContact', 'Remove-Other'),
+        /does not list the cmdlet Remove-MailContact/,
+      ],
+      [
+        'the write role no longer used',
+        (t) => everywhere(t, '**Used**', 'x'),
+        /does not say that GroupMember\.ReadWrite\.All is used/,
+      ],
+    ]);
+  });
+
+  it('docs/owner-test-phase-d1.md has OV-D1, OV-D2, OV-D4, OV-D5, their claims, a result row each and the image size decision, in English and in Dutch', () => {
+    const real = readDocument('docs/owner-test-phase-d1.md', 'T-D-192');
+    assertOwnerTestSheetD1(real);
+    expectGuardFails(assertOwnerTestSheetD1, everywhere(real, 'OV-D4'), {
+      name: 'a check missing',
+      reason: /OV-D4 is missing/,
+    });
+    expectGuardFails(assertOwnerTestSheetD1, everywhere(real, /\bU97\b/), {
+      name: 'a claim missing',
+      reason: /U97 is missing/,
+    });
+    expectGuardFails(assertOwnerTestSheetD1, everywhere(real, /\| OV-D5 \([^)]*\) \| /, '| x | '), {
+      name: 'a result row missing',
+      reason: /OV-D5 has no result row/,
+    });
+  });
+
+  it('docs/open-points.md has U75 to U100, OV-D1 to OV-D9, the D1 decisions, assumptions, risks and findings, and says the credential source is decided and in progress', () => {
+    const real = readDocument('docs/open-points.md', 'T-D-191');
+    assertOpenPointsPhaseD1(real);
+    runNegatives(assertOpenPointsPhaseD1, real, [
+      ['no U97', (t) => withoutLines(t, /^\|\s*U97\s*\|/), /register row U97/],
+      ['no OV-D4', (t) => withoutLines(t, /^\|\s*OV-D4\s*\|/), /ledger row OV-D4/],
+      ['no ODD-10', (t) => withoutLines(t, /^\|\s*ODD-10\s*\|/), /row ODD-10/],
+      ['no FD-07', (t) => withoutLines(t, /^\|\s*FD-07\s*\|/), /finding FD-07/],
+      [
+        'the credential source no longer in progress',
+        (t) => t.replace(/^\|\s*FD-01\s*\|.*$/m, (line) => line.replace(/in progress/gi, 'done')),
+        /FD-01 must say/,
+      ],
+    ]);
+  });
+
+  it('the phase report of step D1 marks CI as pending and keeps the approval line empty', () => {
+    const real = readDocument('docs/phase-reports/phase-D1.md', 'T-D-192');
+    assertPhaseReportD1(real);
+    expectGuardFails(assertPhaseReportD1, `${real.trimEnd()} Helmer, 2026-10-14\n`, {
+      name: 'a filled-in approval line',
+      reason: /the approval line must stay empty/,
+    });
+    expectGuardFails(assertPhaseReportD1, everywhere(real, /pending/gi, 'done'), {
+      name: 'CI no longer pending',
+      reason: /CI results must be marked pending/,
+    });
+  });
+
+  it('operations.md names the worker, the variable, the image size decision and the stack-manager note in both languages; the README names the new documents', () => {
+    const { english, dutch } = halves(readDocument('docs/operations.md', 'T-D-190'));
+    for (const text of [english, dutch]) {
+      for (const needle of [
+        'EXCHANGE_KEY_HANDOVER',
+        'Image size budget',
+        'Dockhand',
+        '/run/secrets/app_key',
+        'ADR-0181',
+      ]) {
+        expect(text).toContain(needle);
+      }
+    }
+    for (const text of Object.values(halves(readDocument('README.md', 'T-D-190')))) {
+      expect(text).toContain('docs/owner-test-phase-d1.md');
+      expect(text).toContain('docs/phase-reports/phase-D1.md');
     }
   });
 });

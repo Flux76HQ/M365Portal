@@ -34,9 +34,9 @@ an addition of this stream. `docs/permissions.md` refers to these ids.
 | U6 | `New-ServicePrincipal` parameter set (is `-ServiceId` mandatory?); app role id of `Exchange.ManageAsAppV2` | Wizard step 3 | The reference and the how-to disagree; the Admin API page names both `ManageAsApp` and `ManageAsAppV2` | Read the tenant service principal's `appRoles` for `00000002-0000-0ff1-ce00-000000000000`; run the cmdlet |
 | U7 | Exchange Online throttling limits for app-only PowerShell and REST | security.md, `ExchangeClient` design | Searched Learn | None; design for unknown limits |
 | U8 | Graph behaviour when adding members to an on-premises-synced security group | Groups UI | Not on the pages read | A dev-tenant test; use `onPremisesSyncEnabled` to show read-only |
-| U9 | The Exchange module on Debian, Alpine or distroless | Dockerfile if a PowerShell worker is chosen | Learn lists Ubuntu LTS only | Owner decision OD-07; test the chosen base |
+| U9 | The Exchange module on Debian, Alpine or distroless | Dockerfile if a PowerShell worker is chosen | Learn lists Ubuntu LTS only | Owner decision OD-07 (decided 2026-10-13 as ODB-01 A: Ubuntu 24.04, ADR-0180); test the chosen base: size, start and memory are unmeasured (U84, OV-D1) |
 | U10 | Uniqueness of `ExternalEmailAddress` is enforced by Exchange | Contacts validation | The `New-MailContact` page is silent | App-side uniqueness check (`Get-MailContact -Filter`) |
-| U11 | Cmdlet and parameters for listing dynamic distribution groups | Distribution-list screen | Only the Admin API endpoint `DynamicDistributionGroupMember` is documented; the cmdlet page was not read | Read the `Get-DynamicDistributionGroup` page when Phase D starts |
+| U11 | Cmdlet and parameters for listing dynamic distribution groups | Distribution-list screen | Only the Admin API endpoint `DynamicDistributionGroupMember` is documented; the cmdlet page was not read | Read the `Get-DynamicDistributionGroup` page when Phase D starts. Phase D step D1 lists dynamic lists through `Get-Recipient -RecipientTypeDetails DynamicDistributionGroup` and does not list their members (FD-05); the value list is U99 |
 | U12 | Output property name `IsDirSynced` on `Get-DistributionGroup` and `Get-MailContact` | Read-only display of synced objects | Only the filterable property is documented | Inspect the output in a dev tenant |
 | U13 | `max_age` is honoured by the Entra v2.0 `/authorize` endpoint | Step-up sign-in | Only the consumer-account reference shows it | Use `prompt=login` plus an application timestamp |
 | U14 | Graph accepts `http://127.0.0.1` in `web.redirectUris` | Wizard redirect URIs | Learn says the portal cannot; the manifest can | A dev-tenant PATCH test; default to `http://localhost` |
@@ -77,7 +77,7 @@ Defaults apply if the owner stays silent; nothing in Phase A is blocked by any o
 | OD-04 | Phase A deviations and additions: import limit 9 MiB (A-36), SVG `<text>` refused (A-38), 403 not 401 for anonymous writes (A-29), the remote guard and the loopback `Host` rule for preview mode (A-30, SA-15), HSTS defaults (A-46), ESLint 10 (SA-02), staging quota and its error code (SA-06), icon priority (SA-11), SVG allowlist and expansion cap (SA-13, SA-19), the wider organisation-name rejection (SA-18) | As written | Phase A gate | owner |
 | OD-05 | Version scheme 0.2.0 for Phase A to 0.5.0 for Phase D, 1.0.0 after acceptance | A-47 | Phase A gate | owner |
 | OD-06 | Graph application permission set: the brief's five or the smaller four | The smaller set | Phase B gate | owner (shown in permissions.md) |
-| OD-07 | Exchange execution path and runtime base: PowerShell worker (documented, Ubuntu-based runtime), Admin API Preview for reads only, or the undocumented `InvokeCommand` route | None can be assumed: ask early | Phase B gate at the latest | owner |
+| OD-07 | Exchange execution path and runtime base: PowerShell worker (documented, Ubuntu-based runtime), Admin API Preview for reads only, or the undocumented `InvokeCommand` route | None can be assumed: ask early | Phase B gate at the latest | closed 2026-10-13 (owner): ODB-01 A, a `pwsh` worker on Ubuntu 24.04, built in Phase D step D1 (ADR-0180, ADR-0181) |
 | OD-08 | Service-principal role, the wizard user's role, the bootstrap fallback when device code is blocked, and the MFA policy | Exchange Administrator now, narrower later; both wizard roles accepted; `BOOTSTRAP_CLIENT_ID` override; `amr` check on | Phase B gate | owner |
 | OD-09 | Add root configuration files (`tsconfig*.json`, `eslint.config.*`, `.nvmrc`, `.npmrc`) and `patches/` to `scripts/version_guard_paths.py` | Proposed in the phase report | Phase A gate | owner |
 | OD-10 | Retention of audit entries (they hold client addresses) | Keep everything until Phase D | Phase D | owner |
@@ -103,7 +103,7 @@ none is lost.
 | BC-07 | One CI job cannot both run for forks and push, sign and attest | Two jobs, `image` and `publish`. recorded |
 | BC-08 | Exchange "REST `InvokeCommand`" is not documented | OD-07. owner |
 | BC-09 | MFA via `amr`/`acr` | `amr` through the optional claim (OD-08). owner |
-| BC-10 | Distroless runtime cannot hold PowerShell | Distroless in Phase A; possible base change recorded in an ADR. owner (OD-07) |
+| BC-10 | Distroless runtime cannot hold PowerShell | Distroless in Phase A; the base change is recorded in ADR-0180 and made in Phase D step D1 (owner, OD-07, ODB-01 A). |
 | BC-11 | Wizard scopes include `Directory.Read.All`; "temporary Global Administrator" | Phase B gate (OD-08). owner |
 | BC-12 | Exchange Administrator against a narrow role group | Phase B gate (OD-08, U5, U6). owner |
 | BC-13 | Users list "licenties" | Only if an app-only source is verified (U17). open |
@@ -781,44 +781,139 @@ For Phase D the owner will be asked for ODB-01 (the Exchange write path), ODB-03
 
 ## Phase D (2026-10-13)
 
-Written spec-first in `specs/004-phase-d/` (spec, research). No Phase D code exists at this point.
+Written spec-first in `specs/004-phase-d/` (spec, research). Consolidated at the end of **step D1** on 2026-10-13
+by task `T-D-191` from the gate notes `specs/004-phase-d/gate-notes/GD1-0.md`, `GD1-web.md`, `GD1-server-a.md` and
+`GD1-server-b.md`. Phase D is delivered in three steps (D1 Exchange layer, distribution lists, contacts and group
+members; D2 CSV export and the audit screen; D3 role administration, certificate rotation, hardening); this section
+holds what is known after D1, and D2 and D3 add to it. Numbering: Phase D continues the U-register at **U75**; U92 to
+U96 came with amendment 1 of the research (T-D-101) and **U97 to U100 were registered by this consolidation** from
+findings in the gate notes. Status words as above. **Nothing in step D1 has run against a real Microsoft 365 tenant**,
+so no U-claim of Phase D is closed; the owner test is [owner-test-phase-d1.md](owner-test-phase-d1.md).
 
-### Unverified Microsoft claims U75 to U91
+### Unverified Microsoft claims U75 to U100
 
-Date of the register: 2026-10-13 (Microsoft Learn only). Source of each: `specs/004-phase-d/research-microsoft-d.md`, summary table. Status words as above.
+Date of the register: 2026-10-13 (Microsoft Learn only). Source of each: `specs/004-phase-d/research-microsoft-d.md`
+(summary tables and amendment 1), `spec.md` section 8.3, and the gate notes. Status words as above; **open** here
+means "built as designed, with a fallback that fails closed, and waiting for the owner test".
 
-| # | Claim | Where used | Tried | Needed to close | Status (2026-10-13) |
+| # | Claim | Where used | Tried | Needed to close | Status (2026-10-13, after D1) |
 |---|---|---|---|---|---|
-| U75 | `Connect-ExchangeOnline -Certificate` with an in-memory X509Certificate2 works on Linux `pwsh` and writes no key to disk | see spec 004 section 8.4 | parameter documented without platform; Linux not stated for it | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U76 | Exchange Recipient Administrator is enough for all Phase D cmdlets | see spec 004 section 8.4 | role listed as supported; per-cmdlet not read | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U77 | `Exchange.ManageAsAppV2` exists and what it does | see spec 004 section 8.4 | not on Learn; only `Exchange.ManageAsApp` | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U78 | An app-only principal not in `ManagedBy` needs `-BypassSecurityGroupManagerCheck`, satisfied by its Entra role | see spec 004 section 8.4 | rule stated for user accounts only | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U79 | Default `-ResultSize` and paging of the cmdlets | see spec 004 section 8.4 | pages show "None"; 1,000 only for the Admin API | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U80 | How to detect on-premises-synced groups and contacts, and that contacts reject cloud writes the same way | see spec 004 section 8.4 | only a group troubleshooting page | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U81 | Numeric throttling limits for EXO PowerShell app-only | see spec 004 section 8.4 | none given | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U82 | Delay between a write and a correct read-back | see spec 004 section 8.4 | none given for EXO cmdlets | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U83 | First module version with REST for all cmdlets | see spec 004 section 8.4 | "since 2023", no version | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U84 | Image size, `pwsh` and connect start time, memory of a warm session | see spec 004 section 8.4 | none given | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U85 | Lifetime and renewal of an app-only session in a long-lived `pwsh` | see spec 004 section 8.4 | none given | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U86 | `iss` of the proof JWT: app id or object id | see spec 004 section 8.4 | the two pages read differ | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U87 | One-year cap on certificate validity and the maximum number of `keyCredentials` | see spec 004 section 8.4 | not stated; only the optional policy (180 days recommended) | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U88 | Propagation time of a newly added certificate | see spec 004 section 8.4 | none given | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U89 | Service-principal cmdlet runs are in the Exchange admin audit log, and how they are identified | see spec 004 section 8.4 | page speaks of administrators and users | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U90 | Each Phase D write cmdlet is in the logged set | see spec 004 section 8.4 | "some are not logged", no list | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
-| U91 | The current Laposta CSV import format (columns, separator, encoding) | FR-D-402 | not read | owner reads Laposta's import help; OV-D6 | open |
+| U75 | `Connect-ExchangeOnline -Certificate` with an in-memory X509Certificate2 works on Linux `pwsh` and writes no key to disk | FR-D-103, `EXCHANGE_KEY_HANDOVER`, worker `connect` | Learn (parameter documented without platform). The real worker script ran on a real PowerShell 7 in the in-memory and the tmpfs paths, **without a tenant**: `Connect-ExchangeOnline` itself was never called | OV-D1 steps 4 to 8, 10 | open. Built: `memory` default, `tmpfs` fallback with a negative control (file mode 0600, removed, tmpfs check). The certificate format is decided as PEM (FD-01, in progress); on Linux the key may have to be exportable if the module re-reads it (OV-D1) |
+| U76 | Exchange Recipient Administrator is enough for all Phase D cmdlets | ODB-03, the ten cmdlets of the allow-list | role listed as supported; per-cmdlet not read | OV-D1 steps 5, 6 (and a later narrowing trial) | open. Default stays Exchange Administrator; narrowing only after OV-D1 (ODB-03) |
+| U77 | `Exchange.ManageAsAppV2` exists and what it does | wizard (grants it where exposed), Admin API probe | not on Learn; only `Exchange.ManageAsApp` | OV-D1 step 7 | open. The worker does not depend on it |
+| U78 | An app-only principal not in `ManagedBy` needs `-BypassSecurityGroupManagerCheck`, satisfied by its Entra role | member writes of lists (P43, P44) | rule stated for user accounts only | OV-D2 steps 14 and 18 | open. Built: the bypass is **always** sent; OV-D2 step 18 runs it without, directly at the worker |
+| U79 | Default `-ResultSize` and paging of the cmdlets | every list read | Learn: `Get-MailContact` says "default value is 1000" in the description and "None" in the table; other pages "None" | OV-D5 step 30 | open, low impact: the client always passes `ResultSize` explicitly (a number or `Unlimited`). Partly answered for `Get-MailContact` (GD1-0) |
+| U80 | How to detect on-premises-synced groups and contacts, and that contacts reject cloud writes the same way | `synced` and `kind: synced`, read-only states | only a group troubleshooting page | OV-D5 step 33 | open. Built: `IsDirSynced` null-safe (U12); a synchronised object is read-only |
+| U81 | Numeric throttling limits for EXO PowerShell app-only | retry budget | none given | OV-D8 (any step) | open. The retry numbers are ours (3 retries, 1 s to 15 s) |
+| U82 | Delay between a write and a correct read-back | `readBackPending` | none given for EXO cmdlets | OV-D2 step 15 | open. Built: the list is read once after the write; `readBackPending` and a refresh button |
+| U83 | First module version with REST for all cmdlets | the pinned module 3.10.1 | "since 2023", no version | OV-D1 steps 1, 9 | open. Pinned to 3.10.1; closes if every cmdlet of the allow-list answers |
+| U84 | Image size, `pwsh` and connect start time, memory of a warm session | ADR-0180, the size ceiling | none given. The Dockerfile has **not** been built (no Docker daemon); estimate 500 to 550 MB | OV-D1 steps 2, 3, 11; the owner decision FD-02 | open and **owner**: unmeasured; the `Image size budget` CI step fails until the owner sets a ceiling |
+| U85 | Lifetime and renewal of an app-only session in a long-lived `pwsh` | recycling, restart after a failed call | none given | OV-D1 step 12 | open. Built: the worker is replaced after 500 calls or 3,600 s and restarted once per failed call |
+| U86 | `iss` of the proof JWT: app id or object id | certificate rotation, step D3 | the two pages read differ | OV-D3 (step D3) | open, not touched in D1 |
+| U87 | One-year cap on certificate validity and the maximum number of `keyCredentials` | rotation, step D3 | not stated | OV-D3 | open, not touched in D1 |
+| U88 | Propagation time of a newly added certificate | rotation, step D3 | none given | OV-D3 | open, not touched in D1 |
+| U89 | Service-principal cmdlet runs are in the Exchange admin audit log, and how they are identified | the Exchange audit as a second source | page speaks of administrators and users | OV-D4 steps 36, 37 | open. The panel's own audit does not depend on it |
+| U90 | Each Phase D write cmdlet is in the logged set | the same | "some are not logged", no list | OV-D4 step 36 | open |
+| U91 | The current Laposta CSV import format (columns, separator, encoding) | FR-D-402, step D2 | not read | owner reads Laposta's import help; OV-D6 | open, step D2 |
+| U92 | Graph answers `400` for an add of an existing member, an unsupported member type and a not yet replicated group alike | `groups.members.add` (P53) | `group-post-members` lists the three under one status | OV-D2 step 13 (only partly reachable) | open. Built: membership is read first, "already" is decided from the read, a bare `400` after a failed pre-check is `rejected`. The screens pre-check, so the real answer is seen only if a plain add shows "Microsoft refused the change" |
+| U93 | Graph's answer for removing an object that is not a member | `groups.members.remove` (P54) | `group-delete-members` is silent | OV-D2 step 13 (only partly reachable) | open. Built: pre-check, and a `404` is "already" |
+| U94 | Exchange add of an existing member and remove of a non-member: error or silent success, and the error text | P43, P44 | the cmdlet pages are silent | OV-D2 step 18, directly at the worker | open. Built: membership read first; the answer codes `already_member` and `not_a_member` exist and are handled |
+| U95 | Scope of the uniqueness of a mail contact's `-Name` | P49 | "unique name" only | OV-D5 step 27 | open. Built: `-Name` is derived (alias cut to 57 characters, a hyphen, 6 hexadecimal characters) and the alias and the address are checked for duplicates by the panel |
+| U96 | Detecting role-assignable groups before a Graph member write | P53, P54 | property not in the Phase C `$select`; not read | OV-D2 step 22 | open. Built: the 403 is mapped after the call to the reason `permission_missing` |
+| U97 | The OPATH filter the panel sends: `-like 'prefix*'` on `Name`, `DisplayName`, `Alias`, `PrimarySmtpAddress` for `Get-DistributionGroup` and `Get-Recipient`, `Members -eq '<distinguished name>'` for the lists of a contact, and `-ANR` of `Get-MailContact` matching the **external address** (used for the prefix search and for the duplicate check of a new address or alias) | P40, P41, P47, P49, P50, P51, P52 | cmdlet pages; filterable properties read in part (GD1-server-a finding 8) | OV-D5 steps 26, 29, 30 | open, **registered by this consolidation**. If `-ANR` does not match the external address, a duplicate address is not caught (OV-D5 step 26 shows it). The contact's lists (P52) depend on the `Members` filter |
+| U98 | `Get-DistributionGroupMember` rows carry `ExternalDirectoryObjectId` (the Entra id of a user member), so a member is shown with the id Graph and the picker use; and `ManagedBy` is returned as names, not as addresses | P42, P45 (`alreadyMember`), the Managers column | not read (GD1-server-b, last paragraph) | OV-D2 step 16, OV-D5 steps 29, 31 | open, **registered by this consolidation**. Fallback: a member without the id shows its Exchange GUID; managers `null` unless the caller sees every user |
+| U99 | The value lists of `SortBy` (`Get-DistributionGroup`) and `RecipientTypeDetails` (`Get-DistributionGroup`, `Get-Recipient`, including `DynamicDistributionGroup`) | P40, P41 (dynamic lists) | not read (GD1-0: identifier patterns instead of enumerations) | OV-D1 step 9, OV-D5 step 30 | open, **registered by this consolidation** |
+| U100 | The exception error ids and texts that the worker script maps to the closed error codes (`not_found`, `already_member`, `not_a_member`, `manager_check`, `permission_denied`, `role_pending`, `throttled`, ...) | the worker script, the client | not run against Exchange. Mapping is by fully qualified error id first, text second (GD1-server-a finding 8) | OV-D2 steps 14, 17, 18, 22 (the failures the owner provokes) | open, **registered by this consolidation**. Anything not placed is `internal`, never a guess at success |
+
+Answered by Learn during step D1 (no owner test needed for these halves): U15 for `Set-MailContact` (it has no first
+or last name, so names are set on creation only; `Set-Contact` was not read and is not used) and the `Get-MailContact`
+default of U79 (see its row). The Phase B rows **U5, U6, U9, U11, U12** stay open and are touched by step D1: U5 and
+U6 by U76 and U77, U9 is decided (Ubuntu, ADR-0180) but unmeasured (U84), U11 is answered in design (dynamic lists
+come through `Get-Recipient`, listed read-only, members not listed, FD-05) but the value list is U99, and U12
+(`IsDirSynced`) is used null-safe.
+
+### Owner-verified ledger OV-D1 to OV-D9
+
+| ID | What | Closes | Step | Status |
+|---|---|---|---|---|
+| OV-D1 | Connect and the key on disk | U75, U76, U77, U83, U84, U85, U99 | D1 | open: procedure in [owner-test-phase-d1.md](owner-test-phase-d1.md) sections A to F; needs only the image, not the panel's credential source |
+| OV-D2 | Member write without manager rights, with and without the bypass | U78, U82, U92, U93, U94, U96, U98, U100 | D1 | open: section G; the Exchange half needs the credential source (FD-01) |
+| OV-D3 | Certificate rotation | U86, U87, U88 | D3 | open, not in D1 |
+| OV-D4 | Exchange audit of the panel's changes | U89, U90 | D1 | open: section I, after OV-D2 and OV-D5, 30 minutes later |
+| OV-D5 | Contacts, searches and synced objects | U15 (answered), U79, U80, U95, U97, U98, U99 | D1 | open: section H; needs the credential source |
+| OV-D6 | Export import | U91 | D2 | open, not in D1 |
+| OV-D7 | Retention and the audit screen | FR-D-453 | D2 | open, not in D1 |
+| OV-D8 | Throttling | U81 | any | open: note it if a 429 occurs during OV-D1 to OV-D5 |
+| OV-D9 | Break-glass hardening | FR-D-801 | D3 | open, not in D1 |
 
 ### Phase D owner decisions
 
 | ID | Decision | Status |
 |---|---|---|
-| ODB-01 | A: a `pwsh` worker in the one container on an Ubuntu LTS base | closed 2026-10-13 (owner) |
-| ODB-03 | Exchange Administrator plus both app roles; narrowing only after OV-13 and OV-D1 | closed 2026-10-13 (owner) |
-| ODB-08 | Repair flow in B plus `addKey` self-rotation in D | closed 2026-10-13 (owner) |
-| ODD-01 | Group member writes (Graph) are in Phase D | closed 2026-10-13 (owner) |
+| ODB-01 | A: a `pwsh` worker in the one container on an Ubuntu LTS base | closed 2026-10-13 (owner); built in D1 (ADR-0180, ADR-0181) |
+| ODB-03 | Exchange Administrator plus both app roles; narrowing only after OV-13 and OV-D1 | closed 2026-10-13 (owner); the wizard grants both (pinned by `setup/exchange-roles-phase-d.test.ts`) |
+| ODB-08 | Repair flow in B plus `addKey` self-rotation in D | closed 2026-10-13 (owner); the rotation is step D3 |
+| ODD-01 | Group member writes (Graph) are in Phase D | closed 2026-10-13 (owner); built in D1 (P53, P54) |
 | ODD-02 | Delivery in three steps D1, D2, D3 with an owner test after each | closed 2026-10-13 (owner) |
-| ODD-03 | RBAC administration in full as the brief describes | closed 2026-10-13 (owner) |
+| ODD-03 | RBAC administration in full as the brief describes | closed 2026-10-13 (owner); step D3 |
 | OV-C2 | The owner has no users with a manager in the test tenant, so OV-C2 (U66, the manager call) cannot be tested now; U66 stays open and the designed "not available" degradation stays the behaviour (ODC-05) | recorded 2026-10-13 |
-| ODD-04 to ODD-08 | Audit retention, denial cap, break-glass hardening, export rate, Ubuntu runtime: defaults in `specs/004-phase-d/spec.md` section 10 | defaults; owner agrees at GD0 |
+| ODD-04 to ODD-07 | Audit retention, denial cap, break-glass hardening, export rate and step-up: defaults in `specs/004-phase-d/spec.md` section 10 | defaults; owner agrees at GD0; steps D2 and D3 (the `rateLimit.export` class exists since D1) |
+| ODD-08 | Distroless is dropped for an Ubuntu LTS runtime | implemented in D1 (follows ODB-01 A); the **size ceiling** that follows from it is ODD-10 |
+| ODD-09 | The format of the certificate the server hands to the worker (new at D1, GD1-server-b): A a PKCS#12 written with a declared direct dependency on `@peculiar/asn1-pfx`; B a hand-written PKCS#12 writer; C **PEM** (`certificate` and a PKCS#8 `privateKey`, built with `X509Certificate2.CreateFromPem`, no password, no PKCS#12) | **decided C by the owner, 2026-10-13; the amendment (protocol, hand-over, script, the narrow key accessor in the secrets module) is in progress, not done** (FD-01) |
+| ODD-10 | The image size ceiling for the Ubuntu runtime (new at D1): measure the first build and set a ceiling with a margin, or ask for a smaller image | **owner, open**: unmeasured, estimate 500 to 550 MB against 400 MB; the CI step fails until it is set (FD-02) |
+| ODD-11 | The bundle budget for the three steps of Phase D (new at D1) | recorded 2026-10-13: owner approved +2,048 B gzip initial JS and (second approval, after the D1 pages measured 272 B over) +3,072 B Brotli first load for D1 to D3 in `approvedGrowth`; budget 247,740 B and 280,572 B; the D1 pages measure 278,796 B first load, so about 1.8 KB is left for D2 and D3 (FD-15) |
+
+### Phase D assumptions and risks (status after step D1)
+
+| ID | Statement | Status |
+|---|---|---|
+| AD-01 | The tenant uses Exchange Online with cloud-managed distribution groups; synced objects are rare | recorded; synced objects are read-only (EC-D5), OV-D5 step 33 if the tenant has any |
+| AD-02 | A list has at most a few thousand members | **partly wrong by design**: the worker line is 1 MiB, so a member read fails as `too_many_rows` at about 2,500 members (FD-07) |
+| AD-03 | One `pwsh` worker serving calls serially is fast enough | recorded; unmeasured (U84) |
+| AD-04 | The container may run on an Ubuntu LTS base | recorded (ODB-01 A) |
+| AD-05 | The panel's own application may roll its own keys without a new permission | recorded; step D3 (OV-D3) |
+| RD-01 | The in-memory certificate path fails on Linux (U75) | open: the tmpfs fallback and its negative control are built; OV-D1 decides. A second risk since the format change: the key must be exportable if the module re-reads it |
+| RD-02 | The Ubuntu image is much larger or slower to start (U84) | open, **materialised as an estimate**: 500 to 550 MB against 400 MB; owner decision ODD-10 |
+| RD-03 | The service principal cannot add members without manager rights (U78) | open: bypass always sent; OV-D2 |
+| RD-04 | Exchange write is eventually consistent (U82) | open: `readBackPending`, UI note |
+| RD-05 | A leak of member lists through logs or the worker | mitigated: `no-pii-in-logs`, canary tests, stderr discarded, audit with ids and field names only; the worker shares the user and file system of the panel (accepted, docs/security.md) |
+| RD-06 | Rotation leaves the panel without a usable key | step D3 |
+| RD-07 | The entry bundle budget is exceeded by D3 shared code | open: about 1.8 KB first load left; any more needs a new approval (FD-15) |
+| RD-08 | The scope of D is too big for the review | recorded: three steps, each with its own gate, pull request and owner test |
+| RD-09 | CSV safety differs between Excel, LibreOffice and importers | step D2 |
+
+### Findings at the closing of step D1 (2026-10-13)
+
+Gaps, deviations and decisions found while consolidating the four gate notes and the code. Ids `FD-nn` are new. "Amended"
+means the spec or task text was changed to follow the code, which is right; each place says so.
+
+| ID | Finding | Status |
+|---|---|---|
+| FD-01 | **No credential source for the worker.** The frozen `connect` line wanted a PKCS#12; Phase B stores a sealed PKCS#8 key and the public certificate, Node cannot write PKCS#12, `@peculiar/asn1-pfx` is only transitive, and no method returns the key (by design, FR-B-107). Server part B stopped on purpose. **Decided by the owner on 2026-10-13: option C, PEM.** The amendment of `packages/shared/src/exchange/protocol.ts`, `key-handover.ts` and `worker-script.ps1` and the new narrow, audited accessor in the secrets module (with `secrets/no-plaintext.test.ts`) are **in progress in a separate change; this document does not claim them done.** Until a source exists every Exchange feature answers 503 `exchange_unavailable`; the process starts and every Graph feature (users, groups, group members) works; the e2e topology cannot exercise lists or contacts (it also needs a `pwsh` shim on the PATH) | decided, in progress (ODD-09) |
+| FD-02 | **Image size is unmeasured.** No Docker daemon in the build environment. Estimate 500 to 550 MB against the ceiling of 400 MB (Phase A measured 193.5 MB). The `Image size budget` step of the `image` job fails until the owner sets a ceiling; `LIMITS.imageSizeCeilingMegabytes` and `check_image_size.py` were not changed. Start time and memory are unmeasured too (`workerPingMs` is recorded by the smoke test when it runs) | owner (ODD-10), open |
+| FD-03 | **The Dockerfile was not built.** The fetch logic (URLs, checksums, unpacking, the `netFramework` removal) ran locally with the real downloads and the checksums matched; the `FROM` digests were resolved over the network. The apt packages of the runtime stage are not pinned by version (a snapshot mirror is the fix, not done). Not run: `docker build`, `pnpm image:smoke`, `check_image_size.py` against an image, the arm64 ping (`continue-on-error`) | open, CI and the owner |
+| FD-04 | **Route ids of the Exchange routes are lower case** (`distributionlists.list`): the id is the `action` of denial entries and the audit action grammar has no capital letter (a denial on `distributionLists.list` ended in a 500). Spec 6.11.1 amended, including P46 and P55; the OpenAPI tag stays `distributionLists`; a check compares the spec table with the routes | amended, closed |
+| FD-05 | **Dynamic lists show no members.** `Get-DynamicDistributionGroupMember` is not on the frozen allow-list: P42 answers `{ "items": [] }`, the detail has `memberCount: null`, writes and candidates answer 409. The frozen schema has no `state` field (unlike `MembersResponse` of groups), so nothing tells the UI the list is empty because it cannot be read. Fix: a `membersState` field or the cmdlet on the allow-list, both a change to `packages/shared` | open (reported, not done) |
+| FD-06 | **`narrow_search` has no catalogue message at the gate.** The 422 for a result larger than `exchange.listBufferMax` (pointer `/q`) is a detail code that the frozen catalogue did not know (`exchange_role_pending` and `exchange_timeout` only), so the UI fell back to the generic validation text. A message key in `distributionLists` is the web/shared fix; a separate change is adding it | open, in progress elsewhere |
+| FD-07 | **A very large list cannot be read.** The worker answer is cut at 1 MiB of JSON; the client turns a cut list into `too_many_rows` (503) instead of a silent short list, which is about 2,500 members. AD-02 assumed a few thousand. A larger line or a smaller projection is a decision for the owner | owner, open |
+| FD-08 | Group writes: a group with hidden membership answers 409 `read_only_object` (the membership cannot be read, so "already" cannot be decided, FR-C-108); the web shows no editor for it | recorded |
+| FD-09 | P45 issues no cursor (a cursor in the request is 400 `cursor_invalid`); `alreadyMember` is `null` when the member read failed; users without a mailbox address are not offered (EC-D3) | recorded |
+| FD-10 | `validation_failed` carries the code of a custom message (`http/problem.ts`, `faultCode`): before, every `custom` issue became the code `custom`, so the contact validation codes never reached the browser. Phase B and C tests are green | recorded |
+| FD-11 | Step-up above a threshold is decided in the handler (`PolicyDenied` has the reason `step_up_required`, audited as a denial like the declared step-up); `directory/step-up.ts` is the one function both write families call | recorded |
+| FD-12 | The audit vocabulary of D1 is kept apart from Phase B (`audit/actions-d.ts`: seven actions; `AUDIT_DETAIL_KEYS_D`: nine keys) because the Phase B tests pin 19 actions and 64 keys; no key can hold a name or an address | recorded |
+| FD-13 | A module `groups` beside `directory` carries P53 and P54, so the Phase C guard "the directory folder has no way to write" keeps its meaning; `appModules` has 10 entries | recorded |
+| FD-14 | P46 (export preview) is a `POST` rated `read` in the spec; the route table allows only `write`, `upload`, `auth`, `setup` for a write method. Decided when the route is built in step D2 (class `write`, or a `GET` with the options in the query) | open, step D2 |
+| FD-15 | **Bundle budget.** The D1 contract grew the entry by 941 B gzip JS and 808 B Brotli; the D1 pages then measured 272 B over the first Brotli allowance, because the opening block of `index.html` lists the lazy files of each route. The owner approved the growth twice (ODD-11); `bundle-budget.json` was edited only by recording those approvals. First load measured 278,796 B against 280,572 B | recorded; risk RD-07 |
+| FD-16 | `EXCHANGE_KEY_HANDOVER` is the one new variable (`ENV_VARIABLES` has 25 entries). It was not in the first spec table; spec 6.1 now lists it (amendment 2). It is in `.env.example`, `docker-compose.yml`, README and `docs/operations.md` | amended, closed |
+| FD-17 | Test-first deviations, named in the gate notes: server part B wrote the services and routes first and the tests directly after, per route group (the red state was shown afterwards by running the tests against a tree without `apps/server/src`: 16 files failed, 53 tests failed); `build.mjs` already copied the worker script when its test was written; the self-tests are separate files; the Python checks live in `scripts/`, not `py/` | recorded |
+| FD-18 | Console noise on stdout (found by the real-PowerShell run): the module prints names to the console; the script now redirects it and writes protocol lines through its own writer; the Node side ignores non-JSON lines, never logs them, and discards stderr. `real-pwsh.test.ts` runs only where `pwsh` exists (GitHub runners and the image have it); it never talks to a tenant | recorded |
+| FD-19 | Lists: `memberCount` is `null` on rows and counted on the detail; `managers` is `null` unless the caller sees every user (`ManagedBy` can name people the caller may not see) | recorded |
+| FD-20 | End-to-end and visual: `e2e/tests/pages.spec.ts` and `nav-gating.spec.ts` still describe the two pages as placeholders and need updating; visual baselines are never made in the sandbox; the e2e topology needs the credential source and a `pwsh` shim to exercise lists and contacts | open, e2e stream and CI |
+| FD-21 | The gate note `GD1.md` (T-D-198) and CI for D1 (quality, e2e, image, CodeQL, Trivy) are not done; this step's phase report says "CI results pending" | open |
+| FD-22 | Pre-existing: FC-10 (a `basic` actor's loader asks for memberships first) and FC-05 (no way to assign a `basic` role before the role editor of step D3) stay as in Phase C | open, step D3 |
+
+For step D1 the owner is asked for: the **image size ceiling** (ODD-10), a view on **large lists** (FD-07), the bundle budget
+of D2 and D3 if it is not enough (FD-15), and whether to continue to step D2. The certificate format (ODD-09) is decided.
 
 ## Nederlands
 
@@ -851,3 +946,4 @@ zoals `s1c-9`), plus de bekende beperkingen van de repository-bewakers (GR-1 tot
   PBR-14. Belangrijkste beslissingen voor de eigenaar: ODB-01 (het Exchange-schrijfpad, vastgelegd in ADR-0102),
   ODB-02 (de vier Graph-rechten) en ODB-17 (break-glass zonder tweede factor). Het ontbrekende auditscherm is Fase D.
 - **Fase C (2026-10-12):** de onverifieerde claims U66 tot en met U74 (de rij U51 tot en met U65 stond er al; er is niets hernummerd), de eigenaarsbeslissingen D-C1 tot en met D-C3 (2026-10-13: alleen lezen, 403 voor losse objecten buiten het zicht, geen licentiekolom) en ODC-01 tot en met ODC-05, de aannames AC-01 tot en met AC-05, de plan-beslissingen PC-01 tot en met PC-06 en de risico's RC-01 tot en met RC-06. `GroupMember.ReadWrite.All` is verleend maar ongebruikt in fase C. **Afsluiting fase C (2026-10-13):** U66 tot en met U74 zijn nog open (alleen een echte tenant sluit ze, test OV-C1 tot en met OV-C5); U17 en U48 zijn uitgesteld (licenties niet gebouwd); ODC-01 tot en met ODC-05 zijn standaard ingevoerd en op 2026-10-13 door de eigenaar akkoord bevonden; ODB-11 is gesloten (403). Nieuw: bevindingen FC-01 tot en met FC-17, onder andere dat een `basic`-gebruiker voor fase D niet via de RBAC-API kan worden aangemaakt (daarom kan de eigenaar dat deel van OV-C6 niet doen) en dat de bundel nog maar 52 B (JavaScript) en 18 B (CSS) ruimte heeft.
+- **Fase D stap D1 (2026-10-13):** de onverifieerde claims U75 tot en met U96 en, bij het afsluiten van stap D1 erbij gezet, U97 tot en met U100 (allemaal nog open: niets is tegen een echte tenant gedraaid), het door de eigenaar te verifiëren overzicht OV-D1 tot en met OV-D9 (voor D1: OV-D1, OV-D2, OV-D4 en OV-D5), de besluiten ODD-01 tot en met ODD-11, de aannames AD-01 tot en met AD-05, de risico's RD-01 tot en met RD-09 en de bevindingen FD-01 tot en met FD-22. Belangrijkste punten voor de eigenaar: **ODD-10, het plafond voor de grootte van de nieuwe Ubuntu-image** (ongemeten, geschat op 500 tot 550 MB tegen 400 MB; de CI-stap faalt tot dat getal is gezet), **FD-01, de bron van de inloggegevens van de Exchange-worker** (besloten: PEM; in uitvoering; zolang die er niet is antwoordt elke Exchange-route 503) en FD-07 (een lijst met meer dan ongeveer 2.500 leden is niet te lezen). Dynamische lijsten tonen geen leden (FD-05).

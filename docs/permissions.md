@@ -1,9 +1,11 @@
 # Permissions
 
-> **Status:** Phase C. Part 1 is the panel's own catalogue and exists in code. Part 2 lists what the
+> **Status:** Phase D step D1. Part 1 is the panel's own catalogue and exists in code. Part 2 lists what the
 > panel asks of Microsoft in Phases B to D (written in Phase A); Part 3 is the Phase B role matrix and the
 > permissions the running panel holds, and wins where the two differ; Part 4 is what Phase C (users and
-> groups, read only) reads, route by route, and what it deliberately leaves out. Part 2 is seeded only
+> groups, read only) reads, route by route, and what it deliberately leaves out; Part 5 is what Phase D step
+> D1 (distribution lists, contacts, group members: the first writes) needs, route by route, and wins over
+> Parts 2 to 4 on step D1. Part 2 is seeded only
 > from [`research-microsoft.md`](../specs/001-m365portal/research-microsoft.md) (Microsoft Learn,
 > 2026-10-10); a fact that file does not contain is marked UNVERIFIED and has a register row in
 > [open-points.md](open-points.md). Nederlandse versie: zie [Nederlands](#nederlands).
@@ -104,7 +106,8 @@ principal and the grants. The scopes need admin consent.
 
 The panel manages distribution lists and mail contacts through Exchange, because Graph cannot. The
 brief's "REST `InvokeCommand` endpoint" is **not documented** on Learn (corrected); the execution path
-and the runtime base image are owner decision OD-07.
+and the runtime base image were owner decision OD-07, decided on 2026-10-13 as ODB-01 A: a `pwsh` worker in the
+same container on an Ubuntu 24.04 base, built in Phase D step D1 (Part 5, ADR-0180, ADR-0181).
 
 | Permission or operation | Reason | Phase | Status | Learn source and note |
 |---|---|---|---|---|
@@ -126,7 +129,7 @@ and the runtime base image are owner decision OD-07.
 | `Get-OrganizationConfig` | Verification call of the wizard; takes no `-Identity`. The brief's `Get-DistributionGroup -ResultSize 1` cannot use the Preview API. | B | verified | cmdlet page |
 | Listing dynamic distribution groups | The cmdlet and parameters were not read; only the Admin API endpoint is documented (U11). Members cannot be removed with `Remove-DistributionGroupMember`. | D | UNVERIFIED | Register U11 |
 | `IsDirSynced` in the output of `Get-DistributionGroup` and `Get-MailContact` | Only the filterable property is documented; the output name is assumed (U12). Used to show synced objects read-only. | D | UNVERIFIED | Register U12 |
-| Exchange Online module on Debian, Alpine or distroless | Learn lists Ubuntu LTS only, and PowerShell 7.4 or 7.6 and newer. Decides the runtime base if a PowerShell worker is chosen (U9). | D | UNVERIFIED | Register U9 |
+| Exchange Online module on Debian, Alpine or distroless | Learn lists Ubuntu LTS only, and PowerShell 7.4 or 7.6 and newer. Decides the runtime base if a PowerShell worker is chosen (U9); decided: Ubuntu 24.04 (ADR-0180), whose build and start are still unmeasured. | D | UNVERIFIED | Register U9 |
 | Exchange and Graph throttling limits | Graph: 429 with `Retry-After`. No page publishes Exchange Online limits for app-only use (U7), and whether the identity and access write quota covers users and group memberships was not read (U16). | B | UNVERIFIED | Registers U7, U16 |
 
 ## Part 3: Phase B, the role matrix and the runtime application
@@ -213,7 +216,8 @@ Wizard step 4 reads what the service principal holds and fails when a forbidden 
 
 No other template id is accepted: `EXCHANGE_ROLES` is the whole list, so a privileged role such as Global
 Administrator can never be assigned through the setting. The Exchange write path (distribution list
-members, mail contacts) is not built in Phase B; ADR-0102 records the decision (ODB-01).
+members, mail contacts) was not built in Phase B (ADR-0102 records the decision, ODB-01); it is built in Phase D
+step D1 (Part 5, ADR-0180, ADR-0181).
 
 ### What the wizard asks the administrator for (delegated, bootstrap token only)
 
@@ -324,6 +328,129 @@ Notes on the table.
 What the owner closes against a real tenant: U66 to U74 (the Phase C rows of [open-points.md](open-points.md))
 with the checks OV-C1 to OV-C6, step by step in [owner-test-phase-c.md](owner-test-phase-c.md).
 
+## Part 5: Phase D step D1, distribution lists, contacts and group members
+
+> **Status:** Phase D step D1 (2026-10-13), the first step that **writes**. Normative for what the
+> distribution list, contact and group-member routes (P40 to P45, P47 to P54) need at Microsoft. Where it
+> differs from Parts 2 to 4 on step D1, Part 5 wins. Sources: [`research-microsoft-d.md`](../specs/004-phase-d/research-microsoft-d.md)
+> (Microsoft Learn, read 2026-10-13, R-D-01 to R-D-09), the gate notes `specs/004-phase-d/gate-notes/GD1-*.md`
+> and the allow-list `packages/shared/src/exchange/allow-list.ts`. **Nothing in this part has been run
+> against a real tenant.** Every claim that rests on Learn alone is marked; the open ones have a row in
+> [open-points.md](open-points.md) and a check in [owner-test-phase-d1.md](owner-test-phase-d1.md).
+
+### What changed at Microsoft, and what did not
+
+Step D1 asks Microsoft for **no new permission**: no new Graph application role (the runtime application
+still holds the four of set version 1), no new Exchange role, no new delegated scope for the wizard. What
+changes is that two things granted earlier are now **used**:
+
+| Item | Before | From step D1 |
+|---|---|---|
+| `GroupMember.ReadWrite.All` (`dbaae8cf-10b5-4b86-a4a1-f871c94c6695`) | Granted in Phase B (ODB-02, one consent); **granted, unused in Phase C** (Part 4) | **Used** by `groups.members.add` and `groups.members.remove` (FR-D-352). It is the least privileged application permission for adding a user to a group (R-D-08, verified) |
+| `Exchange.ManageAsApp` and the Entra role Exchange Administrator of the service principal (ODB-03) | Granted by the wizard; used by the verification probe only | **Used** by every call of the Exchange worker: the reads of lists, members and contacts and all writes |
+| `Exchange.ManageAsAppV2` | Granted where the tenant exposes it (the wizard skips it silently if not) | Not needed by the worker (it connects with the module and `Exchange.ManageAsApp`); only the Admin API probe uses it. Its existence is still UNVERIFIED (U77) |
+
+Never granted, by any code path or setting, and the reason step D1 works around it (`FORBIDDEN_APP_ROLES`):
+`RoleManagement.ReadWrite.Directory`, `AppRoleAssignment.ReadWrite.All`, `Application.ReadWrite.All`. A
+role-assignable group needs `RoleManagement.ReadWrite.Directory` for a member write (Learn); the panel does not
+hold it, so Graph answers 403 and the panel shows "no permission for this change" for that member (U96).
+`User.ReadWrite.All` and `Directory.ReadWrite.All` are not held, which is why the delete path of a member
+must always end in `/$ref`: without it, Learn warns, Graph would delete the member object itself where the
+application may manage it.
+
+### Group members through Graph (P53, P54)
+
+| Route (id) | Panel permission | Graph call | Application role | Open claims |
+|---|---|---|---|---|
+| P53 `groups.members.add` | `groups:members:write` on that group (scoped `group`), step-up above 20 members | First `GET /groups/{id}/members` (direct, `$select`, 999 per page, at most 50 pages) to decide "already"; then one `POST /groups/{id}/members/$ref` with `{ "@odata.id": ".../directoryObjects/{id}" }` per member, `204` | `GroupMember.Read.All` (read), `GroupMember.ReadWrite.All` (write) | U92, U96 |
+| P54 `groups.members.remove` | the same | The same read, then one `DELETE /groups/{id}/members/{id}/$ref` per member, `204` | the same | U93, U96 |
+
+- Users only. A group, device, service principal or organizational contact as a member needs further
+  permissions (`Device.ReadWrite.All`, `Application.ReadWrite.All`, `OrgContact.Read.All`) that the panel
+  does not hold and does not request.
+- Supported only for security and Microsoft 365 groups with assigned membership. A dynamic group, a group
+  synchronised from on-premises, a distribution or mail-enabled security group (their members are managed in
+  Exchange), a group of unknown kind and a group with hidden membership answer 409 `read_only_object` before
+  any call.
+- The bulk form (`PATCH` with `members@odata.bind`, 20 at most) is all-or-nothing and gives no result per
+  member, so it is not used (R-D-08, verified).
+- Graph answers `400` alike for a member that is already there, an unsupported member type and a group that
+  has not replicated yet (U92). The panel therefore reads the membership first and decides "already" itself;
+  a bare `400` after a failed pre-check is `rejected`, never `already`. What Graph answers for removing a
+  non-member is not stated (U93): the panel treats a `404` as "already".
+
+### Distribution lists and contacts through the Exchange worker (P40 to P45, P47 to P52)
+
+All Exchange calls run in the `pwsh` worker, which connects with the application id, the tenant's
+`.onmicrosoft.com` domain and the certificate (app-only). The certificate reaches the worker in memory
+(`EXCHANGE_KEY_HANDOVER=memory`), or through a short-lived file on a tmpfs (`tmpfs`, the fallback); whether the
+in-memory path works on Linux is U75, and the format of the hand-over is decided but still being built (PEM, see
+[open-points.md](open-points.md), finding FD-01). The worker may call **ten cmdlets and nothing else**, each
+with a closed set of parameters (ADR-0181):
+
+| Cmdlet | Used by | Parameters the panel passes | Learn |
+|---|---|---|---|
+| `Get-DistributionGroup` | P40, P41, P51, P52 | `Identity`, `Filter` (`Name`, `DisplayName`, `Alias` and `PrimarySmtpAddress` with `-like 'prefix*'`; `Members -eq '<DN>'` for the lists of a contact), `ResultSize`; the allow-list also permits `SortBy`, `RecipientTypeDetails` and `IncludeManagedByWithDisplayNames` | verified (cmdlet page). The filter properties and the `Members` filter: UNVERIFIED (U97). `SortBy` and `RecipientTypeDetails` values: UNVERIFIED (U99) |
+| `Get-Recipient` | P40, P41 (dynamic lists) | `RecipientTypeDetails` (`DynamicDistributionGroup`), `Filter`, `Identity`, `ResultSize` | verified as a cmdlet; the value list: UNVERIFIED (U99). `Get-DistributionGroup` does not return dynamic lists |
+| `Get-DistributionGroupMember` | P41 (count), P42, P43, P44 (read first and read back), P45 (`alreadyMember`) | `Identity` (mandatory, never empty: a null identity returns everything), `ResultSize` (`Unlimited` or a number) | verified. Default `ResultSize` and paging: U79 |
+| `Add-DistributionGroupMember` | P43 | `Identity`, `Member` (required by the panel although Learn calls it optional), `BypassSecurityGroupManagerCheck` (always) | verified. Behaviour for an existing member: U94 |
+| `Remove-DistributionGroupMember` | P44 | the same; the script appends `-Confirm:$false` | verified. Behaviour for a non-member: U94 |
+| `Get-MailContact` | P45, P47, P48, P49 (duplicate check and read-back), P50, P51 | `Identity` (a GUID, never empty: a null or unknown identity returns all contacts), `ANR` for the prefix search and for the duplicate check of a new address or alias, `ResultSize`; the allow-list also permits `Filter`, `SortBy` and `RecipientTypeDetails` | verified. Default result size: U79 (the page says 1,000 in the description and "None" in the table). That `-ANR` matches the external address, on which the duplicate check relies: UNVERIFIED (U97) |
+| `New-MailContact` | P49 | `Name` (derived: alias cut to 57 characters, a hyphen, 6 hexadecimal characters), `ExternalEmailAddress`, `Alias`, `DisplayName`, `FirstName`, `LastName` | verified. Uniqueness of `-Name` is UNVERIFIED (U95) |
+| `Set-MailContact` | P50 | `Identity`, and at least one of `DisplayName`, `Alias`, `ExternalEmailAddress` (the allow-list also permits `Name` and `HiddenFromAddressListsEnabled`; no route sends them) | verified. It has no first or last name (U15 answered for this cmdlet; `Set-Contact` was not read and is not used) |
+| `Remove-MailContact` | P51 | `Identity`; the script appends `-Confirm:$false` | verified |
+| `Get-OrganizationConfig` | the wizard's verification probe, the worker's ping of the owner test | none | verified |
+
+What the panel never sends, by construction of the allow-list: `-Confirm` and `-WhatIf` as caller
+parameters (the script adds `-Confirm:$false` itself, on the two `Remove-` cmdlets only), any parameter that
+is not in the table, an empty `Identity`, any cmdlet outside the ten, and any value that does not match the
+pattern of its parameter. A call is validated on the server before it is written to the worker and again
+by the worker script against the same table (ADR-0181).
+
+| Route (id) | Panel permission | Cmdlets | Exchange authorisation | Open claims |
+|---|---|---|---|---|
+| P40, P41 `distributionlists.list`, `.get` | `distributionlists:read` | `Get-DistributionGroup`, `Get-Recipient`, `Get-DistributionGroupMember` | Entra role Exchange Administrator through `Exchange.ManageAsApp` | U75, U79, U80, U97, U99 |
+| P42 `distributionlists.members` | `distributionlists:read` on that list | `Get-DistributionGroupMember` | the same | U79, U98 |
+| P43, P44 `distributionlists.members.add`, `.remove` | `distributionlists:members:write` on that list | `Get-DistributionGroupMember`, `Add-` or `Remove-DistributionGroupMember` | the same, and `-BypassSecurityGroupManagerCheck`, which Learn says is for administrators who are not in `ManagedBy` (R-D-02); that the service principal's role satisfies it is U78 | U78, U82, U94 |
+| P45 `distributionlists.search` | `distributionlists:members:write`, `users:read`, `contacts:read` | Graph `GET /users` (`User.Read.All`), `Get-MailContact`, `Get-DistributionGroupMember` | the same, and `User.Read.All` | U70 |
+| P47, P48 `contacts.list`, `.get` | `contacts:read` | `Get-MailContact` | the same | U12, U79, U80 |
+| P49 `contacts.create` | `contacts:create` | `Get-MailContact`, `New-MailContact` | the same | U95, U97 |
+| P50 `contacts.update` | `contacts:update` | `Get-MailContact`, `Set-MailContact` | the same | U15 (answered), U80 |
+| P51 `contacts.delete` | `contacts:delete` | `Get-DistributionGroup`, `Remove-MailContact` | the same | U97 |
+| P52 `contacts.memberships` | `contacts:read`, `distributionlists:read` | `Get-DistributionGroup -Filter "Members -eq ..."` | the same | U97 |
+
+- **The Exchange role.** The default is Exchange Administrator (`EXCHANGE_ROLES` key `exchange_administrator`),
+  which Learn says provides the permissions for any task and satisfies the manager check. Whether Exchange
+  Recipient Administrator or a custom role group would be enough for the cmdlets of step D1 is U76 (and U5);
+  ODB-03 says to narrow only after OV-D1. The panel treats a refusal as 503 `exchange_permission_missing`.
+- **A new role can take minutes to take effect.** Until it does, the first connect or call fails with the
+  detail code `exchange_role_pending` (503 `exchange_unavailable`), and the page says so.
+- **Throttling.** Exchange Online publishes no numbers for app-only use (U81). The panel retries a throttled
+  or transient call at most 3 times with a doubling wait (1 s to 15 s, jitter, `Retry-After` first), then
+  503 `exchange_throttled` or `exchange_unavailable`. The numbers are ours.
+- **Read-back.** Exchange writes are eventually consistent (U82); P43 and P44 report `readBackPending` when
+  the change is not visible yet.
+- **Exchange audit.** Learn: the admin audit log is on by default, 180 days, up to 30 minutes of delay, and
+  `Get-`, `Search-` and `Test-` cmdlets are not logged. Whether a run by a service principal is logged, and
+  how it is identified, is U89; that each write cmdlet of step D1 is in the logged set is U90 (OV-D4).
+- **Synchronised objects** (`IsDirSynced`) are shown read-only; the output property name is assumed (U12), and
+  how to detect synchronised groups and contacts is U80.
+
+### Not requested, not used, not built in step D1
+
+| Item | State | Why |
+|---|---|---|
+| New Graph application role, new Exchange role, new wizard scope | not requested | Step D1 uses what the wizard already grants |
+| `Device.ReadWrite.All`, `Application.ReadWrite.All`, `OrgContact.Read.All`, `RoleManagement.ReadWrite.Directory`, `Member.Read.Hidden` | not requested | Users only as group members; hidden membership stays read-only (ODC-04) |
+| `Set-Contact`, `Set-DistributionGroup`, owner or manager edits, creating or deleting lists or groups | not built | Names of a contact are set on creation only (U15); lists and groups are not created |
+| `Get-DynamicDistributionGroupMember` | not on the allow-list | Dynamic lists have no member list in the panel (finding FD-05) |
+| The Exchange Admin API (Preview) for reads | not used for lists | It covers group membership reads only; step D1 reads through the worker so there is one path (FR-D-108) |
+| Licences | deferred | U17, U48 |
+
+What the owner closes against a real tenant: U75 to U85, U89 and U90, and U92 to U100 with the checks OV-D1, OV-D2, OV-D4 and
+OV-D5 (the rows of [open-points.md](open-points.md), Phase D), step by step in
+[owner-test-phase-d1.md](owner-test-phase-d1.md).
+
 ## Nederlands
 
 ### Deel 1: de panel-catalogus
@@ -358,7 +485,8 @@ Alles in dit deel komt uit `research-microsoft.md` (Microsoft Learn, 2026-10-10)
   (U2), daarom is er een `BOOTSTRAP_CLIENT_ID`-override.
 - **Exchange.** Een REST-endpoint `InvokeCommand` is op Learn niet gedocumenteerd. De Exchange Admin API
   (Preview) dekt alleen leden van distributiegroepen lezen en enkele andere leesacties; wijzigen van lijsten
-  en alle mailcontact-cmdlets vallen erbuiten. Het uitvoeringspad en het basisbeeld zijn beslissing OD-07.
+  en alle mailcontact-cmdlets vallen erbuiten. Het uitvoeringspad en het basisbeeld waren beslissing OD-07, besloten op 2026-10-13 als ODB-01 A: een
+  `pwsh`-worker in dezelfde container op Ubuntu 24.04, gebouwd in Fase D stap D1 (Deel 5).
   Voor app-only toegang is `Exchange.ManageAsApp` met een Entra-rol (Exchange Administrator werkt) of een
   eigen rolgroep nodig; de minimale rolgroep is ONGEVERIFIEERD (U5).
 - **Cmdlets.** De negen cmdlets bestaan en hun parameters zijn gecontroleerd, met uitzondering van
@@ -380,7 +508,9 @@ De draaiende applicatie krijgt alleen applicatierechten, vier in totaal: `User.R
 `AppRoleAssignment.ReadWrite.All` en `Application.ReadWrite.All` krijgt de applicatie nooit
 (`FORBIDDEN_APP_ROLES`). Voor Exchange is `Exchange.ManageAsApp` nodig met de Entra-rol Exchange Administrator
 (standaard); de smallere rol Exchange Recipient Administrator is ONGEVERIFIEERD (U5). Het schrijfpad voor
-distributielijsten en contacten is niet gebouwd in Fase B (ADR-0102, ODB-01).
+distributielijsten en contacten is niet gebouwd in Fase B (ADR-0102, ODB-01) en komt in Fase D stap D1 (Deel 5,
+ADR-0180, ADR-0181). `GroupMember.ReadWrite.All` is verleend in Fase B, ongebruikt in Fase C en gebruikt vanaf
+Fase D stap D1 (Deel 5).
 
 ### Deel 4: Fase C, gebruikers en groepen (alleen lezen)
 
@@ -433,3 +563,85 @@ Wat dit voor de gebruiker betekent.
 
 Wat de eigenaar tegen een echte tenant sluit: U66 tot en met U74 met de controles OV-C1 tot en met OV-C6,
 stap voor stap in [owner-test-phase-c.md](owner-test-phase-c.md).
+
+### Deel 5: Fase D stap D1, distributielijsten, contacten en groepsleden
+
+Stap D1 is de eerste stap die **schrijft**. Zij vraagt Microsoft om **geen nieuw recht**: geen nieuwe
+Graph-applicatierol (de draaiende applicatie heeft nog dezelfde vier van set 1), geen nieuwe Exchange-rol en
+geen nieuw delegated scope voor de wizard. Wat verandert is dat twee eerder verleende rechten nu **gebruikt**
+worden. Deel 5 wint van de Delen 2 tot en met 4 waar het over stap D1 gaat. Bronnen:
+[`research-microsoft-d.md`](../specs/004-phase-d/research-microsoft-d.md) (Microsoft Learn, 2026-10-13),
+de gate-notities `specs/004-phase-d/gate-notes/GD1-*.md` en `packages/shared/src/exchange/allow-list.ts`.
+**Niets hiervan is tegen een echte tenant gedraaid**; wat alleen op Learn rust, is gemarkeerd en heeft een rij
+in [open-points.md](open-points.md) en een controle in [owner-test-phase-d1.md](owner-test-phase-d1.md).
+
+| Recht | Tot nu toe | Vanaf stap D1 |
+|---|---|---|
+| `GroupMember.ReadWrite.All` | Verleend in Fase B (ODB-02, één toestemming); **verleend, ongebruikt in Fase C** (Deel 4) | **Gebruikt** door `groups.members.add` en `groups.members.remove` (FR-D-352): het minst bevoorrechte applicatierecht om een gebruiker aan een groep toe te voegen (R-D-08, geverifieerd) |
+| `Exchange.ManageAsApp` en de Entra-rol Exchange Administrator van de service principal (ODB-03) | Door de wizard verleend; alleen door de verificatieprobe gebruikt | **Gebruikt** door elke aanroep van de Exchange-worker: lezen van lijsten, leden en contacten, en alle schrijfacties |
+| `Exchange.ManageAsAppV2` | Verleend waar de tenant hem toont | De worker heeft hem niet nodig; alleen de Admin API-probe gebruikt hem. Of hij bestaat is nog ONGEVERIFIEERD (U77) |
+
+Nooit verleend (`FORBIDDEN_APP_ROLES`): `RoleManagement.ReadWrite.Directory`,
+`AppRoleAssignment.ReadWrite.All`, `Application.ReadWrite.All`. Een groep die aan een rol toegewezen kan worden
+vraagt voor een ledenwijziging `RoleManagement.ReadWrite.Directory`; het panel heeft dat niet, Graph antwoordt 403
+en het panel toont "geen recht voor deze wijziging" voor dat lid (U96). Het verwijderpad van een lid eindigt
+altijd op `/$ref`: zonder dat verwijdert Graph (waarschuwing op de Learn-pagina) het lid zelf als de applicatie dat
+object mag beheren.
+
+**Groepsleden via Graph (P53, P54).** Eerst `GET /groups/{id}/members` (direct, per 999, hoogstens 50
+pagina's, `GroupMember.Read.All`) om "already" te bepalen, daarna per lid één `POST /groups/{id}/members/$ref`
+of `DELETE /groups/{id}/members/{id}/$ref` (`204`, `GroupMember.ReadWrite.All`). Alleen gebruikers. Alleen
+beveiligings- en Microsoft 365-groepen met toegewezen lidmaatschap: dynamisch, gesynchroniseerd, distributie,
+e-mailbeveiligd, onbekend soort of verborgen lidmaatschap geeft 409 `read_only_object` vóór elke aanroep. De
+bulkvorm (`PATCH` met `members@odata.bind`, 20 stuks) is alles-of-niets en wordt niet gebruikt. Graph geeft
+`400` voor een bestaand lid, een niet-ondersteund type en een nog niet gerepliceerde groep alle drie (U92):
+het panel leest dus eerst. Het antwoord op het verwijderen van een niet-lid staat niet beschreven (U93): een
+`404` telt als "already".
+
+**Distributielijsten en contacten via de Exchange-worker (P40 tot en met P45, P47 tot en met P52).** Alle
+Exchange-aanroepen lopen via de `pwsh`-worker (app-only, applicatie-id, `.onmicrosoft.com`-domein en
+certificaat). Het certificaat komt in het geheugen bij de worker (`EXCHANGE_KEY_HANDOVER=memory`) of via een
+kortlevend bestand op een tmpfs (`tmpfs`, de terugval); of het geheugenpad op Linux werkt is U75, en het
+formaat van de overdracht is besloten maar nog in aanbouw (PEM; bevinding FD-01). De worker mag **tien cmdlets
+en niets anders**, elk met een gesloten parameterset (ADR-0181):
+
+| Cmdlet | Gebruikt door | Learn |
+|---|---|---|
+| `Get-DistributionGroup` | P40, P41, P51, P52 | geverifieerd; de filtereigenschappen en het `Members`-filter: ONGEVERIFIEERD (U97), de waarden van `SortBy` en `RecipientTypeDetails` (U99) |
+| `Get-Recipient` | P40, P41 (dynamische lijsten) | geverifieerd als cmdlet; waardenlijst ONGEVERIFIEERD (U99). `Get-DistributionGroup` geeft dynamische lijsten niet terug |
+| `Get-DistributionGroupMember` | P41, P42, P43, P44 (vooraf lezen en teruglezen), P45 | geverifieerd; standaard `ResultSize` en paginering: U79 |
+| `Add-DistributionGroupMember`, `Remove-DistributionGroupMember` | P43, P44 | geverifieerd; `Member` is bij Learn optioneel maar door het panel verplicht gemaakt; `-BypassSecurityGroupManagerCheck` altijd; gedrag bij een bestaand lid of een niet-lid: U94 |
+| `Get-MailContact` | P45, P47 tot en met P51 | geverifieerd; standaard resultaatgrootte U79; dat `-ANR` het externe adres vindt (nodig voor de dubbelcontrole) is ONGEVERIFIEERD (U97) |
+| `New-MailContact`, `Set-MailContact`, `Remove-MailContact` | P49, P50, P51 | geverifieerd; `-Name` wordt afgeleid (alias op 57 tekens, streepje, 6 hexadecimale tekens), uniciteit ONGEVERIFIEERD (U95); `Set-MailContact` heeft geen voor- of achternaam (U15 voor deze cmdlet beantwoord) |
+| `Get-OrganizationConfig` | verificatieprobe van de wizard en de ping van de eigenaarstest | geverifieerd |
+
+Wat het panel nooit stuurt, door de opbouw van de toegestane lijst: `-Confirm` of `-WhatIf` als parameter van de
+aanroeper (het script voegt zelf `-Confirm:$false` toe, alleen bij de twee `Remove-`-cmdlets), een parameter die
+niet in de tabel staat, een lege `Identity`, een cmdlet buiten de tien en een waarde die niet bij het patroon
+van zijn parameter past. De server controleert elke aanroep voordat hij naar de worker gaat en het script
+controleert hem opnieuw tegen dezelfde tabel.
+
+- **Exchange-rol.** Standaard Exchange Administrator (`exchange_administrator`): volgens Learn voldoende voor
+  elke taak en voor de beheerderscontrole. Of Exchange Recipient Administrator of een eigen rolgroep volstaat
+  is U76 (en U5); ODB-03 zegt: pas smaller maken na OV-D1. Een weigering geeft 503 `exchange_permission_missing`.
+  Dat de rol van de service principal de beheerderscontrole van `-BypassSecurityGroupManagerCheck` vervult, is
+  U78.
+- **Een nieuwe rol kan minuten duren.** Tot dan faalt de eerste verbinding met de detailcode
+  `exchange_role_pending` (503 `exchange_unavailable`) en zegt de pagina dat.
+- **Throttling.** Exchange Online publiceert geen getallen voor app-only gebruik (U81). Het panel herhaalt een
+  gethrottlede of tijdelijk falende aanroep hoogstens 3 keer met oplopende wachttijd (1 s tot 15 s,
+  `Retry-After` eerst) en geeft dan 503 `exchange_throttled` of `exchange_unavailable`; de getallen zijn van
+  ons. Schrijven in Exchange is uiteindelijk consistent (U82): P43 en P44 melden `readBackPending`.
+- **Exchange-audit.** Volgens Learn staat het beheerauditlog standaard aan, 180 dagen, tot 30 minuten
+  vertraging, en `Get-`, `Search-` en `Test-` worden niet gelogd. Of een uitvoering door een service principal
+  wordt gelogd en hoe ze te herkennen is, is U89; dat elke schrijf-cmdlet van stap D1 gelogd wordt, is U90
+  (OV-D4). Gesynchroniseerde objecten (`IsDirSynced`) zijn alleen lezen; de uitvoernaam is aangenomen (U12).
+
+**Niet aangevraagd, niet gebruikt, niet gebouwd in stap D1:** nieuwe Graph- of Exchange-rollen; de rechten voor
+apparaten, service principals en organisatiecontacten en `Member.Read.Hidden`; `Set-Contact`, `Set-DistributionGroup`,
+eigenaars- en managerwijzigingen, aanmaken of verwijderen van lijsten en groepen;
+`Get-DynamicDistributionGroupMember` (dynamische lijsten hebben in het panel geen ledenlijst, bevinding FD-05);
+licenties (U17, U48 uitgesteld).
+
+Wat de eigenaar tegen een echte tenant sluit: U75 tot en met U85, U89 en U90, en U92 tot en met U100 met de controles OV-D1, OV-D2,
+OV-D4 en OV-D5, stap voor stap in [owner-test-phase-d1.md](owner-test-phase-d1.md).

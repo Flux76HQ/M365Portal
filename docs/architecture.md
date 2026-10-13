@@ -29,7 +29,7 @@ Phase B adds five (the module list below), registered in `src/modules.ts` after 
 ## Modules
 
 `src/modules.ts` lists the modules in start order (they stop in reverse): the Phase A `branding` module, then
-the five modules of Phase B, then the `directory` module of Phase C.
+the five modules of Phase B, then the `directory` module of Phase C, then the `groups`, `distributionlists` and `contacts` modules of Phase D step D1.
 
 | Module | Folder | Role |
 |---|---|---|
@@ -40,6 +40,11 @@ the five modules of Phase B, then the `directory` module of Phase C.
 | `auth` | `src/auth/` | Login transactions, the callback and its 45 fixtures, the interstitial, sessions, step-up, revalidation, logout, break-glass and MFA. |
 | `rbac` | `src/rbac/` | Roles, assignments, scopes, group membership resolution, the grants memo and epoch, restore-owner. |
 | `directory` | `src/directory/` | Phase C, read only: the seven `GET` routes for users and groups (`/api/v1/users*`, `/api/v1/groups*`), the in-memory cursor store, the scoped scan, the one restricted-row function and the mappers; the Graph reads are in `src/integrations/graph/` (`directory-query.ts` is the only builder of directory filters). It stores nothing on disk ([ADR-0179](adr/0179-directory-cursor-store-and-restricted-rows.md), [api.md](api.md)). |
+| `groups` | `src/groups/` | Phase D step D1: the two member writes of Microsoft 365 and security groups (`POST` and `DELETE /api/v1/groups/{id}/members`) through the two write methods of the Graph port. Kept beside `directory` so that its guard (the folder has no way to write) keeps its meaning. |
+| `distributionlists` | `src/distribution-lists/` | Phase D step D1: the six routes for distribution lists (list, detail, members, add and remove members, candidates), the list buffer behind the cursors (at most 10,000 rows), the member write service (membership read first, chunks, read-back) and the audit of member writes. It reaches Exchange only through the `ExchangeClient` port. |
+| `contacts` | `src/contacts/` | Phase D step D1: the six routes for mail contacts, the validation shared with the web form, the derived Exchange name and the duplicate check. |
+
+**The Exchange worker (Phase D step D1).** The `ExchangeClient` port has read and write methods (`capabilities().write` lists exactly the methods built). The adapter `PwshExchangeClient` (`src/integrations/exchange/pwsh/`) talks to one long-lived PowerShell 7 child process over a line-delimited JSON protocol; the wire protocol and the closed allow-list of ten cmdlets are in `packages/shared/src/exchange/` and the script is generated from that table ([ADR-0181](adr/0181-exchange-worker-protocol-and-allow-list.md)). The process lives in the same container, which is why the runtime image is Ubuntu 24.04 ([ADR-0180](adr/0180-ubuntu-runtime-with-powershell.md)). The Admin API adapter keeps only the setup probe. The tests run the real client over a stand-in process and over the strict fake tenant; the worker itself has run only against a simulated Exchange and has not run against a tenant (open points U75 to U100).
 
 ## Layering and the integrations boundary
 
@@ -339,7 +344,11 @@ gebouwde React-frontend, bewaart zijn staat in één SQLite-bestand plus een map
 
 De server kent één richting: pijplijn, routehandler (alleen via `defineRoute`, zonder `access` start de
 server niet), service, repository. Alleen de auditschrijver voegt regels toe aan `audit_log`.
-`GraphClient` en `ExchangeClient` bestaan nog niet; ze komen in Fase B en D achter interfaces.
+`GraphClient` en `ExchangeClient` staan achter interfaces. Sinds Fase D stap D1 heeft de `ExchangeClient` ook schrijfmethoden: de
+adapter `PwshExchangeClient` praat met één langlevend PowerShell 7-proces in dezelfde container over regelgebonden
+JSON, met een gesloten lijst van tien cmdlets ([ADR-0181](adr/0181-exchange-worker-protocol-and-allow-list.md)); daarom is
+de runtime-image Ubuntu 24.04 ([ADR-0180](adr/0180-ubuntu-runtime-with-powershell.md)). De modules `groups`,
+`distributionlists` en `contacts` komen erbij; `GraphClient` heeft twee schrijfmethoden voor groepsleden.
 
 ### Gegevenslocaties
 
