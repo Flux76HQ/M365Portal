@@ -5,9 +5,17 @@
 // port opens; the log already says why, by code, never with a value.
 import { installShutdownSignals, StartError, startServer, type RunningServer } from './start.js';
 
-let running: RunningServer;
+// The signals are tied first: the `listening` line is written inside `startServer`, and a signal that
+// arrives between that line and the end of the start would otherwise meet no handler and kill the
+// process with the default action. Until the server runs, a signal waits for it and then stops it.
+let ready!: (server: RunningServer) => void;
+const started = new Promise<RunningServer>((resolve) => {
+  ready = resolve;
+});
+installShutdownSignals({ stop: async (signal) => (await started).stop(signal) });
+
 try {
-  running = await startServer({ env: process.env });
+  ready(await startServer({ env: process.env }));
 } catch (error) {
   if (error instanceof StartError) process.exit(error.exitCode);
   // Not a refusal we know: say what kind of failure it was (never its message) and stop.
@@ -15,5 +23,3 @@ try {
   process.stderr.write(`start_failed: unexpected ${name}\n`);
   process.exit(1);
 }
-
-installShutdownSignals(running);
