@@ -399,6 +399,7 @@ export class PwshExchangeClient implements ExchangeClient {
             errorType: response.error.detail?.type ?? null,
             errorId: response.error.detail?.errorId ?? null,
             errorHints: response.error.detail?.hints ?? null,
+            errorProbes: response.error.detail?.probes ?? null,
             // Present only in the opt-in diagnostic mode (EXCHANGE_DEBUG_ERRORTEXT=1): masked and cut by the worker.
             errorText:
               this.#deps.debugErrorText === true ? (response.error.detail?.text ?? null) : null,

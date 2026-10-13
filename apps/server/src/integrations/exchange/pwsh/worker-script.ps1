@@ -86,6 +86,39 @@ function Send-Ok {
     Send-Line ([ordered]@{ v = $script:ProtocolVersion; id = $Id; ok = $true; data = $Data })
 }
 
+# GD1-0 Amendment 6 (opt-in, EXCHANGE_DEBUG_ERRORTEXT=1 only, once per worker): after the first failed call, run
+# five small reads and report only fixed words: which shapes of call work. The words are ours, never from a text.
+$script:Probed = $false
+$script:ProbeResult = $null
+$script:OrgKind = 'org_unknown'
+function Invoke-Probes {
+    $results = [System.Collections.Generic.List[string]]::new()
+    $results.Add($script:OrgKind)
+    $probes = @(
+        @{ Word = 'orgcfg'; Cmdlet = 'Get-OrganizationConfig'; Args = @{} },
+        @{ Word = 'recip'; Cmdlet = 'Get-Recipient'; Args = @{ ResultSize = 1 } },
+        @{ Word = 'group'; Cmdlet = 'Get-DistributionGroup'; Args = @{ ResultSize = 1 } },
+        @{ Word = 'contact1'; Cmdlet = 'Get-MailContact'; Args = @{ ResultSize = 1 } },
+        @{ Word = 'contactall'; Cmdlet = 'Get-MailContact'; Args = @{} }
+    )
+    foreach ($probe in $probes) {
+        $state = 'fail'
+        try {
+            Assert-AllowedCall $probe.Cmdlet $probe.Args
+            $command = Get-Command -Name $probe.Cmdlet -CommandType Cmdlet, Function -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($null -eq $command) { $state = 'missing' }
+            else {
+                $arguments = @{} + $probe.Args
+                $arguments['ErrorAction'] = 'Stop'
+                $null = & $command @arguments 6>$null 5>$null 4>$null 3>$null
+                $state = 'ok'
+            }
+        } catch { $state = 'fail' }
+        $results.Add($probe.Word + '_' + $state)
+    }
+    return $results.ToArray()
+}
+
 function Send-Failure {
     param([string] $Id, [string] $Code, [int] $RetryAfterMs = -1, [int] $Aadsts = 0, $Record = $null)
     $failure = [ordered]@{ code = $Code }
@@ -116,6 +149,10 @@ function Send-Failure {
                 $detail['text'] = $debug.Text
                 $detail['textLength'] = $debug.Length
             } catch { $null = $_ }
+        }
+        if ($null -ne $script:ProbeResult) {
+            $detail['probes'] = @($script:ProbeResult)
+            $script:ProbeResult = $null
         }
         if ($detail.Count -gt 0) { $failure['detail'] = $detail }
     }
@@ -490,6 +527,8 @@ function Invoke-Connect {
         $certificatePem = [string] $certificate['certificate']
         $privateKeyPem = [string] $certificate['privateKey']
         if ([string]::IsNullOrWhiteSpace($certificatePem) -or [string]::IsNullOrWhiteSpace($privateKeyPem)) { Send-Failure $Id 'invalid_argument'; return }
+        $organizationName = [string] $Request['organization']
+        $script:OrgKind = $(if ($organizationName -match '(?i)\.onmicrosoft\.com$') { 'org_onms' } else { 'org_other' })
         Import-ExchangeModule
         if ($CertificateMode -eq 'tmpfs') { Connect-WithTmpfsFile ([string] $Request['appId']) ([string] $Request['organization']) $certificatePem $privateKeyPem }
         else { Connect-InMemory ([string] $Request['appId']) ([string] $Request['organization']) $certificatePem $privateKeyPem }
@@ -550,7 +589,12 @@ function Invoke-Call {
         $script:ProtocolOut.WriteLine($json)
         $script:ProtocolOut.Flush()
     } catch {
-        Send-ErrorRecord $Id $_
+        $failed = $_
+        if ($env:EXCHANGE_DEBUG_ERRORTEXT -eq '1' -and -not $script:Probed) {
+            $script:Probed = $true
+            try { $script:ProbeResult = Invoke-Probes } catch { $script:ProbeResult = $null }
+        }
+        Send-ErrorRecord $Id $failed
     }
 }
 
