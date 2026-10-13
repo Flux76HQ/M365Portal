@@ -1,0 +1,518 @@
+// T-D-112, T-D-114, FR-D-102, FR-D-103, FR-D-107: the REAL worker script in a REAL `pwsh`, against a
+// fake `ExchangeOnlineManagement` module (a few PowerShell functions with the names and parameters of
+// the real cmdlets, found through `PSModulePath`), driven by the real `ExchangeWorkerSession` and
+// `PwshExchangeClient` over the real launcher. It proves what no stand-in can: that the script parses,
+// validates, connects with a certificate built from the PEMs of the connect line, calls
+// the cmdlets with the right parameters (`-Confirm:$false` on a Remove-, a switch only when asked),
+// projects the rows, maps errors to the closed codes without a word of their text, keeps everything
+// else off stdout, and, in the fallback mode, writes the PEM files and the derived PKCS#12 with mode 0600 and
+// removes them. The throwaway certificate is made by the product's own factory (`@peculiar/x509`, RSA,
+// PKCS#8), so `X509Certificate2.CreateFromPem` is proven on the very format Phase B stores (GD1-0, amendment 1).
+//
+// It runs where `pwsh` is installed (GitHub-hosted Ubuntu runners have it; the image does) and is
+// skipped elsewhere; `PWSH_PATH` names another binary. It talks to no tenant.
+import { spawnSync } from 'node:child_process';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ExchangeCommandError, ExchangeUnavailableError } from '../../src/ports/errors.js';
+import type { ExchangeCredentialSource } from '../../src/integrations/exchange/pwsh/key-handover.js';
+import { PwshExchangeClient } from '../../src/integrations/exchange/pwsh/pwsh-client.js';
+import { ExchangeWorkerSession } from '../../src/integrations/exchange/pwsh/session.js';
+import {
+  buildWorkerArguments,
+  buildWorkerEnvironment,
+  createNodeWorkerLauncher,
+} from '../../src/integrations/exchange/pwsh/worker-launcher.js';
+import { sequenceRandom } from '../integrations/support.js';
+import { lazyCertificateFactory } from '../../src/secrets/certificate-factory.js';
+import { pemFromDer } from '../../src/secrets/pem.js';
+import { countingRandom, INSTALL_ID } from '../secrets/support.js';
+
+const PWSH = process.env.PWSH_PATH ?? 'pwsh';
+const SCRIPT = fileURLToPath(
+  new URL('../../src/integrations/exchange/pwsh/worker-script.ps1', import.meta.url),
+);
+const probe = spawnSync(
+  PWSH,
+  ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.Major'],
+  {
+    encoding: 'utf8',
+  },
+);
+const hasPwsh = probe.status === 0;
+const MAJOR = hasPwsh ? Number(probe.stdout.trim()) : 0;
+
+const APP_ID = '11111111-2222-4333-8444-555555555555';
+const SUBJECT = 'CN=M365Portal 01234567';
+const CONTACT = '5a6b7c8d-1111-4222-8333-944455556666';
+
+const FAKE_MODULE = String.raw`
+function Connect-ExchangeOnline {
+    [CmdletBinding()]
+    param([string]$AppId, [string]$Organization, $Certificate, [string]$CertificateFilePath, $CertificatePassword, [string[]]$CommandName, [switch]$SkipLoadingFormatData, [bool]$ShowBanner = $true)
+    Write-Host 'BANNER with the name Zoe Canary'
+    Write-Warning 'a warning with the name Zoe Canary'
+    [Console]::WriteLine('{"console":"noise with the name Zoe Canary"}')
+    [Console]::Error.WriteLine('stderr noise with the name Zoe Canary')
+    $record = [ordered]@{ appId = $AppId; organization = $Organization; commands = @($CommandName).Count; showBanner = $ShowBanner; skipFormat = $SkipLoadingFormatData.IsPresent }
+    if ($null -ne $Certificate) { $record['certificate'] = $Certificate.Subject; $record['hasPrivateKey'] = $Certificate.HasPrivateKey }
+    if ($CertificateFilePath) {
+        $item = Get-Item -LiteralPath $CertificateFilePath
+        $directory = Split-Path -Parent $CertificateFilePath
+        $files = @(Get-ChildItem -LiteralPath $directory -Force | Sort-Object -Property Name | ForEach-Object { [ordered]@{ extension = $_.Extension; mode = [string] $_.UnixMode } })
+        $plain = [System.Net.NetworkCredential]::new('', $CertificatePassword).Password
+        $opened = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($CertificateFilePath, $plain)
+        $record['file'] = [ordered]@{ exists = $true; mode = [string] $item.UnixMode; bytes = $item.Length; directory = $directory; files = $files; opens = $opened.HasPrivateKey; subject = $opened.Subject }
+        $record['password'] = ($null -ne $CertificatePassword)
+    }
+    if ($env:FAKE_EXO_LOG) { ConvertTo-Json -InputObject $record -Compress -Depth 6 | Out-File -LiteralPath $env:FAKE_EXO_LOG -Append }
+    if ($env:FAKE_EXO_FAIL) { throw 'forced failure for the test' }
+}
+function Disconnect-ExchangeOnline { [CmdletBinding()] param([bool]$Confirm = $true) }
+function Get-OrganizationConfig { [CmdletBinding()] param() [pscustomobject]@{ Name = 'contoso-fake'; Guid = [guid]'11111111-2222-4333-8444-555555555556'; MailTipsLargeAudienceThreshold = 25 } }
+function Get-DistributionGroup {
+    [CmdletBinding()]
+    param($Identity, $Filter, $ResultSize, $SortBy, $RecipientTypeDetails, [switch]$IncludeManagedByWithDisplayNames)
+    if ($env:FAKE_EXO_LOG) { ('group-call filter=' + $Filter + ' size=' + $ResultSize) | Out-File -LiteralPath $env:FAKE_EXO_LOG -Append }
+    [pscustomobject]@{ Guid = [guid]'11111111-2222-4333-8444-555555555555'; Name = 'Marketing'; DisplayName = 'Marketing'; Alias = 'marketing'; PrimarySmtpAddress = 'marketing@contoso.example'; RecipientTypeDetails = 'MailUniversalDistributionGroup'; ManagedBy = @('Anna', 'Bob'); WhenCreatedUTC = [datetime]::new(2026, 1, 2, 3, 4, 5); IsDirSynced = $false; Extra = 'not projected' }
+    [pscustomobject]@{ Guid = [guid]'11111111-2222-4333-8444-555555555557'; Name = 'Legacy'; DisplayName = $null; Alias = 'legacy'; PrimarySmtpAddress = 'SMTP:legacy@contoso.example'; RecipientTypeDetails = 'MailUniversalSecurityGroup'; IsDirSynced = $true }
+}
+function Get-Recipient {
+    [CmdletBinding()]
+    param($Identity, $Filter, $ResultSize, $RecipientTypeDetails)
+    [pscustomobject]@{ Guid = [guid]'33333333-3333-4333-8333-333333333333'; Name = 'Dynamic Staff'; DisplayName = 'Dynamic Staff'; Alias = 'dynamicstaff'; PrimarySmtpAddress = 'dyn@contoso.example'; RecipientTypeDetails = 'DynamicDistributionGroup'; RecipientType = 'DynamicDistributionGroup' }
+}
+function Get-DistributionGroupMember { [CmdletBinding()] param($Identity, $ResultSize) [pscustomobject]@{ Guid = [guid]'22222222-2222-4222-8222-222222222222'; Name = 'Anna'; DisplayName = 'Anna Jansen'; PrimarySmtpAddress = 'anna@contoso.example'; RecipientTypeDetails = 'UserMailbox'; RecipientType = 'UserMailbox'; FirstName = ''; HiddenFromAddressListsEnabled = $false } }
+function Add-DistributionGroupMember {
+    [CmdletBinding()]
+    param($Identity, $Member, [switch]$BypassSecurityGroupManagerCheck)
+    if ($env:FAKE_EXO_LOG) { ('add bypass=' + $BypassSecurityGroupManagerCheck.IsPresent) | Out-File -LiteralPath $env:FAKE_EXO_LOG -Append }
+    if ($Member -eq 'dup@contoso.example') { throw "The recipient 'Zoe Canary' is already a member of the group 'Marketing'." }
+    if ($Member -eq 'ghost@contoso.example') { throw "The operation couldn't be performed because object 'ghost@contoso.example' couldn't be found on 'EURPR01A001.prod.outlook.com'." }
+    if ($Member -eq 'team@contoso.example') { throw "The recipient 'Team' isn't a supported member type." }
+    if ($Member -eq 'wait@contoso.example') { throw 'The request was throttled. Try again in 1 seconds.' }
+}
+function Remove-MailContact { [CmdletBinding()] param($Identity, [bool]$Confirm = $true) if ($Confirm) { throw 'would prompt for a confirmation' } }
+function Get-MailContact {
+    [CmdletBinding()]
+    param($Identity, $Filter, $ResultSize, $SortBy, $RecipientTypeDetails, $ANR)
+    # A miss of -Identity returns every contact (R-D-09).
+    [pscustomobject]@{ Guid = [guid]'5a6b7c8d-1111-4222-8333-944455556666'; ExternalEmailAddress = 'SMTP:carol@partner.example'; Name = 'Carol'; DisplayName = 'Carol Bakker'; Alias = 'carol'; IsDirSynced = $false }
+    [pscustomobject]@{ Guid = [guid]'5a6b7c8d-1111-4222-8333-944455556667'; ExternalEmailAddress = 'SMTP:dan@partner.example'; Name = 'Dan'; DisplayName = 'Dan'; Alias = 'dan'; IsDirSynced = $true }
+}
+Export-ModuleMember -Function *
+`;
+
+let workdir = '';
+let modules = '';
+let certificatePem = '';
+let privateKeyPem = '';
+
+function pwshText(command: string): string {
+  const done = spawnSync(PWSH, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command], {
+    encoding: 'utf8',
+  });
+  if (done.status !== 0) throw new Error('pwsh failed');
+  return done.stdout.trim();
+}
+
+beforeAll(async () => {
+  if (!hasPwsh) return;
+  workdir = mkdtempSync(join(tmpdir(), 'exo-real-'));
+  modules = join(workdir, 'modules');
+  const directory = join(modules, 'ExchangeOnlineManagement');
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, 'ExchangeOnlineManagement.psm1'), FAKE_MODULE);
+  writeFileSync(
+    join(directory, 'ExchangeOnlineManagement.psd1'),
+    "@{ ModuleVersion = '3.10.1'; RootModule = 'ExchangeOnlineManagement.psm1'; GUID = '11111111-2222-4333-8444-555555555500'; FunctionsToExport = '*' }\n",
+  );
+  // A throwaway certificate with a private key, made by the product's own factory (RSA, PKCS#8 DER).
+  const generated = await lazyCertificateFactory.generate({
+    installId: INSTALL_ID,
+    now: Date.now(),
+    random: countingRandom(7),
+  });
+  certificatePem = pemFromDer('CERTIFICATE', generated.publicDer);
+  privateKeyPem = pemFromDer('PRIVATE KEY', generated.pkcs8Der);
+  generated.pkcs8Der.fill(0);
+}, 60_000);
+
+afterAll(() => {
+  if (workdir !== '') rmSync(workdir, { recursive: true, force: true });
+});
+
+/** The first line of a worker: the connect with the PEMs of the throwaway certificate. */
+function connectLine(): string {
+  return JSON.stringify({
+    v: 1,
+    type: 'connect',
+    id: 'connect-0001',
+    appId: APP_ID,
+    organization: 'contoso-fake.onmicrosoft.com',
+    certificate: { format: 'pem', certificate: certificatePem, privateKey: privateKeyPem },
+  });
+}
+
+function credentials(): ExchangeCredentialSource {
+  return {
+    load: () =>
+      Promise.resolve({
+        appId: APP_ID,
+        organization: 'contoso-fake.onmicrosoft.com',
+        certificatePem,
+        privateKeyPem,
+      }),
+  };
+}
+
+/** The client over the real launcher and a real `pwsh`; the clock is real too (a timer on `setTimeout`). */
+const realScheduler = {
+  setTimeout: (callback: () => void, ms: number): unknown => setTimeout(callback, ms),
+  clearTimeout: (handle: unknown): void => {
+    clearTimeout(handle as NodeJS.Timeout);
+  },
+  setInterval: (callback: () => void, ms: number): unknown => setInterval(callback, ms),
+  clearInterval: (handle: unknown): void => {
+    clearInterval(handle as NodeJS.Timeout);
+  },
+};
+
+function realClient(extraEnv: Record<string, string> = {}) {
+  const home = join(workdir, `home-${String(Math.random()).slice(2, 8)}`);
+  const launcher = createNodeWorkerLauncher({
+    command: PWSH,
+    scriptPath: SCRIPT,
+    homeDir: home,
+    parentEnv: { DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: undefined },
+    extraEnv: { PSModulePath: modules, ...extraEnv },
+  });
+  const session = new ExchangeWorkerSession({
+    launcher,
+    credentials: credentials(),
+    clock: { now: () => Date.now() },
+    scheduler: realScheduler,
+    random: sequenceRandom([0]),
+  });
+  const client = new PwshExchangeClient({
+    session,
+    random: sequenceRandom([0]),
+    scheduler: realScheduler,
+  });
+  return { client, session, home };
+}
+
+describe.skipIf(!hasPwsh)(
+  `the worker script in a real pwsh ${MAJOR === 0 ? '' : `(${String(MAJOR)})`}`,
+  () => {
+    it('connects with the certificate built from the PEMs of the connect line and reads rows with the projected properties only', async () => {
+      const log = join(workdir, 'memory.log');
+      const { client, session } = realClient({ FAKE_EXO_LOG: log });
+      try {
+        expect(await session.ping()).toBe(true);
+        const groups = await client.listDistributionGroups();
+        expect(
+          groups.items.map((g) => [g.displayName, g.kind, g.primarySmtpAddress, g.isDirSynced]),
+        ).toEqual([
+          ['Dynamic Staff', 'dynamic', 'dyn@contoso.example', null],
+          ['Legacy', 'synced', 'legacy@contoso.example', true],
+          ['Marketing', 'standard', 'marketing@contoso.example', false],
+        ]);
+        expect(groups.items[2]).toMatchObject({
+          managedBy: ['Anna', 'Bob'],
+          createdDateTime: '2026-01-02T03:04:05Z',
+          recipientTypeDetails: 'MailUniversalDistributionGroup',
+          securityEnabled: false,
+        });
+        expect(groups.items[1]?.securityEnabled).toBe(true);
+        const members: string[] = [];
+        for await (const m of client.listDistributionGroupMembers('marketing'))
+          members.push(`${String(m.DisplayName)}/${String(m.FirstName)}`);
+        expect(members).toEqual(['Anna Jansen/null']);
+        const record = readFileSync(log, 'utf8');
+        expect(record).toContain('"appId":"11111111-2222-4333-8444-555555555555"');
+        expect(record).toContain('"organization":"contoso-fake.onmicrosoft.com"');
+        expect(record).toContain('"commands":10');
+        expect(record).toContain('"showBanner":false');
+        expect(record).toContain('"skipFormat":true');
+        expect(record).toContain(`"certificate":"${SUBJECT}"`);
+        expect(record).toContain('"hasPrivateKey":true');
+        expect(record).toContain('size=10001');
+      } finally {
+        await session.close();
+      }
+    }, 60_000);
+
+    it('maps errors to the closed codes and puts no text of them anywhere', async () => {
+      const { client, session } = realClient();
+      try {
+        expect(await client.addDistributionGroupMember('marketing', 'a@contoso.example')).toBe(
+          'added',
+        );
+        expect(await client.addDistributionGroupMember('marketing', 'dup@contoso.example')).toBe(
+          'already',
+        );
+        const failure = await client
+          .addDistributionGroupMember('marketing', 'ghost@contoso.example')
+          .catch((e: unknown) => e);
+        expect(failure).toBeInstanceOf(ExchangeCommandError);
+        expect((failure as ExchangeCommandError).commandCode).toBe('not_found');
+        const type = await client
+          .addDistributionGroupMember('marketing', 'team@contoso.example')
+          .catch((e: unknown) => e);
+        expect((type as ExchangeCommandError).commandCode).toBe('member_type_not_allowed');
+        for (const error of [failure, type]) {
+          expect(JSON.stringify(error) + String(error)).not.toMatch(/ghost|Canary|EURPR/);
+        }
+      } finally {
+        await session.close();
+      }
+    }, 60_000);
+
+    it('sends the manager bypass switch only when asked, and -Confirm:$false to a Remove-', async () => {
+      const log = join(workdir, 'switch.log');
+      const { client, session } = realClient({ FAKE_EXO_LOG: log });
+      try {
+        await client.addDistributionGroupMember('marketing', 'a@contoso.example');
+        await client.addDistributionGroupMember('marketing', 'b@contoso.example', {
+          bypassManagerCheck: false,
+        });
+        await expect(client.removeMailContact(CONTACT)).resolves.toBeUndefined();
+        const lines = readFileSync(log, 'utf8').split('\n');
+        expect(lines.filter((line) => line.startsWith('add bypass='))).toEqual([
+          'add bypass=True',
+          'add bypass=False',
+        ]);
+      } finally {
+        await session.close();
+      }
+    }, 60_000);
+
+    it('answers a contact lookup that missed with null, though the cmdlet listed every contact (R-D-09)', async () => {
+      const { client, session } = realClient();
+      try {
+        expect((await client.getMailContact(CONTACT))?.externalEmailAddress).toBe(
+          'carol@partner.example',
+        );
+        expect(await client.getMailContact('5a6b7c8d-1111-4222-8333-000000000000')).toBeNull();
+        const contacts = await client.listMailContacts();
+        expect(contacts.items.map((c) => [c.alias, c.isDirSynced])).toEqual([
+          ['carol', false],
+          ['dan', true],
+        ]);
+      } finally {
+        await session.close();
+      }
+    }, 60_000);
+
+    it('reports a throttle with the hint the message carried, and the client waits and gives up with it', async () => {
+      const { client, session } = realClient();
+      try {
+        const failure = await client
+          .addDistributionGroupMember('marketing', 'wait@contoso.example')
+          .catch((e: unknown) => e);
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as { retryAfterMs?: number }).retryAfterMs).toBe(1_000);
+      } finally {
+        await session.close();
+      }
+    }, 120_000);
+
+    it('keeps stdout to the protocol: a banner, a warning and a console write inside the module are discarded', () => {
+      const home = join(workdir, 'home-raw');
+      mkdirSync(home, { recursive: true });
+      const done = spawnSync(
+        PWSH,
+        buildWorkerArguments({ scriptPath: SCRIPT, certificateMode: 'memory' }),
+        {
+          env: { ...buildWorkerEnvironment({}, { homeDir: home }), PSModulePath: modules },
+          input: [
+            JSON.stringify({
+              v: 1,
+              type: 'connect',
+              id: 'connect-0001',
+              appId: APP_ID,
+              organization: 'contoso-fake.onmicrosoft.com',
+              certificate: {
+                format: 'pem',
+                certificate: certificatePem,
+                privateKey: privateKeyPem,
+              },
+            }),
+            JSON.stringify({ v: 1, type: 'shutdown', id: 'stop-0001' }),
+            '',
+          ].join('\n'),
+          encoding: 'utf8',
+          timeout: 60_000,
+        },
+      );
+      const lines = done.stdout.split('\n').filter((line) => line.length > 0);
+      expect(lines).toHaveLength(2);
+      for (const line of lines) expect(() => JSON.parse(line) as unknown).not.toThrow();
+      expect(done.stdout + done.stderr).not.toContain('Canary');
+      expect(done.stdout).not.toContain('console');
+    }, 60_000);
+
+    it('refuses what the allow-list refuses, in the script itself (a client that did not check)', () => {
+      const home = join(workdir, 'home-refuse');
+      mkdirSync(home, { recursive: true });
+      const call = (id: string, cmdlet: string, args: unknown): string =>
+        JSON.stringify({ v: 1, type: 'call', id, cmdlet, args, deadlineMs: 5000 });
+      const done = spawnSync(
+        PWSH,
+        buildWorkerArguments({ scriptPath: SCRIPT, certificateMode: 'memory' }),
+        {
+          env: { ...buildWorkerEnvironment({}, { homeDir: home }), PSModulePath: modules },
+          input: [
+            call('call-00001', 'Get-Mailbox', {}),
+            call('call-00002', 'Get-OrganizationConfig', {}),
+            call('call-00003', 'Remove-MailContact', { Identity: 'x', Confirm: false }),
+            call('call-00004', 'Get-DistributionGroupMember', {}),
+            call('call-00005', 'Get-DistributionGroupMember', { Identity: 'trailing\n' }),
+            'not json at all',
+            JSON.stringify({ v: 2, type: 'ping', id: 'ping-00001' }),
+            JSON.stringify({ v: 1, type: 'ping', id: 'x' }),
+            '',
+          ].join('\n'),
+          encoding: 'utf8',
+          timeout: 60_000,
+        },
+      );
+      const answers = done.stdout
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as { id: string; ok: boolean; error?: { code: string } });
+      expect(answers.map((a) => a.error?.code)).toEqual([
+        'invalid_argument',
+        'not_connected',
+        'invalid_argument',
+        'invalid_argument',
+        'invalid_argument',
+        'invalid_argument',
+        'invalid_argument',
+        'invalid_argument',
+      ]);
+    }, 60_000);
+
+    it('the tmpfs fallback: the PEM files and the derived PKCS#12 have mode 0600 while the connect runs, are gone afterwards, and the directory is empty', () => {
+      const log = join(workdir, 'tmpfs.log');
+      const scratch = join(workdir, 'scratch');
+      mkdirSync(scratch, { mode: 0o700 });
+      const home = join(workdir, 'home-tmpfs');
+      mkdirSync(home, { recursive: true });
+      const done = spawnSync(
+        PWSH,
+        buildWorkerArguments({ scriptPath: SCRIPT, certificateMode: 'tmpfs', scratchDir: scratch }),
+        {
+          env: {
+            ...buildWorkerEnvironment({}, { homeDir: home }),
+            PSModulePath: modules,
+            FAKE_EXO_LOG: log,
+          },
+          input: [
+            connectLine(),
+            JSON.stringify({ v: 1, type: 'shutdown', id: 'stop-0001' }),
+            '',
+          ].join('\n'),
+          encoding: 'utf8',
+          timeout: 60_000,
+        },
+      );
+      expect(done.stdout).toContain('"ok":true');
+      const record = JSON.parse(readFileSync(log, 'utf8').trim().split('\n')[0] ?? '{}') as {
+        password: boolean;
+        file: {
+          exists: boolean;
+          mode: string;
+          bytes: number;
+          opens: boolean;
+          subject: string;
+          files: { extension: string; mode: string }[];
+        };
+      };
+      expect(record.file).toMatchObject({
+        exists: true,
+        mode: '-rw-------',
+        opens: true,
+        subject: SUBJECT,
+      });
+      expect(record.file.bytes).toBeGreaterThan(0);
+      expect(record.password).toBe(true);
+      // Two PEM files and the PKCS#12: three files, each readable by the owner only.
+      expect(record.file.files.map((file) => file.extension).sort()).toEqual([
+        '.pem',
+        '.pem',
+        '.pfx',
+      ]);
+      for (const file of record.file.files) expect(file.mode).toBe('-rw-------');
+      expect(readdirSync(scratch)).toEqual([]);
+      expect(statSync(scratch).isDirectory()).toBe(true);
+      expect(done.stdout + done.stderr).not.toContain(privateKeyPem.split('\n')[1] ?? 'x');
+    }, 60_000);
+
+    it('the tmpfs fallback removes every file when the connect fails', () => {
+      const scratch = join(workdir, 'scratch-fail');
+      mkdirSync(scratch, { mode: 0o700 });
+      const home = join(workdir, 'home-tmpfs-fail');
+      mkdirSync(home, { recursive: true });
+      const log = join(workdir, 'tmpfs-fail.log');
+      // The fake module throws inside Connect-ExchangeOnline: the files exist at that moment.
+      const done = spawnSync(
+        PWSH,
+        buildWorkerArguments({ scriptPath: SCRIPT, certificateMode: 'tmpfs', scratchDir: scratch }),
+        {
+          env: {
+            ...buildWorkerEnvironment({}, { homeDir: home }),
+            PSModulePath: modules,
+            FAKE_EXO_LOG: log,
+            FAKE_EXO_FAIL: '1',
+          },
+          input: [connectLine(), ''].join('\n'),
+          encoding: 'utf8',
+          timeout: 60_000,
+        },
+      );
+      expect(done.stdout).toContain('"ok":false');
+      expect(readFileSync(log, 'utf8')).toContain('"exists":true');
+      expect(readdirSync(scratch)).toEqual([]);
+    }, 60_000);
+
+    it('builds a certificate with a private key from the PEMs with CreateFromPem, and the key signs for the certificate', () => {
+      const directory = join(workdir, 'pem-proof');
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(join(directory, 'c.pem'), certificatePem);
+      writeFileSync(join(directory, 'k.pem'), privateKeyPem);
+      const out = pwshText(
+        `$c = Get-Content -Raw -LiteralPath '${join(directory, 'c.pem')}'; $k = Get-Content -Raw -LiteralPath '${join(directory, 'k.pem')}'; ` +
+          `$x = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPem($c, $k); ` +
+          `$rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($x); ` +
+          `$data = [byte[]](1,2,3); $sig = $rsa.SignData($data, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1); ` +
+          `$pub = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPublicKey($x); ` +
+          `ConvertTo-Json -Compress ([ordered]@{ subject = $x.Subject; hasPrivateKey = $x.HasPrivateKey; verifies = $pub.VerifyData($data, $sig, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1) })`,
+      );
+      expect(JSON.parse(out)).toEqual({ subject: SUBJECT, hasPrivateKey: true, verifies: true });
+    }, 60_000);
+
+    it('a worker that cannot import the module answers with a closed code, not a message', async () => {
+      const { client, session } = realClient({ PSModulePath: join(workdir, 'no-modules') });
+      try {
+        const failure = await client.listDistributionGroups().catch((e: unknown) => e);
+        expect(failure).toBeInstanceOf(ExchangeUnavailableError);
+        expect(JSON.stringify(failure)).not.toContain('ExchangeOnlineManagement');
+      } finally {
+        await session.close();
+      }
+    }, 60_000);
+  },
+);

@@ -1,0 +1,36 @@
+#!/bin/sh
+# A `pwsh` for the e2e topology: when its directory is FIRST on the PATH of the server process, the
+# product's worker launcher finds this file instead of PowerShell and gets the fake Exchange worker
+# (apps/server/test/fakes/fake-tenant/exchange/standin-process.mjs --semantic): the same line protocol
+# as worker-script.ps1, over the fake Exchange state, with data from `seed.json` next to this file (else a
+# default seed). See e2e/support/pwsh-shim/README.md. Test support only; the image never contains it.
+#
+# The arguments are the ones the product gives pwsh (-NoLogo -NoProfile -NonInteractive -File <script>
+# -CertificateMode <mode> [-ScratchDirectory <dir>]); they are passed on and read by the stand-in.
+# `exec` keeps the process id, so the parent of the stand-in is the server (its journal is named after it).
+# Where seed.json is looked for: next to the file as it was FOUND (a symlink in a per-run directory
+# works: the run directory holds the link and its own seed.json). Where the stand-in is: next to the real file.
+found_dir="$(cd "$(dirname "$0")" && pwd)"
+self="$0"
+while [ -h "$self" ]; do
+  link="$(readlink "$self")"
+  case "$link" in
+    /*) self="$link" ;;
+    *) self="$(dirname "$self")/$link" ;;
+  esac
+done
+real_dir="$(cd "$(dirname "$self")" && pwd -P)"
+standin="$real_dir/../../../apps/server/test/fakes/fake-tenant/exchange/standin-process.mjs"
+if [ ! -f "$standin" ]; then
+  echo "pwsh shim: the stand-in is not at $standin" >&2
+  exit 127
+fi
+# The product starts the worker with a short environment WITHOUT a PATH, so `node` must be found another way:
+# a `node` link (or file) next to the shim as it was found, else whatever the default search path has.
+node_bin="$found_dir/node"
+[ -x "$node_bin" ] || node_bin="$(command -v node)"
+if [ -z "$node_bin" ]; then
+  echo "pwsh shim: no node: put a link to it next to the shim (see README.md)" >&2
+  exit 127
+fi
+exec "$node_bin" "$standin" --semantic --shim-dir "$found_dir" "$@"

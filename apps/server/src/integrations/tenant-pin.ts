@@ -29,3 +29,23 @@ export function readTenantPin(database: DatabaseHandle | undefined): TenantPin |
     return undefined;
   }
 }
+
+/**
+ * The initial (`.onmicrosoft.com`) domain of the pinned tenant, lower-case, as the wizard stored it from
+ * `GET /organization`; `undefined` when there is none or the row does not hold a domain name. The Exchange
+ * worker connects with it (`Connect-ExchangeOnline -Organization`).
+ */
+export function readInitialDomain(database: DatabaseHandle | undefined): string | undefined {
+  if (database === undefined) return undefined;
+  try {
+    const row = database.sqlite
+      .prepare('SELECT initial_domain AS domain FROM tenant_connection WHERE id = 1')
+      .get() as { domain: string | null } | undefined;
+    const domain = row?.domain?.trim().toLowerCase();
+    return domain !== undefined && /^(?:[a-z0-9-]{1,63}\.)+[a-z]{2,63}$/.test(domain)
+      ? domain
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}

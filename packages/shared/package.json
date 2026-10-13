@@ -48,6 +48,10 @@
       "types": "./src/directory/*.ts",
       "default": "./src/directory/*.ts"
     },
+    "./exchange/*": {
+      "types": "./src/exchange/*.ts",
+      "default": "./src/exchange/*.ts"
+    },
     "./tokens": {
       "types": "./src/tokens/index.ts",
       "default": "./src/tokens/index.ts"

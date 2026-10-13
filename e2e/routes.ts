@@ -176,3 +176,129 @@ export const DIRECTORY_STATES: readonly DirectoryState[] = [
   { slug: 'group-detail-basic', actor: 'basic', route: '/groups/$id', seeded: 'bigGroup' },
   { slug: 'group-detail-unknown', actor: 'full', route: '/groups/$id', seeded: 'unknownId' },
 ];
+
+// ---- Phase D, step D1 (T-D-181): distribution lists, contacts and group members ------------------------------------
+// The states that axe, the keyboard specs, the responsive specs and the visual specs walk over on
+// `/distribution-lists`, `/distribution-lists/$id`, `/contacts`, `/contacts/$id` and `/groups/$id` (member editing),
+// as data. The fake Exchange behind the `pwsh` shim is seeded per state (`support/exchange-seed.ts`); a path names
+// its object by NAME so the ids (which the seed makes, not the spec) are resolved when the state is visited
+// (`fixtures/member-states.ts`): `{list:Marketing}`, `{contact:Carol Bakker}`, `{group:m365Group}` (a key of the
+// seeded Graph directory). `/distribution-lists/$id` and `/contacts/$id` are known to the route-tree comparison by
+// name (`apps/web/test/routes-coverage.test.ts`), so they need no entry in `CLIENT_ROUTES`.
+
+/** What the fake Exchange holds in a state: the standard seed, nothing at all, or 4,000 lists (`narrow_search`). */
+export type ExchangeData = 'standard' | 'empty' | 'narrow';
+
+/**
+ * What the person does on the page before the picture is taken or the page is scanned:
+ *   picker          opens the add dialog and searches
+ *   picked          the same, with every result selected
+ *   result          the same, and confirms: the result of the change is on the page
+ *   remove-confirm  selects the first member and opens the confirmation to remove
+ *   form-errors     opens "New contact" and submits it empty
+ *   form-edit       opens "Edit contact"
+ *   delete-confirm  opens "Delete contact"
+ */
+export type MemberStep =
+  | 'picker'
+  | 'picked'
+  | 'result'
+  | 'remove-confirm'
+  | 'form-errors'
+  | 'form-edit'
+  | 'delete-confirm';
+
+export interface MemberState {
+  /** The name of the state in test titles and of the visual baseline (`<slug>-<project>`). */
+  readonly slug: string;
+  readonly data?: ExchangeData;
+  /** The address, with `{list:Name}`, `{contact:Name}` or `{group:key}` for an object. */
+  readonly path: string;
+  readonly step?: MemberStep;
+  /** The contact is first put into two lists, so that its page and its delete dialog have lists to show. */
+  readonly contactInLists?: boolean;
+  /** The answers (4xx, 5xx) that are the point of the state. */
+  readonly expect?: readonly { readonly status: number; readonly url: string }[];
+  /** The state has a baseline in `visual.spec.ts` (FR-D-902). */
+  readonly visual?: boolean;
+}
+
+export const MEMBER_STATES: readonly MemberState[] = [
+  // Distribution lists.
+  { slug: 'lists-loaded', path: '/distribution-lists', visual: true },
+  { slug: 'lists-empty', data: 'empty', path: '/distribution-lists', visual: true },
+  { slug: 'lists-no-match', path: '/distribution-lists?q=qqzzxxyy' },
+  {
+    slug: 'lists-narrow-search',
+    data: 'narrow',
+    path: '/distribution-lists',
+    expect: [{ status: 422, url: '/api/v1/distribution-lists' }],
+  },
+  { slug: 'lists-synced-filter', path: '/distribution-lists?kind=synced' },
+  { slug: 'list-detail', path: '/distribution-lists/{list:Marketing}', visual: true },
+  { slug: 'list-detail-empty', path: '/distribution-lists/{list:Archive}' },
+  {
+    slug: 'list-detail-synced',
+    path: '/distribution-lists/{list:Legacy synced}',
+    visual: true,
+  },
+  { slug: 'list-detail-dynamic', path: '/distribution-lists/{list:Everyone dynamic}' },
+  {
+    slug: 'list-detail-unknown',
+    path: '/distribution-lists/00000000-0000-4000-8000-0000000fffff',
+    expect: [{ status: 404, url: '/api/v1/distribution-lists/' }],
+  },
+  {
+    slug: 'list-add-picker',
+    path: '/distribution-lists/{list:Marketing}',
+    step: 'picker',
+    visual: true,
+  },
+  { slug: 'list-add-picked', path: '/distribution-lists/{list:Marketing}', step: 'picked' },
+  {
+    slug: 'list-add-result',
+    path: '/distribution-lists/{list:Marketing}',
+    step: 'result',
+    visual: true,
+  },
+  {
+    slug: 'list-remove-confirm',
+    path: '/distribution-lists/{list:Marketing}',
+    step: 'remove-confirm',
+    visual: true,
+  },
+  // Contacts.
+  { slug: 'contacts-loaded', path: '/contacts', visual: true },
+  { slug: 'contacts-empty', data: 'empty', path: '/contacts' },
+  { slug: 'contacts-no-match', path: '/contacts?q=qqzzxxyy' },
+  {
+    slug: 'contact-detail',
+    path: '/contacts/{contact:Carol Bakker}',
+    contactInLists: true,
+    visual: true,
+  },
+  { slug: 'contact-detail-no-lists', path: '/contacts/{contact:Dan Visser}' },
+  { slug: 'contact-detail-synced', path: '/contacts/{contact:Sam Synced}' },
+  {
+    slug: 'contact-detail-unknown',
+    path: '/contacts/00000000-0000-4000-8000-0000000fffff',
+    expect: [{ status: 404, url: '/api/v1/contacts/' }],
+  },
+  { slug: 'contact-form-errors', path: '/contacts', step: 'form-errors', visual: true },
+  { slug: 'contact-form-edit', path: '/contacts/{contact:Dan Visser}', step: 'form-edit' },
+  {
+    slug: 'contact-delete-confirm',
+    path: '/contacts/{contact:Carol Bakker}',
+    contactInLists: true,
+    step: 'delete-confirm',
+    visual: true,
+  },
+  // Members of groups (the seeded Graph directory of Phase C).
+  { slug: 'group-members-editor', path: '/groups/{group:m365Group}', visual: true },
+  { slug: 'group-add-picker', path: '/groups/{group:m365Group}', step: 'picker' },
+  { slug: 'group-add-result', path: '/groups/{group:m365Group}', step: 'result' },
+  { slug: 'group-remove-confirm', path: '/groups/{group:m365Group}', step: 'remove-confirm' },
+  { slug: 'group-members-readonly', path: '/groups/{group:dynamicGroup}', visual: true },
+  { slug: 'group-members-readonly-synced', path: '/groups/{group:syncedGroup}' },
+  { slug: 'group-members-readonly-exchange', path: '/groups/{group:distributionGroup}' },
+];

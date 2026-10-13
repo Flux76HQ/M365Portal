@@ -1,6 +1,6 @@
 # Security
 
-> **Status:** Phase B. This document describes what exists in Phase B (the setup wizard, the Microsoft
+> **Status:** Phase D step D1 (the section "Phase D step D1: the Exchange worker and the first writes" is new). Phase B and C material is unchanged. This document describes what exists in Phase B (the setup wizard, the Microsoft
 > connection, sign-in with Entra, sessions and roles); the Phase A material below stays valid and the Phase B
 > material follows it. Phase A, which had no sign-in and no Microsoft connection, is the base. Sources: plan sections 8.1 to 8.10, the data model, the contract and the gate notes
 > under [`specs/001-m365portal/gate-notes/`](../specs/001-m365portal/gate-notes/). Every statement about
@@ -469,6 +469,110 @@ indirect calls; the colour scans miss percent-encoded hex in data URIs; the sing
 matches function names, so look-alikes under other names pass and a few legitimate names are flagged;
 the file walker ignores symlinks.
 
+## Phase D step D1: the Exchange worker and the first writes
+
+> **Status:** step D1 (2026-10-13). The first step in which the panel **changes** the tenant: members of
+> distribution lists and groups, and mail contacts. Everything below is a property of the code and its tests;
+> none of it has run against a real tenant or in a built image (the owner tests OV-D1 to OV-D5 do that, see
+> [owner-test-phase-d1.md](owner-test-phase-d1.md)). Decisions: ADR-0180 (image), ADR-0181 (worker protocol and
+> allow-list). Phase A to C material above stays valid.
+
+### The worker is a process boundary, not a sandbox
+
+Exchange Online can only be written through PowerShell, so a `pwsh` child process runs in the container. What
+that does and does not protect:
+
+- **What the boundary gives.** The child is started with `spawn` and an argument list (no shell), a fixed script
+  whose path is not caller-controlled, and an **environment of a short list of names**: the proxy and
+  certificate-bundle variables of the parent and fixed ones of its own. `APP_KEY`, `APP_KEY_FILE`, the setup
+  token and the break-glass hash never reach it. It listens on no port; it talks only over its stdin and
+  stdout, one JSON line per message, one call at a time. Its **stderr is thrown away** (a PowerShell error text
+  can contain a name or an address) and a stdout line that is not valid protocol JSON is ignored and never
+  logged. The command line holds no certificate, password or tenant name.
+- **What it does not give.** The worker runs as the same user (65532) in the same container as the panel, with the
+  same file system. It is **not** isolated from `/data`: a bug that gave an attacker code execution inside it would
+  reach what the process user reaches, the sealed database included. The protection is that nothing an
+  administrator types becomes code (below), not a kernel boundary. A seccomp profile or a separate container (ODB-01
+  option B) was not chosen for D1 (ADR-0180, item 7).
+- **The key.** In the default mode the certificate and its key travel once, as PEM text held in memory, over the
+  stdin pipe, in one `connect` line (never in an argument, the environment or a log), and the script builds the
+  certificate object in memory (`CreateFromPem`). No file is written (`no-key-on-disk.test.ts`: the memory mode creates no file and no directory;
+  the fallback removes its file and directory; a canary scan with negative controls proves the scan can fail). The fallback
+  (`EXCHANGE_KEY_HANDOVER=tmpfs`) writes the two PEMs to files (certificate and key, `cert.pem` and `key.pem` in kind, with a
+  random token in the name) and a PKCS#12 file derived from them, all mode 0600 under `/dev/shm`, for the time of the
+  connect, and removes all three in a `finally` block; it refuses a directory that is not a tmpfs. The server side
+  of the hand-over is built: one accessor, `SecretsRuntime.withCertificateMaterial`, is the single audited way the
+  PEMs leave the secrets module; it hands them to a callback and revokes them afterwards, each access is a log
+  line (purpose and thumbprint, never the key), and a test pins the files that may name it. The PEM strings cannot
+  be wiped from memory (an accepted risk, below). With a degraded secrets state, no certificate, no key that opens
+  it or no initial domain, no key is read and the Exchange routes answer 503. Whether the module accepts an
+  in-memory `CreateFromPem` certificate on Linux is U75, **not proven against a real `pwsh` or a tenant**.
+- **Recycling.** The worker is replaced after 500 calls or 3,600 seconds and killed at a deadline of 120 seconds
+  (`exchange.*` in [operations.md](operations.md#limits-outside-the-repository)): bounded memory (Learn: repeated
+  connect and disconnect can leak) and no call that hangs a request for ever. Memory residue of the key in the
+  Node and PowerShell processes, core dumps and swap is an accepted risk.
+
+### The allow-list: nothing an administrator types becomes a command
+
+A call is `{ cmdlet, args }` where the cmdlet is one of **ten names** and the arguments are validated against a
+closed table (`packages/shared/src/exchange/allow-list.ts`, ADR-0181): every parameter has a kind (text with a
+pattern and a maximum length, switch, boolean, result size, enumerated value) and unknown parameters are refused.
+
+- It is checked **twice**: by the server before the line is written, and by the worker script before the cmdlet
+  runs, against the same table. The script embeds the canonical form of the table with its SHA-256; the worker
+  reports the hash at connect and the server stops a worker whose hash differs from its own
+  (`exchange:check` and a hash test keep the generated block equal to the source).
+- Arguments are bound as **named parameters** (`& $command @parameters`), never concatenated into command
+  text; there is no `Invoke-Expression`, no script block from input and no `Invoke-Command`. The module is
+  loaded with `-CommandName` for the allowed cmdlets only.
+- **`-Confirm` and `-WhatIf` are never a caller parameter.** The script appends `-Confirm:$false` itself, to the
+  two `Remove-` cmdlets only, so a destructive call never waits for a prompt that nobody can answer and a caller
+  cannot turn the prompt on or "preview" a change that was in fact made.
+- **An empty identity is refused**, for every cmdlet that has one: `Get-MailContact -Identity $null` returns
+  every contact and an unknown identity returns all objects (Learn warns on both). `Member` is required on `Add-`
+  and `Remove-` although Learn marks it optional.
+- Search text enters an Exchange filter only as a single-quoted literal with every quote doubled, and a prefix that
+  holds a wildcard is refused instead of searched (the only wildcard is the suffix the code appends).
+- Not on the list, so not possible: `Set-Contact`, `Set-DistributionGroup`, `New-DistributionGroup`,
+  `Remove-DistributionGroup`, `Get-DynamicDistributionGroupMember`, any `Invoke-` or `Connect-` cmdlet from a caller.
+
+### Writes: scope, step-up, the `/$ref` guard, audit
+
+| Surface | Spoofing | Tampering | Repudiation | Information disclosure | Denial of service | Elevation of privilege |
+|---|---|---|---|---|---|---|
+| Member writes of lists and groups (P43, P44, P53, P54) | Session, CSRF binding and Origin check as for every write | Ids are GUIDs, 1 to 200 distinct, validated; membership is read first so "already" is never a write; the Graph delete path is built by one function that always ends in `/$ref` | One audit entry per member and a summary entry, in the same transaction as the change; a refusal is audited under the route id | Restricted rows for members the actor may not see; no name or address in logs, audit or problem bodies | `write` rate class; chunks of 50 or 20; a throttled Exchange stops the request; the deadline | Permission and scope on the one list or group; **a fresh step-up above 20 members**; a role-assignable group is refused by Graph; dynamic, synchronised and hidden-membership objects are 409 before any call |
+| Mail contacts (P49 to P51) | The same | Fields validated twice (schema and allow-list); the address must arrive normalised; only changed fields are sent; the Exchange name is derived, never typed | `contact.create`, `contact.update` (field **names** only), `contact.delete` (a count); never a value | A duplicate says which field, never which contact; the delete answer lists only the lists the actor may see | The list buffer is bounded (10,000 rows) and a larger result is refused | A new contact is scoped by its proposed name, alias and address (an id scope never covers it); an update must stay inside the scope; delete needs the typed display name |
+| The worker process | Nothing external can connect to it | The allow-list, twice, with a pinned hash | Cmdlet name, outcome and duration are logged, nothing else | Environment allow-list; stderr discarded; no key on disk in the default mode | Serial queue, deadline, recycling | Same user and container as the panel (see above) |
+
+- **Step-up.** The step-up above a threshold is decided in the handler (`PolicyDenied` has the reason
+  `step_up_required`) and audited as a denial under the route id, like the declared step-up of other routes.
+- **The `/$ref` guard.** Learn warns that `DELETE /groups/{id}/members/{id}` without `/$ref` deletes the member
+  object itself where the application may manage it. The panel holds no `User.ReadWrite.All`, so the damage is
+  limited today, but the Graph client builds the path in one function, a test fails on a path without `/$ref`, and
+  the guard `read-only.test.ts` allows exactly two write methods on the client.
+- **Audit content.** The vocabulary of step D1 has seven actions and nine detail keys (`memberId`, `result`,
+  `summary`, `total`, `added`, `removed`, `already`, `failed`, `fields`); none can hold a name or an address, and a
+  test fails when a detail contains one. The chain and the append-only triggers are unchanged
+  ([above](#audit-chain)).
+- **Logs.** A distribution list name, a member address or a search text never appears in a log line; a test greps
+  the logs of every route for canary names and addresses (`no-pii-in-logs.test.ts`).
+- **Names and addresses are data.** The web app renders them as text; the contact form normalises the address and
+  the server refuses an address that is not normalised.
+
+### Accepted risks and gaps of step D1
+
+- **FD-01** The credential source for the worker (PEM) is built but not proven against a real `pwsh` or a tenant
+  (U75, OV-D1). Until the owner test passes, treat the in-memory and `tmpfs` paths as unproven.
+- The worker shares the user and file system of the panel (above). A hardening review may ask for a seccomp
+  profile or a separate container.
+- The runtime packages of the Ubuntu image are not pinned by version; Trivy and Dependabot cover them. The image
+  is larger and has a shell, which is a bigger surface than distroless (ADR-0180).
+- The `tmpfs` hand-over (fallback only) has the key in a file for the time of the connect.
+- Exchange is eventually consistent (U82): a write can be reported done while the list still shows the old state
+  (`readBackPending`).
+- What Microsoft really answers (U75 to U100) is unverified until the owner tests; every one of them has a designed
+  fallback that fails closed (a message, never a silent success).
+
 ## Application verification (ASVS)
 
 Target: OWASP ASVS **level 2**. The ASVS text was not read for this task, so no control identifier is
@@ -566,6 +670,62 @@ loopback publiceren (`127.0.0.1`). Preview-modus verdwijnt naar verwachting in F
 De lint-regels en repositorycontroles zijn een eerste verdedigingslinie; een adversarial review vond
 omzeilingen (register GR-1 tot GR-23 in open-points.md), geaccepteerd als bekende beperking.
 Vangnetten: Trusted Types in e2e, de routetabelcontrole bij het opstarten, de beleidslaag en review.
+
+### Fase D stap D1: de Exchange-worker en de eerste schrijfacties
+
+Stap D1 (2026-10-13) is de eerste stap waarin het paneel de tenant **wijzigt**: leden van distributielijsten en
+groepen, en mailcontacten. Alles hieronder is een eigenschap van de code en de tests; niets is tegen een echte
+tenant of in een gebouwde image gedraaid (dat doen de eigenaarstests OV-D1 tot en met OV-D5). Besluiten: ADR-0180
+en ADR-0181.
+
+- **De worker is een procesgrens, geen sandbox.** Exchange Online is alleen via PowerShell te wijzigen, dus een
+  `pwsh`-kindproces draait in de container. Het wordt gestart met `spawn` en een argumentenlijst (geen shell), een
+  vast script en een **omgeving van een korte lijst namen** (proxy- en certificaatbundelvariabelen van de ouder
+  en eigen vaste waarden): `APP_KEY`, `APP_KEY_FILE`, het setup-token en de break-glass-hash komen er nooit bij. Het
+  luistert op geen poort; het praat alleen over stdin en stdout, één JSON-regel per bericht, één aanroep tegelijk.
+  Zijn stderr wordt weggegooid (een PowerShell-foutmelding kan een naam of adres bevatten). **Wat het niet geeft**:
+  de worker draait als dezelfde gebruiker (65532) in dezelfde container met hetzelfde bestandssysteem; het is
+  niet afgeschermd van `/data`. De bescherming is dat niets wat een beheerder typt code wordt, geen kernelgrens.
+  Een seccomp-profiel of een aparte container (ODB-01 B) is voor D1 niet gekozen.
+- **De sleutel.** In de standaardmodus reizen certificaat en sleutel eenmalig over de pipe in één `connect`-regel
+  en bouwt het script het certificaat in het geheugen; er wordt geen bestand geschreven (`no-key-on-disk.test.ts`: de
+  geheugenmodus maakt geen bestand en geen map, de terugval ruimt bestand en map op; een kanariescan met negatieve
+  controles bewijst dat de scan kan falen). De terugval
+  (`EXCHANGE_KEY_HANDOVER=tmpfs`) schrijft een bestand met modus 0600 onder `/dev/shm` voor de duur van het
+  verbinden en verwijdert het; een map die geen tmpfs is, wordt geweigerd. De PEM-tekst blijft in het geheugen
+  en gaat over de stdin-pipe, nooit in een argument, de omgeving of een log. De terugval schrijft de twee PEM's naar
+  bestanden (certificaat en sleutel, met een willekeurig token in de naam) en een daarvan afgeleid PKCS#12-bestand,
+  allemaal met modus 0600, en verwijdert alle drie in een `finally`-blok. De serverkant van de overdracht is
+  gebouwd: één toegangsmethode, `SecretsRuntime.withCertificateMaterial`, is de enige geauditeerde weg waarlangs de
+  PEM's de geheimenmodule verlaten; ze gaat naar een callback en wordt daarna ingetrokken, elke toegang is een
+  logregel (doel en vingerafdruk, nooit de sleutel). Bij een gedegradeerde geheimenstaat, geen certificaat, geen
+  sleutel die het opent of geen initieel domein wordt geen sleutel gelezen en antwoordt elke Exchange-route 503. Of
+  de module een certificaat uit het geheugen op Linux accepteert, is U75, **niet bewezen tegen een echte `pwsh` of
+  een tenant**. De worker wordt na 500 aanroepen of 3.600
+  seconden vervangen en na 120 seconden gedood.
+- **De toegestane lijst: niets wat een beheerder typt wordt een opdracht.** Een aanroep is `{ cmdlet, args }` met
+  een van **tien namen** en argumenten die tegen een gesloten tabel worden gecontroleerd (soort, patroon, maximale
+  lengte; onbekende parameters geweigerd), **twee keer**: door de server voor het naar de worker gaat en door het
+  workerscript vóór de cmdlet draait, tegen dezelfde tabel; het script bevat de canonieke vorm met zijn SHA-256 en
+  de server stopt een worker waarvan de hash afwijkt. Argumenten worden als **benoemde parameters** gebonden
+  (`& $command @parameters`), nooit in opdrachttekst geplakt; geen `Invoke-Expression`, geen scriptblok uit invoer.
+  **`-Confirm` en `-WhatIf` zijn nooit een parameter van de aanroeper**: het script voegt zelf `-Confirm:$false`
+  toe aan de twee `Remove-`-cmdlets, zodat een aanroep nooit op een niet te beantwoorden vraag wacht. **Een lege
+  identiteit wordt geweigerd** (`Get-MailContact -Identity $null` geeft alle contacten, zegt Learn).
+- **Schrijven.** Rechten en scope gelden op die ene lijst, groep of dat contact; **boven 20 leden is een verse
+  step-up nodig** (beslist in de handler en geaudit als weigering); het verwijderpad van Graph wordt door één
+  functie gebouwd die altijd op `/$ref` eindigt (Learn waarschuwt dat het lid zelf wordt verwijderd als dat
+  ontbreekt; een test faalt op een pad zonder), en een bewaker staat precies twee schrijfmethoden toe op de
+  Graph-client. Eerst wordt het lidmaatschap gelezen, dus "already" is nooit een schrijfactie. Per lid één
+  auditregel plus een samenvatting in dezelfde transactie; contacten auditen veldnamen, nooit waarden. Het
+  vocabulaire telt zeven acties en negen detailsleutels, geen kan een naam of adres bevatten. Een lijstnaam, een
+  ledenadres of een zoektekst komt in geen logregel (een test zoekt naar kanarienamen).
+- **Aanvaarde risico's en gaten.** FD-01: de bron van de inloggegevens van de worker (PEM) is gebouwd maar niet bewezen
+  tegen een echte `pwsh` of een tenant (U75, OV-D1). De worker deelt gebruiker en bestandssysteem met het paneel. De pakketten van de Ubuntu-image zijn
+  niet op versie vastgezet (Trivy en Dependabot dekken ze); de image is groter en heeft een shell. Bij de
+  `tmpfs`-terugval staat de sleutel even in een bestand. Exchange is uiteindelijk consistent (`readBackPending`,
+  U82). Wat Microsoft echt antwoordt (U75 tot en met U100) is ongeverifieerd tot de eigenaar test; elk heeft een
+  ontworpen terugval die dichtgaat (een melding, nooit een stil succes).
 
 ### ASVS
 

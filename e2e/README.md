@@ -32,6 +32,17 @@ stops them and removes the run directory (also after an aborted run).
 - One worker. The browser is the Chromium found through `PLAYWRIGHT_BROWSERS_PATH`; in the agent
   sandbox `playwright install` must not be run (`@playwright/test` 1.56.1 matches the preinstalled one).
 
+## The Exchange worker (Phase D)
+
+Instance A finds a fake `pwsh` first on its `PATH` (`servers.ts`: `makePwshShimDirectory`, one directory per run with a
+link `pwsh` to `support/pwsh-shim/pwsh` and a link `node`), so the product's own worker launcher starts the fake Exchange
+(`apps/server/test/fakes/fake-tenant/exchange/standin-process.mjs`) and the real credential hand-over is exercised. A spec
+chooses its data with `support/exchange-seed.ts` (`seedExchange(seed)`, default `standardSeed()`; `clearExchangeSeed()` at
+the end); the seed is re-read on every request, so a new seed is the reseed between tests. The worker is a child of the
+server: what it did is read through the panel's API and the audit log (`support/database.ts`: `auditRowsAfter`), not
+through the fake tenant's call record. `fixtures/lists.ts` holds the drivers, `fixtures/member-states.ts` visits the
+states of `MEMBER_STATES` (`routes.ts`) for axe, keyboard, responsive and visual.
+
 ## Principals and `signInAs`
 
 `support/principals.ts` lists the fake users with fixed ids: `owner`, `administrator` (role `admin`),
@@ -70,4 +81,5 @@ End-to-endtests tegen de productiebuild en een nagebootste Microsoft-tenant. Dra
 (beide builds) en daarna `pnpm e2e`; `openssl` is nodig. Instantie A (`E2E_PORT`, standaard 4173) wordt
 per run via de echte setup-wizard ingericht, instantie B (`E2E_PORT + 1`) is leeg, de nagebootste tenant
 draait op `E2E_PORT + 2` (TLS op `+3`). Bij het afsluiten worden de processen gestopt en de map
-verwijderd. Visuele referentiebeelden voor nieuwe routes komen uit het CI-artefact, niet uit de sandbox.
+verwijderd. Visuele referentiebeelden voor nieuwe routes komen uit het CI-artefact, niet uit de sandbox. Fase D: instantie A vindt
+een nagebootste `pwsh` vooraan op het `PATH` (de nagebootste Exchange-worker); `support/exchange-seed.ts` kiest de data.

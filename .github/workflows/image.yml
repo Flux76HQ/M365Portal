@@ -295,7 +295,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # SHOULD, not MUST: arm64 under QEMU is slow and its feasibility is unproven (PR-06).
+      # SHOULD, not MUST: arm64 under QEMU is slow and its feasibility is unproven (PR-06). Since Phase D
+      # (T-D-117) the step also pings the Exchange worker of the arm64 image: PowerShell and the
+      # ExchangeOnlineManagement module must start there too (the arm64 PowerShell archive is pinned
+      # by its own checksum). Still continue-on-error: QEMU may be too slow, and the result is
+      # evidence for the owner, not a gate.
       - name: Smoke test arm64 image
         continue-on-error: true
         env:
@@ -304,6 +308,16 @@ jobs:
           docker run --rm --platform linux/arm64 --entrypoint /nodejs/bin/node "${IMAGE_REF}" \
             -e "const D=require('better-sqlite3'); new D(':memory:').prepare('select 1').get(); console.log('arm64 ok', process.arch)" || {
             echo "::warning::The arm64 image did not start under QEMU. Remediation: run the same command on an arm64 machine; the native better-sqlite3 prebuild for linux-arm64 may be missing from the image."
+            exit 1
+          }
+          printf '%s\n%s\n' '{"v":1,"type":"ping","id":"a1b2c3d4-00000001"}' '{"v":1,"type":"shutdown","id":"a1b2c3d4-00000002"}' \
+            | docker run --rm -i --platform linux/arm64 --read-only --tmpfs /tmp --cap-drop ALL \
+              --security-opt no-new-privileges --network none -e HOME=/tmp \
+              --entrypoint /opt/microsoft/powershell/7/pwsh "${IMAGE_REF}" \
+              -NoLogo -NoProfile -NonInteractive -File /app/dist/exchange/worker-script.ps1 \
+            | tee /tmp/worker-ping.json
+          grep -q '"moduleVersion":"3.10.1"' /tmp/worker-ping.json || {
+            echo "::warning::The Exchange worker did not answer a ping on arm64. Remediation: run the same command on an arm64 machine; the PowerShell arm64 archive or the module may not start under QEMU."
             exit 1
           }
 

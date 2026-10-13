@@ -14,6 +14,9 @@
 //             Phase C (FR-C-508): the directory is seeded (1,200 users, 150 groups), so /users and /groups
 //             show a full page, and the pages of one user and of one Microsoft 365 group are in the list
 //             (/users/<id>, /groups/<id>). All four are REPORTED, none is gated.
+//             Phase D (FR-D-904): the fake Exchange behind the `pwsh` shim holds its standard seed, so
+//             /distribution-lists and /contacts show rows, and /distribution-lists/<id> and /contacts/<id>
+//             are measured ONCE each (reported). Four more cells in a pass, about a minute.
 // A cell is measured once; ONLY a timing miss is measured again (at most three runs in all), every
 // measurement is kept as an artefact, and judge.mjs decides (first run for status, payload and the
 // category scores, the cleanest run for LCP and CLS). Exit code 1 when a gated cell fails.
@@ -198,6 +201,14 @@ function groupsOf(topology, routesOf) {
   const directoryPages = [
     topology.directory?.user ? [`/users/${topology.directory.user}`, ''] : null,
     topology.directory?.group ? [`/groups/${topology.directory.group}`, ''] : null,
+    // Phase D (FR-D-904): one list with its members and one contact with its lists, ONE run each (a third
+    // element says so): the two detail pages add four measurements to a pass, not twelve.
+    topology.directory?.list
+      ? [`/distribution-lists/${topology.directory.list}`, '', { once: true }]
+      : null,
+    topology.directory?.contact
+      ? [`/contacts/${topology.directory.contact}`, '', { once: true }]
+      : null,
   ].filter((page) => page !== null);
   return {
     'a-public': {
@@ -244,7 +255,7 @@ async function main() {
       const group = groups[name];
       for (const preset of options.presets) {
         mkdirSync(join(options.out, name, preset), { recursive: true });
-        for (const [route, query] of group.pages) {
+        for (const [route, query, flags] of group.pages) {
           if (options.routes !== null && !options.routes.includes(route)) continue;
           const cell = {
             instance: name,
@@ -257,7 +268,9 @@ async function main() {
           const url = `${group.origin}${route}${query}`;
           while (
             cell.measurements.length === 0 ||
-            (cell.measurements.length < MAX_RUNS && needsRepeat(cell, { always: options.always }))
+            (flags?.once !== true &&
+              cell.measurements.length < MAX_RUNS &&
+              needsRepeat(cell, { always: options.always }))
           ) {
             const run = cell.measurements.length + 1;
             const outputFile = join(

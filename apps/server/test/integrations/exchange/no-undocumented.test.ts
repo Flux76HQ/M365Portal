@@ -1,10 +1,14 @@
-// T-B-080, FR-B-314, ODB-01 (+ negative): the repository contains no `InvokeCommand`, no `pwsh` and
-// no `powershell` outside the documentation (`docs/`, which includes the ADRs) and the specs.
+// T-B-080, FR-B-314, ODB-01 (+ negative), amended by T-D-117 (FR-D-101, FR-D-106): the repository
+// contains no `InvokeCommand` anywhere, and no `pwsh` and no `powershell` outside the documentation
+// (`docs/`, which includes the ADRs), the specs and the FEW FILES OF PHASE D that run the worker or
+// build the image that holds it.
 //
 // Why: Learn documents no `InvokeCommand` REST endpoint, and the PowerShell path (`pwsh` with the
-// ExchangeOnlineManagement module) is a decision the owner has not taken for Phase B (ODB-01, research
-// section 9.4). A command line that starts `pwsh`, a Dockerfile that installs PowerShell or a call to
-// an undocumented endpoint must fail the build, not slip in.
+// ExchangeOnlineManagement module) was a decision the owner had not taken for Phase B (ODB-01, research
+// section 9.4). The owner took it for Phase D (ODD-01 B: a `pwsh` worker in the image), so the guard
+// is no longer "never" but "only here": an allow-list of paths. A command line that starts `pwsh` in
+// any other file, a Dockerfile of another shape or a call to an undocumented endpoint must fail the
+// build, not slip in.
 //
 // What is scanned: the code and the configuration that ship or build the product. A URL (the Learn
 // pages are `learn.microsoft.com/powershell/...`) and a comment are not code and do not count.
@@ -47,7 +51,30 @@ const SKIP_DIRECTORIES = new Set([
   'cases',
 ]);
 const SCANNED = /(^|\/)(Dockerfile[^/]*)$|\.(ts|tsx|js|mjs|cjs|json|sh|py|yml|yaml|html|toml)$/;
-const FORBIDDEN = /\bInvokeCommand\b|\bpwsh\b|power\s*shell/i;
+const INVOKE_COMMAND = /\bInvokeCommand\b/;
+const POWERSHELL = /\bpwsh\b|power\s*shell/i;
+
+/**
+ * The files (or folders, with a trailing slash) that may name `pwsh` or PowerShell in code (Phase D):
+ * the worker and everything that starts it, the image that holds it, the smoke test that pings it and
+ * the two checks that read the image. Each entry must really need it (the test below says so).
+ */
+export const POWERSHELL_ALLOWED: readonly string[] = [
+  'apps/server/src/integrations/exchange/pwsh/',
+  'apps/server/src/integrations/exchange/runtime.ts',
+  'Dockerfile',
+  '.github/workflows/image.yml',
+  'scripts/image-smoke.ts',
+  'scripts/check_image_contents.py',
+  'scripts/check_dockerfile_pins.py',
+  'scripts/test_check_image_contents.py',
+  'scripts/test_check_dockerfile_pins.py',
+];
+
+const mayNamePowerShell = (path: string): boolean =>
+  POWERSHELL_ALLOWED.some((entry) =>
+    entry.endsWith('/') ? path.startsWith(entry) : path === entry,
+  );
 
 export interface SourceFile {
   readonly path: string;
@@ -68,7 +95,12 @@ export function codeOf(file: SourceFile): string {
 
 /** Throws when a file mentions the forbidden names in code; docs and specs are never offered to it. */
 export function checkNoUndocumented(files: readonly SourceFile[]): void {
-  const offenders = files.filter((file) => FORBIDDEN.test(codeOf(file))).map((file) => file.path);
+  const offenders = files
+    .filter((file) => {
+      const code = codeOf(file);
+      return INVOKE_COMMAND.test(code) || (POWERSHELL.test(code) && !mayNamePowerShell(file.path));
+    })
+    .map((file) => file.path);
   if (offenders.length > 0)
     throw new Error(`undocumented Exchange path in: ${offenders.join(', ')}`);
 }
@@ -97,7 +129,7 @@ function productFiles(): SourceFile[] {
 }
 
 describe('no undocumented Exchange path (T-B-080)', () => {
-  it('finds no InvokeCommand, pwsh or powershell in the code and configuration of the product', () => {
+  it('finds no InvokeCommand, and pwsh or powershell only in the files of the allow-list', () => {
     const files = productFiles();
     // The scan really reads the product: the server source and the image build are among the files.
     expect(
@@ -112,6 +144,24 @@ describe('no undocumented Exchange path (T-B-080)', () => {
     }).not.toThrow();
   });
 
+  it('every entry of the allow-list exists and really names PowerShell (the list cannot grow stale)', () => {
+    const files = productFiles();
+    for (const entry of POWERSHELL_ALLOWED) {
+      const matching = files.filter((file) =>
+        entry.endsWith('/') ? file.path.startsWith(entry) : file.path === entry,
+      );
+      if (entry === 'apps/server/src/integrations/exchange/runtime.ts' && matching.length === 0) {
+        // The bootstrap that wires the worker (server part B) may not exist yet.
+        continue;
+      }
+      expect(matching.length, entry).toBeGreaterThan(0);
+      expect(
+        matching.some((file) => POWERSHELL.test(codeOf(file))),
+        `${entry} names pwsh or PowerShell in code`,
+      ).toBe(true);
+    }
+  });
+
   it('negative: each way of bringing the path in is reported', () => {
     for (const [path, text] of [
       [
@@ -120,9 +170,17 @@ describe('no undocumented Exchange path (T-B-080)', () => {
       ],
       ['apps/server/src/exchange/rest.ts', "const url = base + '/InvokeCommand';"],
       ['apps/server/src/exchange/ps.ts', 'export const shell = "PowerShell";'],
-      ['Dockerfile', 'FROM node:22\nRUN apt-get install -y powershell\n'],
+      ['apps/server/src/directory/shell.ts', "spawn('pwsh', ['-File', 'x.ps1']);"],
+      ['apps/server/src/exchange/other/pwsh-shaped.ts', "spawn('pwsh');"],
+      ['Dockerfile.other', 'FROM node:22\nRUN apt-get install -y powershell\n'],
       ['scripts/setup.sh', 'pwsh -File connect.ps1\n'],
       ['package.json', '{ "scripts": { "ps": "pwsh -c 1" } }'],
+      // InvokeCommand stays forbidden even where PowerShell is allowed.
+      [
+        'apps/server/src/integrations/exchange/pwsh/rest.ts',
+        "const url = base + '/InvokeCommand';",
+      ],
+      ['Dockerfile', 'RUN echo InvokeCommand\n'],
     ] as const) {
       expectGuardFails(
         () => {
@@ -135,6 +193,26 @@ describe('no undocumented Exchange path (T-B-080)', () => {
         },
       );
     }
+  });
+
+  it('a file of the allow-list may name pwsh, and the same line elsewhere may not', () => {
+    const line = "spawn('pwsh', ['-File', script]);";
+    expect(() => {
+      checkNoUndocumented([
+        { path: 'apps/server/src/integrations/exchange/pwsh/worker-launcher.ts', text: line },
+        {
+          path: 'Dockerfile',
+          text: 'RUN ln -s /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh\n',
+        },
+      ]);
+    }).not.toThrow();
+    expectGuardFails(
+      () => {
+        checkNoUndocumented([{ path: 'apps/server/src/connection/service.ts', text: line }]);
+      },
+      undefined,
+      { name: 'pwsh in a service', reason: 'apps/server/src/connection/service.ts' },
+    );
   });
 
   it('a Learn URL and a comment are not code', () => {

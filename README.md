@@ -9,7 +9,7 @@ distribution lists, contacts) from one place. It runs as one container with one 
 
 ### Status, honestly
 
-This is **Phase C, users and groups (read only)**, on top of Phase B (the connection and the sign-in) and the Phase A foundation. What exists and works:
+This is **Phase D step D1, distribution lists, contacts and group members**, on top of Phase C (users and groups, read only), Phase B (the connection and the sign-in) and the Phase A foundation. Phase D is delivered in three steps; D1 is built and waits for your test against a Microsoft 365 test tenant. What exists and works:
 
 - the application shell (sidebar, header, command palette `Ctrl+K`, light and dark theme, Dutch and English),
 - organisation branding (name, logo upload, accent colour with a contrast guarantee, export and import),
@@ -28,17 +28,33 @@ This is **Phase C, users and groups (read only)**, on top of Phase B (the connec
   server shows each actor only what their role and scope allow; objects outside it appear as "restricted"
   without a name. Nothing is created, changed or deleted, there is no licence column, and the panel asks
   Microsoft for no new permission ([docs/api.md](docs/api.md), [docs/permissions.md](docs/permissions.md)),
+- **Distribution lists, mail contacts and group members** (Phase D step D1, the first features that write): the
+  Distribution lists page (search, filter on standard, dynamic and synchronised lists, members, **add and remove
+  members** with a result per member), the Contacts page (**create, edit, delete** a mail contact, with validation, a
+  typed confirmation and the lists it is removed from), and **add and remove members of Microsoft 365 and
+  security groups** on the Groups page. Exchange is driven by a PowerShell worker in the same container, so the
+  **image is now Ubuntu 24.04 with PowerShell 7.6 and the Exchange Online module** instead of distroless (larger,
+  and with a shell; see [docs/operations.md](docs/operations.md#the-exchange-worker-phase-d-step-d1)). The panel asks
+  Microsoft for no new permission; `GroupMember.ReadWrite.All` is now used ([docs/permissions.md](docs/permissions.md), Part 5),
 - a hardened server and container image (strict security headers, rate limits, read-only root file system, audit log with a hash chain).
 
 What does **not** exist yet:
 
-- Nothing writes yet. Users and groups are read only; creating, changing and deleting them, membership
-  changes, password reset and licences are not built (`GroupMember.ReadWrite.All` is granted but unused in
-  Phase C). The pages for distribution lists and contacts are still empty shells (Phase D).
+- **The Exchange features are not proven against a real tenant.** The worker's credential source is built (the
+  certificate reaches the worker as PEM); it has not been run against a real `pwsh` or a tenant (U75, OV-D1). If
+  Exchange cannot be reached, every Exchange page answers "Exchange is unavailable" while the rest of the panel,
+  group member editing included, works ([docs/open-points.md](docs/open-points.md), FD-01).
+- **The image size ceiling is decided.** CI measured the new Ubuntu image at 538.2 MB (amd64, CI run 38394173673);
+  the owner set the ceiling to 600 MB on 2026-10-13 (it was 400 MB). arm64 and the memory of a long-running worker
+  are not measured ([docs/operations.md](docs/operations.md#the-exchange-worker-phase-d-step-d1)).
+- Users and groups themselves are not created, changed or deleted, there is no password reset and no licence
+  (U17, U48 deferred). Dynamic distribution lists are shown but their members are not listed and cannot be changed.
+- No Phase D feature has run against a real Microsoft 365 tenant yet; the claims U75 to U100 are closed by the
+  owner test in [docs/owner-test-phase-d1.md](docs/owner-test-phase-d1.md).
 - Some Microsoft behaviour could only be read, not tried (for example the manager of a user for an
   application, and groups with hidden membership); the open claims U66 to U74 are closed by a test against a
   real tenant, step by step in [docs/owner-test-phase-c.md](docs/owner-test-phase-c.md).
-- There is no screen for the audit log or for role administration yet (Phase D); the CLI and the API cover them.
+- There is no screen for the audit log, no CSV export and no role administration yet (Phase D steps D2 and D3); the CLI and the API cover the audit chain.
 - **Preview mode is gone.** Without a configured tenant the panel answers only the setup gate; nobody acts as
   administrator without signing in.
 
@@ -155,6 +171,7 @@ the rights listed in step 4.
 | `AUTH_REQUIRE_MFA` | `true` | Require a multi-factor sign-in from Entra |
 | `AUTH_MFA_AMR_VALUES` | `mfa,multipleauthn` | The `amr` values that count as multi-factor |
 | `BREAK_GLASS_USERNAME` / `BREAK_GLASS_PASSWORD_HASH` | unset | Optional emergency account that can only restore an Owner (both or neither) |
+| `EXCHANGE_KEY_HANDOVER` | `memory` | How the Exchange certificate reaches the PowerShell worker: `memory` or `tmpfs` (fallback) |
 
 The full table with all rules is in [docs/operations.md](docs/operations.md#environment-variables). An invalid
 value stops the start and names the variable.
@@ -196,8 +213,9 @@ retention) are listed as numbers in [docs/operations.md](docs/operations.md#limi
 
 ### Security
 
-The container runs unprivileged (uid 65532), with a read-only root file system, all capabilities dropped and no
-shell. The panel sets a session cookie (`HttpOnly`, `SameSite=Strict`, `__Host-` over https) and sends a strict Content-Security-Policy with Trusted Types. Its secrets are sealed with the key you created in the first run. Uploaded
+The container runs unprivileged (uid 65532), with a read-only root file system and all capabilities dropped. Since
+Phase D step D1 the image is Ubuntu 24.04 with PowerShell and has a shell, but no curl; the PowerShell worker
+may call ten fixed Exchange cmdlets and nothing else, and the certificate key is not written to disk by default. The panel sets a session cookie (`HttpOnly`, `SameSite=Strict`, `__Host-` over https) and sends a strict Content-Security-Policy with Trusted Types. Its secrets are sealed with the key you created in the first run. Uploaded
 images are re-encoded; SVG is sanitised and rasterised. Read [docs/security.md](docs/security.md) before putting
 it anywhere but your own computer. Report vulnerabilities privately to the owner of the repository, not in a public issue.
 
@@ -207,11 +225,12 @@ it anywhere but your own computer. Report vulnerabilities privately to the owner
 - [docs/architecture.md](docs/architecture.md): components, request pipeline, performance architecture, dependencies, accessibility
 - [docs/security.md](docs/security.md): threat model, STRIDE tables, attack review, controls, SVG allowlist
 - [docs/permissions.md](docs/permissions.md): the permission catalogue, the role matrix and the Microsoft Graph and Exchange permissions
-- [docs/api.md](docs/api.md): the users and groups routes of Phase C (queries, paging, answers, errors)
+- [docs/api.md](docs/api.md): the users and groups routes of Phase C and the distribution list, contact and group member routes of Phase D step D1 (queries, paging, answers, errors)
 - [docs/owner-test-phase-c.md](docs/owner-test-phase-c.md): the step list to try Phase C against a Microsoft 365 test tenant
+- [docs/owner-test-phase-d1.md](docs/owner-test-phase-d1.md): the step list to try Phase D step D1 against a Microsoft 365 test tenant; [docs/phase-reports/phase-D1.md](docs/phase-reports/phase-D1.md): the report of step D1
 - [docs/open-points.md](docs/open-points.md): open decisions, unverified claims, assumptions and risks
 - [docs/adr/](docs/adr/): architecture decision records (ADR-0001 onwards)
-- [deploy/README.md](deploy/README.md): short deployment notes; [specs/001-m365portal](specs/001-m365portal), [specs/002-phase-b](specs/002-phase-b) and [specs/003-phase-c](specs/003-phase-c): the specifications of Phases A to C
+- [deploy/README.md](deploy/README.md): short deployment notes; [specs/001-m365portal](specs/001-m365portal), [specs/002-phase-b](specs/002-phase-b) and [specs/003-phase-c](specs/003-phase-c) and [specs/004-phase-d](specs/004-phase-d): the specifications of Phases A to D
 
 ### Contributing
 
@@ -225,7 +244,7 @@ contacten) vanaf één plek te beheren. Het draait als één container met één
 
 ### Status, eerlijk
 
-Dit is **Fase C, gebruikers en groepen (alleen lezen)**, bovenop Fase B (de verbinding en de aanmelding) en het fundament van Fase A. Wat er is en werkt:
+Dit is **Fase D stap D1, distributielijsten, contacten en groepsleden**, bovenop Fase C (gebruikers en groepen, alleen lezen), Fase B (de verbinding en de aanmelding) en het fundament van Fase A. Fase D komt in drie stappen; D1 is gebouwd en wacht op jouw test tegen een Microsoft 365-testtenant. Wat er is en werkt:
 
 - de applicatieschil (zijbalk, kopbalk, opdrachtenpalet `Ctrl+K`, licht en donker thema, Nederlands en Engels),
 - organisatiebranding (naam, logo uploaden, accentkleur met contrastgarantie, export en import),
@@ -246,17 +265,35 @@ Dit is **Fase C, gebruikers en groepen (alleen lezen)**, bovenop Fase B (de verb
   toestaan; objecten daarbuiten staan er als "beperkt" zonder naam. Er wordt niets aangemaakt, gewijzigd of
   verwijderd, er is geen licentiekolom en het paneel vraagt Microsoft om geen nieuw recht
   ([docs/api.md](docs/api.md), [docs/permissions.md](docs/permissions.md)),
+- **Distributielijsten, mailcontacten en groepsleden** (Fase D stap D1, de eerste functies die schrijven): de pagina
+  Distributielijsten (zoeken, filter op standaard, dynamische en gesynchroniseerde lijsten, leden, **leden toevoegen
+  en verwijderen** met een resultaat per lid), de pagina Contacten (een mailcontact **aanmaken, bewerken,
+  verwijderen**, met validatie, een getypte bevestiging en de lijsten waaruit het wordt gehaald) en **leden van
+  Microsoft 365- en beveiligingsgroepen toevoegen en verwijderen** op de pagina Groepen. Exchange wordt
+  aangestuurd door een PowerShell-worker in dezelfde container, dus de **image is nu Ubuntu 24.04 met PowerShell 7.6
+  en de Exchange Online-module** in plaats van distroless (groter en mét een shell; zie
+  [docs/operations.md](docs/operations.md#de-exchange-worker-fase-d-stap-d1)). Het paneel vraagt Microsoft om geen nieuw
+  recht; `GroupMember.ReadWrite.All` wordt nu gebruikt ([docs/permissions.md](docs/permissions.md), Deel 5),
 - een geharde server en containerimage (strikte beveiligingskoppen, aanvraaglimieten, alleen-lezen rootbestandssysteem, auditlog met hashketen).
 
 Wat er **nog niet** is:
 
-- Er wordt nog nergens geschreven. Gebruikers en groepen zijn alleen-lezen; aanmaken, wijzigen en verwijderen,
-  ledenbeheer, wachtwoordreset en licenties zijn niet gebouwd (`GroupMember.ReadWrite.All` is verleend maar
-  ongebruikt in Fase C). De pagina's voor distributielijsten en contacten zijn nog lege schillen (Fase D).
+- **De Exchange-functies zijn niet bewezen tegen een echte tenant.** De bron van de inloggegevens van de worker is
+  gebouwd (het certificaat komt als PEM bij de worker); ze is niet gedraaid tegen een echte `pwsh` of een tenant (U75,
+  OV-D1). Is Exchange niet te bereiken, dan antwoordt elke Exchange-pagina "Exchange is niet beschikbaar" terwijl de
+  rest van het paneel, groepsledenbeheer inbegrepen, werkt ([docs/open-points.md](docs/open-points.md), FD-01).
+- **Het plafond voor de grootte van de image is besloten.** CI mat de nieuwe Ubuntu-image op 538,2 MB (amd64, CI-run
+  38394173673); de eigenaar zette het plafond op 13-10-2026 op 600 MB (het was 400 MB). arm64 en het geheugen van een
+  langlopende worker zijn niet gemeten ([docs/operations.md](docs/operations.md#de-exchange-worker-fase-d-stap-d1)).
+- Gebruikers en groepen zelf worden niet aangemaakt, gewijzigd of verwijderd, er is geen wachtwoordreset en geen
+  licentie (U17, U48 uitgesteld). Dynamische distributielijsten worden getoond maar hun leden niet en ze zijn niet
+  te wijzigen.
+- Geen enkele functie van Fase D is al tegen een echte Microsoft 365-tenant gedraaid; de claims U75 tot en met U100
+  sluit de eigenaarstest in [docs/owner-test-phase-d1.md](docs/owner-test-phase-d1.md).
 - Sommig Microsoft-gedrag kon alleen worden gelezen, niet geprobeerd (bijvoorbeeld de manager van een
   gebruiker voor een applicatie en groepen met verborgen lidmaatschap); de open claims U66 tot en met U74
   sluit een test tegen een echte tenant, stap voor stap in [docs/owner-test-phase-c.md](docs/owner-test-phase-c.md).
-- Er is nog geen scherm voor het auditlog of voor rollenbeheer (Fase D); de opdrachtregel en de API dekken ze.
+- Er is nog geen scherm voor het auditlog, geen CSV-export en geen rollenbeheer (Fase D, stappen D2 en D3); de opdrachtregel dekt de auditketen.
 - **De previewmodus is verwijderd.** Zonder ingestelde tenant antwoordt het paneel alleen met de installatiepoort;
   niemand treedt als beheerder op zonder aan te melden.
 
@@ -354,7 +391,8 @@ De eerste start heeft vijf stappen. U hebt een computer nodig die `https://login
 De tabel in het Engelse deel geeft alle variabelen met hun standaardwaarde (`HOST_PORT`, `PORT`, `HOST`, `DATA_DIR`,
 `PUBLIC_BASE_URL`, `TRUST_PROXY`, `SHOWCASE`, `LOG_LEVEL`, `HSTS_MAX_AGE`, `HSTS_INCLUDE_SUBDOMAINS`,
 `HSTS_PRELOAD`, `APP_KEY`, `APP_KEY_FILE`, `APP_KEY_PREVIOUS`, `SETUP_TOKEN`, `BOOTSTRAP_CLIENT_ID`, de sessie-, groeps-,
-MFA- en break-glass-variabelen); de volledige tabel met alle regels staat in
+MFA- en break-glass-variabelen en, nieuw in Fase D stap D1, `EXCHANGE_KEY_HANDOVER` met standaard `memory`: hoe het
+certificaat bij de PowerShell-worker komt, `memory` of `tmpfs` als terugval); de volledige tabel met alle regels staat in
 [docs/operations.md](docs/operations.md#environment-variables). Een ongeldige waarde stopt de start en noemt de
 variabele.
 
@@ -392,7 +430,7 @@ zijn eenmalig vastgelegd in `packages/shared`.
 ### Beveiliging
 
 De container draait zonder rechten (uid 65532), met alleen-lezen rootbestandssysteem, alle capabilities weggehaald
-en zonder shell. Het paneel zet een sessiecookie (`HttpOnly`, `SameSite=Strict`, `__Host-` via https) en stuurt een strikte
+en alle capabilities weggehaald. Sinds Fase D stap D1 is de image Ubuntu 24.04 met PowerShell en heeft hij een shell, maar geen curl; de PowerShell-worker mag tien vaste Exchange-cmdlets aanroepen en niets anders, en de sleutel van het certificaat wordt standaard niet naar schijf geschreven. Het paneel zet een sessiecookie (`HttpOnly`, `SameSite=Strict`, `__Host-` via https) en stuurt een strikte
 Content-Security-Policy met Trusted Types. De geheimen zijn versleuteld met de sleutel uit de eerste start. Geüploade afbeeldingen worden opnieuw gecodeerd; SVG wordt gezuiverd en gerasterd. Lees
 [docs/security.md](docs/security.md) voordat je het ergens anders dan op je eigen computer neerzet. Meld kwetsbaarheden
 privé bij de eigenaar van de repository, niet in een openbaar issue.
@@ -403,11 +441,12 @@ privé bij de eigenaar van de repository, niet in een openbaar issue.
 - [docs/architecture.md](docs/architecture.md): onderdelen, verzoekpijplijn, prestatie-architectuur, afhankelijkheden, toegankelijkheid
 - [docs/security.md](docs/security.md): dreigingsmodel, STRIDE-tabellen, aanvalsbeoordeling, maatregelen, SVG-toegestane lijst
 - [docs/permissions.md](docs/permissions.md): de rechtencatalogus, de rollenmatrix en de Microsoft Graph- en Exchange-rechten
-- [docs/api.md](docs/api.md): de routes voor gebruikers en groepen van Fase C (queries, paginering, antwoorden, fouten)
+- [docs/api.md](docs/api.md): de routes voor gebruikers en groepen van Fase C en voor distributielijsten, contacten en groepsleden van Fase D stap D1 (queries, paginering, antwoorden, fouten)
 - [docs/owner-test-phase-c.md](docs/owner-test-phase-c.md): de stappenlijst om Fase C tegen een Microsoft 365-testtenant te proberen
+- [docs/owner-test-phase-d1.md](docs/owner-test-phase-d1.md): de stappenlijst om Fase D stap D1 tegen een Microsoft 365-testtenant te proberen; [docs/phase-reports/phase-D1.md](docs/phase-reports/phase-D1.md): het rapport van stap D1
 - [docs/open-points.md](docs/open-points.md): open beslissingen, onbevestigde claims, aannames en risico's
 - [docs/adr/](docs/adr/): architectuurbeslissingen (ADR-0001 en verder)
-- [deploy/README.md](deploy/README.md): korte uitrolnotities; [specs/001-m365portal](specs/001-m365portal), [specs/002-phase-b](specs/002-phase-b) en [specs/003-phase-c](specs/003-phase-c): de specificaties van Fase A tot en met C
+- [deploy/README.md](deploy/README.md): korte uitrolnotities; [specs/001-m365portal](specs/001-m365portal), [specs/002-phase-b](specs/002-phase-b) en [specs/003-phase-c](specs/003-phase-c) en [specs/004-phase-d](specs/004-phase-d): de specificaties van Fase A tot en met D
 
 ### Bijdragen
 

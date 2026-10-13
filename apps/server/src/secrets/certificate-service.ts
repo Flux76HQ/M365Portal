@@ -17,6 +17,11 @@ import { appendAudit } from '../audit/index.js';
 import { withTransaction, type DatabaseHandle } from '../db/index.js';
 import type { Clock, RandomSource } from '../ports/clock.js';
 import { CertificateHolder, createCertificateHolder } from './certificate-holder.js';
+import {
+  CertificateMaterial,
+  CertificateMaterialUnavailableError,
+} from './certificate-material.js';
+import { pemFromDer } from './pem.js';
 import { CertificateKeyMismatchError } from './certificate-holder.js';
 import type { CertificateFactory } from './certificate-factory.js';
 import { randomGuid } from './guid.js';
@@ -246,6 +251,18 @@ export class CertificateService {
     );
   }
 
+  #rowOf(db: DatabaseHandle, which: 'active' | 'pending' | 'current'): CertificateRow | undefined {
+    const wanted = which === 'current' ? ['active', 'pending'] : [which];
+    return wanted
+      .map(
+        (state) =>
+          db.sqlite
+            .prepare(`SELECT ${SELECT_COLUMNS} FROM certificate WHERE state = ?`)
+            .get(state) as CertificateRow | undefined,
+      )
+      .find((candidate) => candidate !== undefined);
+  }
+
   /**
    * The holder of the active certificate (`active`), of the pending one (`pending`), or of the
    * active one and else the pending one (`current`); `undefined` when there is none. Throws
@@ -256,15 +273,7 @@ export class CertificateService {
     db: DatabaseHandle,
     which: 'active' | 'pending' | 'current',
   ): CertificateHolder | undefined {
-    const wanted = which === 'current' ? ['active', 'pending'] : [which];
-    const row = wanted
-      .map(
-        (state) =>
-          db.sqlite
-            .prepare(`SELECT ${SELECT_COLUMNS} FROM certificate WHERE state = ?`)
-            .get(state) as CertificateRow | undefined,
-      )
-      .find((candidate) => candidate !== undefined);
+    const row = this.#rowOf(db, which);
     if (row === undefined) return undefined;
     const opened = this.#options.store.open(db, row.secret_id);
     const pkcs8Der = Buffer.from(opened);
@@ -276,5 +285,46 @@ export class CertificateService {
     });
     if (holder.thumbprintSha1 !== row.thumbprint_sha1) throw new CertificateKeyMismatchError();
     return holder;
+  }
+
+  /**
+   * Opens the sealed key and hands the certificate and the key as PEM to `fn`, which is the ONLY way
+   * they leave this class (reached through `SecretsRuntime.withCertificateMaterial`, which names the
+   * purpose and logs the access). The key is checked against the certificate first. The decrypted
+   * buffers are zeroed, and the material is revoked, when `fn` returns or throws. Throws
+   * `CertificateMaterialUnavailableError` when there is no such certificate, and the errors of
+   * `loadHolder` for a row that cannot be opened; none of them carries key material.
+   */
+  async withMaterial<Result>(
+    db: DatabaseHandle,
+    which: 'active' | 'pending' | 'current',
+    fn: (material: CertificateMaterial) => Result | Promise<Result>,
+  ): Promise<Result> {
+    const row = this.#rowOf(db, which);
+    if (row === undefined) throw new CertificateMaterialUnavailableError('no_certificate');
+    const opened = this.#options.store.open(db, row.secret_id);
+    const pkcs8Der = Buffer.from(opened);
+    wipe(opened);
+    try {
+      // The holder check throws `CertificateKeyMismatchError` for a key that is not the certificate's.
+      const holder = createCertificateHolder({
+        pkcs8Der: Buffer.from(pkcs8Der),
+        publicDer: Buffer.from(row.public_der),
+        notAfter: row.not_after,
+      });
+      if (holder.thumbprintSha1 !== row.thumbprint_sha1) throw new CertificateKeyMismatchError();
+      const material = new CertificateMaterial({
+        certificatePem: pemFromDer('CERTIFICATE', row.public_der),
+        privateKeyPem: pemFromDer('PRIVATE KEY', pkcs8Der),
+        thumbprintSha1: row.thumbprint_sha1,
+      });
+      try {
+        return await fn(material);
+      } finally {
+        material.revoke();
+      }
+    } finally {
+      pkcs8Der.fill(0);
+    }
   }
 }

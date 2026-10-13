@@ -130,3 +130,62 @@ export function deleteCustomRole(dataDir: string, key: string): void {
     database.close();
   }
 }
+
+/** One row of the audit log as the specs read it (the hash columns are left out). */
+export interface AuditRow {
+  readonly seq: number;
+  readonly actorId: string;
+  readonly action: string;
+  readonly targetType: string | null;
+  readonly targetId: string | null;
+  readonly outcome: string;
+  readonly reasonCode: string | null;
+  readonly detail: Record<string, unknown>;
+}
+
+/** The sequence number of the newest audit row (0 for none): the mark a spec reads rows after. */
+export function lastAuditSeq(dataDir: string): number {
+  const database = open(dataDir);
+  try {
+    const row = database.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM audit_log').get() as {
+      seq: number;
+    };
+    return row.seq;
+  } finally {
+    database.close();
+  }
+}
+
+/** The audit rows after a mark, oldest first (the table is append-only; the panel writes it). */
+export function auditRowsAfter(dataDir: string, afterSeq: number): AuditRow[] {
+  const database = open(dataDir);
+  try {
+    const rows = database
+      .prepare(
+        `SELECT seq, actor_id, action, target_type, target_id, outcome, reason_code, detail
+         FROM audit_log WHERE seq > ? ORDER BY seq`,
+      )
+      .all(afterSeq) as {
+      seq: number;
+      actor_id: string;
+      action: string;
+      target_type: string | null;
+      target_id: string | null;
+      outcome: string;
+      reason_code: string | null;
+      detail: string;
+    }[];
+    return rows.map((row) => ({
+      seq: row.seq,
+      actorId: row.actor_id,
+      action: row.action,
+      targetType: row.target_type,
+      targetId: row.target_id,
+      outcome: row.outcome,
+      reasonCode: row.reason_code,
+      detail: JSON.parse(row.detail) as Record<string, unknown>,
+    }));
+  } finally {
+    database.close();
+  }
+}

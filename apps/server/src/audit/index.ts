@@ -7,6 +7,7 @@
 // `src/audit/writer.ts` is the only code that inserts into `audit_log`; the table's triggers refuse
 // an update and a delete, and a row that does not continue the chain.
 export * from './actions.js';
+export * from './actions-d.js';
 export * from './canonical.js';
 export * from './chain.js';
 export * from './head-log.js';

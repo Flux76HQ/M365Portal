@@ -95,6 +95,8 @@ export interface AppConfig {
   };
   /** The optional break-glass account (FR-B-521): both variables, or none. */
   readonly breakGlass: { readonly username: string; readonly passwordHash: SecretText } | undefined;
+  /** `EXCHANGE_KEY_HANDOVER`: the certificate goes to the worker in memory (default) or as a file on a tmpfs (T-D-114). */
+  readonly exchangeKeyHandover: ExchangeKeyHandover;
 }
 
 /** Where an `APP_KEY` comes from: nothing, the variable, or a file read at start. */
@@ -263,6 +265,14 @@ function parseBoolean(raw: string): boolean | undefined {
   return raw === 'false' ? false : undefined;
 }
 
+/** How the Exchange certificate reaches the worker (T-D-114): the connect line in memory, or a file on a tmpfs. */
+export const EXCHANGE_KEY_HANDOVER_VALUES = ['memory', 'tmpfs'] as const;
+export type ExchangeKeyHandover = (typeof EXCHANGE_KEY_HANDOVER_VALUES)[number];
+
+function parseKeyHandover(raw: string): ExchangeKeyHandover | undefined {
+  return EXCHANGE_KEY_HANDOVER_VALUES.find((value) => value === raw);
+}
+
 function parseLogLevel(raw: string): LogLevel | undefined {
   return LOG_LEVELS.find((level) => level === raw);
 }
@@ -359,6 +369,8 @@ export const ENV_VARIABLE_NAMES = [
   'AUTH_MFA_AMR_VALUES',
   'BREAK_GLASS_USERNAME',
   'BREAK_GLASS_PASSWORD_HASH',
+  // Phase D (T-D-114).
+  'EXCHANGE_KEY_HANDOVER',
 ] as const;
 export type EnvName = (typeof ENV_VARIABLE_NAMES)[number];
 
@@ -433,6 +445,8 @@ export const ENV_VARIABLES: readonly EnvVariable[] = [
   { name: 'AUTH_MFA_AMR_VALUES', defaultText: 'mfa,multipleauthn' },
   { name: 'BREAK_GLASS_USERNAME', defaultText: UNSET },
   { name: 'BREAK_GLASS_PASSWORD_HASH', defaultText: UNSET, secret: true },
+  // Phase D, T-D-114 (FR-D-103): how the Exchange certificate reaches the PowerShell worker.
+  { name: 'EXCHANGE_KEY_HANDOVER', defaultText: 'memory' },
 ];
 
 const BOOLEAN_TEXT = (name: string): string => `${name} must be true or false`;
@@ -481,6 +495,7 @@ export const ENV_MESSAGES: Readonly<Record<EnvName, string>> = {
   BREAK_GLASS_USERNAME: 'BREAK_GLASS_USERNAME must be 3 to 64 characters from A-Z a-z 0-9 . _ -',
   BREAK_GLASS_PASSWORD_HASH:
     'BREAK_GLASS_PASSWORD_HASH must be a scrypt: hash with N from 16384 to 131072, r 8 to 16, p 1 to 4 and 128 * N * r of at most 134217728',
+  EXCHANGE_KEY_HANDOVER: 'EXCHANGE_KEY_HANDOVER must be memory or tmpfs',
 };
 
 /** Cross-variable messages, also fixed texts. */
@@ -601,6 +616,11 @@ export const EnvSchema = z
       undefined,
       parseBreakGlassHash,
     ),
+    EXCHANGE_KEY_HANDOVER: variable(
+      'EXCHANGE_KEY_HANDOVER',
+      fallbackOf('EXCHANGE_KEY_HANDOVER'),
+      parseKeyHandover,
+    ),
   })
   .transform((values, context): AppConfig => {
     // Every default above is a valid value, so a field is only undefined when it has no default.
@@ -697,6 +717,7 @@ export const EnvSchema = z
               passwordHash: values.BREAK_GLASS_PASSWORD_HASH,
             }
           : undefined,
+      exchangeKeyHandover: values.EXCHANGE_KEY_HANDOVER ?? 'memory',
     });
   });
 

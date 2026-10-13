@@ -52,6 +52,9 @@ const PORT_METHODS = [
   'listGroups',
   'listGroupMembers',
   'listGroupOwners',
+  // Phase D (FR-D-351): the two member writes.
+  'addGroupMember',
+  'removeGroupMember',
 ];
 
 describe('permissions-map (T-B-072)', () => {
@@ -72,6 +75,9 @@ describe('permissions-map (T-B-072)', () => {
       'RoleManagement.ReadWrite.Directory',
       'AppRoleAssignment.ReadWrite.All',
       'Application.ReadWrite.All',
+      'User.ReadWrite.All',
+      'Group.ReadWrite.All',
+      'Directory.ReadWrite.All',
       'Directory.Read.All',
     ]) {
       expect(used.has(forbidden as never)).toBe(false);
@@ -111,19 +117,46 @@ describe('permissions-map (T-B-072)', () => {
     expect(rows.listGroupOwners.unverified).toContain('U68');
   });
 
-  it('uses no write role: GroupMember.ReadWrite.All is granted and appears in no row (FR-C-105, ODB-02)', () => {
-    const used = Object.values(GRAPH_METHOD_PERMISSIONS).flatMap((row) => [...row.permissions]);
-    expect(used).not.toContain('GroupMember.ReadWrite.All');
-    for (const permission of used) expect(permission).not.toMatch(/ReadWrite|Write/);
-    // The negative: a row that names the write role fails the same rule.
-    const rule = (permissions: readonly string[]): void => {
-      if (permissions.some((permission) => /ReadWrite|Write/.test(permission))) {
-        throw new Error('a write role is used');
+  it('has the two Phase D rows: the pages, GroupMember.ReadWrite.All, the UNVERIFIED items (FR-D-351, ODB-02)', () => {
+    const rows = GRAPH_METHOD_PERMISSIONS;
+    expect(rows.addGroupMember.permissions).toEqual(['GroupMember.ReadWrite.All']);
+    expect(rows.addGroupMember.page).toContain('group-post-members');
+    expect(rows.addGroupMember.unverified).toEqual(expect.arrayContaining(['U92', 'U96']));
+    expect(rows.removeGroupMember.permissions).toEqual(['GroupMember.ReadWrite.All']);
+    expect(rows.removeGroupMember.page).toContain('group-delete-members');
+    expect(rows.removeGroupMember.unverified).toContain('U93');
+  });
+
+  it('uses a write role for the two member writes and for nothing else (the allow-list of FR-D-351)', () => {
+    const WRITERS = ['addGroupMember', 'removeGroupMember'];
+    const rule = (map: Readonly<Record<string, { permissions: readonly string[] }>>): void => {
+      for (const [method, row] of Object.entries(map)) {
+        const writes = row.permissions.some((permission) => /ReadWrite|Write/.test(permission));
+        if (writes && !WRITERS.includes(method)) throw new Error(`${method} uses a write role`);
+        if (!writes && WRITERS.includes(method)) throw new Error(`${method} has no write role`);
       }
     };
-    expectGuardFails(rule, ['User.Read.All', 'GroupMember.ReadWrite.All'], {
-      reason: 'a write role is used',
-    });
+    expect(() => {
+      rule(GRAPH_METHOD_PERMISSIONS);
+    }).not.toThrow();
+    // GroupMember.ReadWrite.All is the only write role the product ever uses, and it never needs a higher one.
+    const used = new Set(
+      Object.values(GRAPH_METHOD_PERMISSIONS).flatMap((row) => [...row.permissions]),
+    );
+    expect([...used].filter((permission) => /ReadWrite|Write/.test(permission))).toEqual([
+      'GroupMember.ReadWrite.All',
+    ]);
+    // The negatives: a read method that names the write role, and a writer that names only a read role.
+    expectGuardFails(
+      rule,
+      { ...GRAPH_METHOD_PERMISSIONS, getUser: { permissions: ['User.ReadWrite.All'] } },
+      { name: 'read with a write role', reason: 'getUser uses a write role' },
+    );
+    expectGuardFails(
+      rule,
+      { ...GRAPH_METHOD_PERMISSIONS, addGroupMember: { permissions: ['GroupMember.Read.All'] } },
+      { name: 'write without a write role', reason: 'addGroupMember has no write role' },
+    );
   });
 
   it('negative: a map with a missing row, a foreign permission, an empty set or a wrong page fails the check', () => {

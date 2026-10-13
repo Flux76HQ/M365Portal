@@ -54,7 +54,7 @@ export interface ProblemDetails {
   readonly expectedOrigin?: string;
   /** The methods the path supports. Required by `method_not_allowed`. */
   readonly allow?: readonly string[];
-  /** Whole seconds. Required by `rate_limited` and `image_processing_busy`. */
+  /** Whole seconds. Required by `rate_limited` and `image_processing_busy`; optional on the two Exchange codes. */
   readonly retryAfterSeconds?: number;
 }
 
@@ -101,6 +101,15 @@ function describeRetryAfter(code: ProblemCode, details: ProblemDetails): string 
   }
   if (code === 'storage_busy' || code === 'shutting_down' || code === 'graph_unavailable')
     return String(RETRY_AFTER_SECONDS[code]);
+  if (code === 'exchange_throttled' || code === 'exchange_unavailable') {
+    // Phase D (FR-D-105): the hint is given when Exchange or the retry budget has one.
+    const seconds = details.retryAfterSeconds;
+    if (seconds === undefined) return undefined;
+    if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 86_400) {
+      throw new TypeError(`${code} takes retryAfterSeconds as whole seconds from 1 to 86400`);
+    }
+    return String(seconds);
+  }
   return undefined;
 }
 
@@ -242,12 +251,18 @@ function pointerOf(target: ValidationTarget, path: readonly PropertyKey[]): stri
 }
 
 /**
- * The code of one fault: the message when a schema put a registry code there (`accent_invalid`),
- * otherwise Zod's own issue code (`invalid_type`, `too_small`), kept inside the grammar of the
- * `errors[].code` schema. The text of the message is never used.
+ * The code of one fault: the message when a schema put a registry code there (`accent_invalid`), or a
+ * code of its own in a custom issue (Phase D: `display_name_empty`, `address_not_normalised`, ... the
+ * codes of `CONTACT_VALIDATION_CODES`, whose catalogue message is `contacts.validation.<code>`; the web
+ * form shows the message of the code). A custom issue with a message that is not such a code (a
+ * sentence) is `custom`. Otherwise Zod's own issue code (`invalid_type`, `too_small`), kept inside the
+ * grammar of the `errors[].code` schema. The text of a sentence is never used.
  */
 function faultCode(issue: ValidationIssue): string {
   if (isProblemCode(issue.message)) return issue.message;
+  if (issue.code === 'custom' && FIELD_CODE.test(issue.message) && issue.message.length <= 64) {
+    return issue.message;
+  }
   return FIELD_CODE.test(issue.code) && issue.code.length <= 64 ? issue.code : 'invalid';
 }
 

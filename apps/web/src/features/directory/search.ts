@@ -12,6 +12,8 @@
 export const ENABLED_VALUES = ['true', 'false'] as const;
 export const TYPE_VALUES = ['member', 'guest'] as const;
 export const KIND_VALUES = ['m365', 'security', 'mailsecurity', 'distribution'] as const;
+/** The kinds of a distribution list (`DistributionListKindSchema`). */
+export const LIST_KIND_VALUES = ['standard', 'dynamic', 'synced'] as const;
 
 /** The longest search text, in characters (`LIMITS.directory.searchMaxChars`, tied by a test). */
 export const SEARCH_MAX_CHARS = 64;
@@ -26,6 +28,17 @@ export interface UsersSearch {
 export interface GroupsSearch {
   q?: string | undefined;
   kind?: (typeof KIND_VALUES)[number] | undefined;
+  order?: 'desc' | undefined;
+}
+
+export interface DistributionListsSearch {
+  q?: string | undefined;
+  kind?: (typeof LIST_KIND_VALUES)[number] | undefined;
+  order?: 'desc' | undefined;
+}
+
+export interface ContactsSearch {
+  q?: string | undefined;
   order?: 'desc' | undefined;
 }
 
@@ -64,4 +77,18 @@ export function validateGroupsSearch(raw: Record<string, unknown>): GroupsSearch
     kind: oneOf(KIND_VALUES, raw.kind),
     order: raw.order === 'desc' ? 'desc' : undefined,
   };
+}
+
+export function validateDistributionListsSearch(
+  raw: Record<string, unknown>,
+): DistributionListsSearch {
+  return {
+    q: searchText(raw.q),
+    kind: oneOf(LIST_KIND_VALUES, raw.kind),
+    order: raw.order === 'desc' ? 'desc' : undefined,
+  };
+}
+
+export function validateContactsSearch(raw: Record<string, unknown>): ContactsSearch {
+  return { q: searchText(raw.q), order: raw.order === 'desc' ? 'desc' : undefined };
 }

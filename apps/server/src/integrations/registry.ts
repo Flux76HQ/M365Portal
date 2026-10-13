@@ -4,6 +4,10 @@
 //
 //   graph()      the app-only Graph client           (HttpGraphClient on MSAL application tokens)
 //   exchange()   the Exchange Admin API read client  (AdminApiExchangeClient on MSAL application tokens)
+//   exchangeWorker()  the Phase D Exchange client    (PwshExchangeClient over the `pwsh` worker; the
+//                     worker is started at the first call that needs it, so a process without `pwsh`
+//                     starts and answers every feature that does not use Exchange; the Admin API
+//                     client above stays the verification path, FR-D-108)
 //   oidc()       the sign-in client                  (own code flow and jose; no MSAL)
 //   appTokens()  the application tokens              (MSAL client credentials, certificate assertion)
 //
@@ -25,17 +29,23 @@
 import { authorizeRedirectUri } from '@m365portal/shared/auth/redirect-uri';
 import type { Clock, RandomSource, Scheduler } from '../ports/clock.js';
 import {
+  ExchangeUnavailableError,
   NotConnectedError,
   SecretsUnavailableError,
   type SecretsUnavailableReason,
 } from '../ports/errors.js';
-import type { ExchangeClient } from '../ports/exchange.js';
+import type { ExchangeAdminApiClient, ExchangeClient } from '../ports/exchange.js';
 import type { GraphClient } from '../ports/graph.js';
 import type { AppTokenProvider, BootstrapAuthenticator, OidcClient } from '../ports/identity.js';
 import type { TenantProvisioner } from '../ports/provisioner.js';
 import type { CertificateHolderPort, SecretsState } from '../ports/secrets.js';
 import { MICROSOFT_ORIGINS } from './http/url-guard.js';
 import { AdminApiExchangeClient } from './exchange/admin-api-client.js';
+import {
+  createExchangeRuntime,
+  type ExchangeRuntime,
+  type ExchangeWorkerSettings,
+} from './exchange/runtime.js';
 import { createHttpGraphClient } from './graph/graph-client.js';
 import { provisionerFactory } from './graph/provisioner.js';
 import { createMsalAppTokenProvider, type MsalAppTokenProvider } from './identity/app-token.js';
@@ -50,7 +60,9 @@ import type { TenantPin } from './tenant-pin.js';
 
 export interface ClientsRegistry {
   graph(): GraphClient;
-  exchange(): ExchangeClient;
+  exchange(): ExchangeAdminApiClient;
+  /** The Phase D Exchange client over the `pwsh` worker (built lazily, closed with the clients). */
+  exchangeWorker(): ExchangeClient;
   oidc(): OidcClient;
   appTokens(): AppTokenProvider;
   /** Drops the clients and builds them again on the next use, and re-warms them if `start()` ran. */
@@ -115,10 +127,13 @@ export interface ProbeSpec {
 export interface ProbeClients {
   readonly appTokens: AppTokenProvider;
   readonly graph: GraphClient;
-  readonly exchange: ExchangeClient;
+  readonly exchange: ExchangeAdminApiClient;
   /** Drops the token cache and the holder reference. Idempotent. */
   close(): void;
 }
+
+export type { ExchangeWorkerSettings } from './exchange/runtime.js';
+export { NO_EXCHANGE_CREDENTIAL, createSecretsCredentialSource } from './exchange/runtime.js';
 
 export interface ClientsRegistryDeps {
   /** `SecretsRuntime` fits: `state()` is read on every call. */
@@ -137,6 +152,8 @@ export interface ClientsRegistryDeps {
   };
   /** For a test that supplies its own transport; the default is the global `fetch`. */
   readonly fetch?: typeof fetch;
+  /** The `pwsh` worker (Phase D). Absent: `exchangeWorker()` says the Exchange connection is not available. */
+  readonly exchangeWorker?: ExchangeWorkerSettings;
 }
 
 const REASONS: Readonly<Record<Exclude<SecretsState['status'], 'ok'>, SecretsUnavailableReason>> = {
@@ -152,8 +169,10 @@ interface Built {
   readonly holder: CertificateHolderPort;
   readonly appTokens: MsalAppTokenProvider;
   readonly graph: GraphClient;
-  readonly exchange: ExchangeClient;
+  readonly exchange: ExchangeAdminApiClient;
   readonly oidc: OidcClient;
+  /** Made at the first `exchangeWorker()`; closed with the rest. */
+  worker?: ExchangeRuntime;
 }
 
 interface Shared {
@@ -171,6 +190,41 @@ export function createClientsRegistry(deps: ClientsRegistryDeps): ClientsRegistr
   let built: Built | undefined;
   let shared: Shared | undefined;
   let started = false;
+
+  /** Ends the worker of a set of clients that is dropped (the process is killed; nothing is awaited). */
+  function closeWorker(old: Built | undefined): void {
+    if (old?.worker === undefined) return;
+    const { worker } = old;
+    old.worker = undefined;
+    worker.close().catch(() => undefined);
+  }
+
+  /** The Phase D client of the clients that are built: made now, the process starts at its first call. */
+  function workerOf(current: Built): ExchangeRuntime['client'] {
+    if (current.worker !== undefined) return current.worker.client;
+    const settings = deps.exchangeWorker;
+    if (settings === undefined) {
+      throw new ExchangeUnavailableError({ reason: 'worker_not_configured' });
+    }
+    const log = {
+      debug: (fields: Readonly<Record<string, unknown>>, message: string): void => {
+        deps.log?.debug(fields, message);
+      },
+      warn: (fields: Readonly<Record<string, unknown>>, message: string): void => {
+        deps.log?.warn(fields, message);
+      },
+    };
+    current.worker = createExchangeRuntime(settings, {
+      tenantId: current.tenantId,
+      clientId: current.clientId,
+      holder: current.holder,
+      clock: deps.clock,
+      random: deps.random,
+      scheduler: deps.scheduler,
+      log,
+    });
+    return current.worker.client;
+  }
 
   /** The usable certificate holder, or the reason there is none. */
   function holderOrThrow(): CertificateHolderPort {
@@ -212,7 +266,7 @@ export function createClientsRegistry(deps: ClientsRegistryDeps): ClientsRegistr
     tenantId: string,
     clientId: string,
     holder: CertificateHolderPort,
-  ): { appTokens: MsalAppTokenProvider; graph: GraphClient; exchange: ExchangeClient } {
+  ): { appTokens: MsalAppTokenProvider; graph: GraphClient; exchange: ExchangeAdminApiClient } {
     const appTokens = createMsalAppTokenProvider({
       tenantId,
       clientId,
@@ -255,6 +309,7 @@ export function createClientsRegistry(deps: ClientsRegistryDeps): ClientsRegistr
       return built;
     }
     built?.appTokens.close();
+    closeWorker(built);
     built = undefined;
 
     const { keys, metadata } = sharedFor(pin.tenantId);
@@ -312,11 +367,13 @@ export function createClientsRegistry(deps: ClientsRegistryDeps): ClientsRegistr
   return {
     graph: () => build().graph,
     exchange: () => build().exchange,
+    exchangeWorker: () => workerOf(build()),
     oidc: () => build().oidc,
     appTokens: () => build().appTokens,
 
     reload() {
       built?.appTokens.close();
+      closeWorker(built);
       built = undefined;
       if (started) warm();
     },
@@ -329,6 +386,7 @@ export function createClientsRegistry(deps: ClientsRegistryDeps): ClientsRegistr
     stop() {
       started = false;
       built?.appTokens.close();
+      closeWorker(built);
       built = undefined;
       shared?.keys.stop();
       shared = undefined;

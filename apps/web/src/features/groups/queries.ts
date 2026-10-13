@@ -5,10 +5,16 @@ import {
   GroupListResponseSchema,
   MembersResponseSchema,
   OwnersResponseSchema,
+  UserListResponseSchema,
 } from '@m365portal/shared/schemas/directory';
+import {
+  GroupMemberWriteResponseSchema,
+  type GroupMemberWriteResponse,
+} from '@m365portal/shared/schemas/member-writes';
 import { queryOptions, type QueryClient } from '@tanstack/react-query';
 import { directoryKey } from '../../lib/query';
 import type { ApiClient } from '../../lib/api';
+import { PICKER_PAGE_SIZE, type PickerCandidate } from '../directory/candidates';
 import { LIST_PAGE_SIZE } from '../directory/page-size';
 import { prefetch } from '../directory/prefetch';
 import type { GroupsSearch } from '../directory/search';
@@ -97,4 +103,49 @@ export async function prefetchGroup(
     prefetch(context.queryClient, groupOwnersOptions(context.api, id, undefined)),
     prefetch(context.queryClient, groupMembersOptions(context.api, id, undefined)),
   ]);
+}
+
+/** The search of the member picker: users by the first letters of the name or address (P33). */
+export function userCandidatesSearch(api: ApiClient) {
+  return async (q: string, signal: AbortSignal): Promise<readonly PickerCandidate[]> => {
+    const answer = await api.get('/api/v1/users', {
+      schema: UserListResponseSchema,
+      signal,
+      query: { q, limit: String(PICKER_PAGE_SIZE) },
+    });
+    return answer.items.map((user) => ({
+      id: user.id,
+      kind: 'user' as const,
+      displayName: user.displayName,
+      mail: user.mail,
+      alreadyMember: null,
+    }));
+  };
+}
+
+export function addGroupMembers(
+  api: ApiClient,
+  id: string,
+  members: string[],
+): Promise<GroupMemberWriteResponse> {
+  return api.post(`/api/v1/groups/${id}/members`, {
+    body: { members },
+    schema: GroupMemberWriteResponseSchema,
+  });
+}
+
+export function removeGroupMembers(
+  api: ApiClient,
+  id: string,
+  members: string[],
+): Promise<GroupMemberWriteResponse> {
+  return api.delete(`/api/v1/groups/${id}/members`, {
+    body: { members },
+    schema: GroupMemberWriteResponseSchema,
+  });
+}
+
+/** After a write: the members are read again. */
+export function refreshGroupMembers(queryClient: QueryClient, id: string): void {
+  void queryClient.invalidateQueries({ queryKey: directoryKey('groups', 'members', id) });
 }

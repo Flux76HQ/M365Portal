@@ -4,11 +4,13 @@
 // of the page is said in words above the table.
 import { isRestrictedRow, type DirectoryRow } from '@m365portal/shared/schemas/directory';
 import { Link } from '@tanstack/react-router';
+import { Checkbox } from '../../components/ui/checkbox';
 import { useTranslator } from '../../lib/locale';
 import { DirectoryTable, type DirectoryColumn } from '../directory/DirectoryTable';
 import { StateNotice } from '../directory/StateNotice';
 import { textOrDash } from '../directory/format';
 import { KIND_KEYS } from '../directory/kinds';
+import type { MemberSelection } from '../directory/useMemberSelection';
 
 type Reference = Exclude<DirectoryRow, { restricted: true }>;
 
@@ -19,14 +21,47 @@ export interface MembersTableProps {
   readonly of: 'members' | 'owners';
   readonly loading?: boolean;
   readonly loadingLabel?: string;
+  /** When given, each row the actor can name has a checkbox (member editing, Phase D). */
+  readonly selection?: MemberSelection;
 }
 
-export function MembersTable({ caption, rows, of, loading, loadingLabel }: MembersTableProps) {
+export function MembersTable({
+  caption,
+  rows,
+  of,
+  loading,
+  loadingLabel,
+  selection,
+}: MembersTableProps) {
   const translator = useTranslator();
   const { t } = translator;
   const restricted = rows.filter(isRestrictedRow).length;
 
   const columns: DirectoryColumn<DirectoryRow>[] = [
+    ...(selection === undefined
+      ? []
+      : [
+          {
+            id: 'select',
+            header: t('distributionLists.members.column.select'),
+            cell: (row: DirectoryRow) => {
+              if (isRestrictedRow(row)) return null;
+              const name =
+                row.displayName === null || row.displayName === ''
+                  ? t('users.unnamed')
+                  : row.displayName;
+              return (
+                <Checkbox
+                  checked={selection.has(row.id)}
+                  aria-label={t('distributionLists.members.select', { name })}
+                  onCheckedChange={(value) => {
+                    selection.toggle(row.id, name, value === true);
+                  }}
+                />
+              );
+            },
+          },
+        ]),
     {
       id: 'name',
       header: t('groups.member.column.name'),

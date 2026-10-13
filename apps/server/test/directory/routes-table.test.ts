@@ -109,7 +109,9 @@ describe('the OpenAPI document and the answers of the running application (FR-C-
       .filter(([path]) => /^\/api\/v1\/(users|groups)(\/|$)/.test(path))
       .flatMap(([path, methods]) =>
         Object.entries(methods).map(([method, operation]) => ({ path, method, operation })),
-      );
+      )
+      // P53 and P54 are Phase D step D1 (module `groups`): the seven reads of Phase C are what this is about.
+      .filter(({ method }) => method === 'get');
     expect(
       operations.map((entry) => [entry.operation['x-route-id'], entry.path, entry.method]),
     ).toEqual(expect.arrayContaining(EXPECTED.map(([id, path]) => [id, path, 'get'])));
@@ -143,6 +145,8 @@ describe('the OpenAPI document and the answers of the running application (FR-C-
       expect(answer.headers.get('cache-control'), path).toBe('no-store');
       expect(answer.headers.get('content-type'), path).toMatch(/^application\/json/);
       for (const method of ['post', 'put', 'patch', 'delete'] as const) {
+        // P53 and P54 (Phase D step D1, module `groups`) answer POST and DELETE on the members path.
+        if (path.endsWith('/members') && (method === 'post' || method === 'delete')) continue;
         const written = await me.client[method](path, { json: {} });
         expect(written.status, `${method} ${path}`).toBe(405);
       }

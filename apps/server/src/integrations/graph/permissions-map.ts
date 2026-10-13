@@ -21,6 +21,15 @@
 // Phase C (research-microsoft-c.md, read 2026-10-12): the six read methods of the users and groups
 // pages. No new permission and no write role (FR-C-105): `GroupMember.ReadWrite.All` is granted by the
 // wizard and used by no row.
+//
+// Phase D (research-microsoft-d.md R-D-08, read 2026-10-13): the two member writes are the ONLY rows
+// that name a write role, and the role is the one the wizard has granted since Phase B (ODB-02):
+//   group-post-members    Application: GroupMember.ReadWrite.All for a user member (the least
+//                         privileged); devices, service principals and organizational contacts need
+//                         further permissions and a role-assignable group needs
+//                         RoleManagement.ReadWrite.Directory, which the product does not hold: those
+//                         answer 403 and the panel never adds them (users only)
+//   group-delete-members  the same permissions; DELETE .../members/{id}/$ref (never without /$ref)
 //   user-list           User.Read.All (application, least privileged)
 //   user-list-manager   Application: "Not supported" on the page (U66); delegated User.Read.All
 //   user-list-transitivememberof
@@ -104,6 +113,16 @@ export const GRAPH_METHOD_PERMISSIONS = {
     page: 'https://learn.microsoft.com/graph/api/group-list-owners?view=graph-rest-1.0',
     permissions: ['GroupMember.Read.All'],
     unverified: ['U68', 'U71'],
+  },
+  addGroupMember: {
+    page: 'https://learn.microsoft.com/graph/api/group-post-members?view=graph-rest-1.0',
+    permissions: ['GroupMember.ReadWrite.All'],
+    unverified: ['U92', 'U96'],
+  },
+  removeGroupMember: {
+    page: 'https://learn.microsoft.com/graph/api/group-delete-members?view=graph-rest-1.0',
+    permissions: ['GroupMember.ReadWrite.All'],
+    unverified: ['U93'],
   },
 } as const satisfies Record<keyof GraphClient, GraphMethodPermissions>;
 

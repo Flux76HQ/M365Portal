@@ -190,16 +190,51 @@ export const AUDIT_DETAIL_KEYS = {
   lockScope: 'enum',
 } as const satisfies Readonly<Record<string, DetailKind>>;
 
-export type AuditDetailKey = keyof typeof AUDIT_DETAIL_KEYS;
+/**
+ * The keys Phase D adds (T-D-120, T-D-122, T-D-123; FR-D-205, FR-D-304, FR-D-354), kept apart from the
+ * 64 of Phases A and B (`audit-integration.test.ts` pins that count). Object ids and counts only:
+ * never a display name, an address or a value of a changed field.
+ *
+ *   memberId   the object id of a member of a list or group (one entry per member)
+ *   result     what happened to that member: `added`, `removed`, `already` or `failed`
+ *   summary    true on the one summary entry of a request
+ *   total, added, removed, already, failed   the counts of the summary entry
+ *   fields     the NAMES of the fields a contact write changed (`CONTACT_AUDIT_FIELDS`)
+ */
+export const AUDIT_DETAIL_KEYS_D = {
+  memberId: 'guid',
+  result: 'enum',
+  summary: 'boolean',
+  total: 'integer',
+  added: 'integer',
+  removed: 'integer',
+  already: 'integer',
+  failed: 'integer',
+  fields: 'codes',
+} as const satisfies Readonly<Record<string, DetailKind>>;
 
-type DetailValueOf<Key extends AuditDetailKey> = (typeof AUDIT_DETAIL_KEYS)[Key] extends
-  'string' | 'guid' | 'sha1' | 'keyId' | 'instant' | 'enum' | 'name'
-  ? string
-  : (typeof AUDIT_DETAIL_KEYS)[Key] extends 'integer'
-    ? number
-    : (typeof AUDIT_DETAIL_KEYS)[Key] extends 'boolean'
-      ? boolean
-      : readonly string[];
+/** Every key of every phase, with its kind. */
+const ALL_DETAIL_KEYS: Readonly<Record<string, DetailKind>> = {
+  ...AUDIT_DETAIL_KEYS,
+  ...AUDIT_DETAIL_KEYS_D,
+};
+
+export type AuditDetailKey = keyof typeof AUDIT_DETAIL_KEYS | keyof typeof AUDIT_DETAIL_KEYS_D;
+
+type KindOf<Key extends AuditDetailKey> = Key extends keyof typeof AUDIT_DETAIL_KEYS
+  ? (typeof AUDIT_DETAIL_KEYS)[Key]
+  : Key extends keyof typeof AUDIT_DETAIL_KEYS_D
+    ? (typeof AUDIT_DETAIL_KEYS_D)[Key]
+    : never;
+
+type DetailValueOf<Key extends AuditDetailKey> =
+  KindOf<Key> extends 'string' | 'guid' | 'sha1' | 'keyId' | 'instant' | 'enum' | 'name'
+    ? string
+    : KindOf<Key> extends 'integer'
+      ? number
+      : KindOf<Key> extends 'boolean'
+        ? boolean
+        : readonly string[];
 
 /** The detail a caller passes: a flat map of allowed keys. `undefined` means absent. */
 export type AuditDetail = { readonly [Key in AuditDetailKey]?: DetailValueOf<Key> | undefined };
@@ -233,6 +268,8 @@ export const ENUMERATIONS: Readonly<Partial<Record<AuditDetailKey, readonly stri
     check: [...SIGNIN_CHECKS, ...STEPUP_CHECKS],
     principalType: ['user', 'group'],
     source: ['wizard', 'api', 'break_glass'],
+    // Phase D: what happened to one member of a list or group.
+    result: ['added', 'removed', 'already', 'failed'],
   });
 
 /** A key named like a secret is refused even when someone adds it to the allow-list by mistake. */
@@ -274,14 +311,14 @@ export function truncateUtf8(text: string, maxBytes: number): string {
 }
 
 function isAllowedKey(key: string): key is AuditDetailKey {
-  return Object.hasOwn(AUDIT_DETAIL_KEYS, key);
+  return Object.hasOwn(ALL_DETAIL_KEYS, key);
 }
 
 function detailValue(
   key: AuditDetailKey,
   value: unknown,
 ): string | number | boolean | readonly string[] {
-  const kind: DetailKind = AUDIT_DETAIL_KEYS[key];
+  const kind: DetailKind = ALL_DETAIL_KEYS[key] ?? 'string';
   switch (kind) {
     case 'string':
       if (typeof value !== 'string') throw new AuditDetailError(key, 'takes a string');

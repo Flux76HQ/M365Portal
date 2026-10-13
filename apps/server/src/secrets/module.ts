@@ -25,6 +25,17 @@ export function secretsModule(deps: ModuleDeps): AppModule {
   const log = deps.log.child({ module: 'secrets' });
   const runtime = deps.secrets;
   let ring: KeyRing | undefined;
+  // Every release of the certificate material to the Exchange worker is a log line (no key, no PEM).
+  runtime.setMaterialAccessLog((event) => {
+    log.info(
+      {
+        event: 'certificate_material_access',
+        purpose: event.purpose,
+        thumbprintSha1: event.thumbprintSha1,
+      },
+      'certificate_material_access',
+    );
+  });
 
   /** Decides the state from the key, the certificate rows and what the key can open. */
   function resolve(services: SecretsServices): SecretsState {

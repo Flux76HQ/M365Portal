@@ -23,6 +23,13 @@
 //   listGroupOwners     GET  /groups/{id}/owners                     advanced pair, one page
 // Lists are never cached (personal data, FR-C-102); `getUser` and `getGroup` keep their 60 s cache.
 //
+// Phase D adds the two writes (FR-D-351), each with its path from `memberRefPath` (member-paths.ts)
+// and no other way to write one:
+//   addGroupMember      POST   /groups/{id}/members/$ref   {"@odata.id": ".../directoryObjects/{id}"}  204
+//   removeGroupMember   DELETE /groups/{id}/members/{id}/$ref                                        204
+// An add is not repeated after a 503 (it may have run); a delete is (it is repeatable). Neither is
+// cached, and neither asks Graph for the reason of a 400 (U92): the service reads membership first.
+//
 // Rules this file keeps:
 //   - `checkMemberGroups` never uses `/directoryObjects/{id}/checkMemberGroups` (Learn lists
 //     Directory.Read.All for that form); every group id is validated as a GUID BEFORE any request,
@@ -62,6 +69,7 @@ import type {
   UserListParams,
 } from '../../ports/graph.js';
 import { isGuid, guidSegment, keySegment, odataString, pathSegment } from '../http/url-guard.js';
+import { memberRefPath } from './member-paths.js';
 import { GRAPH_CACHE_TTL_MS } from './cache.js';
 import { refusedAsBadRequest } from './errors-map.js';
 import {
@@ -73,7 +81,13 @@ import {
   usersQuery,
   type DirectoryQuery,
 } from './directory-query.js';
-import { createGraphHttp, type GraphHttp, type GraphLog } from './graph-http.js';
+import {
+  GRAPH_ORIGIN,
+  GRAPH_PREFIX,
+  createGraphHttp,
+  type GraphHttp,
+  type GraphLog,
+} from './graph-http.js';
 import {
   GROUP_SELECT,
   GroupList,
@@ -309,6 +323,32 @@ export class HttpGraphClient implements GraphClient {
       items: page.items,
       next: page.nextLink === null ? null : (page.nextLink as PageToken),
     };
+  }
+
+  // ---- Phase D: the two writes (FR-D-351) ---------------------------------------------------------
+
+  async addGroupMember(groupId: Guid, memberId: Guid, o?: CallOptions): Promise<void> {
+    const member = refusedAsBadRequest(() => guidSegment(memberId));
+    await this.#http.request({
+      method: 'POST',
+      route: 'groups.members.add',
+      path: memberRefPath(groupId),
+      json: { '@odata.id': `${GRAPH_ORIGIN}${GRAPH_PREFIX}directoryObjects/${member}` },
+      // Not repeated after a 503: an add that may have run must not be sent twice.
+      idempotent: false,
+      ...this.#options(o),
+    });
+    this.#http.clearCache();
+  }
+
+  async removeGroupMember(groupId: Guid, memberId: Guid, o?: CallOptions): Promise<void> {
+    await this.#http.request({
+      method: 'DELETE',
+      route: 'groups.members.remove',
+      path: memberRefPath(groupId, memberId),
+      ...this.#options(o),
+    });
+    this.#http.clearCache();
   }
 
   /** Forgets cached users and groups (the revalidation path after a change the panel made itself). */

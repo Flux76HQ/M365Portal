@@ -5,6 +5,7 @@
 // Gating is cosmetic (the server enforces); the page behind a hidden entry says No-access at the same
 // URL, and the palette offers the same list as the menu.
 import { expect, test, type StoredPrincipalName } from '../fixtures.js';
+import { clearExchangeSeed, seedExchange } from '../support/exchange-seed.js';
 
 const OWNER_ENTRIES = [
   'Dashboard',
@@ -270,5 +271,82 @@ test.describe('the role matrix', () => {
       await expect(page).toHaveURL(/\/no-access\?reason=no_role/);
       await expect(page.getByRole('navigation', { name: 'Main navigation' })).toHaveCount(0);
     });
+  });
+});
+
+// ---- step D1: the two pages that were placeholders follow the role (T-D-180, FR-D-903) ------------------------------
+// The UI offers only what the role may do; the server decides (the 403 side of it is `bestuur.spec.ts`). The
+// built-in roles per spec 6.9.4: the reader reads; the helpdesk also changes members; the operator also manages
+// contacts. Every entry that leads to these pages leads to the real page, never to the placeholder.
+test.describe('the pages of step D1 follow the role', () => {
+  test.beforeEach(() => {
+    seedExchange();
+  });
+  test.afterAll(() => {
+    clearExchangeSeed();
+  });
+
+  const CONTROLS: readonly (readonly [
+    Exclude<StoredPrincipalName, 'norole' | 'expired-assignment'>,
+    { newContact: boolean; editContact: boolean; members: boolean },
+  ])[] = [
+    ['owner', { newContact: true, editContact: true, members: true }],
+    ['administrator', { newContact: true, editContact: true, members: true }],
+    ['operator', { newContact: true, editContact: true, members: true }],
+    ['helpdesk', { newContact: false, editContact: false, members: true }],
+    ['reader', { newContact: false, editContact: false, members: false }],
+  ];
+
+  for (const [name, can] of CONTROLS) {
+    test.describe(name, () => {
+      test.use({ principal: name });
+
+      test(`${name}: contacts ${can.newContact ? 'can be created, edited and deleted' : 'are read-only'}, list members ${can.members ? 'can be changed' : 'cannot'}`, async ({
+        page,
+        app,
+      }) => {
+        await app.goto('/contacts');
+        await expect(page.getByRole('heading', { level: 1, name: 'Contacts' })).toBeVisible();
+        const table = page.getByRole('table', { name: 'Contacts' });
+        await expect(table.getByRole('link', { name: 'Carol Bakker' })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'New contact' })).toHaveCount(
+          can.newContact ? 1 : 0,
+        );
+        await table.getByRole('link', { name: 'Carol Bakker' }).click();
+        await expect(page.getByRole('heading', { level: 1, name: 'Carol Bakker' })).toBeVisible();
+        for (const button of ['Edit contact', 'Delete contact']) {
+          await expect(page.getByRole('button', { name: button })).toHaveCount(
+            can.editContact ? 1 : 0,
+          );
+        }
+
+        await app.goto('/distribution-lists');
+        await page
+          .getByRole('table', { name: 'Distribution lists' })
+          .getByRole('link', { name: 'Marketing' })
+          .click();
+        await expect(page.getByRole('heading', { level: 1, name: 'Marketing' })).toBeVisible();
+        await expect(page.getByRole('table', { name: 'Members of Marketing' })).toBeVisible();
+        for (const button of ['Add members', 'Remove selected']) {
+          await expect(page.getByRole('button', { name: button })).toHaveCount(can.members ? 1 : 0);
+        }
+        // Without the permission there is no reason to give: the buttons are just not there.
+        await expect(page.getByRole('checkbox')).toHaveCount(can.members ? 2 : 0);
+      });
+    });
+  }
+
+  test('the menu entries lead to the real pages, not to a placeholder', async ({ page, app }) => {
+    await app.goto('/');
+    const nav = page.getByRole('navigation', { name: 'Main navigation' });
+    for (const [entry, title] of [
+      ['Distribution lists', 'Distribution lists'],
+      ['Contacts', 'Contacts'],
+    ] as const) {
+      await nav.getByRole('link', { name: entry }).click();
+      await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
+      await expect(page.getByRole('table', { name: title })).toBeVisible();
+      await expect(page.getByText(/Not available until Phase/)).toHaveCount(0);
+    }
   });
 });

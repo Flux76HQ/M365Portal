@@ -10,10 +10,16 @@ import { AxeBuilder } from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { isWaived, loadWaivers, readWaiverFile, todayUtc } from '../axe-waivers.js';
-import { createDirectoryWorld, type DirectoryWorld } from '../fixtures/directory.js';
+import {
+  createDirectoryWorld,
+  seedDirectoryOnly,
+  type DirectoryWorld,
+} from '../fixtures/directory.js';
+import { visitMemberState } from '../fixtures/member-states.js';
 import { resetDirectorySwitches, visitState } from '../fixtures/directory-page.js';
 import {
   DIRECTORY_STATES,
+  MEMBER_STATES,
   NO_ACCESS_STATES,
   ROUTES,
   SETTINGS_STATES,
@@ -21,6 +27,7 @@ import {
   WIZARD_STATES,
 } from '../routes.js';
 import { readState } from '../servers.js';
+import { clearExchangeSeed } from '../support/exchange-seed.js';
 import { allowStaleCsrfAfterUnlock } from '../support/wizard-page.js';
 import { reachWizardState } from '../support/wizard-states.js';
 import {
@@ -222,6 +229,45 @@ test.describe('axe on the users and groups pages and states', () => {
       const route = state.route ?? (state.path ?? '/users').split('?')[0] ?? '/users';
       await settle(page, route);
       expect(await scan(page, route)).toEqual([]);
+    });
+  }
+});
+
+// ---- Phase D, step D1 (T-D-181, FR-D-902, SC-D-010): lists, contacts and group members, every state ----------------------
+// The states are the data of `MEMBER_STATES`: the lists (loaded, empty, no match, `narrow_search`, one list of
+// every kind, an unknown id), the add dialog with its search, a selection and the result, the confirmation to
+// remove, the contacts (loaded, empty, detail with lists, a synchronised one), the create form with its errors, the
+// edit form and the delete confirmation, and the member editor of a group and the three read-only reasons. Zero
+// violations in light and dark at both sizes, with the dialogs open.
+
+test.describe('axe on the distribution list, contact and group member states', () => {
+  let seeded: Awaited<ReturnType<typeof seedDirectoryOnly>>;
+
+  test.beforeAll(async () => {
+    test.setTimeout(120_000);
+    seeded = await seedDirectoryOnly();
+  });
+
+  test.afterAll(async () => {
+    await seeded.destroy();
+    clearExchangeSeed();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+  });
+
+  for (const state of MEMBER_STATES) {
+    test(`${state.slug} has no violations`, async ({ page, app, guard }) => {
+      test.setTimeout(90_000);
+      const visited = await visitMemberState({ page, app, guard }, seeded.facts.ids, state);
+      try {
+        const route = state.path.replace(/\{[^}]+\}/g, '$id').split('?')[0] ?? state.path;
+        await settle(page, route);
+        expect(await scan(page, route)).toEqual([]);
+      } finally {
+        await visited.cleanup();
+      }
     });
   }
 });

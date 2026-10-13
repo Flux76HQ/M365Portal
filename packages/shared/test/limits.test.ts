@@ -5,6 +5,8 @@
 // The expected values below are written out again, in the units of the spec (bytes, seconds, hours),
 // and compared with the constants by a guard that throws on any difference. The guard is proven
 // with negative fixtures (tasks.md section 0.3): a wrong value, a missing value and an extra value.
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { expectGuardFails } from '../src/testing/index.js';
 import { PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX } from '../src/schemas/common.js';
@@ -81,8 +83,8 @@ const SPEC_6_5: Readonly<Record<string, number>> = {
   'orgName.maxBytes': 256,
   // HSTS max-age default: 31,536,000 seconds
   hstsMaxAgeSeconds: 31_536_000,
-  // Image size ceiling: 400 MB uncompressed
-  imageSizeCeilingMegabytes: 400,
+  // Image size ceiling: 600 MB uncompressed
+  imageSizeCeilingMegabytes: 600,
 };
 
 /**
@@ -223,11 +225,43 @@ const SPEC_C_6_7_2: readonly (readonly [constant: string, path: string, value: n
   ['cursorEntries', 'directory.cursorEntries', 1_000],
 ];
 
-/** The paths of spec 6.5, 6.9.2 and Phase C 6.7.2 together: the complete shape of `LIMITS`. */
+/**
+ * Phase D spec 6.11.2, step D1 rows (T-D-102): [constant, `LIMITS` path, value]. The spec table states
+ * the first eight; the rest are the constants the plan and the contract named without a number
+ * (plan 5.1 and 5.2, FR-D-105, FR-D-302, FR-D-353): they are recorded in the gate note GD1-0 and in
+ * the amendment of spec 6.11.2. The D2 and D3 rows (`export`, `audit`, `cert`) arrive with their steps.
+ */
+const SPEC_D_6_11_2: readonly (readonly [constant: string, path: string, value: number])[] = [
+  ['exchange.workerMaxCalls', 'exchange.workerMaxCalls', 500],
+  ['exchange.workerMaxAgeSeconds', 'exchange.workerMaxAgeSeconds', 3_600],
+  ['exchange.callDeadlineSeconds', 'exchange.callDeadlineSeconds', 120],
+  ['distributionLists.bulkMax', 'distributionLists.bulkMax', 200],
+  ['distributionLists.bulkChunk', 'distributionLists.bulkChunk', 50],
+  ['distributionLists.stepUpAbove', 'distributionLists.stepUpAbove', 20],
+  ['rateLimit.export (capacity)', 'rateLimit.export.capacity', 6],
+  ['rateLimit.export (refill)', 'rateLimit.export.refillIntervalMs', 10_000],
+  // Named by the plan or the contract, number chosen here:
+  ['exchange.listBufferMax', 'exchange.listBufferMax', 10_000],
+  ['exchange.lineMaxBytes', 'exchange.lineMaxBytes', 1_048_576],
+  ['exchange.retryMax', 'exchange.retryMax', 3],
+  ['exchange.retryBackoff (initial)', 'exchange.retryBackoff.initialMs', 1_000],
+  ['exchange.retryBackoff (max)', 'exchange.retryBackoff.maxMs', 15_000],
+  ['groupMembers.bulkMax', 'groupMembers.bulkMax', 200],
+  ['groupMembers.bulkChunk', 'groupMembers.bulkChunk', 20],
+  ['groupMembers.stepUpAbove', 'groupMembers.stepUpAbove', 20],
+  ['contacts.nameMaxChars', 'contacts.nameMaxChars', 64],
+  ['contacts.displayNameMaxChars', 'contacts.displayNameMaxChars', 256],
+  ['contacts.aliasMaxChars', 'contacts.aliasMaxChars', 64],
+  ['contacts.personNameMaxChars', 'contacts.personNameMaxChars', 64],
+  ['contacts.addressMaxChars', 'contacts.addressMaxChars', 254],
+];
+
+/** The paths of spec 6.5, 6.9.2, Phase C 6.7.2 and Phase D 6.11.2 (D1) together: the complete shape of `LIMITS`. */
 const SPEC_ALL: Readonly<Record<string, number>> = {
   ...SPEC_6_5,
   ...Object.fromEntries(SPEC_6_9_2.map(([, path, value]) => [path, value])),
   ...Object.fromEntries(SPEC_C_6_7_2.map(([, path, value]) => [path, value])),
+  ...Object.fromEntries(SPEC_D_6_11_2.map(([, path, value]) => [path, value])),
 };
 
 /** Every leaf of a nested object as `dotted.path -> value`. */
@@ -364,6 +398,97 @@ describe('LIMITS.directory: Phase C spec 6.7.2 (T-C-002)', () => {
   });
 });
 
+describe('LIMITS: Phase D step D1 (spec 6.11.2, T-D-102)', () => {
+  it('names every path once, apart from the earlier tables', () => {
+    const paths = SPEC_D_6_11_2.map(([, path]) => path);
+    expect(new Set(paths).size).toBe(paths.length);
+    for (const path of paths) {
+      expect(path in SPEC_6_5, path).toBe(false);
+      expect(
+        SPEC_C_6_7_2.some(([, other]) => other === path),
+        path,
+      ).toBe(false);
+    }
+  });
+
+  it.each(SPEC_D_6_11_2)('%s is %d at %s', (_constant, path, value) => {
+    expect(leaves(LIMITS).get(path)).toBe(value);
+  });
+
+  it('states the first eight rows in the spec document as the table gives them', () => {
+    const spec = readFileSync(
+      fileURLToPath(new URL('../../../specs/004-phase-d/spec.md', import.meta.url)),
+      'utf8',
+    );
+    const section = /^#### 6\.11\.2 Limits([\s\S]*?)^#### 6\.11\.3/m.exec(spec)?.[1] ?? '';
+    for (const constant of [
+      'exchange.workerMaxCalls',
+      'exchange.workerMaxAgeSeconds',
+      'exchange.callDeadlineSeconds',
+      'distributionLists.bulkMax',
+      'bulkChunk',
+      'stepUpAbove',
+    ]) {
+      expect(section, constant).toContain(constant);
+    }
+    expect(section).toMatch(/500, 3,600/);
+    expect(section).toMatch(/\| 120 \|/);
+    expect(section).toMatch(/200, 50, 20/);
+  });
+
+  it('keeps the numbers consistent with each other and with Learn', () => {
+    // One cmdlet call may not outlast the 15 minute REST timeout Learn states (R-D-02).
+    expect(LIMITS.exchange.callDeadlineSeconds).toBeLessThan(15 * 60);
+    expect(LIMITS.exchange.workerMaxAgeSeconds).toBeGreaterThan(
+      LIMITS.exchange.callDeadlineSeconds,
+    );
+    // A bulk request fits the JSON body limit: 200 GUIDs of 36 characters plus quotes and commas.
+    expect(LIMITS.distributionLists.bulkMax * 40).toBeLessThan(LIMITS.body.jsonBytes);
+    expect(LIMITS.groupMembers.bulkMax * 40).toBeLessThan(LIMITS.body.jsonBytes);
+    // The step-up threshold is below the bulk ceiling, a chunk divides the ceiling.
+    expect(LIMITS.distributionLists.stepUpAbove).toBeLessThan(LIMITS.distributionLists.bulkMax);
+    expect(LIMITS.distributionLists.bulkMax % LIMITS.distributionLists.bulkChunk).toBe(0);
+    expect(LIMITS.groupMembers.bulkMax % LIMITS.groupMembers.bulkChunk).toBe(0);
+    // Graph adds at most 20 members in one request (R-D-08): the group chunk never exceeds it.
+    expect(LIMITS.groupMembers.bulkChunk).toBeLessThanOrEqual(20);
+    // A cmdlet name, a member list and a full list answer fit one protocol line.
+    expect(LIMITS.exchange.lineMaxBytes).toBeGreaterThanOrEqual(LIMITS.body.jsonBytes);
+    // Exchange names: Name 64, DisplayName 256, Alias 64, address 254 (R-D-09).
+    expect(LIMITS.contacts.nameMaxChars).toBe(64);
+    expect(LIMITS.contacts.displayNameMaxChars).toBe(256);
+  });
+
+  it('is frozen like the rest of LIMITS', () => {
+    for (const group of [
+      LIMITS.exchange,
+      LIMITS.distributionLists,
+      LIMITS.groupMembers,
+      LIMITS.contacts,
+    ]) {
+      expect(Object.isFrozen(group)).toBe(true);
+    }
+    expect(() => {
+      (LIMITS.exchange as { workerMaxCalls: number }).workerMaxCalls = 1;
+    }).toThrow(TypeError);
+  });
+
+  it('fails the guard when a Phase D value differs, is missing or is extra (negative fixtures)', () => {
+    expectGuardFails(
+      assertSpecTable,
+      { ...LIMITS, exchange: { ...LIMITS.exchange, workerMaxCalls: 501 } },
+      { reason: 'exchange.workerMaxCalls is 501' },
+    );
+    const without = structuredClone(LIMITS);
+    Reflect.deleteProperty(without.distributionLists, 'bulkChunk');
+    expectGuardFails(assertSpecTable, without, { reason: 'missing distributionLists.bulkChunk' });
+    expectGuardFails(
+      assertSpecTable,
+      { ...LIMITS, contacts: { ...LIMITS.contacts, extra: 1 } },
+      { reason: 'contacts.extra is not a row' },
+    );
+  });
+});
+
 describe('LIMITS: rate classes', () => {
   it.each<[RateLimitClass, number, number]>([
     ['read', 120, 2],
@@ -371,14 +496,16 @@ describe('LIMITS: rate classes', () => {
     ['upload', 3, 0.1],
     ['auth', 10, 0.2],
     ['setup', 10, 0.2],
+    ['export', 6, 0.1],
   ])('%s: capacity %d, refill %d per second', (rateClass, capacity, perSecond) => {
     expect(LIMITS.rateLimit[rateClass].capacity).toBe(capacity);
     expect(refillPerSecond(rateClass)).toBe(perSecond);
   });
 
-  it('knows exactly the five classes of the spec: three of Phase A, `auth` and `setup` (SB-28)', () => {
+  it('knows exactly the six classes of the spec: three of Phase A, `auth` and `setup` (SB-28), and `export` of Phase D (ODD-07: 6 a minute)', () => {
     expect(Object.keys(LIMITS.rateLimit).sort()).toEqual([
       'auth',
+      'export',
       'read',
       'setup',
       'upload',

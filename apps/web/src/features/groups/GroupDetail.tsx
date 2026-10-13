@@ -4,25 +4,40 @@
 // have a message of their own.
 import { useQuery } from '@tanstack/react-query';
 import { getRouteApi, Link } from '@tanstack/react-router';
+import { LIMITS } from '@m365portal/shared/limits';
 import { isReadOnlyGroupKind } from '@m365portal/shared/directory/group-kind';
 import { PageHeader } from '../../components/pages/PageHeader';
+import type { GroupDetail as GroupDetailData } from '@m365portal/shared/schemas/directory';
 import { ErrorState } from '../../components/ui/error-state';
 import { Skeleton } from '../../components/ui/skeleton';
 import { useTranslator } from '../../lib/locale';
 import { translateProblemCode } from '../../lib/problem';
 import { useRouterContext } from '../../lib/router-context';
+import { useCan } from '../directory/capabilities';
 import { DefinitionList } from '../directory/DefinitionList';
 import { DirectoryError } from '../directory/DirectoryError';
 import { ListFooter } from '../directory/ListFooter';
+import { MemberActions } from '../directory/MemberActions';
 import { Section } from '../directory/Section';
 import { StateNotice } from '../directory/StateNotice';
 import { formatTimestamp, textOrDash, yesNo } from '../directory/format';
 import { isGuid } from '../directory/guid';
+import { useMemberSelection } from '../directory/useMemberSelection';
 import { usePagedQuery } from '../directory/usePagedQuery';
 import { usePageHeadingFocus } from '../directory/usePageHeadingFocus';
 import { GroupKindBadge } from './GroupKindBadge';
+import { GroupMembersReadOnly } from './GroupMembersReadOnly';
+import { memberEditState } from './member-editing';
 import { MembersTable } from './MembersTable';
-import { groupMembersOptions, groupOptions, groupOwnersOptions } from './queries';
+import {
+  addGroupMembers,
+  groupMembersOptions,
+  groupOptions,
+  groupOwnersOptions,
+  refreshGroupMembers,
+  removeGroupMembers,
+  userCandidatesSearch,
+} from './queries';
 
 const route = getRouteApi('/groups/$id');
 
@@ -92,9 +107,21 @@ function Owners({ id, name }: { readonly id: string; readonly name: string }) {
   );
 }
 
-function Members({ id, name }: { readonly id: string; readonly name: string }) {
+function Members({
+  id,
+  name,
+  group,
+}: {
+  readonly id: string;
+  readonly name: string;
+  readonly group: Pick<GroupDetailData, 'kind' | 'membershipType' | 'onPremisesSyncEnabled'>;
+}) {
   const { t } = useTranslator();
-  const { api } = useRouterContext();
+  const { api, queryClient } = useRouterContext();
+  const canWrite = useCan('groups:members:write');
+  const selection = useMemberSelection();
+  const editState = memberEditState(group);
+  const editable = canWrite && editState === 'editable';
   const { query, paging } = usePagedQuery(id, (cursor) => groupMembersOptions(api, id, cursor));
   const data = query.data;
   const placeholder = query.isPlaceholderData;
@@ -124,6 +151,7 @@ function Members({ id, name }: { readonly id: string; readonly name: string }) {
           of="members"
           loading={data === undefined}
           loadingLabel={t('groups.members.loading')}
+          {...(editable ? { selection } : {})}
         />
         <ListFooter
           countText={
@@ -141,6 +169,26 @@ function Members({ id, name }: { readonly id: string; readonly name: string }) {
   return (
     <Section heading={t('groups.members.heading')}>
       <p className="text-body-sm text-fg-secondary">{t('groups.members.directOnly')}</p>
+      {data !== undefined && data.membersState !== 'hidden' ? (
+        editable ? (
+          <MemberActions
+            targetName={name}
+            scope={['groups', id]}
+            search={userCandidatesSearch(api)}
+            variant="users"
+            add={(ids) => addGroupMembers(api, id, ids)}
+            remove={(ids) => removeGroupMembers(api, id, ids)}
+            max={LIMITS.groupMembers.bulkMax}
+            stepUpAbove={LIMITS.groupMembers.stepUpAbove}
+            selection={selection}
+            onChanged={() => {
+              refreshGroupMembers(queryClient, id);
+            }}
+          />
+        ) : canWrite && editState !== 'editable' ? (
+          <GroupMembersReadOnly reason={editState} />
+        ) : null
+      ) : null}
       {paging.restarted ? <StateNotice state={{ kind: 'cursorRestarted' }} /> : null}
       {body}
     </Section>
@@ -278,7 +326,7 @@ export function GroupDetail() {
           ) : null}
         </Section>
         <Owners id={id} name={name} />
-        <Members id={id} name={name} />
+        <Members id={id} name={name} group={group} />
       </div>
     </>
   );

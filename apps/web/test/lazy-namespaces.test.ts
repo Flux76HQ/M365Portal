@@ -3,7 +3,7 @@
 //
 // EVERY LAZY CATALOGUE HAS A ROUTE THAT LOADS IT (T-B-307; FR-B-604, PB-17). The text of the wizard, the
 // connection page, the break-glass pages, "Mijn toegang" (with its label namespaces), the Appearance page, the
-// sign-in page, the users and groups pages and the showcase is not in the entry bundle: a route loader asks for it before the page
+// sign-in page, the users, groups, distribution list and contact pages and the showcase is not in the entry bundle: a route loader asks for it before the page
 // renders. The tests render pages with every namespace loaded up front (test/setup.ts), so a loader that is
 // forgotten would not show there; this test reads the sources and fails on it instead (+ negative).
 import { LAZY_NAMESPACES } from '@m365portal/shared/i18n';
@@ -11,7 +11,14 @@ import { expectGuardFails } from '@m365portal/shared/testing';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ACCESS_NAMESPACES, APPEARANCE_NAMESPACES, DIRECTORY_NAMESPACES } from '../src/lib/locale';
+import {
+  ACCESS_NAMESPACES,
+  APPEARANCE_NAMESPACES,
+  CONTACT_NAMESPACES,
+  DIRECTORY_NAMESPACES,
+  LIST_NAMESPACES,
+  MEMBER_NAMESPACES,
+} from '../src/lib/locale';
 
 const SRC = join(import.meta.dirname, '..', 'src');
 const read = (file: string): string => readFileSync(join(SRC, file), 'utf8');
@@ -29,7 +36,9 @@ const LOADERS: readonly (readonly [string, readonly string[]])[] = [
   ['routes/signin.tsx', ['signin']],
   ['routes/design.tsx', ['showcase']],
   ['routes/users.tsx', [...DIRECTORY_NAMESPACES]],
-  ['routes/groups.tsx', [...DIRECTORY_NAMESPACES]],
+  ['routes/groups.tsx', [...DIRECTORY_NAMESPACES, ...MEMBER_NAMESPACES]],
+  ['routes/distribution-lists.tsx', [...LIST_NAMESPACES]],
+  ['routes/contacts.tsx', [...CONTACT_NAMESPACES]],
   ['features/setup/FinishStep.tsx', [...APPEARANCE_NAMESPACES]],
 ];
 
@@ -44,6 +53,21 @@ function loads(source: string, namespace: string): boolean {
   if (
     source.includes('DIRECTORY_NAMESPACES') &&
     (DIRECTORY_NAMESPACES as readonly string[]).includes(namespace)
+  )
+    return true;
+  if (
+    source.includes('MEMBER_NAMESPACES') &&
+    (MEMBER_NAMESPACES as readonly string[]).includes(namespace)
+  )
+    return true;
+  if (
+    source.includes('LIST_NAMESPACES') &&
+    (LIST_NAMESPACES as readonly string[]).includes(namespace)
+  )
+    return true;
+  if (
+    source.includes('CONTACT_NAMESPACES') &&
+    (CONTACT_NAMESPACES as readonly string[]).includes(namespace)
   )
     return true;
   return (
@@ -81,6 +105,9 @@ describe('lazy namespaces', () => {
       ...ACCESS_NAMESPACES,
       ...APPEARANCE_NAMESPACES,
       ...DIRECTORY_NAMESPACES,
+      ...MEMBER_NAMESPACES,
+      ...LIST_NAMESPACES,
+      ...CONTACT_NAMESPACES,
     ]) {
       expect(LAZY_NAMESPACES as readonly string[]).toContain(namespace);
     }
@@ -110,6 +137,34 @@ describe('lazy namespaces', () => {
       {
         name: 'lazy namespace loaders (groups forgot the groups namespace)',
         reason: /routes\/groups\.tsx does not load the lazy namespace groups/,
+      },
+    );
+  });
+
+  it('negative: the contacts page that forgets the distribution list text fails', () => {
+    expectGuardFails(
+      () => {
+        const broken = (file: string): string =>
+          file === 'routes/contacts.tsx' ? "loadLazyNamespace('contacts');" : read(file);
+        expect(problems(LOADERS, broken)).toEqual([]);
+      },
+      {
+        name: 'lazy namespace loaders (contacts forgot distributionLists)',
+        reason: /routes\/contacts\.tsx does not load the lazy namespace distributionLists/,
+      },
+    );
+  });
+
+  it('negative: the group page that forgets the member editing text fails', () => {
+    expectGuardFails(
+      () => {
+        const broken = (file: string): string =>
+          file === 'routes/groups.tsx' ? 'loadLazyNamespaces(DIRECTORY_NAMESPACES);' : read(file);
+        expect(problems(LOADERS, broken)).toEqual([]);
+      },
+      {
+        name: 'lazy namespace loaders (groups forgot distributionLists)',
+        reason: /routes\/groups\.tsx does not load the lazy namespace distributionLists/,
       },
     );
   });

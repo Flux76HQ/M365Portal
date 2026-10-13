@@ -158,7 +158,7 @@ describe('the fragments and catalogues of the repository', () => {
   it('keep every fragment in a namespace the table knows, one file per language', () => {
     const names = Object.keys(files).sort();
     for (const name of names) {
-      const match = /^([a-z][a-z0-9]*)\.([a-z]+)\.json$/.exec(name);
+      const match = /^([a-z][a-zA-Z0-9]*)\.([a-z]+)\.json$/.exec(name);
       expect(match, name).not.toBeNull();
       expect(Object.keys(NAMESPACE_OWNERS), name).toContain(match?.[1]);
       expect(LOCALES as readonly string[], name).toContain(match?.[2]);
@@ -174,11 +174,17 @@ describe('the fragments and catalogues of the repository', () => {
 describe('the namespace owner table (C11)', () => {
   const s5 = ['appearance', 'accent', 'logo', 'preview'];
 
-  it('gives problem to S1, appearance, accent, logo and preview to S5, the Phase B namespaces to S6, users and groups to SC3, and every other namespace to S4', () => {
+  it('gives problem to S1, appearance, accent, logo and preview to S5, the Phase B namespaces to S6, users and groups to SC3, distributionLists and contacts to SD3, and every other namespace to S4', () => {
     expect(NAMESPACE_OWNERS.problem).toBe('S1');
     for (const namespace of s5) expect(NAMESPACE_OWNERS, namespace).toHaveProperty(namespace, 'S5');
     for (const [namespace, owner] of Object.entries(NAMESPACE_OWNERS)) {
-      if (namespace === 'problem' || s5.includes(namespace) || owner === 'S6' || owner === 'SC3')
+      if (
+        namespace === 'problem' ||
+        s5.includes(namespace) ||
+        owner === 'S6' ||
+        owner === 'SC3' ||
+        owner === 'SD3'
+      )
         continue;
       expect(owner, namespace).toBe('S4');
     }
@@ -217,7 +223,7 @@ describe('the namespace owner table (C11)', () => {
       shortcuts: 'S4',
     };
     for (const namespace of LAZY_NAMESPACES) {
-      if (namespace === 'users' || namespace === 'groups') continue; // Phase C, below
+      if (['users', 'groups', 'distributionLists', 'contacts'].includes(namespace)) continue; // Phase C and D, below
       expect(NAMESPACE_OWNERS, namespace).toHaveProperty(namespace, movedPhaseA[namespace] ?? 'S6');
     }
   });
@@ -265,9 +271,31 @@ describe('the namespace owner table (C11)', () => {
     }
   });
 
-  it('is a namespace per word: lower case letters and digits, so a key prefix is unambiguous', () => {
+  it('is a namespace per word: letters and digits, starting lower case, so a key prefix is unambiguous (Phase D allows camelCase: distributionLists, rbacAdmin)', () => {
     for (const namespace of Object.keys(NAMESPACE_OWNERS)) {
-      expect(namespace).toMatch(/^[a-z][a-z0-9]*$/);
+      expect(namespace).toMatch(/^[a-z][a-zA-Z0-9]*$/);
+    }
+  });
+
+  it('gives the Phase D namespaces distributionLists and contacts to the web stream SD3, which fills what S-D1 shelled (T-D-104, FR-D-901)', () => {
+    const files = readFragmentFiles(FRAGMENTS_DIRECTORY);
+    for (const namespace of ['distributionLists', 'contacts']) {
+      expect(NAMESPACE_OWNERS, namespace).toHaveProperty(namespace, 'SD3');
+      expect(LAZY_NAMESPACES as readonly string[], namespace).toContain(namespace);
+      for (const locale of LOCALES) {
+        expect(files, `${namespace}.${locale}.json`).toHaveProperty(`${namespace}.${locale}.json`);
+      }
+    }
+  });
+
+  it('keeps distributionLists and contacts out of the entry catalogues (the bundle budget does not grow, FR-D-901)', () => {
+    const all = mergeAllFragments(readFragmentFiles(FRAGMENTS_DIRECTORY));
+    for (const locale of LOCALES) {
+      for (const key of Object.keys(all.entry[locale])) {
+        expect(key.startsWith('distributionLists.') || key.startsWith('contacts.'), key).toBe(
+          false,
+        );
+      }
     }
   });
 });

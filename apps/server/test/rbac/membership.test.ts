@@ -126,6 +126,12 @@ class PoisonedGraph implements GraphClient {
   listGroupOwners(...args: Parameters<GraphClient['listGroupOwners']>) {
     return this.#inner.listGroupOwners(...args);
   }
+  addGroupMember(...args: Parameters<GraphClient['addGroupMember']>) {
+    return this.#inner.addGroupMember(...args);
+  }
+  removeGroupMember(...args: Parameters<GraphClient['removeGroupMember']>) {
+    return this.#inner.removeGroupMember(...args);
+  }
 }
 
 /** Counts how many checkMemberGroups calls are in flight at once. */
@@ -447,6 +453,8 @@ describe('bisection of a rejected chunk (U38)', () => {
       listGroups: (...args) => poisoned.listGroups(...args),
       listGroupMembers: (...args) => poisoned.listGroupMembers(...args),
       listGroupOwners: (...args) => poisoned.listGroupOwners(...args),
+      addGroupMember: (...args) => poisoned.addGroupMember(...args),
+      removeGroupMember: (...args) => poisoned.removeGroupMember(...args),
     };
     const service = createMembershipService({
       database: () => t.db,

@@ -110,10 +110,13 @@ describe('a mix of requests changes nothing in the database (FR-C-402, SC-C2)', 
     ];
     for (const path of paths) await getJson(full.client, path);
     for (const path of paths.slice(0, 3)) await getJson(basic.client, path);
-    // Writes are not routes: they are refused before any handler.
+    // Writes are not routes: they are refused before any handler. The one exception since Phase D step D1 is
+    // the member write of a group (P53 and P54, module `groups`), which has its own tests.
     for (const method of ['post', 'put', 'patch', 'delete'] as const) {
       await full.client[method]('/api/v1/users', { json: {} });
-      await full.client[method](`/api/v1/groups/${ids.bigGroup}/members`, { json: {} });
+      if (method === 'put' || method === 'patch') {
+        await full.client[method](`/api/v1/groups/${ids.bigGroup}/members`, { json: {} });
+      }
     }
 
     const readsOnly = new Set([

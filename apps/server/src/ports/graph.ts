@@ -1,5 +1,7 @@
 // The app-only Microsoft Graph client as services see it (plan 8.1, FR-B-311). Phase B has no write
-// method here; Phase C adds six read methods behind the same contract suite (and still no write method). Implementations:
+// method here; Phase C adds six read methods behind the same contract suite (and still no write method);
+// Phase D adds exactly two writes, `addGroupMember` and `removeGroupMember` (FR-D-351), and
+// `test/integrations/graph/read-only.test.ts` is an allow-list of those two. Implementations:
 // `HttpGraphClient` (integrations/graph) and `FakeGraphClient` (test/fakes).
 //
 // Every DTO is a Zod-parsed allow-list in the implementation: unknown fields are dropped, strings
@@ -163,4 +165,21 @@ export interface GraphClient {
     page: PageRequest,
     o?: CallOptions,
   ): Promise<DirectoryPage<DirectoryRef>>;
+
+  // ---- Phase D: the two writes (FR-D-351, R-D-08). One call per member; nothing here decides "already". ----
+
+  /**
+   * `POST /groups/{id}/members/$ref`; resolves on 204. Graph answers 400 for an object that is already
+   * a member, for an unsupported member type and for a group that has not replicated yet alike
+   * (U92), so the service reads the membership first. 404 (an object that does not exist) and 403 (a
+   * member type or a group that the application may not manage) are the typed errors of errors.ts.
+   * Not repeated after a 5xx: an add that may have run must not be sent twice.
+   */
+  addGroupMember(groupId: Guid, memberId: Guid, o?: CallOptions): Promise<void>;
+  /**
+   * `DELETE /groups/{id}/members/{id}/$ref`; resolves on 204. The path ends in `/$ref` always, built by
+   * one function (integrations/graph/member-paths.ts): without it Graph deletes the member object
+   * itself. A 404 for an object that is not a member is U93.
+   */
+  removeGroupMember(groupId: Guid, memberId: Guid, o?: CallOptions): Promise<void>;
 }

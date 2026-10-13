@@ -145,9 +145,11 @@ const MUST_COMPILE: Readonly<Record<string, string>> = {
     "import type EnShortcuts from '../../src/i18n/locales/lazy/shortcuts.en.json';",
     "import type EnUsers from '../../src/i18n/locales/lazy/users.en.json';",
     "import type EnGroups from '../../src/i18n/locales/lazy/groups.en.json';",
+    "import type EnDistributionLists from '../../src/i18n/locales/lazy/distributionLists.en.json';",
+    "import type EnContacts from '../../src/i18n/locales/lazy/contacts.en.json';",
     EQUAL,
     'export type Derived = Expect<Equal<Exclude<MessageKey, LazyMessageKey>, MessageKeyOf<typeof En>>>;',
-    'export type Lazy = Expect<Equal<LazyMessageKey, MessageKeyOf<typeof EnSetup> | MessageKeyOf<typeof EnConnection> | MessageKeyOf<typeof EnBreakglass> | MessageKeyOf<typeof EnAccess> | MessageKeyOf<typeof EnShowcase> | MessageKeyOf<typeof EnSignin> | MessageKeyOf<typeof EnAppearance> | MessageKeyOf<typeof EnLogo> | MessageKeyOf<typeof EnAccent> | MessageKeyOf<typeof EnPreview> | MessageKeyOf<typeof EnRole> | MessageKeyOf<typeof EnPermission> | MessageKeyOf<typeof EnScope> | MessageKeyOf<typeof EnQualifier> | MessageKeyOf<typeof EnResource> | MessageKeyOf<typeof EnOrigin> | MessageKeyOf<typeof EnSession> | MessageKeyOf<typeof EnPalette> | MessageKeyOf<typeof EnShortcuts> | MessageKeyOf<typeof EnUsers> | MessageKeyOf<typeof EnGroups>>>;',
+    'export type Lazy = Expect<Equal<LazyMessageKey, MessageKeyOf<typeof EnSetup> | MessageKeyOf<typeof EnConnection> | MessageKeyOf<typeof EnBreakglass> | MessageKeyOf<typeof EnAccess> | MessageKeyOf<typeof EnShowcase> | MessageKeyOf<typeof EnSignin> | MessageKeyOf<typeof EnAppearance> | MessageKeyOf<typeof EnLogo> | MessageKeyOf<typeof EnAccent> | MessageKeyOf<typeof EnPreview> | MessageKeyOf<typeof EnRole> | MessageKeyOf<typeof EnPermission> | MessageKeyOf<typeof EnScope> | MessageKeyOf<typeof EnQualifier> | MessageKeyOf<typeof EnResource> | MessageKeyOf<typeof EnOrigin> | MessageKeyOf<typeof EnSession> | MessageKeyOf<typeof EnPalette> | MessageKeyOf<typeof EnShortcuts> | MessageKeyOf<typeof EnUsers> | MessageKeyOf<typeof EnGroups> | MessageKeyOf<typeof EnDistributionLists> | MessageKeyOf<typeof EnContacts>>>;',
     'export type Disjoint = Expect<Equal<Extract<MessageKeyOf<typeof En>, LazyMessageKey>, never>>;',
   ].join('\n'),
 

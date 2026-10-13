@@ -45,6 +45,13 @@ def good_entries() -> list[Entry]:
         file("etc/ssl/certs/legacy.pem", (0, 0)),
         file("usr/share/doc/base/tests/readme", (0, 0)),
         file("nodejs/bin/node", (0, 0)),
+        # Phase D: PowerShell and the pinned Exchange Online module (FR-D-106). A PEM in a base-image
+        # directory is not ours; the module's own folder is not ours either.
+        file("opt/microsoft/powershell/7/pwsh", (0, 0)),
+        file("opt/microsoft/powershell/7/System.Private.CoreLib.dll", (0, 0)),
+        file("usr/local/share/powershell/Modules/ExchangeOnlineManagement/3.10.1/ExchangeOnlineManagement.psd1", (0, 0)),
+        file("usr/local/share/powershell/Modules/ExchangeOnlineManagement/3.10.1/netCore/Microsoft.OData.Core.dll", (0, 0)),
+        file("usr/local/share/powershell/Modules/ExchangeOnlineManagement/3.10.1/en-US/about.help.txt", (0, 0)),
         directory("tmp"),
         directory("data", RUNTIME),
         directory("app", RUNTIME),
@@ -53,6 +60,8 @@ def good_entries() -> list[Entry]:
         file("app/dist/index.js"),
         file("app/dist/healthcheck.js"),
         file("app/dist/cli.js"),
+        directory("app/dist/exchange", RUNTIME),
+        file("app/dist/exchange/worker-script.ps1"),
         directory("app/drizzle", RUNTIME),
         file("app/drizzle/0000_init.sql"),
         file("app/drizzle/meta/_journal.json"),
@@ -91,6 +100,8 @@ def good_inspect() -> dict:
                 "NODE_ENV=production",
                 "PORT=9300",
                 "DATA_DIR=/data",
+                "POWERSHELL_TELEMETRY_OPTOUT=1",
+                "DOTNET_CLI_TELEMETRY_OPTOUT=1",
             ],
             "ExposedPorts": {"9300/tcp": {}},
             "Volumes": None,
@@ -356,6 +367,67 @@ class Listing(unittest.TestCase):
         self.assertEqual(contents.normalise("/app/.env"), "app/.env")
         self.assertEqual(contents.normalise("app/dist/"), "app/dist")
         self.assertIn("env-file", rules(self.planted(Entry("./app/.env", "file", 65532, 65532))))
+
+
+class ExchangeRuntime(unittest.TestCase):
+    """Phase D (FR-D-106): the image holds PowerShell, the pinned module and the worker script. One defect each."""
+
+    MODULE = "usr/local/share/powershell/Modules/ExchangeOnlineManagement"
+
+    def planted(self, *extra: Entry, drop: tuple[str, ...] = ()):
+        entries = [e for e in good_entries() if not any(e.path == d or e.path.startswith(d + "/") for d in drop)]
+        return contents.check_listing(entries + list(extra), set())
+
+    def test_the_pinned_versions_are_the_ones_the_task_names(self):
+        self.assertEqual(contents.POWERSHELL_VERSION, "7.6.6")
+        self.assertEqual(contents.EXCHANGE_MODULE_VERSION, "3.10.1")
+
+    def test_a_missing_powershell_binary_fails(self):
+        findings = self.planted(drop=("opt/microsoft/powershell/7/pwsh",))
+        self.assertEqual(rules(findings), {"required-file"})
+        self.assertTrue(any("opt/microsoft/powershell/7/pwsh" in f.detail for f in findings))
+
+    def test_a_missing_module_manifest_fails(self):
+        findings = self.planted(drop=(self.MODULE + "/3.10.1/ExchangeOnlineManagement.psd1",))
+        self.assertEqual(rules(findings), {"required-file"})
+
+    def test_a_module_of_another_version_fails_even_next_to_the_right_one(self):
+        findings = self.planted(file(self.MODULE + "/3.9.2/ExchangeOnlineManagement.psd1", (0, 0)))
+        self.assertEqual(rules(findings), {"exchange-runtime"})
+        self.assertTrue(any("3.9.2" in f.detail for f in findings))
+
+    def test_only_another_version_fails_twice_over(self):
+        findings = self.planted(
+            file(self.MODULE + "/3.9.2/ExchangeOnlineManagement.psd1", (0, 0)),
+            drop=(self.MODULE + "/3.10.1",),
+        )
+        self.assertEqual(rules(findings), {"exchange-runtime", "required-file"})
+
+    def test_the_windows_assemblies_of_the_module_fail(self):
+        findings = self.planted(file(self.MODULE + "/3.10.1/netFramework/Microsoft.OData.Core.dll", (0, 0)))
+        self.assertEqual(rules(findings), {"exchange-runtime"})
+
+    def test_a_missing_worker_script_fails(self):
+        findings = self.planted(drop=("app/dist/exchange/worker-script.ps1",))
+        self.assertEqual(rules(findings), {"required-file"})
+
+    def test_the_other_files_of_the_runtime_are_not_policed_as_ours(self):
+        # PowerShell and the module ship pem, key and test-like names; they are the base image's business.
+        extra = [
+            file("opt/microsoft/powershell/7/Schemas/x.key", (0, 0)),
+            file(self.MODULE + "/3.10.1/netCore/x.pem", (0, 0)),
+            file("usr/local/share/powershell/Modules/ExchangeOnlineManagement/3.10.1/tests/a.test.js", (0, 0)),
+        ]
+        self.assertEqual(self.planted(*extra), [])
+
+    def test_the_telemetry_of_powershell_and_dotnet_is_switched_off_in_the_image(self):
+        for name in ("POWERSHELL_TELEMETRY_OPTOUT", "DOTNET_CLI_TELEMETRY_OPTOUT"):
+            with self.subTest(name=name):
+                document = good_inspect()
+                document["Config"]["Env"] = [e for e in document["Config"]["Env"] if not e.startswith(name)]
+                findings = contents.check_inspect(document)
+                self.assertEqual(rules(findings), {"environment"})
+                self.assertTrue(any(name in f.detail for f in findings))
 
 
 class Configuration(unittest.TestCase):

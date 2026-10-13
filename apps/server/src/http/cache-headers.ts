@@ -20,7 +20,8 @@
 // `public, max-age=600` set by one of those routes is replaced.
 //
 // Phase C (FR-C-403, seam XC6): `/api/v1/users*` and `/api/v1/groups*` hold personal data (names,
-// addresses, memberships) and join the list. `setCookieDiscipline` is the last
+// addresses, memberships) and join the list; Phase D adds `/api/v1/distribution-lists*` and
+// `/api/v1/contacts*` (T-D-120). `setCookieDiscipline` is the last
 // word on `Set-Cookie`: only the three panel cookies, built as `auth/cookies.ts` builds them, leave
 // the process.
 //
@@ -167,6 +168,9 @@ const NO_STORE_PATHS: readonly RegExp[] = [
   // Phase C (FR-C-403): the directory reads hold personal data.
   /^\/api\/v1\/users(?:\/|$)/,
   /^\/api\/v1\/groups(?:\/|$)/,
+  // Phase D (FR-D-205, T-D-120): member lists, addresses of contacts and the results of member writes.
+  /^\/api\/v1\/distribution-lists(?:\/|$)/,
+  /^\/api\/v1\/contacts(?:\/|$)/,
 ];
 
 /** Is this path one that must be `no-store` whatever its route says (FR-B-417)? */
