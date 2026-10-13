@@ -2,10 +2,12 @@
 // fake `ExchangeOnlineManagement` module (a few PowerShell functions with the names and parameters of
 // the real cmdlets, found through `PSModulePath`), driven by the real `ExchangeWorkerSession` and
 // `PwshExchangeClient` over the real launcher. It proves what no stand-in can: that the script parses,
-// validates, connects with an ephemeral certificate built from the bytes of the connect line, calls
+// validates, connects with a certificate built from the PEMs of the connect line, calls
 // the cmdlets with the right parameters (`-Confirm:$false` on a Remove-, a switch only when asked),
 // projects the rows, maps errors to the closed codes without a word of their text, keeps everything
-// else off stdout, and, in the fallback mode, writes the key file with mode 0600 and removes it.
+// else off stdout, and, in the fallback mode, writes the PEM files and the derived PKCS#12 with mode 0600 and
+// removes them. The throwaway certificate is made by the product's own factory (`@peculiar/x509`, RSA,
+// PKCS#8), so `X509Certificate2.CreateFromPem` is proven on the very format Phase B stores (GD1-0, amendment 1).
 //
 // It runs where `pwsh` is installed (GitHub-hosted Ubuntu runners have it; the image does) and is
 // skipped elsewhere; `PWSH_PATH` names another binary. It talks to no tenant.
@@ -33,6 +35,9 @@ import {
   createNodeWorkerLauncher,
 } from '../../src/integrations/exchange/pwsh/worker-launcher.js';
 import { sequenceRandom } from '../integrations/support.js';
+import { lazyCertificateFactory } from '../../src/secrets/certificate-factory.js';
+import { pemFromDer } from '../../src/secrets/pem.js';
+import { countingRandom, INSTALL_ID } from '../secrets/support.js';
 
 const PWSH = process.env.PWSH_PATH ?? 'pwsh';
 const SCRIPT = fileURLToPath(
@@ -49,7 +54,7 @@ const hasPwsh = probe.status === 0;
 const MAJOR = hasPwsh ? Number(probe.stdout.trim()) : 0;
 
 const APP_ID = '11111111-2222-4333-8444-555555555555';
-const PASSWORD = 'pw-throwaway-real-pwsh-1f9c';
+const SUBJECT = 'CN=M365Portal 01234567';
 const CONTACT = '5a6b7c8d-1111-4222-8333-944455556666';
 
 const FAKE_MODULE = String.raw`
@@ -64,10 +69,15 @@ function Connect-ExchangeOnline {
     if ($null -ne $Certificate) { $record['certificate'] = $Certificate.Subject; $record['hasPrivateKey'] = $Certificate.HasPrivateKey }
     if ($CertificateFilePath) {
         $item = Get-Item -LiteralPath $CertificateFilePath
-        $record['file'] = [ordered]@{ exists = $true; mode = [string] $item.UnixMode; bytes = $item.Length; directory = (Split-Path -Parent $CertificateFilePath) }
+        $directory = Split-Path -Parent $CertificateFilePath
+        $files = @(Get-ChildItem -LiteralPath $directory -Force | Sort-Object -Property Name | ForEach-Object { [ordered]@{ extension = $_.Extension; mode = [string] $_.UnixMode } })
+        $plain = [System.Net.NetworkCredential]::new('', $CertificatePassword).Password
+        $opened = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($CertificateFilePath, $plain)
+        $record['file'] = [ordered]@{ exists = $true; mode = [string] $item.UnixMode; bytes = $item.Length; directory = $directory; files = $files; opens = $opened.HasPrivateKey; subject = $opened.Subject }
         $record['password'] = ($null -ne $CertificatePassword)
     }
-    if ($env:FAKE_EXO_LOG) { ConvertTo-Json -InputObject $record -Compress | Out-File -LiteralPath $env:FAKE_EXO_LOG -Append }
+    if ($env:FAKE_EXO_LOG) { ConvertTo-Json -InputObject $record -Compress -Depth 6 | Out-File -LiteralPath $env:FAKE_EXO_LOG -Append }
+    if ($env:FAKE_EXO_FAIL) { throw 'forced failure for the test' }
 }
 function Disconnect-ExchangeOnline { [CmdletBinding()] param([bool]$Confirm = $true) }
 function Get-OrganizationConfig { [CmdletBinding()] param() [pscustomobject]@{ Name = 'contoso-fake'; Guid = [guid]'11111111-2222-4333-8444-555555555556'; MailTipsLargeAudienceThreshold = 25 } }
@@ -106,7 +116,8 @@ Export-ModuleMember -Function *
 
 let workdir = '';
 let modules = '';
-let pfx = Buffer.alloc(0);
+let certificatePem = '';
+let privateKeyPem = '';
 
 function pwshText(command: string): string {
   const done = spawnSync(PWSH, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command], {
@@ -116,7 +127,7 @@ function pwshText(command: string): string {
   return done.stdout.trim();
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   if (!hasPwsh) return;
   workdir = mkdtempSync(join(tmpdir(), 'exo-real-'));
   modules = join(workdir, 'modules');
@@ -127,19 +138,32 @@ beforeAll(() => {
     join(directory, 'ExchangeOnlineManagement.psd1'),
     "@{ ModuleVersion = '3.10.1'; RootModule = 'ExchangeOnlineManagement.psm1'; GUID = '11111111-2222-4333-8444-555555555500'; FunctionsToExport = '*' }\n",
   );
-  // A throwaway certificate with a private key, made by .NET inside pwsh.
-  const base64 = pwshText(
-    `$rsa = [System.Security.Cryptography.RSA]::Create(2048); ` +
-      `$req = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new('CN=throwaway-real-pwsh', $rsa, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1); ` +
-      `$cert = $req.CreateSelfSigned([DateTimeOffset]::UtcNow.AddDays(-1), [DateTimeOffset]::UtcNow.AddDays(30)); ` +
-      `[Convert]::ToBase64String($cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, '${PASSWORD}'))`,
-  );
-  pfx = Buffer.from(base64, 'base64');
+  // A throwaway certificate with a private key, made by the product's own factory (RSA, PKCS#8 DER).
+  const generated = await lazyCertificateFactory.generate({
+    installId: INSTALL_ID,
+    now: Date.now(),
+    random: countingRandom(7),
+  });
+  certificatePem = pemFromDer('CERTIFICATE', generated.publicDer);
+  privateKeyPem = pemFromDer('PRIVATE KEY', generated.pkcs8Der);
+  generated.pkcs8Der.fill(0);
 }, 60_000);
 
 afterAll(() => {
   if (workdir !== '') rmSync(workdir, { recursive: true, force: true });
 });
+
+/** The first line of a worker: the connect with the PEMs of the throwaway certificate. */
+function connectLine(): string {
+  return JSON.stringify({
+    v: 1,
+    type: 'connect',
+    id: 'connect-0001',
+    appId: APP_ID,
+    organization: 'contoso-fake.onmicrosoft.com',
+    certificate: { format: 'pem', certificate: certificatePem, privateKey: privateKeyPem },
+  });
+}
 
 function credentials(): ExchangeCredentialSource {
   return {
@@ -147,8 +171,8 @@ function credentials(): ExchangeCredentialSource {
       Promise.resolve({
         appId: APP_ID,
         organization: 'contoso-fake.onmicrosoft.com',
-        pfx: Uint8Array.from(pfx),
-        password: PASSWORD,
+        certificatePem,
+        privateKeyPem,
       }),
   };
 }
@@ -192,7 +216,7 @@ function realClient(extraEnv: Record<string, string> = {}) {
 describe.skipIf(!hasPwsh)(
   `the worker script in a real pwsh ${MAJOR === 0 ? '' : `(${String(MAJOR)})`}`,
   () => {
-    it('connects with an ephemeral certificate from the connect line and reads rows with the projected properties only', async () => {
+    it('connects with the certificate built from the PEMs of the connect line and reads rows with the projected properties only', async () => {
       const log = join(workdir, 'memory.log');
       const { client, session } = realClient({ FAKE_EXO_LOG: log });
       try {
@@ -222,7 +246,7 @@ describe.skipIf(!hasPwsh)(
         expect(record).toContain('"commands":10');
         expect(record).toContain('"showBanner":false');
         expect(record).toContain('"skipFormat":true');
-        expect(record).toContain('"certificate":"CN=throwaway-real-pwsh"');
+        expect(record).toContain(`"certificate":"${SUBJECT}"`);
         expect(record).toContain('"hasPrivateKey":true');
         expect(record).toContain('size=10001');
       } finally {
@@ -321,9 +345,9 @@ describe.skipIf(!hasPwsh)(
               appId: APP_ID,
               organization: 'contoso-fake.onmicrosoft.com',
               certificate: {
-                format: 'pfx-base64',
-                data: pfx.toString('base64'),
-                password: PASSWORD,
+                format: 'pem',
+                certificate: certificatePem,
+                privateKey: privateKeyPem,
               },
             }),
             JSON.stringify({ v: 1, type: 'shutdown', id: 'stop-0001' }),
@@ -381,7 +405,7 @@ describe.skipIf(!hasPwsh)(
       ]);
     }, 60_000);
 
-    it('the tmpfs fallback: the key file has mode 0600 while the connect runs, is gone afterwards, and the directory is empty', () => {
+    it('the tmpfs fallback: the PEM files and the derived PKCS#12 have mode 0600 while the connect runs, are gone afterwards, and the directory is empty', () => {
       const log = join(workdir, 'tmpfs.log');
       const scratch = join(workdir, 'scratch');
       mkdirSync(scratch, { mode: 0o700 });
@@ -397,18 +421,7 @@ describe.skipIf(!hasPwsh)(
             FAKE_EXO_LOG: log,
           },
           input: [
-            JSON.stringify({
-              v: 1,
-              type: 'connect',
-              id: 'connect-0001',
-              appId: APP_ID,
-              organization: 'contoso-fake.onmicrosoft.com',
-              certificate: {
-                format: 'pfx-base64',
-                data: pfx.toString('base64'),
-                password: PASSWORD,
-              },
-            }),
+            connectLine(),
             JSON.stringify({ v: 1, type: 'shutdown', id: 'stop-0001' }),
             '',
           ].join('\n'),
@@ -417,50 +430,78 @@ describe.skipIf(!hasPwsh)(
         },
       );
       expect(done.stdout).toContain('"ok":true');
-      const record = readFileSync(log, 'utf8');
-      expect(record).toContain('"exists":true');
-      expect(record).toContain('"mode":"-rw-------"');
-      expect(record).toContain(`"bytes":${String(pfx.length)}`);
-      expect(record).toContain('"password":true');
+      const record = JSON.parse(readFileSync(log, 'utf8').trim().split('\n')[0] ?? '{}') as {
+        password: boolean;
+        file: {
+          exists: boolean;
+          mode: string;
+          bytes: number;
+          opens: boolean;
+          subject: string;
+          files: { extension: string; mode: string }[];
+        };
+      };
+      expect(record.file).toMatchObject({
+        exists: true,
+        mode: '-rw-------',
+        opens: true,
+        subject: SUBJECT,
+      });
+      expect(record.file.bytes).toBeGreaterThan(0);
+      expect(record.password).toBe(true);
+      // Two PEM files and the PKCS#12: three files, each readable by the owner only.
+      expect(record.file.files.map((file) => file.extension).sort()).toEqual([
+        '.pem',
+        '.pem',
+        '.pfx',
+      ]);
+      for (const file of record.file.files) expect(file.mode).toBe('-rw-------');
       expect(readdirSync(scratch)).toEqual([]);
       expect(statSync(scratch).isDirectory()).toBe(true);
+      expect(done.stdout + done.stderr).not.toContain(privateKeyPem.split('\n')[1] ?? 'x');
     }, 60_000);
 
-    it('the tmpfs fallback removes the key file when the connect fails', () => {
+    it('the tmpfs fallback removes every file when the connect fails', () => {
       const scratch = join(workdir, 'scratch-fail');
       mkdirSync(scratch, { mode: 0o700 });
       const home = join(workdir, 'home-tmpfs-fail');
       mkdirSync(home, { recursive: true });
-      // A password that does not open the container: the script fails before the connect, after the write.
+      const log = join(workdir, 'tmpfs-fail.log');
+      // The fake module throws inside Connect-ExchangeOnline: the files exist at that moment.
       const done = spawnSync(
         PWSH,
         buildWorkerArguments({ scriptPath: SCRIPT, certificateMode: 'tmpfs', scratchDir: scratch }),
         {
           env: {
             ...buildWorkerEnvironment({}, { homeDir: home }),
-            PSModulePath: join(workdir, 'no-modules'),
+            PSModulePath: modules,
+            FAKE_EXO_LOG: log,
+            FAKE_EXO_FAIL: '1',
           },
-          input: [
-            JSON.stringify({
-              v: 1,
-              type: 'connect',
-              id: 'connect-0001',
-              appId: APP_ID,
-              organization: 'contoso-fake.onmicrosoft.com',
-              certificate: {
-                format: 'pfx-base64',
-                data: pfx.toString('base64'),
-                password: PASSWORD,
-              },
-            }),
-            '',
-          ].join('\n'),
+          input: [connectLine(), ''].join('\n'),
           encoding: 'utf8',
           timeout: 60_000,
         },
       );
       expect(done.stdout).toContain('"ok":false');
+      expect(readFileSync(log, 'utf8')).toContain('"exists":true');
       expect(readdirSync(scratch)).toEqual([]);
+    }, 60_000);
+
+    it('builds a certificate with a private key from the PEMs with CreateFromPem, and the key signs for the certificate', () => {
+      const directory = join(workdir, 'pem-proof');
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(join(directory, 'c.pem'), certificatePem);
+      writeFileSync(join(directory, 'k.pem'), privateKeyPem);
+      const out = pwshText(
+        `$c = Get-Content -Raw -LiteralPath '${join(directory, 'c.pem')}'; $k = Get-Content -Raw -LiteralPath '${join(directory, 'k.pem')}'; ` +
+          `$x = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPem($c, $k); ` +
+          `$rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($x); ` +
+          `$data = [byte[]](1,2,3); $sig = $rsa.SignData($data, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1); ` +
+          `$pub = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPublicKey($x); ` +
+          `ConvertTo-Json -Compress ([ordered]@{ subject = $x.Subject; hasPrivateKey = $x.HasPrivateKey; verifies = $pub.VerifyData($data, $sig, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1) })`,
+      );
+      expect(JSON.parse(out)).toEqual({ subject: SUBJECT, hasPrivateKey: true, verifies: true });
     }, 60_000);
 
     it('a worker that cannot import the module answers with a closed code, not a message', async () => {

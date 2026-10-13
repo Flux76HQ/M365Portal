@@ -16,11 +16,12 @@
 # table again: a second line of defence, not the first.
 #
 # The certificate arrives in the `connect` message, on stdin, and never in an argument or the
-# environment. `memory` (the default) builds an X509Certificate2 from the bytes with an ephemeral key
-# set, so the private key is not written to the key store of the user, and hands it to
-# Connect-ExchangeOnline -Certificate (U75: UNVERIFIED on Linux). `tmpfs` is the fallback if U75 is
-# false: the bytes go to a file with mode 0600 in a directory the server made on a tmpfs, the file is
-# used by -CertificateFilePath and removed in a `finally` block, right after the connect.
+# environment, as PEM text: the certificate and an unencrypted PKCS#8 key (GD1-0, amendment 1).
+# `memory` (the default) builds an X509Certificate2 with X509Certificate2.CreateFromPem, so nothing
+# is written to disk, and hands it to Connect-ExchangeOnline -Certificate (U75: UNVERIFIED on Linux).
+# `tmpfs` is the fallback if U75 is false: the PEMs go to files with mode 0600 in a directory the
+# server made on a tmpfs, a PKCS#12 file is derived from them (random password, mode 0600) for
+# -CertificateFilePath, and all files are removed in a `finally` block, right after the connect.
 #
 # Nothing here prints for a person: no Write-Host, no Write-Error, no verbose output. Everything a
 # cmdlet writes to a stream other than success is discarded.
@@ -280,37 +281,57 @@ function Import-ExchangeModule {
     $script:ModuleVersion = if ($null -eq $loaded) { $null } else { $loaded.Version.ToString() }
 }
 
-function New-Pkcs12Certificate {
-    param([byte[]] $Bytes, [string] $Password)
-    $flags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
-    $loader = 'System.Security.Cryptography.X509Certificates.X509CertificateLoader' -as [type]
-    if ($null -ne $loader) { return $loader::LoadPkcs12($Bytes, $Password, $flags) }
-    return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($Bytes, $Password, $flags)
+function New-PemCertificate {
+    param([string] $CertificatePem, [string] $PrivateKeyPem)
+    # .NET 5 and later (PowerShell 7.6 runs on .NET 9 or later): the certificate and the PKCS#8 key from
+    # their PEM text, in memory. U75 (UNVERIFIED on Linux, OV-D1): that Connect-ExchangeOnline accepts it.
+    return [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPem($CertificatePem, $PrivateKeyPem)
 }
 
 function Connect-InMemory {
-    param([string] $AppId, [string] $Organization, [byte[]] $Bytes, [string] $Password)
+    param([string] $AppId, [string] $Organization, [string] $CertificatePem, [string] $PrivateKeyPem)
     # The certificate is kept for the life of the process: the module renews its token with it.
-    $script:Certificate = New-Pkcs12Certificate $Bytes $Password
+    $script:Certificate = New-PemCertificate $CertificatePem $PrivateKeyPem
     Connect-ExchangeOnline -AppId $AppId -Organization $Organization -Certificate $script:Certificate `
         -CommandName (Get-CommandNames) -SkipLoadingFormatData -ShowBanner:$false -ErrorAction Stop 6>$null 5>$null 4>$null 3>$null | Out-Null
 }
 
-function Connect-WithTmpfsFile {
-    param([string] $AppId, [string] $Organization, [byte[]] $Bytes, [string] $Password)
-    if ([string]::IsNullOrEmpty($ScratchDirectory) -or -not (Test-Path -LiteralPath $ScratchDirectory -PathType Container)) { throw 'no_scratch' }
-    $path = Join-Path $ScratchDirectory ('k' + [guid]::NewGuid().ToString('N') + '.pfx')
+function Write-PrivateFile {
+    param([string] $Path, [byte[]] $Bytes)
     $options = [System.IO.FileStreamOptions]::new()
     $options.Mode = [System.IO.FileMode]::CreateNew
     $options.Access = [System.IO.FileAccess]::Write
     $options.UnixCreateMode = [System.IO.UnixFileMode]::UserRead -bor [System.IO.UnixFileMode]::UserWrite
+    $stream = [System.IO.FileStream]::new($Path, $options)
+    try { $stream.Write($Bytes, 0, $Bytes.Length) } finally { $stream.Dispose() }
+}
+
+function Connect-WithTmpfsFile {
+    param([string] $AppId, [string] $Organization, [string] $CertificatePem, [string] $PrivateKeyPem)
+    if ([string]::IsNullOrEmpty($ScratchDirectory) -or -not (Test-Path -LiteralPath $ScratchDirectory -PathType Container)) { throw 'no_scratch' }
+    # The fallback of U75: the cmdlet reads a PKCS#12 FILE. The PEMs go to files (mode 0600), the
+    # certificate object is built from them, and the PKCS#12 is derived from it with a random password
+    # that exists only in this function. Every file is removed in the `finally` block, right after the connect.
+    $token = [guid]::NewGuid().ToString('N')
+    $certificatePath = Join-Path $ScratchDirectory ('c' + $token + '.pem')
+    $keyPath = Join-Path $ScratchDirectory ('k' + $token + '.pem')
+    $pfxPath = Join-Path $ScratchDirectory ('p' + $token + '.pfx')
+    $pfxBytes = $null
     try {
-        $stream = [System.IO.FileStream]::new($path, $options)
-        try { $stream.Write($Bytes, 0, $Bytes.Length) } finally { $stream.Dispose() }
-        $secure = ConvertTo-SecureString -String $Password -AsPlainText -Force
-        Connect-ExchangeOnline -AppId $AppId -Organization $Organization -CertificateFilePath $path -CertificatePassword $secure `
+        Write-PrivateFile $certificatePath ($script:Utf8.GetBytes($CertificatePem))
+        Write-PrivateFile $keyPath ($script:Utf8.GetBytes($PrivateKeyPem))
+        $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPemFile($certificatePath, $keyPath)
+        $password = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24))
+        $pfxBytes = $certificate.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $password)
+        $certificate.Dispose()
+        Write-PrivateFile $pfxPath $pfxBytes
+        $secure = ConvertTo-SecureString -String $password -AsPlainText -Force
+        Connect-ExchangeOnline -AppId $AppId -Organization $Organization -CertificateFilePath $pfxPath -CertificatePassword $secure `
             -CommandName (Get-CommandNames) -SkipLoadingFormatData -ShowBanner:$false -ErrorAction Stop 6>$null 5>$null 4>$null 3>$null | Out-Null
-    } finally { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+    } finally {
+        if ($null -ne $pfxBytes) { [Array]::Clear($pfxBytes, 0, $pfxBytes.Length) }
+        Remove-Item -LiteralPath $certificatePath, $keyPath, $pfxPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Get-Hello {
@@ -327,23 +348,24 @@ function Get-Hello {
 function Invoke-Connect {
     param([string] $Id, $Request)
     $certificate = $Request['certificate']
-    $bytes = $null
-    $password = $null
+    $certificatePem = $null
+    $privateKeyPem = $null
     try {
-        if ($certificate -isnot [System.Collections.IDictionary] -or $certificate['format'] -ne 'pfx-base64') { Send-Failure $Id 'invalid_argument'; return }
-        $bytes = [Convert]::FromBase64String([string] $certificate['data'])
-        $password = [string] $certificate['password']
+        if ($certificate -isnot [System.Collections.IDictionary] -or $certificate['format'] -ne 'pem') { Send-Failure $Id 'invalid_argument'; return }
+        $certificatePem = [string] $certificate['certificate']
+        $privateKeyPem = [string] $certificate['privateKey']
+        if ([string]::IsNullOrWhiteSpace($certificatePem) -or [string]::IsNullOrWhiteSpace($privateKeyPem)) { Send-Failure $Id 'invalid_argument'; return }
         Import-ExchangeModule
-        if ($CertificateMode -eq 'tmpfs') { Connect-WithTmpfsFile ([string] $Request['appId']) ([string] $Request['organization']) $bytes $password }
-        else { Connect-InMemory ([string] $Request['appId']) ([string] $Request['organization']) $bytes $password }
+        if ($CertificateMode -eq 'tmpfs') { Connect-WithTmpfsFile ([string] $Request['appId']) ([string] $Request['organization']) $certificatePem $privateKeyPem }
+        else { Connect-InMemory ([string] $Request['appId']) ([string] $Request['organization']) $certificatePem $privateKeyPem }
         $script:Connected = $true
         Send-Ok $Id (Get-Hello)
     } catch {
         $script:Connected = $false
         Send-ErrorRecord $Id $_
     } finally {
-        if ($null -ne $bytes) { [Array]::Clear($bytes, 0, $bytes.Length) }
-        $password = $null
+        $certificatePem = $null
+        $privateKeyPem = $null
     }
 }
 

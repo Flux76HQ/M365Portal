@@ -8,21 +8,38 @@
 // writes the certificate data to STDERR, which the launcher must throw away), shutdown (and exits),
 // and a call whose `Identity` argument asks for a behaviour: `split` writes a multi-byte character
 // in two chunks, `hang` never answers, `crash` exits with status 3, `noise` prints a banner first.
+//
+// With `--semantic` as the FIRST argument it is the other stand-in instead: the whole worker protocol over
+// the fake Exchange state, with seedable data (`standin-semantic.ts`, loaded through tsx). That is what the
+// `pwsh` shim of the e2e topology runs (`e2e/support/pwsh-shim/pwsh`); the arguments after `--semantic` are
+// the ones the product gives `pwsh` (`-File <script> -CertificateMode <mode> [-ScratchDirectory <dir>]`).
 import { argv, env, exit, stderr, stdin, stdout } from 'node:process';
 
-let buffer = '';
-stdin.setEncoding('utf8');
-stdin.on('data', (chunk) => {
-  buffer += chunk;
-  for (;;) {
-    const newline = buffer.indexOf('\n');
-    if (newline < 0) break;
-    const line = buffer.slice(0, newline);
-    buffer = buffer.slice(newline + 1);
-    handle(line);
-  }
-});
-stdin.on('end', () => exit(0));
+if (argv[2] === '--semantic') {
+  // The TypeScript sources of the fake are loaded through tsx, found from this file's location.
+  const { register } = await import('tsx/esm/api');
+  register();
+  const { runSemanticStandIn } = await import('./standin-semantic.ts');
+  runSemanticStandIn(argv.slice(3));
+} else {
+  runTransportStandIn();
+}
+
+function runTransportStandIn() {
+  let buffer = '';
+  stdin.setEncoding('utf8');
+  stdin.on('data', (chunk) => {
+    buffer += chunk;
+    for (;;) {
+      const newline = buffer.indexOf('\n');
+      if (newline < 0) break;
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      handle(line);
+    }
+  });
+  stdin.on('end', () => exit(0));
+}
 
 function reply(message) {
   stdout.write(`${JSON.stringify(message)}\n`);
@@ -44,7 +61,7 @@ function handle(line) {
       data: { pong: true, env: Object.keys(env).sort(), argv: argv.slice(2) },
     });
   } else if (message.type === 'connect') {
-    stderr.write(`CANARY-STDERR ${message.certificate.data}\n`);
+    stderr.write(`CANARY-STDERR ${message.certificate.privateKey}\n`);
     reply({ v: 1, id: message.id, ok: true, data: {} });
   } else if (message.type === 'shutdown') {
     reply({ v: 1, id: message.id, ok: true, data: {} });

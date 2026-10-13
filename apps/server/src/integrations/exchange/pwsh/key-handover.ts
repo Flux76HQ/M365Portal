@@ -1,21 +1,24 @@
 // How the certificate reaches the worker (Phase D, T-D-114, FR-D-103, plan 5.1).
 //
-// The default is in memory: the credential source hands over the PFX bytes and their password, the
-// session builds ONE protocol line (`connect`) from them, writes it to the stdin pipe of the worker
-// and zeroes the byte buffer. Nothing is written to a file, an argument or the environment; the
-// worker builds an ephemeral X509Certificate2 from the bytes (worker-script.ps1).
+// The default is in memory: the credential source hands over the certificate and the private key as
+// PEM text, the session builds ONE protocol line (`connect`) from them and writes it to the stdin pipe
+// of the worker. Nothing is written to a file, an argument or the environment; the worker builds the
+// certificate object with `X509Certificate2.CreateFromPem` (worker-script.ps1). The PEMs are strings
+// and cannot be wiped, which is why the line is built as late as possible and the source makes new
+// ones for every worker (GD1-0, amendment 1: PEM in place of PKCS#12).
 //
 // The fallback exists for the day U75 turns out false on Linux (OV-D1): `-Certificate` with an
 // in-memory object does not work, and `Connect-ExchangeOnline` needs `-CertificateFilePath`. Then the
-// SCRIPT writes the bytes to a file with mode 0600 inside a directory that THIS module made for that
-// one worker on a tmpfs, and removes the file right after the connect. This module owns what the
+// SCRIPT writes the PEMs to files with mode 0600 inside a directory that THIS module made for that
+// one worker on a tmpfs, derives the PKCS#12 file the cmdlet wants from them (random password, also
+// mode 0600), and removes every file right after the connect. This module owns what the
 // script cannot: the directory is private (0700), exists only while its worker lives (removed when
 // the worker ends however it ends), stale ones of an earlier process are swept before a worker
 // starts, and the root must really be a tmpfs, or nothing starts and the credential is not read.
 // A switch in configuration (`EXCHANGE_KEY_HANDOVER`), not a code fork.
 //
 // The protocol line is `connect` of `@m365portal/shared/exchange/protocol`; its certificate shape
-// (`pfx-base64` plus a password) is the frozen contract of GD1-0.
+// (`pem`: certificate and PKCS#8 key) is the contract of GD1-0 as amended.
 import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { posix } from 'node:path';
 import { encodeLine, parseRequestLine } from '@m365portal/shared/exchange/protocol';
@@ -38,15 +41,16 @@ export interface HandoverConfig {
 export const DEFAULT_HANDOVER: HandoverConfig = Object.freeze({ mode: 'memory' });
 export const DEFAULT_TMPFS_ROOT = '/dev/shm';
 
-/** What the connection needs. The buffer is zeroed after it was used; the source makes a new one each time. */
+/** What the connection needs. The source makes a new one each time; the strings are secrets and never logged. */
 export interface ExchangeCredential {
   /** The application (client) id, a lower-case GUID. */
   readonly appId: string;
   /** The primary `.onmicrosoft.com` domain of the tenant. */
   readonly organization: string;
-  /** A PKCS#12 container: the certificate and its private key. */
-  readonly pfx: Uint8Array;
-  readonly password: string;
+  /** The X.509 certificate as one PEM block (`CERTIFICATE`). */
+  readonly certificatePem: string;
+  /** The private key as one unencrypted PKCS#8 PEM block (`PRIVATE KEY`). */
+  readonly privateKeyPem: string;
 }
 
 /** Where the credential comes from (the sealed store, wired by the bootstrap). Called once per worker. */
@@ -55,29 +59,25 @@ export interface ExchangeCredentialSource {
 }
 
 /**
- * The `connect` line for a credential. The bytes are zeroed once the line exists (the string cannot
- * be wiped, which is why it is built as late as possible and handed straight to the pipe). Throws
- * when the credential breaks the schema of the protocol; the error says nothing about its content.
+ * The `connect` line for a credential (the string cannot be wiped, which is why it is built as late as
+ * possible and handed straight to the pipe). Throws when the credential breaks the schema of the
+ * protocol; the error says nothing about its content.
  */
 export function buildConnectLine(id: string, credential: ExchangeCredential): string {
-  try {
-    const line = encodeLine({
-      v: 1,
-      type: 'connect',
-      id,
-      appId: credential.appId,
-      organization: credential.organization,
-      certificate: {
-        format: 'pfx-base64',
-        data: Buffer.from(credential.pfx).toString('base64'),
-        password: credential.password,
-      },
-    });
-    if (!parseRequestLine(line).ok) throw new Error('the connect message breaks the protocol');
-    return line;
-  } finally {
-    credential.pfx.fill(0);
-  }
+  const line = encodeLine({
+    v: 1,
+    type: 'connect',
+    id,
+    appId: credential.appId,
+    organization: credential.organization,
+    certificate: {
+      format: 'pem',
+      certificate: credential.certificatePem,
+      privateKey: credential.privateKeyPem,
+    },
+  });
+  if (!parseRequestLine(line).ok) throw new Error('the connect message breaks the protocol');
+  return line;
 }
 
 // ---------------------------------------------------------------------------------------------

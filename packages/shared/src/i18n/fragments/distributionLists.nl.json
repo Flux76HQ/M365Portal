@@ -23,6 +23,7 @@
   "distributionLists.empty.title": "Geen distributielijsten om te tonen",
   "distributionLists.error.exchange_role_pending": "De Exchange-rol van het paneel is nog niet actief. Dit kan na de installatie een tijd duren. Open Instellingen, Verbinding om dit te controleren en probeer het later opnieuw.",
   "distributionLists.error.exchange_timeout": "Exchange antwoordde niet op tijd. Probeer het over een moment opnieuw.",
+  "distributionLists.error.narrow_search": "Het resultaat is te groot om te tonen. Typ meer van de naam of het adres om de zoekopdracht te beperken.",
   "distributionLists.error.retry": "Opnieuw proberen",
   "distributionLists.error.title": "De distributielijsten konden niet worden geladen",
   "distributionLists.field.address": "E-mailadres",

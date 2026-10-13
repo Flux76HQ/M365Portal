@@ -15,6 +15,11 @@
 import type { ReadinessFailureCode } from '@m365portal/shared/schemas/health';
 import type { DatabaseHandle } from '../db/index.js';
 import type { SecretsState } from '../ports/secrets.js';
+import {
+  CertificateMaterialUnavailableError,
+  type CertificateMaterial,
+  type CertificateMaterialPurpose,
+} from './certificate-material.js';
 import type { CertificateService } from './certificate-service.js';
 import type { SecretStore } from './secret-store.js';
 
@@ -33,11 +38,18 @@ export type SecretsReadinessCode = Extract<
   'app_key_missing' | 'app_key_invalid' | 'certificate_unreadable'
 >;
 
+/** What is logged for every release of the certificate material: who asked and which certificate. Never a key. */
+export interface MaterialAccessEvent {
+  readonly purpose: CertificateMaterialPurpose;
+  readonly thumbprintSha1: string;
+}
+
 export class SecretsRuntime {
   readonly #database: () => DatabaseHandle | undefined;
   #state: SecretsState = { status: 'key_missing' };
   #services: SecretsServices | undefined;
   readonly #listeners: (() => void)[] = [];
+  #materialAccess: ((event: MaterialAccessEvent) => void) | undefined;
 
   constructor(database: () => DatabaseHandle | undefined) {
     this.#database = database;
@@ -59,6 +71,35 @@ export class SecretsRuntime {
    */
   onChange(listener: () => void): void {
     this.#listeners.push(listener);
+  }
+
+  /** Where the releases of the certificate material are recorded (the secrets module sets it at its creation). */
+  setMaterialAccessLog(record: (event: MaterialAccessEvent) => void): void {
+    this.#materialAccess = record;
+  }
+
+  /**
+   * The ONE way the certificate and its private key leave the secrets module as text (PEM): `fn` is given
+   * the material for the duration of the call and nothing else keeps it; the access is recorded first
+   * (and when the record cannot be made, nothing is released). It is available only while the state is
+   * `ok` (the key opens the certificate); every degraded state throws
+   * `CertificateMaterialUnavailableError` with the state as its reason. What `fn` returns is its own
+   * responsibility: the Exchange credential source puts the PEMs in the protocol line and nowhere else.
+   */
+  async withCertificateMaterial<Result>(
+    purpose: CertificateMaterialPurpose,
+    fn: (material: CertificateMaterial) => Result | Promise<Result>,
+  ): Promise<Result> {
+    const { status } = this.#state;
+    if (status !== 'ok') throw new CertificateMaterialUnavailableError(status);
+    const services = this.#services;
+    const database = this.#database();
+    if (services === undefined) throw new CertificateMaterialUnavailableError('key_missing');
+    if (database === undefined) throw new CertificateMaterialUnavailableError('no_database');
+    return services.certificates.withMaterial(database, 'current', (material) => {
+      this.#materialAccess?.({ purpose, thumbprintSha1: material.thumbprintSha1 });
+      return fn(material);
+    });
   }
 
   /** Replace the state (the secrets module only). */

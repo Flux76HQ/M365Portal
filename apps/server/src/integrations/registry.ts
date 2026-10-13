@@ -133,7 +133,7 @@ export interface ProbeClients {
 }
 
 export type { ExchangeWorkerSettings } from './exchange/runtime.js';
-export { NO_EXCHANGE_CREDENTIAL } from './exchange/runtime.js';
+export { NO_EXCHANGE_CREDENTIAL, createSecretsCredentialSource } from './exchange/runtime.js';
 
 export interface ClientsRegistryDeps {
   /** `SecretsRuntime` fits: `state()` is read on every call. */

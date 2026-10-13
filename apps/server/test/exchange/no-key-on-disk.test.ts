@@ -4,7 +4,6 @@
 // the connect) is a configuration switch with its own guarantees: a private scratch directory per
 // worker, removed when the worker ends however it ends, stale ones swept, and refused unless the
 // directory really is a tmpfs. Every test scans the scratch file system for a canary key.
-import { createHash } from 'node:crypto';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { describe, expect, it } from 'vitest';
 import {
@@ -18,14 +17,20 @@ import {
 } from '../../src/integrations/exchange/pwsh/key-handover.js';
 import { ExchangeCommandError, ExchangeUnavailableError } from '../../src/ports/errors.js';
 import { rejectionOf } from '../integrations/support.js';
-import { CANARY_PASSWORD, CANARY_PFX, sessionHarness, type MemoryScratch } from './support.js';
+import {
+  CANARY_CERTIFICATE_PEM,
+  CANARY_KEY_BYTES,
+  CANARY_PRIVATE_KEY_PEM,
+  sessionHarness,
+  type MemoryScratch,
+} from './support.js';
 
 const ORG = { cmdlet: 'Get-OrganizationConfig', args: {} } as const;
 
 /** The guard: no file in the scratch file system holds the canary key, in any spelling, and none is left. */
 function checkNoKeyOnDisk(scratch: MemoryScratch): void {
-  const raw = Buffer.from(CANARY_PFX);
-  const spellings = [raw.toString('base64'), raw.toString('hex'), CANARY_PASSWORD];
+  const raw = Buffer.from(CANARY_KEY_BYTES);
+  const spellings = [raw.toString('base64'), raw.toString('hex'), CANARY_PRIVATE_KEY_PEM];
   for (const [path, content] of scratch.files()) {
     const bytes = Buffer.from(content);
     const text = bytes.toString('latin1');
@@ -49,17 +54,10 @@ describe('memory mode (the default)', () => {
     }).not.toThrow();
     const seen = h.launcher.processes[0]!.certificateSeen;
     expect(seen).toEqual({
-      format: 'pfx-base64',
-      data: Buffer.from(CANARY_PFX).toString('base64'),
-      passwordHash: createHash('sha256').update(CANARY_PASSWORD).digest('hex'),
+      format: 'pem',
+      certificate: CANARY_CERTIFICATE_PEM,
+      privateKey: CANARY_PRIVATE_KEY_PEM,
     });
-  });
-
-  it('zeroes the buffer the credential source handed over, once the line is built', async () => {
-    const h = sessionHarness();
-    await h.drive(h.session.request(ORG));
-    expect(h.credentials.lastPfx()).toBeDefined();
-    expect([...h.credentials.lastPfx()!].every((byte) => byte === 0)).toBe(true);
   });
 
   it('reads the credential again for every new worker, so a rotated certificate is picked up', async () => {
@@ -74,27 +72,40 @@ describe('memory mode (the default)', () => {
     h.launcher.connect({ error: 'permission_denied' });
     const failure = await rejectionOf(h.drive(h.session.request(ORG)));
     const everything = JSON.stringify(h.log.entries) + String(failure) + JSON.stringify(failure);
-    expect(everything).not.toContain(Buffer.from(CANARY_PFX).toString('base64'));
-    expect(everything).not.toContain(CANARY_PASSWORD);
+    expect(everything).not.toContain(Buffer.from(CANARY_KEY_BYTES).toString('base64'));
+    expect(everything).not.toContain(Buffer.from(CANARY_KEY_BYTES).toString('base64').slice(0, 40));
   });
 });
 
 describe('the connect line', () => {
-  it('is one line in the protocol shape and is refused for a certificate that is not base64', () => {
+  it('is one line in the protocol shape and is refused for a certificate or key that is not a PEM block', () => {
     const credential = {
       appId: '11111111-2222-4333-8444-555555555555',
       organization: 'contoso-fake.onmicrosoft.com',
-      pfx: Uint8Array.from(CANARY_PFX),
-      password: CANARY_PASSWORD,
+      certificatePem: CANARY_CERTIFICATE_PEM,
+      privateKeyPem: CANARY_PRIVATE_KEY_PEM,
     };
     const line = buildConnectLine('connect-0001', credential);
     expect(line.endsWith('\n')).toBe(true);
-    expect(JSON.parse(line)).toMatchObject({ v: 1, type: 'connect', id: 'connect-0001' });
+    expect(JSON.parse(line)).toMatchObject({
+      v: 1,
+      type: 'connect',
+      id: 'connect-0001',
+      certificate: { format: 'pem' },
+    });
+    expect(line.split('\n')).toHaveLength(2);
     expect(() =>
       buildConnectLine('connect-0002', { ...credential, organization: 'not a domain' }),
     ).toThrow();
+    expect(() => buildConnectLine('connect-0003', { ...credential, privateKeyPem: '' })).toThrow();
     expect(() =>
-      buildConnectLine('connect-0003', { ...credential, pfx: new Uint8Array(0) }),
+      buildConnectLine('connect-0004', { ...credential, privateKeyPem: 'not a pem block' }),
+    ).toThrow();
+    expect(() =>
+      buildConnectLine('connect-0005', {
+        ...credential,
+        certificatePem: CANARY_PRIVATE_KEY_PEM,
+      }),
     ).toThrow();
   });
 });
@@ -173,14 +184,15 @@ describe('the tmpfs fallback (configuration, not a code fork)', () => {
       expect(parseCertificateMode(bad)).toBeUndefined();
   });
 
-  it('creates a private scratch directory, lets the script write and delete the file, and removes the directory', async () => {
+  it('creates a private scratch directory, lets the script write and delete its files, and removes the directory', async () => {
     const h = sessionHarness({ handover: FALLBACK });
     await h.drive(h.session.request(ORG));
     const options = h.launcher.launchOptions[0]!;
     expect(options.certificateMode).toBe('tmpfs');
     expect(options.scratchDir).toMatch(/^\/dev\/shm\/m365portal-exo-[0-9a-f]{16}$/);
     expect(h.scratch.modeOf(options.scratchDir!)).toBe(0o700);
-    // The script wrote the file during the connect (the stand-in plays the script) and deleted it.
+    // The script wrote its files during the connect (the stand-in plays the script: both PEMs and the
+    // PKCS#12 derived from them) and deleted all of them.
     expect(h.launcher.processes[0]!.filesWritten).toEqual(1);
     // The worker is still running: the directory exists but holds no file.
     expect(h.scratch.files().size).toBe(0);
@@ -241,11 +253,11 @@ describe('the tmpfs fallback (configuration, not a code fork)', () => {
 
   it('sweeps scratch directories that an earlier process left behind before it starts a worker', async () => {
     const h = sessionHarness({ handover: FALLBACK });
-    h.scratch.plant('/dev/shm/m365portal-exo-0123456789abcdef/key.pfx', CANARY_PFX);
+    h.scratch.plant('/dev/shm/m365portal-exo-0123456789abcdef/key.pem', CANARY_KEY_BYTES);
     h.scratch.plant('/dev/shm/m365portal-exo-keepme/file.txt', Uint8Array.from([2]));
     h.scratch.plant('/dev/shm/unrelated-dir/file.txt', Uint8Array.from([1]));
     await h.drive(h.session.request(ORG));
-    expect(h.scratch.files().has('/dev/shm/m365portal-exo-0123456789abcdef/key.pfx')).toBe(false);
+    expect(h.scratch.files().has('/dev/shm/m365portal-exo-0123456789abcdef/key.pem')).toBe(false);
     expect(h.scratch.files().has('/dev/shm/m365portal-exo-keepme/file.txt')).toBe(true);
     expect(h.scratch.files().has('/dev/shm/unrelated-dir/file.txt')).toBe(true);
   });
@@ -264,7 +276,7 @@ describe('the tmpfs fallback (configuration, not a code fork)', () => {
     const h = sessionHarness({ handover: FALLBACK });
     h.launcher.leaveKeyFile(true);
     await h.drive(h.session.request(ORG));
-    expect(h.scratch.files().size).toBe(1);
+    expect(h.scratch.files().size).toBe(3);
     expectGuardFails(checkNoKeyOnDisk, h.scratch, {
       name: 'file left behind',
       reason: 'key material on disk',
@@ -276,7 +288,7 @@ describe('the tmpfs fallback (configuration, not a code fork)', () => {
     expect(() => {
       checkNoKeyOnDisk(empty);
     }).not.toThrow();
-    empty.plant('/dev/shm/x/canary.bin', CANARY_PFX);
+    empty.plant('/dev/shm/x/canary.bin', CANARY_KEY_BYTES);
     expectGuardFails(checkNoKeyOnDisk, empty, {
       name: 'planted key',
       reason: 'key material on disk',

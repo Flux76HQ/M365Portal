@@ -18,6 +18,19 @@ import {
 import { expectGuardFails } from '../src/testing/index.js';
 
 const ID = 'req-00000001';
+
+/** A PEM block assembled at run time (no PEM-shaped text in this source file): throwaway bytes, 64-column body. */
+function pem(label: string, size: number): string {
+  const body = (
+    Buffer.alloc(size, 7)
+      .toString('base64')
+      .match(/.{1,64}/g) ?? []
+  ).join('\n');
+  return ['-----BEGIN ' + label + '-----', body, '-----END ' + label + '-----', ''].join('\n');
+}
+const CERTIFICATE_PEM = pem('CERTIFICATE', 600);
+const KEY_PEM = pem('PRIVATE KEY', 1200);
+const PEM_CERTIFICATE = { format: 'pem', certificate: CERTIFICATE_PEM, privateKey: KEY_PEM };
 const GUID = '8e0c2b8e-0000-4000-8000-0000000000aa';
 const call = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   v: 1,
@@ -46,7 +59,7 @@ describe('requests', () => {
         id: ID,
         appId: GUID,
         organization: 'contoso.onmicrosoft.com',
-        certificate: { format: 'pfx-base64', data: 'AAAA', password: 'generated-throwaway' },
+        certificate: PEM_CERTIFICATE,
       }),
     ).toBe(true);
   });
@@ -81,26 +94,56 @@ describe('requests', () => {
     expect(accepts(call({ deadlineMs: '30000' }))).toBe(false);
   });
 
-  it('connect needs a GUID app id, a domain and a certificate in a closed shape', () => {
+  it('connect needs a GUID app id, a domain and a PEM certificate in a closed shape', () => {
     const connect = {
       v: 1,
       type: 'connect',
       id: ID,
       appId: GUID,
       organization: 'contoso.onmicrosoft.com',
-      certificate: { format: 'pfx-base64', data: 'AAAA', password: 'x' },
+      certificate: PEM_CERTIFICATE,
     };
+    expect(accepts(connect)).toBe(true);
     expect(accepts({ ...connect, appId: 'not-a-guid' })).toBe(false);
     expect(accepts({ ...connect, organization: 'not a domain' })).toBe(false);
-    expect(accepts({ ...connect, certificate: { ...connect.certificate, format: 'pem' } })).toBe(
-      false,
-    );
+    const withCertificate = (patch: Record<string, unknown>): boolean =>
+      accepts({ ...connect, certificate: { ...PEM_CERTIFICATE, ...patch } });
+    // The retired PKCS#12 shape is refused.
     expect(
-      accepts({ ...connect, certificate: { ...connect.certificate, data: 'not base64!' } }),
+      accepts({
+        ...connect,
+        certificate: { format: 'pfx-base64', data: 'AAAA', password: 'generated-throwaway' },
+      }),
     ).toBe(false);
-    expect(
-      accepts({ ...connect, certificate: { ...connect.certificate, path: '/tmp/key.pfx' } }),
-    ).toBe(false);
+    expect(withCertificate({ format: 'pfx-base64' })).toBe(false);
+    expect(withCertificate({ path: '/tmp/key.pem' })).toBe(false);
+    expect(withCertificate({ password: 'x' })).toBe(false);
+  });
+
+  it('connect accepts CRLF line ends and no final line break, and refuses anything but one PEM block of the right label', () => {
+    const connect = (patch: Record<string, unknown>): boolean =>
+      accepts({
+        v: 1,
+        type: 'connect',
+        id: ID,
+        appId: GUID,
+        organization: 'contoso.onmicrosoft.com',
+        certificate: { ...PEM_CERTIFICATE, ...patch },
+      });
+    expect(connect({ certificate: CERTIFICATE_PEM.replaceAll('\n', '\r\n') })).toBe(true);
+    expect(connect({ privateKey: KEY_PEM.trimEnd() })).toBe(true);
+    // Swapped labels, an encrypted key, an RSA-only key, extra text, a second block, a non-base64 body.
+    expect(connect({ certificate: KEY_PEM })).toBe(false);
+    expect(connect({ privateKey: CERTIFICATE_PEM })).toBe(false);
+    expect(connect({ privateKey: pem('ENCRYPTED PRIVATE KEY', 1200) })).toBe(false);
+    expect(connect({ privateKey: pem('RSA PRIVATE KEY', 1200) })).toBe(false);
+    expect(connect({ certificate: `junk\n${CERTIFICATE_PEM}` })).toBe(false);
+    expect(connect({ certificate: `${CERTIFICATE_PEM}${CERTIFICATE_PEM}` })).toBe(false);
+    expect(connect({ certificate: CERTIFICATE_PEM.replace('BwcH', 'Bw!H') })).toBe(false);
+    expect(connect({ certificate: '' })).toBe(false);
+    // Bounds: 16384 characters at most.
+    expect(connect({ privateKey: pem('PRIVATE KEY', 13_000) })).toBe(false);
+    expect(connect({ privateKey: pem('PRIVATE KEY', 3_000) })).toBe(true);
   });
 });
 

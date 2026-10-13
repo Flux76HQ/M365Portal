@@ -196,19 +196,28 @@ describe('what the script may call', () => {
 });
 
 describe('what the script may do with the certificate', () => {
-  it('keeps the key in memory: an ephemeral key set, no file in the memory branch', () => {
-    expect(script).toMatch(/EphemeralKeySet/);
+  it('keeps the key in memory: the certificate comes from CreateFromPem, no file in the memory branch', () => {
+    expect(script).toMatch(
+      /X509Certificate2\]::CreateFromPem\(\$CertificatePem, \$PrivateKeyPem\)/,
+    );
     expect(script).not.toMatch(/-CertificateThumbprint/);
+    // The retired PKCS#12 route is gone from the memory path.
+    expect(script).not.toMatch(/FromBase64String|LoadPkcs12|pfx-base64/);
   });
 
   it('writes a file only in the tmpfs branch, with a restrictive mode, and removes it in finally', () => {
-    const tmpfs = script.slice(script.indexOf('function Connect-WithTmpfsFile'));
+    const tmpfs = script.slice(
+      script.indexOf('function Write-PrivateFile'),
+      script.indexOf('function Get-Hello'),
+    );
     expect(tmpfs).toMatch(/UnixCreateMode/);
     expect(tmpfs).toMatch(/UserRead\s*-bor\s*\[System\.IO\.UnixFileMode\]::UserWrite/);
-    expect(tmpfs).toMatch(/finally\s*\{[^}]*Remove-Item/s);
+    expect(tmpfs).toMatch(
+      /finally\s*\{[^]*Remove-Item -LiteralPath \$certificatePath, \$keyPath, \$pfxPath -Force/,
+    );
     const memory = script.slice(
       script.indexOf('function Connect-InMemory'),
-      script.indexOf('function Connect-WithTmpfsFile'),
+      script.indexOf('function Write-PrivateFile'),
     );
     expect(memory).not.toMatch(/WriteAllBytes|FileStream|Remove-Item|New-Item/);
     expect(memory).toMatch(/-Certificate\s+\$/);

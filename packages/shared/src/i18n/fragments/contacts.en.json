@@ -32,6 +32,7 @@
   "contacts.empty.filteredDescription": "Try other letters. Recent changes in Exchange can take a moment to show up.",
   "contacts.empty.filteredTitle": "No contacts match",
   "contacts.empty.title": "No contacts to show",
+  "contacts.error.narrow_search": "There are too many matching contacts to show. Type more of the name, the alias or the address to narrow the search.",
   "contacts.error.retry": "Try again",
   "contacts.error.title": "The contacts could not be loaded",
   "contacts.field.address": "External email address",

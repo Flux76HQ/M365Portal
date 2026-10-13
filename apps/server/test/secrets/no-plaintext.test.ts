@@ -264,6 +264,25 @@ describe('no plaintext on disk', () => {
     assertNoPlaintext(dataDir, [...captured, appKey]);
   });
 
+  it('after the key was released as PEM to a callback (the Exchange path), still no file holds a PEM marker, the key or APP_KEY', async () => {
+    const { db, dataDir, service, captured, appKey } = await harness();
+    const first = await service.create(db, ACTOR);
+    service.activate(db, first.id);
+    const released: string[] = [];
+    await service.withMaterial(db, 'active', (material) => {
+      // The callback holds the PEMs; nothing the accessor does may write them down.
+      released.push(material.certificatePem, material.privateKeyPem);
+    });
+    await service.withMaterial(db, 'current', () => undefined);
+    await takeBackup(db.sqlite, { backupsDir: join(dataDir, 'backups'), from: 0, to: 1 });
+    // The callback really saw the key (so the scan below is not vacuous): its body is the captured key.
+    expect(released[1]?.replace(/-----[A-Z ]+-----|\n/g, '')).toBe(
+      Buffer.from(captured[0] ?? Buffer.alloc(0)).toString('base64'),
+    );
+    expect(count(db, 'audit_log')).toBe(1);
+    assertNoPlaintext(dataDir, [...captured, appKey]);
+  });
+
   it('is a guard that fails for a data directory containing a PEM body (negative)', async () => {
     const { dataDir, captured, service, db, appKey } = await harness();
     await service.create(db, ACTOR);

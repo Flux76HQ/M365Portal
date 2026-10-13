@@ -21,36 +21,43 @@ import {
 } from '../fakes/fake-tenant/exchange/index.js';
 import { createTime, sequenceRandom, settle, track, type Time } from '../integrations/support.js';
 
-/** A recognisable PKCS#12 stand-in: the canary the no-key-on-disk scans look for. */
-export const CANARY_PFX: Uint8Array = Uint8Array.from(
+/** A PEM block assembled at run time, so no PEM-shaped text sits in this source file; 64-column body. */
+function pemOf(label: string, bytes: Uint8Array): string {
+  const body = (
+    Buffer.from(bytes)
+      .toString('base64')
+      .match(/.{1,64}/g) ?? []
+  ).join('\n');
+  return ['-----BEGIN ' + label + '-----', body, '-----END ' + label + '-----', ''].join('\n');
+}
+
+/** Recognisable key bytes (and a certificate that is not one): the canary the no-key-on-disk scans look for. */
+export const CANARY_KEY_BYTES: Uint8Array = Uint8Array.from(
   Array.from({ length: 96 }, (_, n) => (n * 7 + 13) % 251),
 );
-export const CANARY_PASSWORD = 'canary-pfx-password-7f3a9c41';
+export const CANARY_CERTIFICATE_BYTES: Uint8Array = Uint8Array.from(
+  Array.from({ length: 96 }, (_, n) => (n * 11 + 5) % 251),
+);
+export const CANARY_PRIVATE_KEY_PEM = pemOf('PRIVATE KEY', CANARY_KEY_BYTES);
+export const CANARY_CERTIFICATE_PEM = pemOf('CERTIFICATE', CANARY_CERTIFICATE_BYTES);
 
 const APP_ID = '11111111-2222-4333-8444-555555555555';
 const ORGANIZATION = 'contoso-fake.onmicrosoft.com';
 
-/** The credential source: counts its loads, hands out a fresh copy of the bytes each time, can fail. */
+/** The credential source: counts its loads, can fail. */
 export class CountingCredentials implements ExchangeCredentialSource {
   loads = 0;
-  #last: Uint8Array | undefined;
   #failure: Error | undefined;
 
   load(): Promise<ExchangeCredential> {
     if (this.#failure !== undefined) return Promise.reject(this.#failure);
     this.loads += 1;
-    this.#last = Uint8Array.from(CANARY_PFX);
     return Promise.resolve({
       appId: APP_ID,
       organization: ORGANIZATION,
-      pfx: this.#last,
-      password: CANARY_PASSWORD,
+      certificatePem: CANARY_CERTIFICATE_PEM,
+      privateKeyPem: CANARY_PRIVATE_KEY_PEM,
     });
-  }
-
-  /** The buffer handed over by the last load (it is zeroed once the connect line exists). */
-  lastPfx(): Uint8Array | undefined {
-    return this.#last;
   }
 
   failWith(error: Error): void {

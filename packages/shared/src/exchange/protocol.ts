@@ -24,17 +24,25 @@ const OrganizationSchema = z
   .regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/);
 
 /**
+ * One PEM block of a given label: the frame lines, a base64 body in lines (LF or CRLF), nothing before or after
+ * but an optional final line break. The body is bounded so a line cannot be made to carry anything else.
+ */
+const pemBlock = (label: string): RegExp =>
+  new RegExp(
+    `^-----BEGIN ${label}-----\\r?\\n(?:[A-Za-z0-9+/]{1,76}\\r?\\n)*[A-Za-z0-9+/]{1,76}={0,2}\\r?\\n-----END ${label}-----(?:\\r?\\n)?$`,
+  );
+
+/**
  * The certificate of the connection, handed over in the first line on stdin and never in arguments or
- * the environment (plan 5.1, FR-D-103). The values are secrets: they are never logged.
+ * the environment (plan 5.1, FR-D-103; amended by GD1-0 section "Amendment 1": PEM in place of PKCS#12).
+ * The certificate is an X.509 PEM, the key an UNENCRYPTED PKCS#8 PEM (`PRIVATE KEY`); the worker builds
+ * the certificate object with `X509Certificate2.CreateFromPem`. The values are secrets: they are never
+ * logged.
  */
 const CertificateSchema = z.strictObject({
-  format: z.literal('pfx-base64'),
-  data: z
-    .string()
-    .min(4)
-    .max(65_536)
-    .regex(/^[A-Za-z0-9+/]+={0,2}$/),
-  password: z.string().min(1).max(256),
+  format: z.literal('pem'),
+  certificate: z.string().min(64).max(16_384).regex(pemBlock('CERTIFICATE')),
+  privateKey: z.string().min(64).max(16_384).regex(pemBlock('PRIVATE KEY')),
 });
 
 const deadlineMax = LIMITS.exchange.callDeadlineSeconds * 1000;

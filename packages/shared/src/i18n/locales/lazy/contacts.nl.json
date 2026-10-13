@@ -32,6 +32,7 @@
   "contacts.empty.filteredDescription": "Probeer andere letters. Recente wijzigingen in Exchange kunnen even duren voordat ze zichtbaar zijn.",
   "contacts.empty.filteredTitle": "Geen contacten gevonden",
   "contacts.empty.title": "Geen contacten om te tonen",
+  "contacts.error.narrow_search": "Er zijn te veel passende contactpersonen om te tonen. Typ meer van de naam, de alias of het adres om de zoekopdracht te beperken.",
   "contacts.error.retry": "Opnieuw proberen",
   "contacts.error.title": "De contacten konden niet worden geladen",
   "contacts.field.address": "Extern e-mailadres",

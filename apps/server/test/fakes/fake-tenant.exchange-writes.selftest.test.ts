@@ -9,6 +9,7 @@
 import { encodeLine, parseResponseLine } from '@m365portal/shared/exchange/protocol';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { describe, expect, it } from 'vitest';
+import { CANARY_CERTIFICATE_PEM, CANARY_PRIVATE_KEY_PEM } from '../exchange/support.js';
 import { PROJECTIONS } from '../../src/integrations/exchange/pwsh/projections.js';
 import { FakeExchangeState, runCmdlet, type CmdletOutcome } from './fake-tenant/exchange/index.js';
 import { createStandInLauncher } from './fake-tenant/exchange/worker-standin.js';
@@ -528,7 +529,11 @@ describe('the worker stand-in speaks the protocol strictly', () => {
     id: 'connect-0001',
     appId: '11111111-2222-4333-8444-555555555555',
     organization: 'contoso-fake.onmicrosoft.com',
-    certificate: { format: 'pfx-base64', data: 'AAAA', password: 'x' },
+    certificate: {
+      format: 'pem',
+      certificate: CANARY_CERTIFICATE_PEM,
+      privateKey: CANARY_PRIVATE_KEY_PEM,
+    },
   };
 
   function open() {

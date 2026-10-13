@@ -7,13 +7,14 @@
 //     `pwsh` starts and answers every feature that does not use Exchange; the registry builds this lazily.
 //   - The command is `pwsh` on the PATH (the image installs it, ADR 0180). The script is the generated file
 //     of the build: next to the bundle in the image, in the source tree under tsx and Vitest.
-//   - Where the certificate comes from is the `ExchangeCredentialSource` of the deployment. None is wired
-//     in step D1: Phase B seals a PKCS#8 key and a certificate, the `connect` line wants a PKCS#12, and no
-//     dependency of the server builds one (GD1-server-b, finding 1). Without a source every call answers
-//     "not available" (`NO_EXCHANGE_CREDENTIAL`), the process stays up, and the Admin API probe of the
-//     wizard is unaffected.
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+//   - Where the certificate comes from is the `ExchangeCredentialSource` of the deployment: `start.ts` wires
+//     `createSecretsCredentialSource` (pwsh/credential-source.ts, re-exported by the registry), which reads the certificate and the PKCS#8 key
+//     as PEM through the narrow accessor of the secrets module (GD1-0 amendment 1). Without a source, or
+//     when it cannot load (a degraded secrets state, no certificate), every call answers "not available"
+//     (`NO_EXCHANGE_CREDENTIAL` / `credential_unavailable`), the process stays up, and the Admin API probe
+//     of the wizard is unaffected.
+import { accessSync, constants, existsSync, statSync } from 'node:fs';
+import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Clock, RandomSource, Scheduler } from '../../ports/clock.js';
 import { ExchangeUnavailableError } from '../../ports/errors.js';
@@ -27,12 +28,36 @@ import { PwshExchangeClient } from './pwsh/pwsh-client.js';
 import { ExchangeWorkerSession, type ExchangeLog } from './pwsh/session.js';
 import { createNodeWorkerLauncher, type WorkerLauncher } from './pwsh/worker-launcher.js';
 
+export { createSecretsCredentialSource } from './pwsh/credential-source.js';
+
 /** The command that starts the worker: found on the PATH of the process. */
 export const PWSH_COMMAND = 'pwsh';
 
+/**
+ * The file `command` names on the PATH of the SERVER process: the first absolute directory of `pathVariable`
+ * that holds an executable file of that name. The worker is started with a short environment that has no
+ * PATH of its own, so the search must happen here, once, in the environment that the operator (or the
+ * image) really configured; a command that is not found stays as it is and fails at the start of the
+ * worker (503 `exchange_unavailable`, the process stays up). A command with a slash is used as given.
+ */
+export function resolveCommand(command: string, pathVariable: string | undefined): string {
+  if (command.includes('/')) return command;
+  for (const directory of (pathVariable ?? '').split(delimiter)) {
+    if (!isAbsolute(directory)) continue;
+    const candidate = join(directory, command);
+    try {
+      accessSync(candidate, constants.X_OK);
+      if (statSync(candidate).isFile()) return candidate;
+    } catch {
+      // Not here: the next directory.
+    }
+  }
+  return command;
+}
+
 /** What the deployment decides about the worker. Every field is optional but the home directory and the environment. */
 export interface ExchangeWorkerSettings {
-  /** The command; default `pwsh`. */
+  /** The command; default `pwsh`, searched on the PATH of `parentEnv`. */
   readonly command?: string;
   /** The generated `worker-script.ps1`; default `defaultExchangeScript()`. */
   readonly scriptPath?: string;
@@ -43,7 +68,7 @@ export interface ExchangeWorkerSettings {
   /** `EXCHANGE_KEY_HANDOVER`: `memory` (default) or the `tmpfs` fallback (FR-D-103). */
   readonly handover?: HandoverConfig;
   /**
-   * Where the PKCS#12 of the certificate comes from, per pinned tenant. Absent: no source exists and every
+   * Where the certificate and its key (PEM) come from, per pinned tenant. Absent: no source exists and every
    * Exchange call answers 503 `exchange_unavailable`.
    */
   readonly credentials?: (context: {
@@ -102,7 +127,7 @@ export function createExchangeRuntime(
     launcher:
       settings.launcher ??
       createNodeWorkerLauncher({
-        command: settings.command ?? PWSH_COMMAND,
+        command: settings.command ?? resolveCommand(PWSH_COMMAND, settings.parentEnv.PATH),
         scriptPath: settings.scriptPath ?? defaultExchangeScript(),
         homeDir: settings.homeDir,
         parentEnv: settings.parentEnv,

@@ -295,11 +295,12 @@ describe('every key a registry names has a message in both languages', () => {
       expect(keys.has(`noaccess.reason.${reason}`), reason).toBe(true);
   });
 
-  it('has a message for the errors[] detail codes exchange_role_pending, exchange_timeout, graph_permission_missing, privileged_role_group, principal_disabled and owner_changed', () => {
+  it('has a message for the errors[] detail codes exchange_role_pending, exchange_timeout, graph_permission_missing, narrow_search, privileged_role_group, principal_disabled and owner_changed', () => {
     expect([...ERROR_DETAIL_CODES].sort()).toEqual([
       'exchange_role_pending',
       'exchange_timeout',
       'graph_permission_missing',
+      'narrow_search',
       'owner_changed',
       'principal_disabled',
       'privileged_role_group',
@@ -323,6 +324,16 @@ describe('every key a registry names has a message in both languages', () => {
     );
     expect(CATALOGUES.en['distributionLists.error.exchange_role_pending']).toMatch(/Connection/);
     expect(CATALOGUES.nl['distributionLists.error.exchange_role_pending']).toMatch(/Verbinding/);
+  });
+
+  it('has the lazy-catalogue message of narrow_search in both languages, for the lists and for the contacts (FR-D-108)', () => {
+    expect(ERROR_DETAIL_MESSAGE_KEYS.narrow_search).toBe('distributionLists.error.narrow_search');
+    for (const locale of LOCALES) {
+      expect(CATALOGUES[locale]['distributionLists.error.narrow_search'], locale).toBeTruthy();
+      expect(CATALOGUES[locale]['contacts.error.narrow_search'], locale).toBeTruthy();
+    }
+    expect(CATALOGUES.en['distributionLists.error.narrow_search']).toMatch(/narrow/);
+    expect(CATALOGUES.nl['distributionLists.error.narrow_search']).toMatch(/beperken/);
   });
 
   it('points graph_permission_missing at the repair on the Connection page, in both languages (EC-C14, T-C-002)', () => {

@@ -12,10 +12,9 @@
 // What a test can script: the connect (`connect(...)`), each call (`script(fn)` returns an action by
 // the index of the call: hang, exit, apply and exit, hold, an error, extra or replaced lines, answers
 // in pieces), a launch that fails (`failLaunch`), a process that dies (`crash`, `killAll`). In the
-// fallback mode the stand-in plays the script's part in the key hand-over: it writes the certificate to
-// a file in the scratch directory during the connect and removes it afterwards (or leaves it, to prove
+// fallback mode the stand-in plays the script's part in the key hand-over: it writes the two PEMs and the
+// derived PKCS#12 to files in the scratch directory during the connect and removes them afterwards (or leaves it, to prove
 // that the guard sees a file left behind).
-import { createHash } from 'node:crypto';
 import {
   encodeLine,
   parseRequestLine,
@@ -74,8 +73,8 @@ export interface StandInProcess extends WorkerProcess {
   killed: boolean;
   stdinClosed: boolean;
   exited: boolean;
-  /** What the connect carried, without the secrets: the format, the data as received and a hash of the password. */
-  certificateSeen: { format: string; data: string; passwordHash: string } | undefined;
+  /** What the connect carried, as received (test canaries only; a real log never holds it). */
+  certificateSeen: { format: string; certificate: string; privateKey: string } | undefined;
   filesWritten: number;
   /** The process dies by itself. */
   crash(): void;
@@ -150,7 +149,7 @@ export function createStandInLauncher(
     const exitListeners: (() => void)[] = [];
     let connected = false;
     let ignoreShutdown = false;
-    let keyPath: string | undefined;
+    let keyPaths: string[] = [];
 
     const process: StandInProcess = {
       received: [],
@@ -259,22 +258,29 @@ export function createStandInLauncher(
 
     function handleConnect(
       id: string,
-      certificate: { format: string; data: string; password: string },
+      certificate: { format: string; certificate: string; privateKey: string },
     ): void {
       process.certificateSeen = {
         format: certificate.format,
-        data: certificate.data,
-        passwordHash: createHash('sha256').update(certificate.password).digest('hex'),
+        certificate: certificate.certificate,
+        privateKey: certificate.privateKey,
       };
       const mode = connectMode;
       // The fallback: the script writes the key to a file in its scratch directory for the connect.
       if (launchOptions.certificateMode === 'tmpfs' && launchOptions.scratchDir !== undefined) {
-        keyPath = `${launchOptions.scratchDir}/k${String(process.filesWritten)}.pfx`;
-        options.files?.write(keyPath, Buffer.from(certificate.data, 'base64'));
+        const stem = `${launchOptions.scratchDir}/${String(process.filesWritten)}`;
+        // The script writes the PEMs and derives the PKCS#12 from them (here: the bytes of the key stand in for it).
+        const written: [string, string][] = [
+          [`${stem}-c.pem`, certificate.certificate],
+          [`${stem}-k.pem`, certificate.privateKey],
+          [`${stem}-p.pfx`, certificate.privateKey],
+        ];
+        keyPaths = written.map(([path]) => path);
+        for (const [path, text] of written) options.files?.write(path, Buffer.from(text, 'utf8'));
         process.filesWritten += 1;
       }
       const clean = (): void => {
-        if (keyPath !== undefined && !leaveFile) options.files?.remove(keyPath);
+        if (!leaveFile) for (const path of keyPaths) options.files?.remove(path);
       };
       if (mode === 'hang' || mode === 'hang-with-file') return;
       if (mode === 'exit' || mode === 'exit-with-file') {
