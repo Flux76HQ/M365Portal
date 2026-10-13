@@ -628,7 +628,8 @@ describe('no route renders a preview banner (FR-B-102)', () => {
     for (const path of ['/', '/users', '/settings', '/signin', '/no-access']) {
       const { unmount } = await renderApp({ me: sampleSignedInMe(), path });
       await screen.findByRole('main');
-      expect(screen.queryByRole('status'), path).not.toBeInTheDocument();
+      // (A banner, not any live region: the lists announce their result count in a status region.)
+      expect(document.querySelector('[data-slot="banner"]'), path).toBeNull();
       expect(document.body.textContent.toLowerCase(), path).not.toContain('preview mode');
       expect(document.body.textContent.toLowerCase(), path).not.toContain('voorbeeldmodus');
       unmount();

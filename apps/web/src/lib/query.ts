@@ -15,6 +15,13 @@ export const queryKeys = Object.freeze({
   branding: ['branding'] as const,
 });
 
+/**
+ * The key of a read of the directory pages (Phase C): `('users', 'list', params, cursor)`, `('groups',
+ * 'detail', id)` and so on. A list key holds every parameter of the request, so a changed filter is another
+ * entry, and the cursor, so a page already visited is shown again at once. Held in memory only.
+ */
+export const directoryKey = (...parts: readonly unknown[]) => parts;
+
 /** How long cached data counts as fresh, in milliseconds. */
 export const STALE_TIME_MS = Object.freeze({
   me: 60_000,
