@@ -1,8 +1,9 @@
 //
 // THE PLACEHOLDER PAGES (FR-A-129, FR-A-130; US-5.6; T-A-169).
 //
-// Distribution lists, Contacts and the Audit log say "not available until Phase D" (Users and Groups were
-// placeholders until Phase C replaced them with real pages: `users-page.test.tsx`, `groups-page.test.tsx`).
+// The Audit log says "not available until Phase D" (Users and Groups were placeholders until Phase C replaced
+// them with real pages: `users-page.test.tsx`, `groups-page.test.tsx`; Distribution lists and Contacts until
+// step D1 of Phase D: `distribution-lists-page.test.tsx`, `contacts-page.test.tsx`; the audit page follows in D2).
 // Each says what it will do, and is gated by its read permission: an actor without it sees the No-access
 // content at the same URL. Both languages.
 import { createTranslator } from '@m365portal/shared/i18n';
@@ -16,20 +17,6 @@ const en = createTranslator('en');
 const nl = createTranslator('nl');
 
 const PAGES = [
-  {
-    path: '/distribution-lists',
-    permission: 'distributionlists:read',
-    phase: 'D',
-    title: 'nav.distributionLists',
-    does: 'placeholders.distributionLists.description',
-  },
-  {
-    path: '/contacts',
-    permission: 'contacts:read',
-    phase: 'D',
-    title: 'nav.contacts',
-    does: 'placeholders.contacts.description',
-  },
   {
     path: '/audit',
     permission: 'audit:read',
@@ -67,7 +54,7 @@ describe.each(PAGES)('$path', ({ path, permission, phase, title, does }) => {
   });
 
   it('shows the No-access content at the same URL to an actor without the permission', async () => {
-    const other = PAGES.find((page) => page.permission !== permission)!.permission;
+    const other: Permission = 'users:read';
     const { router } = await renderApp({ me: sampleMe({ permissions: [other] }), path });
 
     expect(

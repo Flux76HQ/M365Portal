@@ -2,6 +2,7 @@
 // small functions that import no schema (the route file belongs to the entry bundle); this test ties their
 // vocabularies to the wire enums, so the two cannot drift, and proves that a bad link is dropped.
 import { LIMITS } from '@m365portal/shared/limits';
+import { DistributionListKindSchema } from '@m365portal/shared/schemas/distribution-lists';
 import {
   DirectorySearchSchema,
   EnabledFilterSchema,
@@ -13,9 +14,12 @@ import { describe, expect, it } from 'vitest';
 import {
   ENABLED_VALUES,
   KIND_VALUES,
+  LIST_KIND_VALUES,
   SEARCH_MAX_CHARS,
   TYPE_VALUES,
   searchText,
+  validateContactsSearch,
+  validateDistributionListsSearch,
   validateGroupsSearch,
   validateUsersSearch,
 } from '../src/features/directory/search';
@@ -28,6 +32,10 @@ describe('the vocabularies are the wire enums', () => {
     expect([...ENABLED_VALUES]).toEqual(without(EnabledFilterSchema.options, 'all'));
     expect([...TYPE_VALUES]).toEqual(without(UserTypeFilterSchema.options, 'all'));
     expect([...KIND_VALUES]).toEqual(without(GroupKindFilterSchema.options, 'all'));
+  });
+
+  it('has the kinds of a distribution list (Phase D)', () => {
+    expect([...LIST_KIND_VALUES]).toEqual(DistributionListKindSchema.options);
   });
 
   it('has the search length of the server', () => {
@@ -120,6 +128,27 @@ describe('validateUsersSearch and validateGroupsSearch', () => {
       q: undefined,
       enabled: undefined,
       type: undefined,
+      order: undefined,
+    });
+  });
+});
+
+describe('validateDistributionListsSearch and validateContactsSearch (Phase D)', () => {
+  it('keeps a good link and drops a bad one, naming every key', () => {
+    expect(validateDistributionListsSearch({ q: 'ada', kind: 'dynamic', order: 'desc' })).toEqual({
+      q: 'ada',
+      kind: 'dynamic',
+      order: 'desc',
+    });
+    const bad = validateDistributionListsSearch({ q: 'a\nb', kind: 'all', order: 'up' });
+    expect(bad).toEqual({ q: undefined, kind: undefined, order: undefined });
+    expect(Object.keys(bad).sort()).toEqual(['kind', 'order', 'q']);
+    expect(validateContactsSearch({ q: 'ada', order: 'desc', kind: 'x' })).toEqual({
+      q: 'ada',
+      order: 'desc',
+    });
+    expect(validateContactsSearch({ q: '', order: 'asc' })).toEqual({
+      q: undefined,
       order: undefined,
     });
   });

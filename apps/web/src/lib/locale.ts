@@ -193,6 +193,25 @@ export const APPEARANCE_NAMESPACES = [
  */
 export const DIRECTORY_NAMESPACES = ['users', 'groups'] as const satisfies readonly LazyNamespace[];
 
+/**
+ * The text of member editing (Phase D): the picker, the per-member result and the reason labels. The lists
+ * and contacts pages and the group page (member editing on /groups/$id) load it.
+ */
+export const MEMBER_NAMESPACES = ['distributionLists'] as const satisfies readonly LazyNamespace[];
+
+/** The distribution list pages: the shared directory text (dash, paging, errors) and the member editing text. */
+export const LIST_NAMESPACES = [
+  'users',
+  'distributionLists',
+] as const satisfies readonly LazyNamespace[];
+
+/** The contact pages: the same, and the lists a contact is in. */
+export const CONTACT_NAMESPACES = [
+  'users',
+  'contacts',
+  'distributionLists',
+] as const satisfies readonly LazyNamespace[];
+
 const LanguageContext = createContext<LanguageController | null>(null);
 
 export interface LanguageProviderProps {

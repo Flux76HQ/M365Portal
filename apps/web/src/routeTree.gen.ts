@@ -21,6 +21,10 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SigninRouteImport } from './routes/signin'
 import { Route as UsersRouteImport } from './routes/users'
+import { Route as ContactsIndexRouteImport } from './routes/contacts.index'
+import { Route as ContactsIdRouteImport } from './routes/contacts.$id'
+import { Route as DistributionListsIndexRouteImport } from './routes/distribution-lists.index'
+import { Route as DistributionListsIdRouteImport } from './routes/distribution-lists.$id'
 import { Route as GroupsIndexRouteImport } from './routes/groups.index'
 import { Route as GroupsIdRouteImport } from './routes/groups.$id'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
@@ -91,6 +95,26 @@ const UsersRoute = UsersRouteImport.update({
   path: '/users',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ContactsIndexRoute = ContactsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ContactsRoute,
+} as any)
+const ContactsIdRoute = ContactsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => ContactsRoute,
+} as any)
+const DistributionListsIndexRoute = DistributionListsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DistributionListsRoute,
+} as any)
+const DistributionListsIdRoute = DistributionListsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => DistributionListsRoute,
+} as any)
 const GroupsIndexRoute = GroupsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -141,21 +165,25 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
   '/break-glass': typeof BreakGlassRoute
-  '/contacts': typeof ContactsRoute
+  '/contacts': typeof ContactsRouteWithChildren
   '/design': typeof DesignRoute
-  '/distribution-lists': typeof DistributionListsRoute
+  '/distribution-lists': typeof DistributionListsRouteWithChildren
   '/groups': typeof GroupsRouteWithChildren
   '/no-access': typeof NoAccessRoute
   '/settings': typeof SettingsRouteWithChildren
   '/setup': typeof SetupRoute
   '/signin': typeof SigninRoute
   '/users': typeof UsersRouteWithChildren
+  '/contacts/$id': typeof ContactsIdRoute
+  '/distribution-lists/$id': typeof DistributionListsIdRoute
   '/groups/$id': typeof GroupsIdRoute
   '/settings/access': typeof SettingsAccessRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/connection': typeof SettingsConnectionRoute
   '/settings/restore-access': typeof SettingsRestoreAccessRoute
   '/users/$id': typeof UsersIdRoute
+  '/contacts/': typeof ContactsIndexRoute
+  '/distribution-lists/': typeof DistributionListsIndexRoute
   '/groups/': typeof GroupsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/users/': typeof UsersIndexRoute
@@ -164,18 +192,20 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
   '/break-glass': typeof BreakGlassRoute
-  '/contacts': typeof ContactsRoute
   '/design': typeof DesignRoute
-  '/distribution-lists': typeof DistributionListsRoute
   '/no-access': typeof NoAccessRoute
   '/setup': typeof SetupRoute
   '/signin': typeof SigninRoute
+  '/contacts/$id': typeof ContactsIdRoute
+  '/distribution-lists/$id': typeof DistributionListsIdRoute
   '/groups/$id': typeof GroupsIdRoute
   '/settings/access': typeof SettingsAccessRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/connection': typeof SettingsConnectionRoute
   '/settings/restore-access': typeof SettingsRestoreAccessRoute
   '/users/$id': typeof UsersIdRoute
+  '/contacts': typeof ContactsIndexRoute
+  '/distribution-lists': typeof DistributionListsIndexRoute
   '/groups': typeof GroupsIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/users': typeof UsersIndexRoute
@@ -185,21 +215,25 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
   '/break-glass': typeof BreakGlassRoute
-  '/contacts': typeof ContactsRoute
+  '/contacts': typeof ContactsRouteWithChildren
   '/design': typeof DesignRoute
-  '/distribution-lists': typeof DistributionListsRoute
+  '/distribution-lists': typeof DistributionListsRouteWithChildren
   '/groups': typeof GroupsRouteWithChildren
   '/no-access': typeof NoAccessRoute
   '/settings': typeof SettingsRouteWithChildren
   '/setup': typeof SetupRoute
   '/signin': typeof SigninRoute
   '/users': typeof UsersRouteWithChildren
+  '/contacts/$id': typeof ContactsIdRoute
+  '/distribution-lists/$id': typeof DistributionListsIdRoute
   '/groups/$id': typeof GroupsIdRoute
   '/settings/access': typeof SettingsAccessRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/connection': typeof SettingsConnectionRoute
   '/settings/restore-access': typeof SettingsRestoreAccessRoute
   '/users/$id': typeof UsersIdRoute
+  '/contacts/': typeof ContactsIndexRoute
+  '/distribution-lists/': typeof DistributionListsIndexRoute
   '/groups/': typeof GroupsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/users/': typeof UsersIndexRoute
@@ -219,12 +253,16 @@ export interface FileRouteTypes {
     | '/setup'
     | '/signin'
     | '/users'
+    | '/contacts/$id'
+    | '/distribution-lists/$id'
     | '/groups/$id'
     | '/settings/access'
     | '/settings/appearance'
     | '/settings/connection'
     | '/settings/restore-access'
     | '/users/$id'
+    | '/contacts/'
+    | '/distribution-lists/'
     | '/groups/'
     | '/settings/'
     | '/users/'
@@ -233,18 +271,20 @@ export interface FileRouteTypes {
     | '/'
     | '/audit'
     | '/break-glass'
-    | '/contacts'
     | '/design'
-    | '/distribution-lists'
     | '/no-access'
     | '/setup'
     | '/signin'
+    | '/contacts/$id'
+    | '/distribution-lists/$id'
     | '/groups/$id'
     | '/settings/access'
     | '/settings/appearance'
     | '/settings/connection'
     | '/settings/restore-access'
     | '/users/$id'
+    | '/contacts'
+    | '/distribution-lists'
     | '/groups'
     | '/settings'
     | '/users'
@@ -262,12 +302,16 @@ export interface FileRouteTypes {
     | '/setup'
     | '/signin'
     | '/users'
+    | '/contacts/$id'
+    | '/distribution-lists/$id'
     | '/groups/$id'
     | '/settings/access'
     | '/settings/appearance'
     | '/settings/connection'
     | '/settings/restore-access'
     | '/users/$id'
+    | '/contacts/'
+    | '/distribution-lists/'
     | '/groups/'
     | '/settings/'
     | '/users/'
@@ -277,9 +321,9 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuditRoute: typeof AuditRoute
   BreakGlassRoute: typeof BreakGlassRoute
-  ContactsRoute: typeof ContactsRoute
+  ContactsRoute: typeof ContactsRouteWithChildren
   DesignRoute: typeof DesignRoute
-  DistributionListsRoute: typeof DistributionListsRoute
+  DistributionListsRoute: typeof DistributionListsRouteWithChildren
   GroupsRoute: typeof GroupsRouteWithChildren
   NoAccessRoute: typeof NoAccessRoute
   SettingsRoute: typeof SettingsRouteWithChildren
@@ -374,6 +418,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UsersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/contacts/': {
+      id: '/contacts/'
+      path: '/'
+      fullPath: '/contacts/'
+      preLoaderRoute: typeof ContactsIndexRouteImport
+      parentRoute: typeof ContactsRoute
+    }
+    '/contacts/$id': {
+      id: '/contacts/$id'
+      path: '/$id'
+      fullPath: '/contacts/$id'
+      preLoaderRoute: typeof ContactsIdRouteImport
+      parentRoute: typeof ContactsRoute
+    }
+    '/distribution-lists/': {
+      id: '/distribution-lists/'
+      path: '/'
+      fullPath: '/distribution-lists/'
+      preLoaderRoute: typeof DistributionListsIndexRouteImport
+      parentRoute: typeof DistributionListsRoute
+    }
+    '/distribution-lists/$id': {
+      id: '/distribution-lists/$id'
+      path: '/$id'
+      fullPath: '/distribution-lists/$id'
+      preLoaderRoute: typeof DistributionListsIdRouteImport
+      parentRoute: typeof DistributionListsRoute
+    }
     '/groups/': {
       id: '/groups/'
       path: '/'
@@ -440,6 +512,33 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface ContactsRouteChildren {
+  ContactsIdRoute: typeof ContactsIdRoute
+  ContactsIndexRoute: typeof ContactsIndexRoute
+}
+
+const ContactsRouteChildren: ContactsRouteChildren = {
+  ContactsIdRoute: ContactsIdRoute,
+  ContactsIndexRoute: ContactsIndexRoute,
+}
+
+const ContactsRouteWithChildren = ContactsRoute._addFileChildren(
+  ContactsRouteChildren,
+)
+
+interface DistributionListsRouteChildren {
+  DistributionListsIdRoute: typeof DistributionListsIdRoute
+  DistributionListsIndexRoute: typeof DistributionListsIndexRoute
+}
+
+const DistributionListsRouteChildren: DistributionListsRouteChildren = {
+  DistributionListsIdRoute: DistributionListsIdRoute,
+  DistributionListsIndexRoute: DistributionListsIndexRoute,
+}
+
+const DistributionListsRouteWithChildren =
+  DistributionListsRoute._addFileChildren(DistributionListsRouteChildren)
+
 interface GroupsRouteChildren {
   GroupsIdRoute: typeof GroupsIdRoute
   GroupsIndexRoute: typeof GroupsIndexRoute
@@ -489,9 +588,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuditRoute: AuditRoute,
   BreakGlassRoute: BreakGlassRoute,
-  ContactsRoute: ContactsRoute,
+  ContactsRoute: ContactsRouteWithChildren,
   DesignRoute: DesignRoute,
-  DistributionListsRoute: DistributionListsRoute,
+  DistributionListsRoute: DistributionListsRouteWithChildren,
   GroupsRoute: GroupsRouteWithChildren,
   NoAccessRoute: NoAccessRoute,
   SettingsRoute: SettingsRouteWithChildren,

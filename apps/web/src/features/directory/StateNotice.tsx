@@ -18,7 +18,12 @@ export type NoticeState =
   | { readonly kind: 'dynamicListsNote' }
   | { readonly kind: 'dynamicMembership' }
   | { readonly kind: 'basicOnly' }
-  | { readonly kind: 'readOnlyKind' };
+  | { readonly kind: 'readOnlyKind' }
+  | { readonly kind: 'restrictedListMembers'; readonly count: number }
+  | { readonly kind: 'listReadOnlyDynamic' }
+  | { readonly kind: 'listReadOnlySynced' }
+  | { readonly kind: 'contactSynced' }
+  | { readonly kind: 'readBackPending' };
 
 const KEYS = {
   membersHidden: 'groups.members.hidden',
@@ -34,6 +39,11 @@ const KEYS = {
   dynamicMembership: 'groups.membership.dynamicNote',
   basicOnly: 'users.basic.note',
   readOnlyKind: 'groups.readOnly.explain',
+  restrictedListMembers: 'distributionLists.members.restricted',
+  listReadOnlyDynamic: 'distributionLists.readOnly.dynamic',
+  listReadOnlySynced: 'distributionLists.readOnly.synced',
+  contactSynced: 'contacts.readOnly.synced',
+  readBackPending: 'distributionLists.readBack.pending',
 } as const satisfies Record<NoticeState['kind'], MessageKey>;
 
 export interface StateNoticeProps {
@@ -44,7 +54,9 @@ export interface StateNoticeProps {
 export function StateNotice({ state, className }: StateNoticeProps) {
   const { t } = useTranslator();
   const message =
-    state.kind === 'restrictedMembers' || state.kind === 'restrictedOwners'
+    state.kind === 'restrictedMembers' ||
+    state.kind === 'restrictedOwners' ||
+    state.kind === 'restrictedListMembers'
       ? t(KEYS[state.kind], { count: state.count })
       : t(KEYS[state.kind]);
   const Icon = state.kind === 'cursorRestarted' ? RotateCcwIcon : InfoIcon;

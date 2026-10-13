@@ -6,7 +6,7 @@
 // The one deliberate extra entry is `UNKNOWN_ROUTE`, which must NOT be a route (it is the Not-found
 // page's own address).
 //
-// PARAMETERISED ROUTES (Phase C): `/users/$id` and `/groups/$id` are pages of one user and one group. A
+// PARAMETERISED ROUTES (Phase C, D): `/users/$id`, `/groups/$id`, `/distribution-lists/$id` and `/contacts/$id` are pages of one user and one group. A
 // parameter has no value in a path list, so such a route needs no entry of its own; the test knows them by
 // name (`PARAMETERISED_ROUTES`), a parameterised route it does not know fails, and a listed path that
 // is a concrete address of one (`/users/<guid>`) is accepted instead of being called an unknown page.
@@ -26,7 +26,12 @@ function routerPaths(): string[] {
 }
 
 /** The pages of one object (Phase C). The path of such a page has a `$` segment, the id of the object. */
-const PARAMETERISED_ROUTES: readonly string[] = ['/groups/$id', '/users/$id'];
+const PARAMETERISED_ROUTES: readonly string[] = [
+  '/contacts/$id',
+  '/distribution-lists/$id',
+  '/groups/$id',
+  '/users/$id',
+];
 
 /** Does the listed path name a page of one of these routes (`/users/<anything>` for `/users/$id`)? */
 function isConcreteAddressOf(path: string, pattern: string): boolean {
