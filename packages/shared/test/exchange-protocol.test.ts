@@ -187,6 +187,28 @@ describe('responses', () => {
     expect(answer({ code: 'internal', detail: { hints: ['Has Space'] } })).toBe(false);
   });
 
+  it('accepts the opt-in masked text and its length, and nothing longer or fractional (Amendment 5)', () => {
+    const answer = (detail: unknown) =>
+      ExchangeResponseSchema.safeParse({
+        v: 1,
+        id: ID,
+        ok: false,
+        error: { code: 'internal', detail },
+      }).success;
+    expect(answer({ text: 'The role X is not assigned', textLength: 26 })).toBe(true);
+    expect(answer({ text: '', textLength: 0 })).toBe(true);
+    expect(answer({ text: 'x'.repeat(300) })).toBe(true);
+    expect(answer({ text: 'x'.repeat(301) })).toBe(false);
+    expect(answer({ text: 5 })).toBe(false);
+    expect(answer({ textLength: 100_000 })).toBe(true);
+    expect(answer({ textLength: 100_001 })).toBe(false);
+    expect(answer({ textLength: -1 })).toBe(false);
+    expect(answer({ textLength: 1.5 })).toBe(false);
+    expect(answer({ textLength: '3' })).toBe(false);
+    // Still strict: no other free-text member.
+    expect(answer({ text: 'x', message: 'y' })).toBe(false);
+  });
+
   it('refuses free-text error messages, unknown codes and a mix of data and error (FR-D-107)', () => {
     expect(
       ExchangeResponseSchema.safeParse({

@@ -143,6 +143,11 @@ export const ExchangeResponseSchema = z.discriminatedUnion('ok', [
             .array(z.string().regex(/^[a-z0-9_]{1,24}$/))
             .max(16)
             .optional(),
+          // GD1-0 Amendment 5: the OPT-IN, masked and truncated error text of the diagnostic mode
+          // (EXCHANGE_DEBUG_ERRORTEXT=1), an explicit exception to FR-D-107 for the owner's own log, and the
+          // length of the unmasked outer message. Never present in the default mode.
+          text: z.string().max(300).optional(),
+          textLength: z.number().int().min(0).max(100_000).optional(),
         })
         .optional(),
     }),

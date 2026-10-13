@@ -39,7 +39,12 @@ export type StandInAction =
   | 'hold'
   | 'ignore'
   | 'apply-then-exit'
-  | { readonly error: ExchangeErrorCode; readonly retryAfterMs?: number }
+  | {
+      readonly error: ExchangeErrorCode;
+      readonly retryAfterMs?: number;
+      /** What the real worker puts in `error.detail` (type, errorId, hints, and in the diagnostic mode text, textLength). */
+      readonly detail?: StandInErrorDetail;
+    }
   | {
       readonly before?: readonly string[];
       readonly replace?: readonly string[];
@@ -54,6 +59,14 @@ export interface StandInCall {
   readonly cmdlet?: string;
 }
 
+export interface StandInErrorDetail {
+  readonly type?: string;
+  readonly errorId?: string;
+  readonly hints?: readonly string[];
+  readonly text?: string;
+  readonly textLength?: number;
+}
+
 export type StandInConnect =
   | 'ok'
   | 'hang'
@@ -64,6 +77,7 @@ export type StandInConnect =
       readonly error: ExchangeErrorCode;
       readonly retryAfterMs?: number;
       readonly aadsts?: number;
+      readonly detail?: StandInErrorDetail;
     }
   | { readonly wrongHashes: true };
 
@@ -232,6 +246,7 @@ export function createStandInLauncher(
       code: ExchangeErrorCode,
       retryAfterMs?: number,
       aadsts?: number,
+      detail?: StandInErrorDetail,
     ): void => {
       emit(
         encodeLine({
@@ -242,6 +257,7 @@ export function createStandInLauncher(
             code,
             ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
             ...(aadsts === undefined ? {} : { aadsts }),
+            ...(detail === undefined ? {} : { detail }),
           },
         }),
       );
@@ -310,7 +326,7 @@ export function createStandInLauncher(
       }
       clean();
       if (typeof mode === 'object' && 'error' in mode) {
-        fail(id, mode.error, mode.retryAfterMs, mode.aadsts);
+        fail(id, mode.error, mode.retryAfterMs, mode.aadsts, mode.detail);
         return;
       }
       connected = true;
@@ -351,7 +367,7 @@ export function createStandInLauncher(
         return;
       }
       if ('error' in action) {
-        fail(id, action.error, action.retryAfterMs);
+        fail(id, action.error, action.retryAfterMs, undefined, action.detail);
         return;
       }
       for (const extra of action.before ?? []) emit(`${extra}\n`);

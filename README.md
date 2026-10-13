@@ -172,6 +172,7 @@ the rights listed in step 4.
 | `AUTH_MFA_AMR_VALUES` | `mfa,multipleauthn` | The `amr` values that count as multi-factor |
 | `BREAK_GLASS_USERNAME` / `BREAK_GLASS_PASSWORD_HASH` | unset | Optional emergency account that can only restore an Owner (both or neither) |
 | `EXCHANGE_KEY_HANDOVER` | `memory` | How the Exchange certificate reaches the PowerShell worker: `memory` or `tmpfs` (fallback) |
+| `EXCHANGE_DEBUG_ERRORTEXT` | unset (off) | Troubleshooting only: `1` puts a masked, truncated Exchange error text in the server log. Remove it afterwards; see [docs/operations.md](docs/operations.md#temporary-diagnostics-exchange_debug_errortext) |
 
 The full table with all rules is in [docs/operations.md](docs/operations.md#environment-variables). An invalid
 value stops the start and names the variable.
@@ -392,7 +393,8 @@ De tabel in het Engelse deel geeft alle variabelen met hun standaardwaarde (`HOS
 `PUBLIC_BASE_URL`, `TRUST_PROXY`, `SHOWCASE`, `LOG_LEVEL`, `HSTS_MAX_AGE`, `HSTS_INCLUDE_SUBDOMAINS`,
 `HSTS_PRELOAD`, `APP_KEY`, `APP_KEY_FILE`, `APP_KEY_PREVIOUS`, `SETUP_TOKEN`, `BOOTSTRAP_CLIENT_ID`, de sessie-, groeps-,
 MFA- en break-glass-variabelen en, nieuw in Fase D stap D1, `EXCHANGE_KEY_HANDOVER` met standaard `memory`: hoe het
-certificaat bij de PowerShell-worker komt, `memory` of `tmpfs` als terugval); de volledige tabel met alle regels staat in
+certificaat bij de PowerShell-worker komt, `memory` of `tmpfs` als terugval, en `EXCHANGE_DEBUG_ERRORTEXT`, standaard uit:
+alleen voor het opsporen van fouten, `1` zet een gemaskeerde, ingekorte Exchange-foutmelding in het serverlog, daarna weer weghalen); de volledige tabel met alle regels staat in
 [docs/operations.md](docs/operations.md#environment-variables). Een ongeldige waarde stopt de start en noemt de
 variabele.
 

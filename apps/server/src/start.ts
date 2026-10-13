@@ -300,6 +300,8 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
       homeDir: join(tmpdir(), 'm365portal-exchange'),
       parentEnv: options.env,
       handover: { mode: config.exchangeKeyHandover },
+      // Temporary, opt-in: the worker adds a masked error text that the server logs (GD1-0 amendment 5).
+      ...(config.exchangeDebugErrorText ? { debugErrorText: true } : {}),
       // The certificate and its key reach the worker through the narrow accessor of the secrets module
       // (GD1-0 amendment 1); a degraded secrets state or a missing certificate keeps the 503.
       credentials: ({ clientId }) =>
@@ -439,6 +441,13 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     setupState: setupStateName(database),
     sealedStorage: database === undefined ? 'unknown' : secrets.state().status,
   });
+  if (config.exchangeDebugErrorText) {
+    // GD1-0 amendment 5: a temporary, opt-in exception to FR-D-107. Visible in the log for as long as it is on.
+    log.warn(
+      { event: 'exchange_debug_errortext', enabled: true },
+      'Exchange error text diagnostics are ON (masked, truncated); remove EXCHANGE_DEBUG_ERRORTEXT after troubleshooting',
+    );
+  }
   log.info({ event: 'listening', version: APP_VERSION, port: config.port }, 'listening');
 
   // 10. The hourly sweepers.

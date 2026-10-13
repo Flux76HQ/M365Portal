@@ -161,6 +161,8 @@ export interface HarnessOptions {
   readonly limits?: SessionLimits;
   /** The floats the random source plays (jitter). Default `[0]`. */
   readonly random?: readonly number[];
+  /** The opt-in diagnostic mode of the server (EXCHANGE_DEBUG_ERRORTEXT=1): the masked text a worker sends is logged. */
+  readonly debugErrorText?: boolean;
 }
 
 export interface SessionHarness {
@@ -191,6 +193,7 @@ export function sessionHarness(options: HarnessOptions = {}): SessionHarness {
     scheduler: time.scheduler,
     random: sequenceRandom(options.random ?? [0]),
     log,
+    ...(options.debugErrorText === true ? { debugErrorText: true } : {}),
     scratchFs: scratch,
     ...(options.handover === undefined ? {} : { handover: options.handover }),
     ...(options.limits === undefined ? {} : { limits: options.limits }),
@@ -227,6 +230,7 @@ export function clientHarness(options: HarnessOptions = {}): ClientHarness {
     random: sequenceRandom(options.random ?? [0]),
     scheduler: base.time.scheduler,
     log: base.log,
+    ...(options.debugErrorText === true ? { debugErrorText: true } : {}),
   });
   return { ...base, client };
 }

@@ -7,7 +7,9 @@
 # protocol is packages/shared/src/exchange/protocol.ts: `ping`, `connect`, `call`, `shutdown`; an
 # answer is `{ v, id, ok, data }` or `{ v, id, ok: false, error: { code[, retryAfterMs] } }`. The
 # worker NEVER sends free text: a message from Exchange can hold a name or an address (FR-D-107), so
-# every failure becomes a code of a closed list. Requests are served one at a time.
+# every failure becomes a code of a closed list. The one exception is opt-in and off by default: with
+# EXCHANGE_DEBUG_ERRORTEXT=1 in its environment a failure also carries a MASKED, truncated text
+# (detail.text, GD1-0 amendment 5). Requests are served one at a time.
 #
 # What it may run: the ten cmdlets of the allow-list below, nothing else. The table is generated from
 # packages/shared/src/exchange/allow-list.ts (the server validates against the same table before it
@@ -106,6 +108,15 @@ function Send-Failure {
         } catch { $null = $_ }
         $hintList = @(Get-ErrorHints $Record)
         if ($hintList.Count -gt 0) { $detail['hints'] = $hintList }
+        # GD1-0 Amendment 5: the one documented, OPT-IN exception to "no free text" (FR-D-107). Only when the
+        # server started this worker with EXCHANGE_DEBUG_ERRORTEXT=1; the text is masked and cut (Get-DebugErrorText).
+        if ($env:EXCHANGE_DEBUG_ERRORTEXT -eq '1') {
+            try {
+                $debug = Get-DebugErrorText $Record
+                $detail['text'] = $debug.Text
+                $detail['textLength'] = $debug.Length
+            } catch { $null = $_ }
+        }
         if ($detail.Count -gt 0) { $failure['detail'] = $detail }
     }
     Send-Line ([ordered]@{ v = $script:ProtocolVersion; id = $Id; ok = $false; error = $failure })
@@ -165,6 +176,8 @@ function Get-ExceptionText {
         $depth++
     }
     $parts.Add([string] $Record.FullyQualifiedErrorId)
+    # A Write-Error from a module often keeps its message here and not in the exception.
+    if ($null -ne $Record.ErrorDetails) { $parts.Add([string] $Record.ErrorDetails.Message) }
     return ($parts -join ' ')
 }
 
@@ -187,6 +200,49 @@ function Get-ErrorHints {
         }
     } catch { $null = $_ }
     return $hints.ToArray()
+}
+
+# GD1-0 Amendment 5: the masked error text of the opt-in diagnostic mode (EXCHANGE_DEBUG_ERRORTEXT=1), for the owner's
+# own log only. Masked before it is cut: e-mail addresses, GUIDs and long token-like runs become X, whitespace and
+# control characters collapse to one space, at most 300 characters. Never called when the mode is off.
+function Get-MaskedErrorText {
+    param([string] $Text)
+    if ([string]::IsNullOrEmpty($Text)) { return '' }
+    $masked = [regex]::Replace($Text, '[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+', 'X')
+    $masked = [regex]::Replace($masked, '(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', 'X')
+    $masked = [regex]::Replace($masked, '[A-Za-z0-9+/=_\-]{20,}', 'X')
+    $masked = [regex]::Replace($masked, '[\p{Cc}\s]+', ' ').Trim()
+    if ($masked.Length -gt 300) { $masked = $masked.Substring(0, 300) }
+    return $masked
+}
+
+# The text of the OUTERMOST exception and, if different, of the innermost one, joined with ' | ', masked and cut;
+# Length is the length of the unmasked outer message (0 shows an empty message).
+function Get-DebugErrorText {
+    param([System.Management.Automation.ErrorRecord] $Record)
+    $outer = ''
+    $parts = [System.Collections.Generic.List[string]]::new()
+    if ($null -ne $Record.Exception) {
+        $outer = [string] $Record.Exception.Message
+        $parts.Add($outer)
+    }
+    # A Write-Error from a module often keeps its message in ErrorDetails and not in the exception.
+    if ($null -ne $Record.ErrorDetails) {
+        $details = [string] $Record.ErrorDetails.Message
+        if ($outer.Length -eq 0) { $outer = $details }
+        $parts.Add($details)
+    }
+    if ($null -ne $Record.Exception) {
+        $inner = $Record.Exception
+        $depth = 0
+        while ($null -ne $inner.InnerException -and $depth -lt 6) { $inner = $inner.InnerException; $depth++ }
+        $parts.Add([string] $inner.Message)
+    }
+    $seen = [System.Collections.Generic.List[string]]::new()
+    foreach ($part in $parts) {
+        if (-not [string]::IsNullOrEmpty($part) -and -not $seen.Contains($part)) { $seen.Add($part) }
+    }
+    return [pscustomobject]@{ Text = (Get-MaskedErrorText ($seen -join ' | ')); Length = $outer.Length }
 }
 
 # The AADSTS number of a refusal by the sign-in service, or 0. The module's own message starts with a fixed

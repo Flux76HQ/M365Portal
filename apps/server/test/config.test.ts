@@ -118,10 +118,12 @@ describe('the variable list (FR-A-010, spec 6.9.1)', () => {
     expect(fromSpec).toHaveLength(14);
     const phaseB = ENV_VARIABLES.slice(10, 24);
     expect(phaseB.map(({ name, defaultText }) => ({ name, defaultText }))).toEqual(fromSpec);
-    expect(ENV_VARIABLES).toHaveLength(25);
-    // Phase D adds one: the way the Exchange certificate reaches the worker (T-D-114).
+    expect(ENV_VARIABLES).toHaveLength(26);
+    // Phase D adds two: the way the Exchange certificate reaches the worker (T-D-114) and the temporary,
+    // opt-in diagnostic error text (GD1-0 amendment 5).
     expect(ENV_VARIABLES.slice(24)).toEqual([
       { name: 'EXCHANGE_KEY_HANDOVER', defaultText: 'memory' },
+      { name: 'EXCHANGE_DEBUG_ERRORTEXT', defaultText: 'unset' },
     ]);
   });
 
@@ -189,6 +191,7 @@ describe('defaults', () => {
       auth: { requireMfa: true, mfaAmrValues: ['mfa', 'multipleauthn'] },
       breakGlass: undefined,
       exchangeKeyHandover: 'memory',
+      exchangeDebugErrorText: false,
     } satisfies AppConfig);
     expect(config.hsts.maxAgeSeconds).toBe(LIMITS.hstsMaxAgeSeconds);
   });
@@ -1273,6 +1276,7 @@ describe('reporting an invalid configuration', () => {
       BREAK_GLASS_PASSWORD_HASH: `${CANARY}-hash`,
       // Phase D.
       EXCHANGE_KEY_HANDOVER: `${CANARY}-handover`,
+      EXCHANGE_DEBUG_ERRORTEXT: `${CANARY}-debug`,
     };
     const issues = issuesOf(env);
     expect(issues.map((issue) => issue.variable).sort()).toEqual([...ENV_VARIABLE_NAMES].sort());
@@ -1466,5 +1470,32 @@ describe('EXCHANGE_KEY_HANDOVER (T-D-114, FR-D-103)', () => {
 
   it('lists the same two values as the key hand-over of the worker', () => {
     expect([...EXCHANGE_KEY_HANDOVER_VALUES]).toEqual([...CERTIFICATE_MODES]);
+  });
+});
+
+describe('EXCHANGE_DEBUG_ERRORTEXT (GD1-0 amendment 5, an opt-in exception to FR-D-107)', () => {
+  it('is off when unset and on only for the literal 1; 0 is the explicit off', () => {
+    expect(configOf({}).exchangeDebugErrorText).toBe(false);
+    expect(configOf({ EXCHANGE_DEBUG_ERRORTEXT: '1' }).exchangeDebugErrorText).toBe(true);
+    expect(configOf({ EXCHANGE_DEBUG_ERRORTEXT: '0' }).exchangeDebugErrorText).toBe(false);
+  });
+
+  it('refuses anything else, an empty value included, with the fixed message and no value in it', () => {
+    for (const bad of ['', 'true', 'false', 'yes', 'on', '2', '01', ' 1', '1 ', 'TRUE']) {
+      const issues = issuesOf({ EXCHANGE_DEBUG_ERRORTEXT: bad });
+      expect(
+        issues.map((issue) => issue.variable),
+        bad,
+      ).toEqual(['EXCHANGE_DEBUG_ERRORTEXT']);
+      expect(formatConfigIssues(issues), bad).toContain(ENV_MESSAGES.EXCHANGE_DEBUG_ERRORTEXT);
+    }
+    expect(ENV_MESSAGES.EXCHANGE_DEBUG_ERRORTEXT).toBe(
+      'EXCHANGE_DEBUG_ERRORTEXT must be 1 (on) or 0 (off)',
+    );
+  });
+
+  it('is not a secret variable', () => {
+    const entry = ENV_VARIABLES.find((variable) => variable.name === 'EXCHANGE_DEBUG_ERRORTEXT');
+    expect(entry?.secret).not.toBe(true);
   });
 });

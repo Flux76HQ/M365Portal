@@ -75,6 +75,8 @@ export interface PwshExchangeClientDeps {
   readonly random: RandomSource;
   readonly scheduler: Scheduler;
   readonly log?: ExchangeLog;
+  /** `EXCHANGE_DEBUG_ERRORTEXT=1`: log the masked error text a worker sends. Default off: a text is then never logged, whatever arrives. */
+  readonly debugErrorText?: boolean;
 }
 
 /** How a call may be repeated after the worker was lost. */
@@ -397,6 +399,13 @@ export class PwshExchangeClient implements ExchangeClient {
             errorType: response.error.detail?.type ?? null,
             errorId: response.error.detail?.errorId ?? null,
             errorHints: response.error.detail?.hints ?? null,
+            // Present only in the opt-in diagnostic mode (EXCHANGE_DEBUG_ERRORTEXT=1): masked and cut by the worker.
+            errorText:
+              this.#deps.debugErrorText === true ? (response.error.detail?.text ?? null) : null,
+            errorTextLength:
+              this.#deps.debugErrorText === true
+                ? (response.error.detail?.textLength ?? null)
+                : null,
           },
           'exchange call failed',
         );
