@@ -918,24 +918,24 @@ test.describe('Phase C: users and groups by keyboard', () => {
       await app.goto(path);
       await page.waitForLoadState('networkidle');
       await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
-      // A native radio button is 16 px; its target is the label around it, which has to be 24 px (WCAG 2.5.8).
-      const radios = (await smallTargets(page)).filter((line) => line.startsWith('input[radio]'));
+      // The filter radios are 24 px themselves (size-6) and sit in a label that is at least as large, so
+      // nothing on these pages is a small target any more (WCAG 2.5.8). The page has radios, or this check
+      // would pass for the wrong reason.
       const labelSizes = await page.evaluate(() =>
         [...document.querySelectorAll('input[type="radio"]')].map((input) => {
           const box = input.closest('label')?.getBoundingClientRect();
           return box === undefined ? null : [Math.round(box.width), Math.round(box.height)];
         }),
       );
-      expect(labelSizes.length, `${path}: radios found`).toBe(radios.length);
+      if (path === '/users' || path === '/groups') {
+        expect(labelSizes.length, `${path}: radios found`).toBeGreaterThan(0);
+      }
       for (const size of labelSizes) {
         expect(size, `${path}: a radio sits in a label`).not.toBeNull();
         expect(size?.[0] ?? 0, `${path}: label width`).toBeGreaterThanOrEqual(24);
         expect(size?.[1] ?? 0, `${path}: label height`).toBeGreaterThanOrEqual(24);
       }
-      expect(
-        (await smallTargets(page)).filter((line) => !line.startsWith('input[radio]')),
-        path,
-      ).toEqual([]);
+      expect(await smallTargets(page), path).toEqual([]);
     }
   });
 });
