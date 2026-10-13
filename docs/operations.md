@@ -427,6 +427,14 @@ rows `searchMaxChars` to `cursorEntries` below are the limits of the users and g
 | `graphPageSize` | 999 | the app | `$top` of a scoped scan of users or groups (R-C-01) |
 | `scanPagesMax` | 5 pages | the app | Graph pages read per request of a scoped list (FR-C-203) |
 | `cursorTtlSeconds`, `cursorEntries` | 600 seconds and 1,000 entries | the app | list cursors held in memory, least recently used out (FR-C-103) |
+| `RATE_EXPORT` | capacity 6, refill 0.1 per second, per actor | the app | 429 `rate_limited` on the export routes of step D2 (the class exists since step D1; ODD-07) |
+| `exchange.workerMaxCalls`, `exchange.workerMaxAgeSeconds` | 500 calls and 3,600 seconds | the app | the `pwsh` worker is recycled at whichever comes first (FR-D-104) |
+| `exchange.callDeadlineSeconds` | 120 seconds | the app | one cmdlet call; the worker is killed at the deadline and restarted once (EC-D1) |
+| `exchange.listBufferMax`, `exchange.lineMaxBytes` | 10,000 rows and 1,048,576 bytes | the app | rows one list read holds per cursor: a larger result answers 422 `narrow_search`; one line of the worker protocol, a longer answer is cut and never shown as the whole list (FR-D-102) |
+| `exchange.retryMax`, `exchange.retryBackoff` | 3 retries; 1 s doubling to 15 s, full jitter | the app | throttled or transient Exchange calls; `Retry-After` wins when present; then 503 `exchange_throttled` (FR-D-105, numbers ours until U81) |
+| `distributionLists.bulkMax`, `distributionLists.bulkChunk`, `distributionLists.stepUpAbove` | 200, 50 and 20 members | the app | members in one add or remove request, members per chunk, and the size above which a fresh step-up is needed (FR-D-203, FR-D-204) |
+| `groupMembers.bulkMax`, `groupMembers.bulkChunk`, `groupMembers.stepUpAbove` | 200, 20 and 20 members | the app | the same for Microsoft 365 and security groups through Graph (FR-D-353) |
+| `contacts.nameMaxChars`, `contacts.displayNameMaxChars`, `contacts.aliasMaxChars`, `contacts.personNameMaxChars`, `contacts.addressMaxChars` | 64, 256, 64, 64 and 254 characters | the app | fields of a mail contact; the Exchange name is derived from the alias (FR-D-302) |
 | `CLOCK_TOLERANCE_SECONDS` | 60 seconds | the app | `exp`, `nbf`, `iat` of an ID token |
 | `JWKS_CACHE_HOURS`, `JWKS_REFRESH_MINUTES`, `JWKS_UNKNOWN_KID_COOLDOWN_MINUTES` | 24 hours, 60 minutes and 5 minutes | the app | signing-key rollover guidance |
 | `GRAPH_CHECK_MEMBER_GROUPS_MAX_IDS` | 20 | the app | Microsoft Learn: up to 20 groups per request |

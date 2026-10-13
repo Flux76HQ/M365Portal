@@ -347,6 +347,51 @@ const ROWS: readonly RowSpec[] = [
     label: 'cursorTtlSeconds, cursorEntries',
     sources: ['directory.cursorTtlSeconds', 'directory.cursorEntries'],
   },
+  // Phase D step D1, spec 6.11.2 (T-D-190 later reviews the prose; the rows are here so the table equals LIMITS).
+  {
+    label: 'RATE_EXPORT',
+    sources: ['rateLimit.export.capacity', ['rateLimit.export.refillIntervalMs', perSecond]],
+  },
+  {
+    label: 'exchange.workerMaxCalls, exchange.workerMaxAgeSeconds',
+    sources: ['exchange.workerMaxCalls', 'exchange.workerMaxAgeSeconds'],
+  },
+  { label: 'exchange.callDeadlineSeconds', sources: ['exchange.callDeadlineSeconds'] },
+  {
+    label: 'exchange.listBufferMax, exchange.lineMaxBytes',
+    sources: ['exchange.listBufferMax', 'exchange.lineMaxBytes'],
+  },
+  {
+    label: 'exchange.retryMax, exchange.retryBackoff',
+    sources: [
+      'exchange.retryMax',
+      ['exchange.retryBackoff.initialMs', toSeconds],
+      ['exchange.retryBackoff.maxMs', toSeconds],
+    ],
+  },
+  {
+    label: 'distributionLists.bulkMax, distributionLists.bulkChunk, distributionLists.stepUpAbove',
+    sources: [
+      'distributionLists.bulkMax',
+      'distributionLists.bulkChunk',
+      'distributionLists.stepUpAbove',
+    ],
+  },
+  {
+    label: 'groupMembers.bulkMax, groupMembers.bulkChunk, groupMembers.stepUpAbove',
+    sources: ['groupMembers.bulkMax', 'groupMembers.bulkChunk', 'groupMembers.stepUpAbove'],
+  },
+  {
+    label:
+      'contacts.nameMaxChars, contacts.displayNameMaxChars, contacts.aliasMaxChars, contacts.personNameMaxChars, contacts.addressMaxChars',
+    sources: [
+      'contacts.nameMaxChars',
+      'contacts.displayNameMaxChars',
+      'contacts.aliasMaxChars',
+      'contacts.personNameMaxChars',
+      'contacts.addressMaxChars',
+    ],
+  },
   {
     label: 'ASSIGNMENT_EXPIRY_MAX_DAYS',
     sources: ['rbac.assignmentExpiryMaxDays'],

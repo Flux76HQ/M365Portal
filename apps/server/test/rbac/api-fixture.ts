@@ -16,7 +16,10 @@ import { createSweeperRegistry } from '../../src/lifecycle/sweepers.js';
 import { createLogger } from '../../src/logging/logger.js';
 import { requireDatabaseOf, type AppModule, type ModuleDeps } from '../../src/module.js';
 import { appModules } from '../../src/modules.js';
+import type { ExchangeClient } from '../../src/ports/exchange.js';
 import type { GraphClient } from '../../src/ports/graph.js';
+import { FakeExchangeClient } from '../fakes/fake-exchange-client.js';
+import { FakeExchangeState } from '../fakes/fake-tenant/exchange/index.js';
 import { FakeGraphClient, type FakeGraphClientOptions } from '../fakes/fake-graph-client.js';
 import { FakeDirectory } from '../fakes/fake-tenant/graph/index.js';
 import { createFakeClock, type FakeClock } from '../helpers/fake-clock.js';
@@ -51,6 +54,9 @@ export interface ApiFixture {
   readonly clock: FakeClock;
   readonly directory: FakeDirectory;
   readonly fake: FakeGraphClient;
+  /** Phase D: the Exchange state behind `clients.exchangeWorker()`, and the in-memory client over it. */
+  readonly exchangeState: FakeExchangeState;
+  readonly exchange: FakeExchangeClient;
   readonly logs: LogCapture;
   readonly identity: PolicyHarness;
   readonly modules: readonly AppModule[];
@@ -75,6 +81,8 @@ export interface ApiFixture {
 export interface ApiFixtureOptions {
   /** Wrap or replace the Graph client the modules see. */
   readonly graph?: (fake: FakeGraphClient) => GraphClient;
+  /** Wrap or replace the Exchange client the modules see (Phase D). */
+  readonly exchange?: (fake: FakeExchangeClient) => ExchangeClient;
   /** Options of the in-memory Graph client (Phase C: the manager mode, hidden members). */
   readonly graphOptions?: FakeGraphClientOptions;
   readonly env?: Readonly<Record<string, string>>;
@@ -113,6 +121,9 @@ export async function createApiFixture(options: ApiFixtureOptions = {}): Promise
   const directory = new FakeDirectory({ clock: { now: () => clock.nowMs() } });
   const fake = new FakeGraphClient(directory, options.graphOptions ?? {});
   const graph = options.graph?.(fake) ?? fake;
+  const exchangeState = new FakeExchangeState();
+  const exchange = new FakeExchangeClient(exchangeState, { clock: { now: () => clock.nowMs() } });
+  const exchangeClient = options.exchange?.(exchange) ?? exchange;
   const sessions: SignedIn[] = [];
   const handle = (): AppDatabase | undefined => database;
   const extras = moduleDepsExtras(handle, {
@@ -131,7 +142,7 @@ export async function createApiFixture(options: ApiFixtureOptions = {}): Promise
     sweepers: createSweeperRegistry({ log }),
     isShuttingDown: () => false,
     ...extras,
-    clients: { ...extras.clients, graph: () => graph },
+    clients: { ...extras.clients, graph: () => graph, exchangeWorker: () => exchangeClient },
   };
   const modules = appModules.map((factory) => factory(moduleDeps));
   onTestFinished(async () => {
@@ -168,6 +179,8 @@ export async function createApiFixture(options: ApiFixtureOptions = {}): Promise
     clock,
     directory,
     fake,
+    exchangeState,
+    exchange,
     logs,
     identity,
     modules,

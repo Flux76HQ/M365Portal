@@ -1381,6 +1381,7 @@ describe('spec, plan and tasks (FR-A-186)', () => {
 
 const specPhaseB = join(repositoryRoot, 'specs/002-phase-b');
 const specPhaseC = join(repositoryRoot, 'specs/003-phase-c');
+const specPhaseD = join(repositoryRoot, 'specs/004-phase-d');
 const readPhaseB = (name: string): string => readFileSync(join(specPhaseB, name), 'utf8');
 
 function everywhere(text: string, token: string | RegExp, replacement = ''): string {
@@ -1666,6 +1667,14 @@ describe('the contract file, the route table and the negative controls (FR-B-709
       phaseB: contractRouteIds(contract()),
       // Phase C has no contract file: its route index is table 6.7.1 of the spec (T-C-024).
       phaseC: contractRouteIds(readFileSync(join(specPhaseC, 'spec.md'), 'utf8')),
+      // Phase D step D1: table 6.11.1 of the spec, P40 to P54 without P46 (the export preview is step D2).
+      phaseD1: [
+        ...readFileSync(join(specPhaseD, 'spec.md'), 'utf8').matchAll(
+          /^\| P(\d+) \| `([a-z][a-zA-Z0-9.]*)` \|/gm,
+        ),
+      ]
+        .filter((m) => Number(m[1]) >= 40 && Number(m[1]) <= 54 && m[1] !== '46')
+        .map((m) => m[2] ?? ''),
     };
     expect(input.phaseB).toHaveLength(32);
     expect(input.phaseC).toEqual([
@@ -1677,9 +1686,35 @@ describe('the contract file, the route table and the negative controls (FR-B-709
       'groups.owners',
       'groups.members',
     ]);
+    expect(input.phaseD1).toEqual([
+      'distributionlists.list',
+      'distributionlists.get',
+      'distributionlists.members',
+      'distributionlists.members.add',
+      'distributionlists.members.remove',
+      'distributionlists.search',
+      'contacts.list',
+      'contacts.get',
+      'contacts.create',
+      'contacts.update',
+      'contacts.delete',
+      'contacts.memberships',
+      'groups.members.add',
+      'groups.members.remove',
+    ]);
     expect(() => {
       assertRoutesMatchContract(input);
     }).not.toThrow();
+    expectGuardFails(
+      assertRoutesMatchContract,
+      { ...input, phaseD1: input.phaseD1.filter((id) => id !== 'contacts.delete') },
+      { reason: /contacts\.delete, which no contract lists/ },
+    );
+    expectGuardFails(
+      assertRoutesMatchContract,
+      { ...input, phaseD1: [...input.phaseD1, 'contacts.merge'] },
+      { reason: /contacts\.merge, which is not in the route table/ },
+    );
     expectGuardFails(
       assertRoutesMatchContract,
       { ...input, documented: [...documented, 'made.up.route'] },

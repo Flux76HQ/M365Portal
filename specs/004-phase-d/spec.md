@@ -141,6 +141,12 @@ Each gate ends with a phase report (summary, test results, steps for the owner, 
 | FR-D-107 | MUST | Nothing in the worker's input or output is logged beyond the request id, cmdlet name, outcome and duration; display names, addresses and member lists never reach logs | `server/no-leak.test.ts` extended, `server/logging.test.ts` |
 | FR-D-108 | SHOULD | The Admin API read adapter and the probe stay as the setup verification (V5, warning only); reads of lists and members use the worker so there is one reading path | `server/setup/verify.test.ts` |
 
+**Configuration (amendment 2, GD1-server-b).** One environment variable is new in step D1:
+
+| Variable | Default | Meaning | Enforced by |
+|---|---|---|---|
+| `EXCHANGE_KEY_HANDOVER` | `memory` | How the certificate reaches the `pwsh` worker (FR-D-103): `memory` passes the PKCS#12 bytes on the stdin pipe and builds the `X509Certificate2` in memory; `tmpfs` is the fallback for the day U75 is false on Linux (a mode 0600 file on a tmpfs, removed right after the connect). Any other value is refused at start. Not secret. It is in `.env.example`, `docker-compose.yml`, `README.md` and `docs/operations.md` | `server/config.test.ts`, `server/exchange/key-handover.test.ts`, `server/integrations/registry-exchange-worker.test.ts` |
+
 ### 6.2 Distribution lists (D1)
 
 | ID | Level | Requirement | Enforced by |
@@ -245,13 +251,13 @@ Each gate ends with a phase report (summary, test results, steps for the owner, 
 
 | # | Route id | Method and path | Access | Class | Audit |
 |---|---|---|---|---|---|
-| P40 | `distributionLists.list` | `GET /api/v1/distribution-lists` | `distributionlists:read`, scoped | read | denials only |
-| P41 | `distributionLists.get` | `GET /api/v1/distribution-lists/{id}` | `distributionlists:read` on that list | read | denials only |
-| P42 | `distributionLists.members` | `GET /api/v1/distribution-lists/{id}/members` | `distributionlists:read` on that list | read | denials only |
-| P43 | `distributionLists.members.add` | `POST /api/v1/distribution-lists/{id}/members` | `distributionlists:members:write`, stepUp above threshold | write | `dl.member.add` |
-| P44 | `distributionLists.members.remove` | `DELETE /api/v1/distribution-lists/{id}/members` (body: identities) | `distributionlists:members:write`, stepUp above threshold | write | `dl.member.remove` |
-| P45 | `distributionLists.search` | `GET /api/v1/distribution-lists/{id}/candidates?q=` | `distributionlists:members:write`, `users:read` and `contacts:read` scoped | read | denials only |
-| P46 | `distributionLists.export.preview` | `POST /api/v1/distribution-lists/{id}/export/preview` | `distributionlists:export` | read | denials only |
+| P40 | `distributionlists.list` | `GET /api/v1/distribution-lists` | `distributionlists:read`, scoped | read | denials only |
+| P41 | `distributionlists.get` | `GET /api/v1/distribution-lists/{id}` | `distributionlists:read` on that list | read | denials only |
+| P42 | `distributionlists.members` | `GET /api/v1/distribution-lists/{id}/members` | `distributionlists:read` on that list | read | denials only |
+| P43 | `distributionlists.members.add` | `POST /api/v1/distribution-lists/{id}/members` | `distributionlists:members:write`, stepUp above threshold | write | `dl.member.add` |
+| P44 | `distributionlists.members.remove` | `DELETE /api/v1/distribution-lists/{id}/members` (body: identities) | `distributionlists:members:write`, stepUp above threshold | write | `dl.member.remove` |
+| P45 | `distributionlists.search` | `GET /api/v1/distribution-lists/{id}/candidates?q=` | `distributionlists:members:write`, `users:read` and `contacts:read` scoped | read | denials only |
+| P46 | `distributionlists.export.preview` | `POST /api/v1/distribution-lists/{id}/export/preview` | `distributionlists:export` | read | denials only |
 | P47 | `contacts.list` | `GET /api/v1/contacts` | `contacts:read`, scoped | read | denials only |
 | P48 | `contacts.get` | `GET /api/v1/contacts/{id}` | `contacts:read` on that contact | read | denials only |
 | P49 | `contacts.create` | `POST /api/v1/contacts` | `contacts:create`, scoped by proposed name | write | `contact.create` |
@@ -260,7 +266,7 @@ Each gate ends with a phase report (summary, test results, steps for the owner, 
 | P52 | `contacts.memberships` | `GET /api/v1/contacts/{id}/lists` | `contacts:read` and `distributionlists:read` | read | denials only |
 | P53 | `groups.members.add` | `POST /api/v1/groups/{id}/members` | `groups:members:write`, stepUp above threshold | write | `group.member.add` |
 | P54 | `groups.members.remove` | `DELETE /api/v1/groups/{id}/members` | `groups:members:write`, stepUp above threshold | write | `group.member.remove` |
-| P55 | `distributionLists.export` | `POST /api/v1/distribution-lists/{id}/export` | `distributionlists:export`, stepUp | export | `dl.export` |
+| P55 | `distributionlists.export` | `POST /api/v1/distribution-lists/{id}/export` | `distributionlists:export`, stepUp | export | `dl.export` |
 | P56 | `audit.list` | `GET /api/v1/audit` | `audit:read` | read | denials only |
 | P57 | `audit.get` | `GET /api/v1/audit/{id}` | `audit:read` | read | denials only |
 | P58 | `audit.verify` | `GET /api/v1/audit/verify` | `audit:read` | read | denials only |
@@ -277,6 +283,8 @@ Each gate ends with a phase report (summary, test results, steps for the owner, 
 | P69 | `permissions.audit` | `GET /api/v1/connection/permission-audit` | `settings:connection` | read | denials only |
 | P70 | `dashboard.counters` | `GET /api/v1/dashboard` | authenticated | read | denials only |
 
+Amendment 2 (GD1-server-b): the route ids of `distributionlists.*` are spelt in lower case. The id of a route is the `action` of its denial entries (`access-guard.ts`, `route-table.ts`) and the audit writer's action grammar has no capital letter, so a denial on `distributionLists.list` would have ended in a 500. P46 is a `POST`: the route table rates a write method `write`, `upload`, `auth` or `setup`, so the class `read` of P46 cannot stand when the route is built in step D2 (decision then: class `write`, or a `GET` with the options in the query).
+
 P28 to P31 keep their ids and gain `scope` and `expiresAt` in their bodies. Class `export` is a new row of `LIMITS.rateLimit` (ODD-07: 6 per minute per actor). Route ids follow the Phase B grammar (SB-27). All new routes declare `scoped` or `unscopedReason` (FR-B-505).
 
 #### 6.11.2 Limits (constants in `packages/shared/src/limits.ts`; rows added to `docs/operations.md`)
@@ -285,7 +293,7 @@ P28 to P31 keep their ids and gain `scope` and `expiresAt` in their bodies. Clas
 |---|---|---|
 | `exchange.workerMaxCalls`, `exchange.workerMaxAgeSeconds` | 500, 3,600 | Worker recycling (FR-D-104) |
 | `exchange.callDeadlineSeconds` | 120 | One cmdlet call |
-| `distributionLists.bulkMax`, `bulkChunk`, `stepUpAbove` | 200, 50, 20 | Member writes |
+| `distributionlists.bulkMax`, `bulkChunk`, `stepUpAbove` | 200, 50, 20 | Member writes |
 | `export.rowsMax`, `export.previewRows` | 100,000; 20 | CSV |
 | `audit.denialCapPerHour` | 2,000 | FR-D-454 |
 | `audit.retentionDays` | 400 | FR-D-453 |

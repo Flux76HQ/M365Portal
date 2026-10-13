@@ -209,6 +209,8 @@ export class PwshExchangeClient implements ExchangeClient {
       }
       throw failure;
     }
+    // The script cut the rows to fit one protocol line: a short member list is never handed out as the list.
+    if (data.cut) throw new ExchangeUnavailableError({ reason: 'too_many_rows' });
     for (const row of data.rows) {
       const member = toMember(row);
       if (member !== null) yield member;

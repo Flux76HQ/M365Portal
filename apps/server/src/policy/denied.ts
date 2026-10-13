@@ -8,6 +8,9 @@
 export const POLICY_DENIAL_REASONS = Object.freeze([
   'escalation_denied',
   'last_owner_protected',
+  // Phase D: a member write above the bulk threshold needs a fresh step-up, and the threshold is a
+  // property of the request body, so the handler decides (FR-D-204, FR-D-354).
+  'step_up_required',
 ] as const);
 
 export type PolicyDenialReason = (typeof POLICY_DENIAL_REASONS)[number];

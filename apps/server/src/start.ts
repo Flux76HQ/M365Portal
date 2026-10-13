@@ -23,6 +23,7 @@
 // debug level, which is how the order is proven from outside.
 import { existsSync } from 'node:fs';
 import type { Server } from 'node:http';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
@@ -293,6 +294,13 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     random,
     scheduler: options.scheduler ?? systemScheduler,
     log: log.child({ module: 'integrations' }),
+    // The Phase D Exchange worker: started at the first Exchange call (never at start), with the key
+    // hand-over of EXCHANGE_KEY_HANDOVER (FR-D-103). The registry knows the command and the script.
+    exchangeWorker: {
+      homeDir: join(tmpdir(), 'm365portal-exchange'),
+      parentEnv: options.env,
+      handover: { mode: config.exchangeKeyHandover },
+    },
   });
   secrets.onChange(() => {
     clients.reload();

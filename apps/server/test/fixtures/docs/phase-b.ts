@@ -630,11 +630,14 @@ export function assertRoutesMatchContract(input: {
   readonly phaseB: readonly string[];
   /** Phase C (spec 003, table 6.7.1): the seven read routes P33 to P39. */
   readonly phaseC?: readonly string[];
+  /** Phase D step D1 (spec 004, table 6.11.1): P40 to P45 and P47 to P54. */
+  readonly phaseD1?: readonly string[];
 }): void {
   const problems: string[] = [];
   const phaseC = input.phaseC ?? [];
-  const known = new Set([...input.phaseA, ...input.phaseB, ...phaseC]);
-  for (const id of [...input.phaseB, ...phaseC]) {
+  const phaseD1 = input.phaseD1 ?? [];
+  const known = new Set([...input.phaseA, ...input.phaseB, ...phaseC, ...phaseD1]);
+  for (const id of [...input.phaseB, ...phaseC, ...phaseD1]) {
     if (!input.documented.includes(id))
       problems.push(`the contract lists ${id}, which is not in the route table`);
   }

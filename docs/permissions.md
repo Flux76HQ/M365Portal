@@ -22,7 +22,7 @@ navigation entry; the later letter is the phase with the real feature).
 |---|---|---|
 | `users:read` | See users (name, e-mail, state, groups). Also the minimal read right for a role that adds members. | A (gates the Users page), C |
 | `groups:read` | See Microsoft 365 and security groups and their members. | A (gates the Groups page), C |
-| `groups:members:write` | Add and remove members of groups that Microsoft Graph can manage. | C (not built in the read-only first version; unused in Phase C, see Part 4) |
+| `groups:members:write` | Add and remove members of groups that Microsoft Graph can manage. | C (not built in the read-only first version; unused in Phase C, see Part 4); built in Phase D step D1 (P53 and P54, FR-D-352) |
 | `distributionlists:read` | See distribution lists and their members. | A (gates the page), D |
 | `distributionlists:members:write` | Add and remove members of distribution lists (through Exchange). | D |
 | `distributionlists:export` | Export a distribution list as CSV, inside the role's scope. | D |
@@ -186,7 +186,7 @@ The running panel is granted application permissions only, four of them (set ver
 |---|---|---|---|
 | `User.Read.All` | `df021288-bdef-4463-88db-98f22de89214` | Read users and their `accountEnabled`; sign-in lookup; `transitiveMemberOf` in Phase C. Replaces `User.ReadWrite.All`. | [user-get](https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0), permissions-reference |
 | `GroupMember.Read.All` | `98830695-27a2-44f7-8c18-0c3ebc9698f6` | `checkMemberGroups`, `getGroup`, `searchGroups`. Described as "memberships and basic group properties"; which group properties it returns is U36 (OV-19). | [directoryobject-checkmembergroups](https://learn.microsoft.com/en-us/graph/api/directoryobject-checkmembergroups?view=graph-rest-1.0) |
-| `GroupMember.ReadWrite.All` | `dbaae8cf-10b5-4b86-a4a1-f871c94c6695` | Membership writes. Granted in Phase B so that one consent covers it (ODB-02); **granted, unused in Phase C** (read only, D-C1): no code path uses it, see Part 4. | [group-post-members](https://learn.microsoft.com/en-us/graph/api/group-post-members?view=graph-rest-1.0) |
+| `GroupMember.ReadWrite.All` | `dbaae8cf-10b5-4b86-a4a1-f871c94c6695` | Membership writes. Granted in Phase B so that one consent covers it (ODB-02); **granted, unused in Phase C** (read only, D-C1): no code path uses it, see Part 4. **Used from Phase D step D1** (FR-D-352): add and remove members of Microsoft 365 and security groups, `groups.members.add` and `groups.members.remove`. | [group-post-members](https://learn.microsoft.com/en-us/graph/api/group-post-members?view=graph-rest-1.0) |
 | `Organization.Read.All` | `498476ce-e0fe-48b0-b801-37ba7e2685c6` | Verification and the tenant display name. | [organization-get](https://learn.microsoft.com/en-us/graph/api/organization-get?view=graph-rest-1.0) |
 
 Delta against the five permissions of the brief: `User.ReadWrite.All` is replaced by `User.Read.All`
@@ -310,7 +310,7 @@ Notes on the table.
 
 | Item | State | Why |
 |---|---|---|
-| `GroupMember.ReadWrite.All` | granted, unused | Granted in Phase B (ODB-02, one consent). Phase C is read only (D-C1). |
+| `GroupMember.ReadWrite.All` | granted, unused | Granted in Phase B (ODB-02, one consent). Phase C is read only (D-C1). Used from Phase D step D1 (FR-D-352). |
 | `Organization.Read.All` | granted, not used by Phase C | Wizard and Settings only. |
 | `Member.Read.Hidden` | not requested | Hidden-membership groups show "hidden" (ODC-04). Decided after OV-C5. |
 | `Group.Read.All`, `Directory.Read.All`, `User.ReadBasic.All` | not requested | The two roles held are enough for every Phase C call. |
