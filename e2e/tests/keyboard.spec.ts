@@ -904,7 +904,9 @@ test.describe('Phase C: users and groups by keyboard', () => {
     await app.goto(`/groups/${world.facts.ids.bigGroup ?? ''}`);
     const members = sectionNamed(page, 'Members');
     await expect(countStatus(members).first()).toHaveText('50 members shown on this page');
-    await tabTo(page, nextPage(members), 100);
+    // Since D1 each of the 50 rows has a selection box next to the name link (member editing), so the pager is
+    // about 100 Tab stops away; the editor is a table, not a roving-focus grid (a follow-up idea).
+    await tabTo(page, nextPage(members), 200);
     await page.keyboard.press('Enter');
     await expect(members.getByText('Page 2', { exact: true })).toBeVisible();
     await expect(previousPage(members)).toBeEnabled();
