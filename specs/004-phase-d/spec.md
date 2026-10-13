@@ -28,7 +28,7 @@
 
 **Input**: `docs/build-prompt.md` (section 4, 2a, 6, 7, 8), `specs/001-m365portal`, `specs/002-phase-b`, `specs/003-phase-c` (spec, plan, tasks, gate notes), `research-microsoft-d.md` (same folder: R-D-01 to R-D-07), `docs/open-points.md` (U1 to U74, ODB-01 to ODB-18, ODC-01 to ODC-05, OD-10, OD-13, FC-05), `docs/phase-reports/phase-C.md`, and the owner's decisions of 2026-10-13 (section 10).
 
-**U-register numbering.** `docs/open-points.md` holds U1 to U74. Phase D continues at **U75 to U90** (section 8.3). Nothing is renumbered.
+**U-register numbering.** `docs/open-points.md` holds U1 to U74. Phase D continues at **U75 to U96** (section 8.3; U91 is the Laposta format, U92 to U96 came with amendment 1). Nothing is renumbered.
 
 **Size rule.** Each of the three steps is about the size of Phase B. A row that adds machinery beyond its step is moved to a later step or out.
 
@@ -158,7 +158,7 @@ Each gate ends with a phase report (summary, test results, steps for the owner, 
 | ID | Level | Requirement | Enforced by |
 |---|---|---|---|
 | FR-D-301 | MUST | Routes P47 to P52 (6.11.1): list, get, create, update, delete, memberships. Scoped by `contacts:read`, `contacts:create`, `contacts:update`, `contacts:delete` as the catalogue says (an object that does not exist yet is checked against the scope by its proposed name and alias prefix, the one rule for `create`) | `server/contacts/routes.test.ts`, `server/policy-matrix.test.ts` |
-| FR-D-302 | MUST | Validation before any call: display name 1 to 256 characters, alias in the documented allowed set and unique, external address a valid, normalised address, unique among recipients (409 `conflict`, EC-D9); first and last name only where the cmdlet supports them (U15: `Set-MailContact` has none; a `Set-Contact` call is used only if U15 is verified, otherwise the columns stay empty and the CSV preset says so) | `shared/contact-schema.test.ts`, `server/contacts/validation.test.ts` |
+| FR-D-302 | MUST | Validation before any call: display name 1 to 256 characters, alias in the documented allowed set (R-D-09: at most 64 characters; ASCII letters, digits, `! # % * + - / = ? ^ _ ~`, U+00A1 to U+00FF; a period only between other characters; the characters Learn says need escaping are refused) and unique, external address a valid, normalised address (trimmed, lower case, ASCII, at most 254 characters, no display-name, quoted or prefixed form), unique among recipients (409 `conflict`, EC-D9); the Exchange `-Name` (unique, at most 64 characters, R-D-09) is derived by the service from the alias plus a short suffix and never typed by the user (U95); first and last name only where the cmdlet supports them (U15: `Set-MailContact` has none; a `Set-Contact` call is used only if U15 is verified, otherwise the columns stay empty and the CSV preset says so) | `shared/contact-schema.test.ts`, `server/contacts/validation.test.ts` |
 | FR-D-303 | MUST | Delete asks for a confirmation that names the contact and the number of lists it is in, and is a `DELETE` with the confirmed name as a body field; a contact in lists is removed from them by Exchange and the response lists them | `server/contacts/delete.test.ts`, `web/contacts-delete-dialog.test.tsx` |
 | FR-D-304 | MUST | Audit actions `contact.create`, `contact.update`, `contact.delete` with the changed field names (never values of personal data beyond the object id) | `server/contacts/audit.test.ts` |
 | FR-D-305 | MUST | A contact that Exchange reports as synced from on-premises is read-only (409 `read_only_object`; U80) | `server/contacts/synced.test.ts` |
@@ -167,9 +167,9 @@ Each gate ends with a phase report (summary, test results, steps for the owner, 
 
 | ID | Level | Requirement | Enforced by |
 |---|---|---|---|
-| FR-D-351 | MUST | `GraphClient` gains `addGroupMember` and `removeGroupMember` (and their bulk forms through the JSON batch only if R-D-02 of Phase C allows; otherwise one call per member). Phase C's read-only guard changes: the test that failed on any write method now lists exactly these two and fails on any other | `server/integrations/graph/read-only.test.ts` (rewritten with the allow-list, + negative), `server/integrations/graph/graph-client.contract.test.ts` |
+| FR-D-351 | MUST | `GraphClient` gains `addGroupMember` and `removeGroupMember` (and their bulk forms through the JSON batch only if R-D-02 of Phase C allows; otherwise one call per member). The `DELETE` path is built by one function that always ends in `/$ref`, and a test fails on a path without it (without `/$ref` Graph deletes the member object itself, R-D-08). Phase C's read-only guard changes: the test that failed on any write method now lists exactly these two and fails on any other | `server/integrations/graph/read-only.test.ts` (rewritten with the allow-list, + negative), `server/integrations/graph/graph-client.contract.test.ts` |
 | FR-D-352 | MUST | Routes P53 and P54 (6.11.1): add and remove members of a Microsoft 365 or security group, scoped by `groups:members:write` (resource `group`); dynamic, synced and distribution or mail-enabled security groups answer 409 `read_only_object` (the latter are managed through Exchange: M365 groups' cmdlets are not supported app-only, R-D-01) | `server/groups/members-write.test.ts` |
-| FR-D-353 | MUST | Bulk (up to 200, chunks of 20 to match Graph's limits) with per-member results; adding an existing member and removing an absent one are `already` | `server/groups/members-bulk.test.ts` |
+| FR-D-353 | MUST | Bulk (up to 200, chunks of 20 to match Graph's limits) with per-member results, one `POST .../members/$ref` per member (the `PATCH members@odata.bind` form takes at most 20 members but is all-or-nothing, so it gives no per-member result and is not used, R-D-08); adding an existing member and removing an absent one are `already` | `server/groups/members-bulk.test.ts` |
 | FR-D-354 | MUST | Audit `group.member.add` and `group.member.remove` as FR-D-205; step-up above the same threshold | `server/groups/audit.test.ts` |
 | FR-D-355 | MUST | `docs/permissions.md` moves `GroupMember.ReadWrite.All` from "granted, unused" to "used from Phase D (FR-D-352)" with the reason | `server/docs-contract.test.ts` |
 
@@ -290,6 +290,11 @@ P28 to P31 keep their ids and gain `scope` and `expiresAt` in their bodies. Clas
 | `audit.denialCapPerHour` | 2,000 | FR-D-454 |
 | `audit.retentionDays` | 400 | FR-D-453 |
 | `cert.rotateBeforeDays`, `cert.oldKeyGraceHours` | 60; 24 | FR-D-701 |
+| `rateLimit.export` | capacity 6, one token every 10,000 ms (6 a minute) | ODD-07, P55, P59 |
+| `exchange.listBufferMax`, `exchange.lineMaxBytes` | 10,000; 1,048,576 | List buffer per cursor (plan 5.2); one protocol line (FR-D-102). Added by amendment 1 (GD1-0) |
+| `exchange.retryMax`, `exchange.retryBackoff.initialMs`, `.maxMs` | 3; 1,000; 15,000 | FR-D-105, numbers ours until U81 is closed. Added by amendment 1 |
+| `groupMembers.bulkMax`, `bulkChunk`, `stepUpAbove` | 200, 20, 20 | FR-D-353, FR-D-354; Graph adds at most 20 members in one request (R-D-08). Added by amendment 1 |
+| `contacts.nameMaxChars`, `displayNameMaxChars`, `aliasMaxChars`, `personNameMaxChars`, `addressMaxChars` | 64, 256, 64, 64, 254 | FR-D-302; `New-MailContact` limits of R-D-09. Added by amendment 1 |
 
 #### 6.11.3 Problem codes added
 
@@ -302,6 +307,8 @@ P28 to P31 keep their ids and gain `scope` and `expiresAt` in their bodies. Clas
 | `conflict` | 409 | Duplicate contact address or alias (reuses the registry if present) |
 | `builtin_role` | 409 | A built-in role cannot change |
 | `rotation_failed` | 409 | Certificate rotation did not complete (detail reason) |
+
+Amendment 1 (GD1-0): `exchange_role_pending` and `exchange_timeout` are `errors[]` detail codes of `exchange_unavailable` with catalogue messages `distributionLists.error.exchange_role_pending` and `.exchange_timeout` (`i18n/detail-codes.ts`); the contacts pages load the `distributionLists` namespace for them. `exchange_unavailable` is also the Phase B wizard result code of the Exchange probe (`setup/result-codes.ts`): the same word on two surfaces that never mix, a second permitted overlap next to `tenant_mismatch` (CD-05 test amended). `conflict` carries the existing contact's id (EC-D9) as an `errors[]` entry `{ pointer, code: 'conflict' }` only; a problem body has no member for an id (the schema is strict).
 
 ---
 
@@ -345,6 +352,13 @@ U75 to U90 are listed with their source in `research-microsoft-d.md` (summary ta
 | ID | Claim | Needed by | Why unverified | How the owner closes it |
 |---|---|---|---|---|
 | U91 | The current Laposta CSV import format (columns, separator, encoding) | FR-D-402 | Laposta's documentation was not read for this document | Owner or planner reads Laposta's import help; OV-D6 imports a test file |
+| U92 | Graph answers `400` for an add of an existing member, an unsupported member type and a not yet replicated group alike | FR-D-353 | `group-post-members` lists the three under one status | Pre-check membership; OV-D2 |
+| U93 | Graph's answer for removing an object that is not a member | FR-D-353 | `group-delete-members` is silent | Pre-check; OV-D2 |
+| U94 | Exchange add of an existing member and remove of a non-member: error or silent success | FR-D-203, EC-D1 | The cmdlet pages are silent | Read membership first; OV-D2 |
+| U95 | Scope of the uniqueness of a mail contact's `-Name` | FR-D-302, EC-D9 | "unique name" only | Derived name with suffix; OV-D5 |
+| U96 | Detecting role-assignable groups before a Graph member write | FR-D-352 | Property not in the Phase C `$select`; not read | Map the 403 after the call; OV-D2 |
+
+U92 to U96 are described in `research-microsoft-d.md`, amendment 1 (R-D-08, R-D-09).
 
 ### 8.4 Owner-verified ledger (the owner's real-tenant test; none is covered by an automated control)
 

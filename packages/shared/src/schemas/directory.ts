@@ -32,18 +32,18 @@ import {
   PageQuerySchema,
 } from './common.js';
 
-const utf8Bytes = (value: string): number => new TextEncoder().encode(value).length;
+export const utf8Bytes = (value: string): number => new TextEncoder().encode(value).length;
 
 /** Longest text taken over from Graph, in UTF-8 bytes (FR-C-104). */
-const TEXT_MAX_BYTES = 256;
+export const TEXT_MAX_BYTES = 256;
 
 /** A text from Graph: data, at most 256 UTF-8 bytes. Nullable where Graph may not return it. */
-const GraphText = z.string().refine((value) => utf8Bytes(value) <= TEXT_MAX_BYTES, {
+export const GraphText = z.string().refine((value) => utf8Bytes(value) <= TEXT_MAX_BYTES, {
   error: `at most ${String(TEXT_MAX_BYTES)} bytes`,
 });
 
 /** A property Graph did not return is `null` (EC-C10). */
-const NullableText = GraphText.nullable();
+export const NullableText = GraphText.nullable();
 
 // ---------------------------------------------------------------------------------------------
 // Vocabularies

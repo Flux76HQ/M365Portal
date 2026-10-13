@@ -105,6 +105,14 @@ const LOADERS: Readonly<Record<LazyNamespace, Readonly<Record<Locale, Loader>>>>
     en: () => import('./locales/lazy/groups.en.json', { with: { type: 'json' } }),
     nl: () => import('./locales/lazy/groups.nl.json', { with: { type: 'json' } }),
   },
+  distributionLists: {
+    en: () => import('./locales/lazy/distributionLists.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/distributionLists.nl.json', { with: { type: 'json' } }),
+  },
+  contacts: {
+    en: () => import('./locales/lazy/contacts.en.json', { with: { type: 'json' } }),
+    nl: () => import('./locales/lazy/contacts.nl.json', { with: { type: 'json' } }),
+  },
 };
 
 /** What `loadNamespace` returns: the keys of the English file of the namespace, each a message. */

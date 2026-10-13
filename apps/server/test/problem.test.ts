@@ -93,8 +93,8 @@ function assertProblemBody(body: unknown, code: ProblemCode): void {
 // ---------------------------------------------------------------------------------------------
 
 describe('problem bodies (FR-A-022)', () => {
-  it('has the registry the shared package defines: 34 codes of Phase A, 19 of Phase B and 1 of Phase C', () => {
-    expect(CODES).toHaveLength(54);
+  it('has the registry the shared package defines: 34 codes of Phase A, 19 of Phase B, 1 of Phase C and 7 of Phase D', () => {
+    expect(CODES).toHaveLength(61);
   });
 
   it.each(CODES)('builds a correct body for %s', (code) => {

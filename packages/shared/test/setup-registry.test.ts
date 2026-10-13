@@ -471,7 +471,16 @@ describe('SETUP_RESULT_CODES', () => {
     const shared = RESULT_CODES.filter((code) => Object.hasOwn(PROBLEM_CODES, code));
     // `tenant_mismatch` is both: a 409 problem code and a connect result code (spec 6.9.5). It
     // travels as a result code in `errors[].code` and in the step state, never as the other.
-    expect(shared.filter((code) => code !== 'tenant_mismatch')).toEqual([]);
+    //
+    // Phase D (spec 6.11.3) adds `exchange_unavailable` as a 503 problem code of the Exchange layer; the
+    // wizard has had it since Phase B as the warning result of the Exchange probe in the verify step
+    // (`setup/result-codes.ts`). Same word, same meaning (Exchange is not reachable), two surfaces
+    // that never mix: a result code travels in `errors[].code` of a setup step, a problem code is the
+    // `code` of a problem body. That is the second and last permitted overlap.
+    expect(
+      shared.filter((code) => code !== 'tenant_mismatch' && code !== 'exchange_unavailable'),
+    ).toEqual([]);
+    expect(shared.sort()).toEqual(['exchange_unavailable', 'tenant_mismatch']);
   });
 
   it('derives one message key and one remedy key per code, all distinct', () => {

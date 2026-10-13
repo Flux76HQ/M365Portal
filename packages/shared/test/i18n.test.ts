@@ -718,6 +718,9 @@ describe('loadNamespace: lazy namespace catalogues (FR-B-604, AM-21, CB15)', () 
       // Phase C (T-C-005): the users and groups pages.
       'users',
       'groups',
+      // Phase D (T-D-104): the distribution list and contact pages.
+      'distributionLists',
+      'contacts',
     ]);
   });
 

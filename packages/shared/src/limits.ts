@@ -121,6 +121,8 @@ export const LIMITS = deepFreeze({
     auth: { capacity: 10, refillIntervalMs: 5_000 },
     /** Setup routes (`RATE_SETUP`): capacity 10, refill 0.2 per second (SB-28). */
     setup: { capacity: 10, refillIntervalMs: 5_000 },
+    /** CSV exports (Phase D, ODD-07): 6 a minute, capacity 6, refill 0.1 per second. */
+    export: { capacity: 6, refillIntervalMs: 10_000 },
   },
 
   // ------------------------------------------------------------------------------------------
@@ -357,6 +359,63 @@ export const LIMITS = deepFreeze({
     cursorEntries: 1_000,
   },
 
+  // ------------------------------------------------------------------------------------------
+  // Phase D, step D1 (spec 6.11.2, T-D-102). No request body larger than the branding import is
+  // added: the largest bulk request is 200 GUIDs, well below `body.jsonBytes`.
+  // ------------------------------------------------------------------------------------------
+
+  /** The Exchange `pwsh` worker (FR-D-102, FR-D-104, FR-D-105; plan 5.1 and 5.2). */
+  exchange: {
+    /** The worker is recycled after this many calls (R-D-03: connect and disconnect can leak memory). */
+    workerMaxCalls: 500,
+    /** ... or after this many seconds of age. */
+    workerMaxAgeSeconds: 3_600,
+    /** One cmdlet call; the worker is killed at the deadline. Learn's REST timeout is 15 minutes (R-D-02). */
+    callDeadlineSeconds: 120,
+    /** Rows a list read buffers per cursor (plan 5.2, PD-03); a larger result asks to narrow the search. */
+    listBufferMax: 10_000,
+    /** One protocol line, in bytes: 1 MiB (the largest answer of one cmdlet call). */
+    lineMaxBytes: 1_048_576,
+    /** Retries of a throttled or transient failure (FR-D-105); the numbers are ours until U81 is closed. */
+    retryMax: 3,
+    /** Back-off between those retries, doubling from the first to the second value, full jitter. */
+    retryBackoff: { initialMs: 1_000, maxMs: 15_000 },
+  },
+
+  /** Distribution list member writes (FR-D-203, FR-D-204). */
+  distributionLists: {
+    /** Identities in one add or remove request. */
+    bulkMax: 200,
+    /** Members per chunk: the unit of work between two read-backs. */
+    bulkChunk: 50,
+    /** A request with more members than this needs a recent step-up. */
+    stepUpAbove: 20,
+  },
+
+  /** Group member writes through Graph (FR-D-353, FR-D-354). */
+  groupMembers: {
+    /** Identities in one add or remove request. */
+    bulkMax: 200,
+    /** Members per chunk; Graph adds at most 20 members in one request (R-D-08). */
+    bulkChunk: 20,
+    /** A request with more members than this needs a recent step-up. */
+    stepUpAbove: 20,
+  },
+
+  /** Mail contact fields (FR-D-302; R-D-09: Name 64, DisplayName 256, Alias 64). */
+  contacts: {
+    /** `-Name` of `New-MailContact`: the unique name, 64 characters. */
+    nameMaxChars: 64,
+    /** The display name: 1 to 256 characters. */
+    displayNameMaxChars: 256,
+    /** `-Alias`: 64 characters. */
+    aliasMaxChars: 64,
+    /** First and last name. */
+    personNameMaxChars: 64,
+    /** An external address: 254 characters (RFC 5321 path limit). */
+    addressMaxChars: 254,
+  },
+
   /** Clients the rate limiter tracks at most (memory bound); idle entries are evicted first. */
   trackedClients: 10_000,
 
@@ -385,7 +444,7 @@ export const LIMITS = deepFreeze({
   imageSizeCeilingMegabytes: 400,
 } as const);
 
-/** The names of the rate limit classes: `read`, `write`, `upload`, `auth` and `setup`. */
+/** The names of the rate limit classes: `read`, `write`, `upload`, `auth`, `setup` and `export`. */
 export type RateLimitClass = keyof typeof LIMITS.rateLimit;
 
 /** Tokens earned per second by a rate class, the figure spec 6.5 states (2, 0.5 and 0.1). */

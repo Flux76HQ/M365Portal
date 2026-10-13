@@ -42,6 +42,7 @@ const EXPECTED_TARGETS: Readonly<Record<string, string>> = {
   './auth/*': './src/auth/*.ts',
   './setup/*': './src/setup/*.ts',
   './directory/*': './src/directory/*.ts',
+  './exchange/*': './src/exchange/*.ts',
   './tokens': './src/tokens/index.ts',
   './i18n': './src/i18n/index.ts',
   './i18n/*': './src/i18n/*.ts',
@@ -57,6 +58,7 @@ const BARRELLESS_DIRECTORIES = [
   'src/auth',
   'src/setup',
   'src/directory',
+  'src/exchange',
 ];
 
 /**
@@ -207,6 +209,16 @@ describe('exports map of @m365portal/shared', () => {
     expect(sourceFiles).toContain('src/directory/group-kind.ts');
   });
 
+  it('has the Phase D wildcard subpath ./exchange/*, pointing at TypeScript source (T-D-105)', () => {
+    const manifest = readManifest();
+    const exportsMap = isRecord(manifest) && isRecord(manifest.exports) ? manifest.exports : {};
+    const { types, target } = targetOf(exportsMap['./exchange/*']);
+    expect(target).toBe('./src/exchange/*.ts');
+    expect(types).toBe(target);
+    expect(sourceFiles).toContain('src/exchange/protocol.ts');
+    expect(sourceFiles).toContain('src/exchange/allow-list.ts');
+  });
+
   it('exposes the testing helper and the empty catalogues the other streams build on', () => {
     expect(sourceFiles).toEqual(
       expect.arrayContaining([
@@ -344,6 +356,19 @@ describe('exports map check: negative fixtures (the check must fail on purpose)'
         files,
       },
       { name: 'exports check', reason: '"./auth/*" points at ./src/auth/index.ts' },
+    );
+  });
+
+  it('fails when the Phase D subpath ./exchange/* is missing or a barrel appears (T-D-105)', () => {
+    expectGuardFails(
+      guardExports,
+      { manifest: manifestWith((map) => Reflect.deleteProperty(map, './exchange/*')), files },
+      { name: 'exports check', reason: 'lacks the subpath "./exchange/*"' },
+    );
+    expectGuardFails(
+      guardExports,
+      { manifest: manifestWith(() => undefined), files: [...files, 'src/exchange/index.ts'] },
+      { name: 'exports check', reason: 'src/exchange/index.ts is a barrel file' },
     );
   });
 

@@ -18,6 +18,9 @@ import * as auth from '../src/schemas/auth.js';
 import * as branding from '../src/schemas/branding.js';
 import * as common from '../src/schemas/common.js';
 import * as connection from '../src/schemas/connection.js';
+import * as contacts from '../src/schemas/contacts.js';
+import * as distributionLists from '../src/schemas/distribution-lists.js';
+import * as memberWrites from '../src/schemas/member-writes.js';
 import * as directory from '../src/schemas/directory.js';
 import * as exportImport from '../src/schemas/export-import.js';
 import * as health from '../src/schemas/health.js';
@@ -34,10 +37,13 @@ const SCHEMA_MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   branding,
   common,
   connection,
+  contacts,
   directory,
+  'distribution-lists': distributionLists,
   'export-import': exportImport,
   health,
   manifest,
+  'member-writes': memberWrites,
   meta,
   rbac,
   setup,

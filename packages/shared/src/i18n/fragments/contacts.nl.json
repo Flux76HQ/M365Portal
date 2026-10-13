@@ -1,0 +1,15 @@
+{
+  "contacts.readOnly.synced": "Dit contact wordt gesynchroniseerd vanuit on-premises en kan alleen daar worden gewijzigd.",
+  "contacts.validation.address_invalid": "Vul een geldig e-mailadres in, zoals naam@voorbeeld.nl.",
+  "contacts.validation.address_not_normalised": "Vul het e-mailadres in kleine letters en zonder spaties in.",
+  "contacts.validation.address_too_long": "Het e-mailadres mag hooguit 254 tekens hebben.",
+  "contacts.validation.alias_characters": "De alias mag letters, cijfers en ! # % * + - / = ? ^ _ ~ bevatten. Een punt moet tussen andere tekens staan.",
+  "contacts.validation.alias_empty": "Vul een alias in.",
+  "contacts.validation.alias_too_long": "De alias mag hooguit 64 tekens hebben.",
+  "contacts.validation.confirm_mismatch": "De naam die je typte komt niet overeen met het contact.",
+  "contacts.validation.display_name_characters": "De weergavenaam mag geen besturingstekens bevatten en niet beginnen of eindigen met een spatie.",
+  "contacts.validation.display_name_empty": "Vul een weergavenaam in.",
+  "contacts.validation.display_name_too_long": "De weergavenaam mag hooguit 256 tekens hebben.",
+  "contacts.validation.nothing_to_change": "Wijzig minstens één veld.",
+  "contacts.validation.person_name_too_long": "De naam mag hooguit 64 tekens hebben."
+}

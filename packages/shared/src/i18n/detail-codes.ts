@@ -15,6 +15,10 @@ export const ERROR_DETAIL_MESSAGE_KEYS = Object.freeze({
   // Phase C (EC-C14): a Graph 403 for the panel's own application on a users or groups read. The page
   // points to Settings, Connection (repair). Both directory pages load the `users` namespace for it.
   graph_permission_missing: 'users.error.graph_permission_missing',
+  // Phase D (spec 6.11.3, EC-D1, EC-D2): detail codes of `exchange_unavailable`. The keys are in the
+  // `distributionLists` namespace; the contacts pages load that namespace too for them.
+  exchange_role_pending: 'distributionLists.error.exchange_role_pending',
+  exchange_timeout: 'distributionLists.error.exchange_timeout',
 } as const);
 
 export type ErrorDetailCode = keyof typeof ERROR_DETAIL_MESSAGE_KEYS;

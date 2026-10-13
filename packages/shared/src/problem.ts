@@ -32,7 +32,7 @@ interface ProblemCodeEntry {
 
 /**
  * Spec section 6.4 and contract section 6: 34 codes of Phase A, plus the 19 codes of Phase B spec
- * 6.9.5, plus `cursor_invalid` of Phase C spec 6.7.3 at the end of the list (54 in all). `staging_quota_exceeded` (409) and
+ * 6.9.5, plus `cursor_invalid` of Phase C spec 6.7.3, plus the 7 codes of Phase D spec 6.11.3 at the end of the list (61 in all). `staging_quota_exceeded` (409) and
  * `shutting_down` (503) are the two the plan added to the spec's seed list; `bad_request` (400),
  * `request_timeout` (408) and `request_header_fields_too_large` (431) are the three that Node's HTTP
  * parser errors get (the `clientError` handler, amendment 1).
@@ -311,6 +311,44 @@ export const PROBLEM_CODES = deepFreeze({
     status: 400,
     title: 'Invalid list cursor',
     detail: 'The list cursor is unknown, has expired or belongs to another user.',
+  },
+  // Phase D (spec 6.11.3, T-D-102): the Exchange layer, read-only objects, duplicates, built-in
+  // roles and certificate rotation. Detail codes `exchange_role_pending` and `exchange_timeout`
+  // ride on `exchange_unavailable` as `errors[]` entries (see `i18n/detail-codes.ts`).
+  exchange_unavailable: {
+    status: 503,
+    title: 'Exchange unavailable',
+    detail: 'The Exchange connection is not ready, timed out or failed.',
+  },
+  exchange_throttled: {
+    status: 503,
+    title: 'Exchange throttled',
+    detail: 'Exchange Online throttled the requests and the retry budget is used up.',
+  },
+  exchange_permission_missing: {
+    status: 503,
+    title: 'Exchange permission missing',
+    detail: 'Exchange refused the application: the role or the manager check is missing.',
+  },
+  read_only_object: {
+    status: 409,
+    title: 'Read-only object',
+    detail: 'The object is dynamic, synchronised from on-premises or managed elsewhere.',
+  },
+  conflict: {
+    status: 409,
+    title: 'Conflict',
+    detail: 'An object with the same address or alias already exists.',
+  },
+  builtin_role: {
+    status: 409,
+    title: 'Built-in role',
+    detail: 'A built-in role cannot be changed.',
+  },
+  rotation_failed: {
+    status: 409,
+    title: 'Rotation failed',
+    detail: 'The certificate rotation did not complete.',
   },
 } as const satisfies Record<string, ProblemCodeEntry>);
 

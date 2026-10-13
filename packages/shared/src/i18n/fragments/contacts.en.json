@@ -1,0 +1,15 @@
+{
+  "contacts.readOnly.synced": "This contact is synchronised from on-premises and can only be changed there.",
+  "contacts.validation.address_invalid": "Enter a valid email address such as name@example.com.",
+  "contacts.validation.address_not_normalised": "Enter the email address in lower case without spaces.",
+  "contacts.validation.address_too_long": "The email address can have at most 254 characters.",
+  "contacts.validation.alias_characters": "The alias can contain letters, digits and ! # % * + - / = ? ^ _ ~. A period must sit between other characters.",
+  "contacts.validation.alias_empty": "Enter an alias.",
+  "contacts.validation.alias_too_long": "The alias can have at most 64 characters.",
+  "contacts.validation.confirm_mismatch": "The name you typed does not match the contact.",
+  "contacts.validation.display_name_characters": "The display name cannot contain control characters or leading or trailing spaces.",
+  "contacts.validation.display_name_empty": "Enter a display name.",
+  "contacts.validation.display_name_too_long": "The display name can have at most 256 characters.",
+  "contacts.validation.nothing_to_change": "Change at least one field.",
+  "contacts.validation.person_name_too_long": "The name can have at most 64 characters."
+}

@@ -94,11 +94,23 @@ const SPEC_B_6_9_5: readonly (readonly [string, number])[] = [
 /** Phase C spec 6.7.3 (T-C-002), in its order: the one code Phase C adds. */
 const SPEC_C_6_7_3: readonly (readonly [string, number])[] = [['cursor_invalid', 400]];
 
-/** Phase A, Phase B and Phase C together: the complete registry. */
+/** Phase D spec 6.11.3 (T-D-102), in its order: the seven codes Phase D adds. */
+const SPEC_D_6_11_3: readonly (readonly [string, number])[] = [
+  ['exchange_unavailable', 503],
+  ['exchange_throttled', 503],
+  ['exchange_permission_missing', 503],
+  ['read_only_object', 409],
+  ['conflict', 409],
+  ['builtin_role', 409],
+  ['rotation_failed', 409],
+];
+
+/** Phase A, B, C and D together: the complete registry. */
 const ALL_CODES: readonly (readonly [string, number])[] = [
   ...CONTRACT_6,
   ...SPEC_B_6_9_5,
   ...SPEC_C_6_7_3,
+  ...SPEC_D_6_11_3,
 ];
 
 const CODES = Object.keys(PROBLEM_CODES) as ProblemCode[];
@@ -114,7 +126,7 @@ describe('PROBLEM_CODES: the registry', () => {
     const actual = Object.entries(PROBLEM_CODES).map(([code, entry]) => [code, entry.status]);
     for (const row of CONTRACT_6) expect(actual, row[0]).toContainEqual([...row]);
     expect(actual.sort()).toEqual([...ALL_CODES].sort());
-    expect(CODES).toHaveLength(54);
+    expect(CODES).toHaveLength(61);
   });
 
   it('equals the table of Phase C spec 6.7.3 as the document states it, and answers cursor_invalid with 400', () => {
@@ -129,8 +141,34 @@ describe('PROBLEM_CODES: the registry', () => {
     expect(PROBLEM_CODES.cursor_invalid.status).toBe(400);
   });
 
+  it('equals the table of Phase D spec 6.11.3 as the document states it (T-D-102)', () => {
+    const spec = read('../../../specs/004-phase-d/spec.md');
+    const section = /^#### 6\.11\.3 Problem codes added([\s\S]*?)^---/m.exec(spec)?.[1] ?? '';
+    const rows = [...section.matchAll(/^\| `([a-z_]+)` \| (\d{3}) \|/gm)].map((match) => [
+      match[1],
+      Number(match[2]),
+    ]);
+    expect(rows).toHaveLength(7);
+    expect(rows.sort()).toEqual([...SPEC_D_6_11_3].sort());
+    for (const [code, status] of SPEC_D_6_11_3) {
+      expect(PROBLEM_CODES[code as ProblemCode].status, code).toBe(status);
+    }
+  });
+
+  it('describes the Phase D codes in generic English that names the cause class, not a value (T-D-102)', () => {
+    expect(PROBLEM_CODES.exchange_unavailable.detail).toMatch(/Exchange/);
+    expect(PROBLEM_CODES.exchange_throttled.detail).toMatch(/throttl/i);
+    expect(PROBLEM_CODES.exchange_permission_missing.detail).toMatch(/permission|role/i);
+    expect(PROBLEM_CODES.read_only_object.detail).toMatch(/read-only|dynamic|synchron/i);
+    expect(PROBLEM_CODES.conflict.detail).toMatch(/already exists|duplicate/i);
+    expect(PROBLEM_CODES.builtin_role.detail).toMatch(/built-in/i);
+    expect(PROBLEM_CODES.rotation_failed.detail).toMatch(/certificate/i);
+  });
+
   it('keeps the Phase C code out of the earlier tables, and every code of the registry in exactly one table', () => {
-    const named = [...CONTRACT_6, ...SPEC_B_6_9_5, ...SPEC_C_6_7_3].map(([code]) => code);
+    const named = [...CONTRACT_6, ...SPEC_B_6_9_5, ...SPEC_C_6_7_3, ...SPEC_D_6_11_3].map(
+      ([code]) => code,
+    );
     expect(new Set(named).size).toBe(named.length);
     expect(CONTRACT_6.some(([code]) => code === 'cursor_invalid')).toBe(false);
     expect(SPEC_B_6_9_5.some(([code]) => code === 'cursor_invalid')).toBe(false);
@@ -489,6 +527,8 @@ const PLACEHOLDERS: Readonly<Record<string, readonly string[]>> = {
   setup_token_locked: ['seconds'],
   break_glass_locked: ['seconds'],
   graph_throttled: ['seconds'],
+  // Phase D: Exchange throttling, same rule (spec 6.11.3, FR-D-105).
+  exchange_throttled: ['seconds'],
   unknown: ['code', 'requestId'],
 };
 
@@ -536,7 +576,7 @@ describe('the problem fragments (en and nl)', () => {
     expect(() => {
       assertFragmentMatchesRegistry(fragment);
     }).not.toThrow();
-    expect(Object.keys(fragment)).toHaveLength(55);
+    expect(Object.keys(fragment)).toHaveLength(62);
   });
 
   it('every key starts with the namespace problem and a dot (C11)', () => {

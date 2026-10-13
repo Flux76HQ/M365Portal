@@ -295,8 +295,10 @@ describe('every key a registry names has a message in both languages', () => {
       expect(keys.has(`noaccess.reason.${reason}`), reason).toBe(true);
   });
 
-  it('has a message for the errors[] detail codes graph_permission_missing, privileged_role_group, principal_disabled and owner_changed', () => {
+  it('has a message for the errors[] detail codes exchange_role_pending, exchange_timeout, graph_permission_missing, privileged_role_group, principal_disabled and owner_changed', () => {
     expect([...ERROR_DETAIL_CODES].sort()).toEqual([
+      'exchange_role_pending',
+      'exchange_timeout',
       'graph_permission_missing',
       'owner_changed',
       'principal_disabled',
@@ -310,6 +312,17 @@ describe('every key a registry names has a message in both languages', () => {
         ).toBeTruthy();
       }
     }
+  });
+
+  it('points the Exchange detail codes at the distributionLists namespace, and the pending role at Settings, Connection (EC-D1, EC-D2, T-D-102)', () => {
+    expect(ERROR_DETAIL_MESSAGE_KEYS.exchange_role_pending).toBe(
+      'distributionLists.error.exchange_role_pending',
+    );
+    expect(ERROR_DETAIL_MESSAGE_KEYS.exchange_timeout).toBe(
+      'distributionLists.error.exchange_timeout',
+    );
+    expect(CATALOGUES.en['distributionLists.error.exchange_role_pending']).toMatch(/Connection/);
+    expect(CATALOGUES.nl['distributionLists.error.exchange_role_pending']).toMatch(/Verbinding/);
   });
 
   it('points graph_permission_missing at the repair on the Connection page, in both languages (EC-C14, T-C-002)', () => {

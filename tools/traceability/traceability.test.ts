@@ -806,6 +806,13 @@ describe('no Phase C artefact (CURRENT_PHASE is B; FR-B-712)', () => {
     expect(phaseCGuardIsActive('A')).toBe(false);
     expect(phaseCGuardIsActive('B')).toBe(true);
     expect(phaseCGuardIsActive('C')).toBe(false);
+    expect(phaseCGuardIsActive('D')).toBe(false);
+  });
+
+  it("Phase D: the repository is in phase 'D' (T-D-105) and no earlier guard is active", () => {
+    expect(CURRENT_PHASE).toBe('D');
+    expect(phaseGuardIsActive('D')).toBe(false);
+    expect(phaseCGuardIsActive(CURRENT_PHASE)).toBe(false);
   });
 
   const active = phaseCGuardIsActive(CURRENT_PHASE);

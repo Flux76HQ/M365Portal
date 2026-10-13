@@ -13,9 +13,12 @@
 // and only the ban on Phase B artefacts is lifted (the test says so in its title). Phase B's own plan
 // adds the matching ban on Phase C artefacts (plan 002, section 14.7); that is a Phase B task and not
 // done here.
-export type Phase = 'A' | 'B' | 'C';
+export type Phase = 'A' | 'B' | 'C' | 'D';
 
-export const CURRENT_PHASE: Phase = 'C';
+// Phase D code lands in three steps (D1, D2, D3); the owner approved the scope on 2026-10-13 (spec
+// 004, section 10). No guard bans Phase D artefacts: the owner's approval of the earlier phase reports
+// is recorded in the spec, and the approval lines of phase-B.md and phase-C.md are not touched here.
+export const CURRENT_PHASE: Phase = 'D';
 
 /** Whether the ban on Phase B artefacts applies. */
 export function phaseGuardIsActive(phase: Phase = CURRENT_PHASE): boolean {

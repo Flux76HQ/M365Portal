@@ -21,6 +21,8 @@ Findings that shape the plan:
 7. The rate-limit table has no `export` class; one row is added.
 8. Entry chunks have 52 B (JS) and 18 B (CSS) of headroom (Phase C closing). Every new page, dialog and catalogue is lazy; any shared seam that grows an entry chunk is a stop condition (section 10).
 
+Re-read as built for gate GD1-0 (T-D-101, 2026-10-13): findings 1 to 7 are **confirmed** by the code (details in `gate-notes/GD1-0.md`). Finding 8 is **amended**: the headroom is 57 B (JS gzip) at 0.3.54, and the D1 shared seams themselves (seven problem codes with their nl and en messages in the entry catalogues, the `LIMITS` additions) grow the initial JS by about 0.94 KB gzip, so `pnpm bundle:check` fails on the contract alone. This is the stop condition of section 10; the numbers and the options are in the gate note and the budget is not edited. Three further findings: **9** the i18n merge accepted lower case namespaces only, so `distributionLists` needed `FILE_NAME` and the owner table to accept camel case; **10** the wizard already uses `exchange_unavailable` as a result code (CD-05 test amended); **11** the Graph pages show that the `$ref` delete path is dangerous without `/$ref` and that the bulk PATCH is all-or-nothing (research R-D-08).
+
 ## 1. Technical context
 
 New runtime dependencies: none in Node (the worker protocol is hand-written; CSV writer is hand-written because the libraries add weight and the injection rule is ours); OpenTelemetry only if the plan of D3 shows the SDK fits the image budget as an optional lazy import (FR-D-802). New system packages in the image: `powershell` (pinned) and the `ExchangeOnlineManagement` module (pinned). Storage: two migrations in D2 and D3 (audit checkpoint table; role and assignment columns for scope-free custom roles, expiry and the break-glass factor), each tested by the upgrade test (SC-B-012 pattern). Performance: the cost is Exchange latency; the worker serialises calls.
@@ -57,7 +59,7 @@ New runtime dependencies: none in Node (the worker protocol is hand-written; CSV
 
 ### 4.1 Shared (`packages/shared/src`)
 
-- `schemas/distribution-lists.ts`, `schemas/contacts.ts`, `schemas/audit.ts`, `schemas/rbac-admin.ts`, `schemas/export.ts`: wire schemas (the gate GD1, GD2 and GD3 artefacts).
+- `schemas/distribution-lists.ts`, `schemas/contacts.ts`, `schemas/member-writes.ts` (add and remove members of lists and groups, one vocabulary), `schemas/audit.ts`, `schemas/rbac-admin.ts`, `schemas/export.ts`: wire schemas (the gate GD1, GD2 and GD3 artefacts); `exchange/{protocol,allow-list}.ts`: the worker protocol and the closed cmdlet map (subpath `./exchange/*`).
 - `csv/write.ts`: `csvField`, `csvRow`, `neutraliseFormula`, `writeCsv(options)`; `csv/presets.ts` (`laposta`, `generic`).
 - `rbac/templates.ts`: the templates (*Bestuur* and the others the spec names); `rbac/effective.ts` extended for expiry.
 - `limits.ts`: `exchange`, `distributionLists`, `export`, `audit`, `cert`, `rateLimit.export`; `problem.ts`: the codes of spec 6.11.3; i18n: lazy namespaces `distributionLists`, `contacts`, `audit`, `rbacAdmin` with `nl` and `en`.
@@ -86,7 +88,7 @@ Services take capabilities exactly as Phase C. List and contact reads page throu
 
 ### 5.3 Group member writes (FR-D-351 to FR-D-355)
 
-`HttpGraphClient.addGroupMember(groupId, memberId)` and `removeGroupMember` use `POST /groups/{id}/members/$ref` and `DELETE /groups/{id}/members/{memberId}/$ref` (confirmed in Phase C's research for the read side only; the write pages are read in the research update of T-D-101 and any difference is amended there before code). Per-member calls with the existing retry; the batch endpoint is not used unless the research update shows it needed. Dynamic, synced and distribution groups are refused by `groupKindOf` and the membership type before any call.
+`HttpGraphClient.addGroupMember(groupId, memberId)` and `removeGroupMember` use `POST /groups/{id}/members/$ref` and `DELETE /groups/{id}/members/{memberId}/$ref` (confirmed in Phase C's research for the read side only; the write pages were read in amendment 1 of the research: both paths and the 204 answers are confirmed; the delete path must always end in `/$ref`; a `400` on add cannot be told apart (U92), so membership is read first). Per-member calls with the existing retry; the batch endpoint is not used unless the research update shows it needed. Dynamic, synced and distribution groups are refused by `groupKindOf` and the membership type before any call.
 
 ### 5.4 CSV (FR-D-401 to FR-D-406)
 
