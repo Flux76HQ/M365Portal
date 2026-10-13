@@ -349,4 +349,4 @@ Approve proceeding to Phase C? The owner fills in the approval line below; nobod
 
 Akkoord om door te gaan met fase C?
 
-Naam en datum / Name and date: akkoord in de chat door de eigenaar (helmerzNL) op 2026-10-13 na het testen van de wizard met een echte tenant; vastgelegd door Claude op diens verzoek, de eigenaar kan hier zelf nog tekenen. Besluiten voor fase C (ODB-11 blijft 403; eerste versie alleen lezen; geen licentiekolom) staan in `specs/003-phase-c/spec.md`.
+Naam en datum / Name and date:

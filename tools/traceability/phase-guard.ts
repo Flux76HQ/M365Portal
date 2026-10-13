@@ -15,7 +15,7 @@
 // done here.
 export type Phase = 'A' | 'B' | 'C';
 
-export const CURRENT_PHASE: Phase = 'B';
+export const CURRENT_PHASE: Phase = 'C';
 
 /** Whether the ban on Phase B artefacts applies. */
 export function phaseGuardIsActive(phase: Phase = CURRENT_PHASE): boolean {
