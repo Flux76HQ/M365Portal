@@ -18,20 +18,29 @@ test('the owner signs in: the callback answers with the interstitial, and the fi
   page,
   app,
 }) => {
-  const callbacks: { status: number; type: string; body: string }[] = [];
+  const callbacks: { status: number; type: string; body: string | null }[] = [];
   const meRequests: string[] = [];
   let signedIn = false;
+  // The interstitial navigates away at once (a meta refresh), so a body read after that can be gone
+  // ("No resource with given identifier"): then `body` stays null. The status and the type are known
+  // at once, and `test/auth/interstitial.test.ts` holds the body to the byte.
+  const bodyReads: Promise<void>[] = [];
   page.on('response', (response) => {
-    const url = new URL(response.url());
-    if (url.pathname === '/auth/callback') {
-      void response.text().then((body) =>
-        callbacks.push({
-          status: response.status(),
-          type: response.headers()['content-type'] ?? '',
-          body,
-        }),
-      );
-    }
+    if (new URL(response.url()).pathname !== '/auth/callback') return;
+    const entry: { status: number; type: string; body: string | null } = {
+      status: response.status(),
+      type: response.headers()['content-type'] ?? '',
+      body: null,
+    };
+    callbacks.push(entry);
+    bodyReads.push(
+      response.text().then(
+        (body) => {
+          entry.body = body;
+        },
+        () => undefined,
+      ),
+    );
   });
   page.on('request', (request) => {
     if (signedIn && new URL(request.url()).pathname === '/api/v1/me')
@@ -47,11 +56,15 @@ test('the owner signs in: the callback answers with the interstitial, and the fi
   await expect(page.getByRole('button', { name: SIGNED_IN('Olivia Owner') })).toBeVisible();
   expect(meRequests, 'the page did not ask who is signed in').toEqual([]);
 
+  await Promise.all(bodyReads);
   expect(callbacks).toHaveLength(1);
   expect(callbacks[0]?.status, 'the callback is a page, not a redirect').toBe(200);
   expect(callbacks[0]?.type).toContain('text/html');
-  expect(callbacks[0]?.body).toMatch(/<meta http-equiv="refresh" content="0;url=\/">/);
-  expect(callbacks[0]?.body).not.toMatch(/<script|<style/);
+  const body = callbacks[0]?.body;
+  if (body !== null && body !== undefined) {
+    expect(body).toMatch(/<meta http-equiv="refresh" content="0;url=\/">/);
+    expect(body).not.toMatch(/<script|<style/);
+  }
 
   // Microsoft was asked once, as a navigation, with PKCE and a state.
   const requests = await fakeOf().authorizeRequests();
