@@ -140,7 +140,8 @@ One process, one container, one volume. Components and the request pipeline are 
 **Single replica, local disk.** SQLite in WAL mode needs shared memory on one host and does not work
 over a network file system (NFS, SMB and many NAS volumes). Run exactly one replica and keep `/data` on
 a local disk or a Docker volume on a local disk; never mount one volume into two containers. Rate-limit
-buckets and the CSRF key live in memory and reset on restart. Locking keeps the data consistent if you
+buckets, the CSRF key and the list cursors of Users and Groups live in memory and reset on restart (a lost
+cursor is answered 400 `cursor_invalid` and the page starts the list again). Locking keeps the data consistent if you
 break the rule, but readiness may report `storage_busy`.
 
 The application checks for timed-out connections every 5 seconds (not a limit, so it is not in the table below). Requests the HTTP parser rejects before routing are answered 400, 408 or 431 with a problem body.
@@ -366,7 +367,9 @@ application. Every limit on the path from the client to the application is docum
 with what enforces it and which limit it constrains. Whatever sits in front of the application must allow
 request bodies of at least 9,437,184 bytes (the branding import, the largest request), must not cache
 HTML, and must preserve the `Host` header. Phase B adds no larger request: its bodies are small, the largest
-being the 4,096-byte bodies of the authentication routes and 262,144 bytes for any other JSON body.
+being the 4,096-byte bodies of the authentication routes and 262,144 bytes for any other JSON body. Phase C adds
+no request body at all (its seven routes are `GET`), so the largest request stays 9,437,184 bytes; the five
+rows `searchMaxChars` to `cursorEntries` below are the limits of the users and groups lists.
 
 | Limit | Value | Enforced by | Constrains |
 |---|---|---|---|
@@ -582,6 +585,8 @@ De tabel hierboven noemt alle 25 grenzen als getal, met wat ze afdwingt en wat z
 getal is `packages/shared/src/limits.ts`. Belangrijk voor wat ervoor staat: de keep-alive van het paneel is
 65 seconden (de idle-timeout van de proxy richting het paneel moet korter zijn, bijvoorbeeld 60 seconden),
 het ontvangen van een verzoek mag tot 60 seconden duren, en `docker stop` moet minstens 10 seconden wachten.
+Fase C voegt geen verzoekbody toe (de zeven routes zijn `GET`): het grootste verzoek blijft 9437184 bytes. De vijf
+rijen `searchMaxChars` tot en met `cursorEntries` zijn de grenzen van de lijsten met gebruikers en groepen.
 
 ### Aanbevolen repository-instellingen
 

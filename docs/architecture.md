@@ -29,7 +29,7 @@ Phase B adds five (the module list below), registered in `src/modules.ts` after 
 ## Modules
 
 `src/modules.ts` lists the modules in start order (they stop in reverse): the Phase A `branding` module, then
-the five modules of Phase B.
+the five modules of Phase B, then the `directory` module of Phase C.
 
 | Module | Folder | Role |
 |---|---|---|
@@ -39,6 +39,7 @@ the five modules of Phase B.
 | `connection` | `src/connection/` | The Settings pages for the connection: state, re-check, certificate expiry. |
 | `auth` | `src/auth/` | Login transactions, the callback and its 45 fixtures, the interstitial, sessions, step-up, revalidation, logout, break-glass and MFA. |
 | `rbac` | `src/rbac/` | Roles, assignments, scopes, group membership resolution, the grants memo and epoch, restore-owner. |
+| `directory` | `src/directory/` | Phase C, read only: the seven `GET` routes for users and groups (`/api/v1/users*`, `/api/v1/groups*`), the in-memory cursor store, the scoped scan, the one restricted-row function and the mappers; the Graph reads are in `src/integrations/graph/` (`directory-query.ts` is the only builder of directory filters). It stores nothing on disk ([ADR-0179](adr/0179-directory-cursor-store-and-restricted-rows.md), [api.md](api.md)). |
 
 ## Layering and the integrations boundary
 

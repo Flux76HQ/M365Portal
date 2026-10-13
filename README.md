@@ -9,7 +9,7 @@ distribution lists, contacts) from one place. It runs as one container with one 
 
 ### Status, honestly
 
-This is **Phase B, the connection and the sign-in**, on top of the Phase A foundation. What exists and works:
+This is **Phase C, users and groups (read only)**, on top of Phase B (the connection and the sign-in) and the Phase A foundation. What exists and works:
 
 - the application shell (sidebar, header, command palette `Ctrl+K`, light and dark theme, Dutch and English),
 - organisation branding (name, logo upload, accent colour with a contrast guarantee, export and import),
@@ -22,13 +22,22 @@ This is **Phase B, the connection and the sign-in**, on top of the Phase A found
   template, bound to users or Entra groups, with scopes, enforced on every route and audited,
 - a **break-glass** account (optional) that can only restore an Owner, and the command-line tools for the key,
   the setup token and the audit chain,
+- **Users and Groups, read only** (Phase C): a paged list with prefix search and filters (users: enabled or
+  disabled, member or guest; groups: Microsoft 365, security, mail-enabled security, distribution) and a
+  detail page with the manager and group memberships of a user, and the owners and members of a group. The
+  server shows each actor only what their role and scope allow; objects outside it appear as "restricted"
+  without a name. Nothing is created, changed or deleted, there is no licence column, and the panel asks
+  Microsoft for no new permission ([docs/api.md](docs/api.md), [docs/permissions.md](docs/permissions.md)),
 - a hardened server and container image (strict security headers, rate limits, read-only root file system, audit log with a hash chain).
 
 What does **not** exist yet:
 
-- The pages for users, groups, distribution lists and contacts are still empty shells (Phases C and D). The
-  application permissions needed for them are granted already, but nothing reads or writes users, groups,
-  distribution lists or contacts yet.
+- Nothing writes yet. Users and groups are read only; creating, changing and deleting them, membership
+  changes, password reset and licences are not built (`GroupMember.ReadWrite.All` is granted but unused in
+  Phase C). The pages for distribution lists and contacts are still empty shells (Phase D).
+- Some Microsoft behaviour could only be read, not tried (for example the manager of a user for an
+  application, and groups with hidden membership); the open claims U66 to U74 are closed by a test against a
+  real tenant, step by step in [docs/owner-test-phase-c.md](docs/owner-test-phase-c.md).
 - There is no screen for the audit log or for role administration yet (Phase D); the CLI and the API cover them.
 - **Preview mode is gone.** Without a configured tenant the panel answers only the setup gate; nobody acts as
   administrator without signing in.
@@ -198,9 +207,11 @@ it anywhere but your own computer. Report vulnerabilities privately to the owner
 - [docs/architecture.md](docs/architecture.md): components, request pipeline, performance architecture, dependencies, accessibility
 - [docs/security.md](docs/security.md): threat model, STRIDE tables, attack review, controls, SVG allowlist
 - [docs/permissions.md](docs/permissions.md): the permission catalogue, the role matrix and the Microsoft Graph and Exchange permissions
+- [docs/api.md](docs/api.md): the users and groups routes of Phase C (queries, paging, answers, errors)
+- [docs/owner-test-phase-c.md](docs/owner-test-phase-c.md): the step list to try Phase C against a Microsoft 365 test tenant
 - [docs/open-points.md](docs/open-points.md): open decisions, unverified claims, assumptions and risks
 - [docs/adr/](docs/adr/): architecture decision records (ADR-0001 onwards)
-- [deploy/README.md](deploy/README.md): short deployment notes; [specs/001-m365portal](specs/001-m365portal) and [specs/002-phase-b](specs/002-phase-b): the specifications of Phases A and B
+- [deploy/README.md](deploy/README.md): short deployment notes; [specs/001-m365portal](specs/001-m365portal), [specs/002-phase-b](specs/002-phase-b) and [specs/003-phase-c](specs/003-phase-c): the specifications of Phases A to C
 
 ### Contributing
 
@@ -214,7 +225,7 @@ contacten) vanaf één plek te beheren. Het draait als één container met één
 
 ### Status, eerlijk
 
-Dit is **Fase B, de verbinding en de aanmelding**, bovenop het fundament van Fase A. Wat er is en werkt:
+Dit is **Fase C, gebruikers en groepen (alleen lezen)**, bovenop Fase B (de verbinding en de aanmelding) en het fundament van Fase A. Wat er is en werkt:
 
 - de applicatieschil (zijbalk, kopbalk, opdrachtenpalet `Ctrl+K`, licht en donker thema, Nederlands en Engels),
 - organisatiebranding (naam, logo uploaden, accentkleur met contrastgarantie, export en import),
@@ -228,13 +239,23 @@ Dit is **Fase B, de verbinding en de aanmelding**, bovenop het fundament van Fas
   Bestuur, gekoppeld aan gebruikers of Entra-groepen, met scopes, op elke route afgedwongen en gecontroleerd,
 - een optioneel **break-glass**-account dat alleen een Eigenaar kan herstellen, en opdrachtregelhulpmiddelen voor
   de sleutel, het setup-token en de auditketen,
+- **Gebruikers en Groepen, alleen lezen** (Fase C): een lijst met paginering, zoeken op het begin van een naam
+  en filters (gebruikers: ingeschakeld of uitgeschakeld, lid of gast; groepen: Microsoft 365, beveiliging,
+  e-mailbeveiliging, distributie) en een detailpagina met de manager en groepslidmaatschappen van een
+  gebruiker, en de eigenaren en leden van een groep. De server toont elke aanvrager alleen wat rol en scope
+  toestaan; objecten daarbuiten staan er als "beperkt" zonder naam. Er wordt niets aangemaakt, gewijzigd of
+  verwijderd, er is geen licentiekolom en het paneel vraagt Microsoft om geen nieuw recht
+  ([docs/api.md](docs/api.md), [docs/permissions.md](docs/permissions.md)),
 - een geharde server en containerimage (strikte beveiligingskoppen, aanvraaglimieten, alleen-lezen rootbestandssysteem, auditlog met hashketen).
 
 Wat er **nog niet** is:
 
-- De pagina's voor gebruikers, groepen, distributielijsten en contacten zijn nog lege schillen (Fase C en D). De
-  daarvoor nodige applicatierechten worden al gegeven, maar er wordt nog niets van gebruikers, groepen,
-  distributielijsten of contacten gelezen of geschreven.
+- Er wordt nog nergens geschreven. Gebruikers en groepen zijn alleen-lezen; aanmaken, wijzigen en verwijderen,
+  ledenbeheer, wachtwoordreset en licenties zijn niet gebouwd (`GroupMember.ReadWrite.All` is verleend maar
+  ongebruikt in Fase C). De pagina's voor distributielijsten en contacten zijn nog lege schillen (Fase D).
+- Sommig Microsoft-gedrag kon alleen worden gelezen, niet geprobeerd (bijvoorbeeld de manager van een
+  gebruiker voor een applicatie en groepen met verborgen lidmaatschap); de open claims U66 tot en met U74
+  sluit een test tegen een echte tenant, stap voor stap in [docs/owner-test-phase-c.md](docs/owner-test-phase-c.md).
 - Er is nog geen scherm voor het auditlog of voor rollenbeheer (Fase D); de opdrachtregel en de API dekken ze.
 - **De previewmodus is verwijderd.** Zonder ingestelde tenant antwoordt het paneel alleen met de installatiepoort;
   niemand treedt als beheerder op zonder aan te melden.
@@ -382,9 +403,11 @@ privé bij de eigenaar van de repository, niet in een openbaar issue.
 - [docs/architecture.md](docs/architecture.md): onderdelen, verzoekpijplijn, prestatie-architectuur, afhankelijkheden, toegankelijkheid
 - [docs/security.md](docs/security.md): dreigingsmodel, STRIDE-tabellen, aanvalsbeoordeling, maatregelen, SVG-toegestane lijst
 - [docs/permissions.md](docs/permissions.md): de rechtencatalogus, de rollenmatrix en de Microsoft Graph- en Exchange-rechten
+- [docs/api.md](docs/api.md): de routes voor gebruikers en groepen van Fase C (queries, paginering, antwoorden, fouten)
+- [docs/owner-test-phase-c.md](docs/owner-test-phase-c.md): de stappenlijst om Fase C tegen een Microsoft 365-testtenant te proberen
 - [docs/open-points.md](docs/open-points.md): open beslissingen, onbevestigde claims, aannames en risico's
 - [docs/adr/](docs/adr/): architectuurbeslissingen (ADR-0001 en verder)
-- [deploy/README.md](deploy/README.md): korte uitrolnotities; [specs/001-m365portal](specs/001-m365portal) en [specs/002-phase-b](specs/002-phase-b): de specificaties van Fase A en B
+- [deploy/README.md](deploy/README.md): korte uitrolnotities; [specs/001-m365portal](specs/001-m365portal), [specs/002-phase-b](specs/002-phase-b) en [specs/003-phase-c](specs/003-phase-c): de specificaties van Fase A tot en met C
 
 ### Bijdragen
 

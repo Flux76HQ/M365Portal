@@ -1,8 +1,9 @@
 # Permissions
 
-> **Status:** Phase B. Part 1 is the panel's own catalogue and exists in code. Part 2 lists what the
+> **Status:** Phase C. Part 1 is the panel's own catalogue and exists in code. Part 2 lists what the
 > panel asks of Microsoft in Phases B to D (written in Phase A); Part 3 is the Phase B role matrix and the
-> permissions the running panel holds, and wins where the two differ. Part 2 is seeded only
+> permissions the running panel holds, and wins where the two differ; Part 4 is what Phase C (users and
+> groups, read only) reads, route by route, and what it deliberately leaves out. Part 2 is seeded only
 > from [`research-microsoft.md`](../specs/001-m365portal/research-microsoft.md) (Microsoft Learn,
 > 2026-10-10); a fact that file does not contain is marked UNVERIFIED and has a register row in
 > [open-points.md](open-points.md). Nederlandse versie: zie [Nederlands](#nederlands).
@@ -21,7 +22,7 @@ navigation entry; the later letter is the phase with the real feature).
 |---|---|---|
 | `users:read` | See users (name, e-mail, state, groups). Also the minimal read right for a role that adds members. | A (gates the Users page), C |
 | `groups:read` | See Microsoft 365 and security groups and their members. | A (gates the Groups page), C |
-| `groups:members:write` | Add and remove members of groups that Microsoft Graph can manage. | C |
+| `groups:members:write` | Add and remove members of groups that Microsoft Graph can manage. | C (not built in the read-only first version; unused in Phase C, see Part 4) |
 | `distributionlists:read` | See distribution lists and their members. | A (gates the page), D |
 | `distributionlists:members:write` | Add and remove members of distribution lists (through Exchange). | D |
 | `distributionlists:export` | Export a distribution list as CSV, inside the role's scope. | D |
@@ -185,7 +186,7 @@ The running panel is granted application permissions only, four of them (set ver
 |---|---|---|---|
 | `User.Read.All` | `df021288-bdef-4463-88db-98f22de89214` | Read users and their `accountEnabled`; sign-in lookup; `transitiveMemberOf` in Phase C. Replaces `User.ReadWrite.All`. | [user-get](https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0), permissions-reference |
 | `GroupMember.Read.All` | `98830695-27a2-44f7-8c18-0c3ebc9698f6` | `checkMemberGroups`, `getGroup`, `searchGroups`. Described as "memberships and basic group properties"; which group properties it returns is U36 (OV-19). | [directoryobject-checkmembergroups](https://learn.microsoft.com/en-us/graph/api/directoryobject-checkmembergroups?view=graph-rest-1.0) |
-| `GroupMember.ReadWrite.All` | `dbaae8cf-10b5-4b86-a4a1-f871c94c6695` | Membership writes of Phase C. Granted in Phase B so that one consent covers it (ODB-02); unused until Phase C. | [group-post-members](https://learn.microsoft.com/en-us/graph/api/group-post-members?view=graph-rest-1.0) |
+| `GroupMember.ReadWrite.All` | `dbaae8cf-10b5-4b86-a4a1-f871c94c6695` | Membership writes. Granted in Phase B so that one consent covers it (ODB-02); **granted, unused in Phase C** (read only, D-C1): no code path uses it, see Part 4. | [group-post-members](https://learn.microsoft.com/en-us/graph/api/group-post-members?view=graph-rest-1.0) |
 | `Organization.Read.All` | `498476ce-e0fe-48b0-b801-37ba7e2685c6` | Verification and the tenant display name. | [organization-get](https://learn.microsoft.com/en-us/graph/api/organization-get?view=graph-rest-1.0) |
 
 Delta against the five permissions of the brief: `User.ReadWrite.All` is replaced by `User.Read.All`
@@ -233,6 +234,95 @@ U5 (the narrower Exchange role), U6 (`ManageAsApp` against `ManageAsAppV2`), U36
 properties and `$filter` with `GroupMember.Read.All` alone), U46 (`Group.ReadBasic.All`) and U48
 (`assignedLicenses`) stay UNVERIFIED and have rows in [open-points.md](open-points.md); the owner-verified
 ledger OV-01 to OV-23 lists the checks that close them.
+
+## Part 4: Phase C, users and groups (read only)
+
+> **Status:** Phase C (2026-10-13). Normative for what the Users and Groups pages read at Microsoft.
+> Where it differs from Parts 2 and 3 on Phase C, Part 4 wins. The map of the code is
+> `apps/server/src/integrations/graph/permissions-map.ts` (`GRAPH_METHOD_PERMISSIONS`, one row per method of
+> the Graph port); `permissions-map.test.ts` proves that every permission in it is one of the four granted
+> roles and none is a write role. Sources: [`research-microsoft-c.md`](../specs/003-phase-c/research-microsoft-c.md)
+> (Microsoft Learn, read 2026-10-12) and the gate notes `specs/003-phase-c/gate-notes/`.
+
+Phase C needs **no new Graph permission**, neither read nor write. It uses two of the four application
+roles the running panel already holds (set version 1): `User.Read.All` and `GroupMember.Read.All`.
+`Organization.Read.All` is not used by Phase C (wizard and Settings only). `GroupMember.ReadWrite.All` is
+**granted, unused in Phase C**: no method of the Graph port, no route and no job uses a write permission,
+and a test fails when a Phase C route is anything but GET or a write method appears on the Graph client
+(`read-only.test.ts`, `routes-table.test.ts`). The Connection page (Settings, Connection) lists the four
+roles the application holds ("Granted: ..."); it does not say which of them a feature uses, so the sentence
+"granted, unused" lives here and in [open-points.md](open-points.md) only. The first version of Phase C does
+not change the Connection text.
+
+### The seven routes and what they read at Microsoft
+
+All seven routes are `GET`, class `read`, answer `Cache-Control: no-store`, are declared with `defineRoute`
+and ask the policy layer before they touch data. A success is not audited; every refusal of an authenticated
+actor is (route id as action, reason `permission_missing` or `scope_mismatch`). The Graph column lists the
+calls the route makes; all go to `https://graph.microsoft.com/v1.0` through the one outbound client and are
+never cached (lists) or cached for 60 seconds (one user, one group).
+
+| Route (id) | Panel permission | Graph call | Application role | Open claims |
+|---|---|---|---|---|
+| P33 `users.list`, `GET /api/v1/users` | `users:read` (scoped `user`; qualifier `full` or `basic`) | `GET /users` with `$filter`, `$orderby=displayName`, `$select`, `$top`, `$count=true` and `ConsistencyLevel: eventual` | `User.Read.All` | U70, U72 |
+| P34 `users.get`, `GET /api/v1/users/{id}` | `users:read` on that user | `GET /users/{id}`, and `GET /users/{id}/manager` (full qualifier only) | `User.Read.All` | U66 (manager) |
+| P35 `users.groups`, `GET /api/v1/users/{id}/groups` | `users:read` on that user (full) **and** `groups:read` | `GET /users/{id}/transitiveMemberOf/microsoft.graph.group` | `User.Read.All` | U67, U74 |
+| P36 `groups.list`, `GET /api/v1/groups` | `groups:read` (scoped `group`) | `GET /groups` with the filter of the kind, `$orderby`, `$count=true` and the header | `GroupMember.Read.All` | U36, U69 |
+| P37 `groups.get`, `GET /api/v1/groups/{id}` | `groups:read` on that group | `GET /groups/{id}` | `GroupMember.Read.All` | U36 |
+| P38 `groups.owners`, `GET /api/v1/groups/{id}/owners` | `groups:read` on that group | `GET /groups/{id}/owners` with `$select` and `$count=true` and the header | `GroupMember.Read.All` | U68, U71 |
+| P39 `groups.members`, `GET /api/v1/groups/{id}/members` | `groups:read` on that group | `GET /groups/{id}/members` with `$select` and `$count=true` and the header (not called for a group with hidden membership) | `GroupMember.Read.All` | U67, U71 |
+
+Notes on the table.
+
+- Owners and members of a group are users, groups or other objects. Whether the actor sees such a row in
+  full is decided by the actor's own `users:read` and `groups:read` (scope and qualifier); it is not a
+  Graph permission. A row the actor may not see is a **restricted row**: its kind and the fact, no id, no
+  name, no address (ADR-0179). The manager of a user is treated the same way. A user that the actor sees
+  only through a `basic` grant shows id, name and e-mail address, never the principal name.
+- `users:read` with the qualifier `basic` (template *Bestuur*) gets id, display name and e-mail address from
+  the list and the detail, no manager and no group memberships (P35 answers 403 `permission_denied`), and may
+  not use the state or type filter: 422 `validation_failed` with `errors[0].code` `filter_not_allowed`. The
+  same refusal applies to an actor who sees some users only as `basic` and not every user in full.
+- A single user or group outside the actor's visible scope is 403 `permission_denied` (audited
+  `scope_mismatch`), an unknown id is 404 `not_found` (ODB-11, closed by the owner on 2026-10-13). Lists
+  contain only what the actor may see.
+- Application permissions on the **manager** call: the Learn page "List manager" marks application
+  permissions as "Not supported" (U66). The panel therefore reads the manager with a separate call and
+  shows "not available" when Graph refuses (403, 400 or an unexpected answer); a user without a manager
+  (404) shows "no manager". The user page works either way.
+- `memberOf` is not used: for another user it needs `Directory.Read.All`, which is not granted.
+  `transitiveMemberOf` works with `User.Read.All`, so the groups of a user are **transitive** (nested
+  groups included), and the page says so. Groups with hidden membership may be missing from that list (U67).
+- Members of a group with `visibility` `HiddenMembership` need `Member.Read.Hidden`, which the panel does
+  not hold and does not request (ODC-04). The panel does not call Graph for them and the page says the
+  membership is hidden; owners are still listed.
+- Objects Graph returns with limited information (devices, service principals, contacts the application
+  cannot read as such) arrive with an id only. They are counted and shown as "other", without a name.
+- The group kind (Microsoft 365, security, mail-enabled security, distribution) is derived by one function
+  from `groupTypes`, `mailEnabled` and `securityEnabled`; a property Graph did not return gives the kind
+  `unknown` (U36). Mail-enabled security and distribution groups are shown read-only (Graph cannot manage
+  them). Dynamic distribution groups are not returned by Graph and are not in the list; the page says so.
+- Owners are not available from Graph for distribution, mail-enabled security and on-premises-synced
+  groups: an empty first page then answers `ownersState: not_available`, and the page says the owners are
+  not available for this kind.
+
+### Not requested, not used, not built in Phase C
+
+| Item | State | Why |
+|---|---|---|
+| `GroupMember.ReadWrite.All` | granted, unused | Granted in Phase B (ODB-02, one consent). Phase C is read only (D-C1). |
+| `Organization.Read.All` | granted, not used by Phase C | Wizard and Settings only. |
+| `Member.Read.Hidden` | not requested | Hidden-membership groups show "hidden" (ODC-04). Decided after OV-C5. |
+| `Group.Read.All`, `Directory.Read.All`, `User.ReadBasic.All` | not requested | The two roles held are enough for every Phase C call. |
+| Licences: `assignedLicenses`, `licenseDetails`, a licence column | not built, deferred by the owner on 2026-10-13 | U17 and U48 stay open. No request, field, filter or column mentions licences; a source scan fails if one appears (`no-licences.test.ts`). |
+| Create, update, delete of users or groups; enable or disable; password reset | not built | Read only (D-C1). |
+| Membership and owner changes | not built | `groups:members:write` stays in the catalogue and is unused in Phase C. |
+| Transitive members of a group, nested-group expansion, direct reports, photos, sign-in activity, phone numbers and addresses | not built | Smallest safe first version (AC-04). |
+| Membership rule of a dynamic group | not shown | The wire has no field for it; `membershipType` says `dynamic`. |
+| Audit of successful reads | not built | Denials only (ODC-01, default). |
+
+What the owner closes against a real tenant: U66 to U74 (the Phase C rows of [open-points.md](open-points.md))
+with the checks OV-C1 to OV-C6, step by step in [owner-test-phase-c.md](owner-test-phase-c.md).
 
 ## Nederlands
 
@@ -291,3 +381,55 @@ De draaiende applicatie krijgt alleen applicatierechten, vier in totaal: `User.R
 (`FORBIDDEN_APP_ROLES`). Voor Exchange is `Exchange.ManageAsApp` nodig met de Entra-rol Exchange Administrator
 (standaard); de smallere rol Exchange Recipient Administrator is ONGEVERIFIEERD (U5). Het schrijfpad voor
 distributielijsten en contacten is niet gebouwd in Fase B (ADR-0102, ODB-01).
+
+### Deel 4: Fase C, gebruikers en groepen (alleen lezen)
+
+Fase C heeft **geen nieuw Graph-recht** nodig, niet om te lezen en niet om te schrijven. Het gebruikt twee van
+de vier applicatierollen die het draaiende panel al heeft: `User.Read.All` (gebruikers, manager,
+`transitiveMemberOf`) en `GroupMember.Read.All` (groepenlijst, groep, eigenaren, leden).
+`Organization.Read.All` gebruikt Fase C niet (alleen wizard en Instellingen). `GroupMember.ReadWrite.All` is
+**verleend, ongebruikt in Fase C**: geen methode van de Graph-poort, geen route en geen taak gebruikt een
+schrijfrecht, en een test faalt zodra een Fase C-route iets anders dan GET is of er een schrijfmethode op de
+Graph-client verschijnt. De pagina Instellingen, Verbinding toont de vier verleende rollen ("Granted: ...")
+zonder te zeggen welke een functie gebruikt; de zin "verleend, ongebruikt" staat daarom alleen hier en in
+[open-points.md](open-points.md). De Verbinding-tekst zelf verandert in Fase C niet.
+
+De zeven routes zijn allemaal `GET`, klasse `read`, met `Cache-Control: no-store`, en vragen eerst de
+beleidslaag. Een geslaagde leesactie wordt niet geaudit; elke weigering van een ingelogde aanvrager wel.
+
+| Route | Panelrecht | Graph-aanroep | Applicatierol |
+|---|---|---|---|
+| `users.list` (`GET /api/v1/users`) | `users:read` (met scope; kwalificatie `full` of `basic`) | `GET /users` met `$filter`, `$orderby`, `$count=true` en `ConsistencyLevel: eventual` | `User.Read.All` |
+| `users.get` (`GET /api/v1/users/{id}`) | `users:read` op die gebruiker | `GET /users/{id}` en `GET /users/{id}/manager` (alleen `full`) | `User.Read.All` |
+| `users.groups` (`GET /api/v1/users/{id}/groups`) | `users:read` (`full`) en `groups:read` | `GET /users/{id}/transitiveMemberOf/microsoft.graph.group` | `User.Read.All` |
+| `groups.list` (`GET /api/v1/groups`) | `groups:read` (met scope) | `GET /groups` met filter op soort | `GroupMember.Read.All` |
+| `groups.get` (`GET /api/v1/groups/{id}`) | `groups:read` op die groep | `GET /groups/{id}` | `GroupMember.Read.All` |
+| `groups.owners` (`GET /api/v1/groups/{id}/owners`) | `groups:read` op die groep | `GET /groups/{id}/owners` | `GroupMember.Read.All` |
+| `groups.members` (`GET /api/v1/groups/{id}/members`) | `groups:read` op die groep | `GET /groups/{id}/members` (niet voor een groep met verborgen lidmaatschap) | `GroupMember.Read.All` |
+
+Wat dit voor de gebruiker betekent.
+
+- Eén object buiten het zicht van de aanvrager geeft 403 `permission_denied`, een onbekend id 404.
+  Lijsten bevatten alleen wat de aanvrager mag zien.
+- Leden, eigenaren en de manager die de aanvrager als gebruiker of groep niet mag zien, komen terug als
+  "beperkt": alleen het soort, geen id, naam of adres (ADR-0179). Een gebruiker die alleen via een
+  `basic`-recht zichtbaar is, toont id, naam en e-mailadres, nooit de principalnaam.
+- Een aanvrager met `users:read` met kwalificatie `basic` (sjabloon *Bestuur*) ziet id, naam en
+  e-mailadres, geen manager en geen groepslidmaatschappen, en mag niet filteren op status of type (422
+  `validation_failed`, code `filter_not_allowed`). Hetzelfde geldt voor wie sommige gebruikers alleen als
+  `basic` ziet.
+- De manager is een bonus: Learn noemt voor applicatierechten "Not supported" (U66). Weigert Graph de
+  aanroep, dan staat er "niet beschikbaar"; zonder manager staat er "geen manager". De pagina werkt altijd.
+- De groepen van een gebruiker zijn transitief (geneste groepen inbegrepen). Groepen met verborgen
+  lidmaatschap kunnen ontbreken (U67). Voor zulke groepen vraagt Graph `Member.Read.Hidden`; dat recht heeft
+  het panel niet en vraagt het niet aan (ODC-04): de pagina zegt dat het lidmaatschap verborgen is.
+- Eigenaren zijn bij Graph niet beschikbaar voor distributie-, e-mailbeveiligings- en gesynchroniseerde
+  groepen; de pagina zegt dat. Dynamische distributiegroepen geeft Graph niet terug; de groepenlijst zegt dat
+  ook.
+- Niet gebouwd en uitgesteld door de eigenaar (2026-10-13): licenties (U17 en U48 blijven open, geen kolom,
+  geen veld, geen filter), aanmaken, wijzigen of verwijderen, in- of uitschakelen, wachtwoordreset, leden- en
+  eigenaarsbeheer, transitieve leden, directe medewerkers, foto's, aanmeldactiviteit, de lidmaatschapsregel van
+  een dynamische groep en een auditregel voor geslaagde leesacties (ODC-01).
+
+Wat de eigenaar tegen een echte tenant sluit: U66 tot en met U74 met de controles OV-C1 tot en met OV-C6,
+stap voor stap in [owner-test-phase-c.md](owner-test-phase-c.md).
