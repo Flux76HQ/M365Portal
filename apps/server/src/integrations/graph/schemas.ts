@@ -82,6 +82,14 @@ export const UserRow = z.object({
   mail: nullableText,
   department: nullableText,
   accountEnabled: nullableBoolean,
+  // Phase C (FR-C-104). Licences, phones, addresses and sign-in data are never selected or parsed.
+  givenName: nullableText,
+  surname: nullableText,
+  jobTitle: nullableText,
+  officeLocation: nullableText,
+  userType: nullableText,
+  onPremisesSyncEnabled: nullableBoolean,
+  createdDateTime: nullableText,
 });
 export const UserList = z.object({ value: z.array(UserRow).max(1_000) });
 
@@ -95,15 +103,60 @@ export const GroupRow = z.object({
   onPremisesSyncEnabled: nullableBoolean,
   securityEnabled: nullableBoolean,
   mailEnabled: nullableBoolean,
+  visibility: nullableText,
+  description: nullableText,
+  createdDateTime: nullableText,
 });
 export const GroupList = z.object({ value: z.array(GroupRow).max(1_000) });
 
 export const MemberGroups = z.object({ value: z.array(guid).max(100) });
 
+/** `@odata.type` of a directory object to the kind of a members or owners row (R-C-05). */
+function refKindOf(odataType: string | null): 'user' | 'group' | 'other' {
+  if (odataType === '#microsoft.graph.user') return 'user';
+  if (odataType === '#microsoft.graph.group') return 'group';
+  return 'other';
+}
+
+/**
+ * A row of a members or owners collection, or the manager: a directory object of any type. An object
+ * type the application cannot read comes back with `id` and `@odata.type` only (limited information,
+ * R-C-05), so every other property is `null`.
+ */
+export const RefRow = z
+  .object({
+    '@odata.type': nullableText,
+    id: guid,
+    displayName: nullableText,
+    mail: nullableText,
+    userPrincipalName: nullableText,
+    department: nullableText,
+    mailNickname: nullableText,
+  })
+  .transform(({ '@odata.type': odataType, ...row }) => ({ ...row, kind: refKindOf(odataType) }));
+export const RefList = z.object({ value: z.array(RefRow).max(1_000) });
+
 /** The properties the client asks for, so a row never depends on the service's defaults. */
-export const USER_SELECT = 'id,displayName,userPrincipalName,mail,department,accountEnabled';
+export const USER_SELECT =
+  'id,displayName,userPrincipalName,mail,department,accountEnabled,givenName,surname,jobTitle,officeLocation,userType,onPremisesSyncEnabled,createdDateTime';
 export const GROUP_SELECT =
-  'id,displayName,mail,mailNickname,groupTypes,membershipRule,onPremisesSyncEnabled,securityEnabled,mailEnabled';
+  'id,displayName,mail,mailNickname,groupTypes,membershipRule,onPremisesSyncEnabled,securityEnabled,mailEnabled,visibility,description,createdDateTime';
+
+/** The users list (FR-C-202): `department` is there because a scope item looks at it (plan 0, finding 4). */
+export const USER_LIST_SELECT =
+  'id,displayName,userPrincipalName,mail,department,jobTitle,accountEnabled,userType';
+/** The groups list and the groups of a user (FR-C-301): `mailNickname` is the `alias` a scope item looks at. */
+export const GROUP_LIST_SELECT =
+  'id,displayName,mail,mailNickname,groupTypes,mailEnabled,securityEnabled,visibility';
+/**
+ * Members, owners and the manager (FR-C-306, U71). `department` and `mailNickname` are beyond the
+ * four properties of the spec text: restricted rows decide on the scope attributes of the actor
+ * (FR-C-307), and a missing attribute never matches.
+ */
+export const REF_SELECT = 'id,displayName,mail,userPrincipalName,department,mailNickname';
+
+/** Property names that must never appear in a `$select` of the product (FR-C-104, FR-C-207). */
+export const FORBIDDEN_SELECT_PATTERN = /licen[cs]e|assignedPlans|provisionedPlans|signInActivity/i;
 
 // ---- provisioning (the delegated calls of the call sheet, T-B-073) ---------------------------------
 

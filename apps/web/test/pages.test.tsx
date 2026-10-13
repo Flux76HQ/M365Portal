@@ -254,8 +254,10 @@ describe('titles and paths', () => {
       { options: { staticData?: { titleKey?: string } } }
     >;
     for (const path of CLIENT_PATHS) expect(Object.keys(routes), path).toContain(path);
-    // The Settings overview (`/settings`, the index of the Settings layout) takes the title of its layout.
-    for (const path of CLIENT_PATHS.filter((candidate) => candidate !== '/settings')) {
+    // The Settings overview (`/settings`, the index of the Settings layout) and the lists of users and groups
+    // (`/users` and `/groups`, the indexes of their layouts, Phase C) take the title of their layouts.
+    const layoutIndexes = new Set<string>(['/settings', '/users', '/groups']);
+    for (const path of CLIENT_PATHS.filter((candidate) => !layoutIndexes.has(candidate))) {
       expect(routes[path]?.options.staticData?.titleKey, path).toBeDefined();
     }
   });

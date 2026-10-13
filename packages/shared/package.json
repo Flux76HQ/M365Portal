@@ -44,6 +44,10 @@
       "types": "./src/setup/*.ts",
       "default": "./src/setup/*.ts"
     },
+    "./directory/*": {
+      "types": "./src/directory/*.ts",
+      "default": "./src/directory/*.ts"
+    },
     "./tokens": {
       "types": "./src/tokens/index.ts",
       "default": "./src/tokens/index.ts"

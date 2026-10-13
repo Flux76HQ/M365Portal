@@ -4,13 +4,17 @@
 // wizard result codes, except `owner_changed`, which is both: its message is the result code's.
 //
 // The keys live in the namespace the screen that meets the code loads: `access` (the assignment
-// screen), `breakglass` (restore access) and `setup` (the finish step).
+// screen), `breakglass` (restore access), `setup` (the finish step) and `users` (the users and groups
+// pages, which both load it).
 
 /** The detail codes of `errors[]` with a catalogue message, and the key of that message. */
 export const ERROR_DETAIL_MESSAGE_KEYS = Object.freeze({
   privileged_role_group: 'access.error.privileged_role_group',
   principal_disabled: 'breakglass.restore.disabled',
   owner_changed: 'setup.result.owner_changed',
+  // Phase C (EC-C14): a Graph 403 for the panel's own application on a users or groups read. The page
+  // points to Settings, Connection (repair). Both directory pages load the `users` namespace for it.
+  graph_permission_missing: 'users.error.graph_permission_missing',
 } as const);
 
 export type ErrorDetailCode = keyof typeof ERROR_DETAIL_MESSAGE_KEYS;

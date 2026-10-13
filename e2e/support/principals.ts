@@ -15,6 +15,9 @@
 //   leaver, deputy      disposable: given a role like the others but with NO storage state, so that a
 //                       spec may sign them in, out and out everywhere, or step them up (which rotates
 //                       the session), without touching the session the other specs share
+//   scoped-viewer,      disposable, and given NO role by global-setup: the directory specs (Phase C,
+//   basic-viewer        `fixtures/directory.ts`) give them a department-scoped grant and a `basic`
+//                       grant when they need it, and take it away again
 export const PRINCIPAL_NAMES = [
   'owner',
   'administrator',
@@ -26,11 +29,13 @@ export const PRINCIPAL_NAMES = [
   'group-member',
   'leaver',
   'deputy',
+  'scoped-viewer',
+  'basic-viewer',
 ] as const;
 export type PrincipalName = (typeof PRINCIPAL_NAMES)[number];
 
 /** The principals nobody shares: no storage state is written for them. */
-export const DISPOSABLE_NAMES = ['leaver', 'deputy'] as const;
+export const DISPOSABLE_NAMES = ['leaver', 'deputy', 'scoped-viewer', 'basic-viewer'] as const;
 export type DisposableName = (typeof DISPOSABLE_NAMES)[number];
 
 /** The principals that start a test signed in (a storage state each; `norole` has an empty one). */
@@ -126,6 +131,20 @@ export const PRINCIPALS: Readonly<Record<PrincipalName, Principal>> = {
     displayName: 'Dirk Deputy',
     role: 'owner',
     widsGlobalAdministrator: true,
+  },
+  'scoped-viewer': {
+    name: 'scoped-viewer',
+    oid: guid(111),
+    upn: 'sofie.scoped@contoso-fake.example',
+    displayName: 'Sofie Scoped',
+    role: null,
+  },
+  'basic-viewer': {
+    name: 'basic-viewer',
+    oid: guid(112),
+    upn: 'bas.basic@contoso-fake.example',
+    displayName: 'Bas Basic',
+    role: null,
   },
   'group-member': {
     name: 'group-member',

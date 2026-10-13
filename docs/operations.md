@@ -140,7 +140,8 @@ One process, one container, one volume. Components and the request pipeline are 
 **Single replica, local disk.** SQLite in WAL mode needs shared memory on one host and does not work
 over a network file system (NFS, SMB and many NAS volumes). Run exactly one replica and keep `/data` on
 a local disk or a Docker volume on a local disk; never mount one volume into two containers. Rate-limit
-buckets and the CSRF key live in memory and reset on restart. Locking keeps the data consistent if you
+buckets, the CSRF key and the list cursors of Users and Groups live in memory and reset on restart (a lost
+cursor is answered 400 `cursor_invalid` and the page starts the list again). Locking keeps the data consistent if you
 break the rule, but readiness may report `storage_busy`.
 
 The application checks for timed-out connections every 5 seconds (not a limit, so it is not in the table below). Requests the HTTP parser rejects before routing are answered 400, 408 or 431 with a problem body.
@@ -366,7 +367,9 @@ application. Every limit on the path from the client to the application is docum
 with what enforces it and which limit it constrains. Whatever sits in front of the application must allow
 request bodies of at least 9,437,184 bytes (the branding import, the largest request), must not cache
 HTML, and must preserve the `Host` header. Phase B adds no larger request: its bodies are small, the largest
-being the 4,096-byte bodies of the authentication routes and 262,144 bytes for any other JSON body.
+being the 4,096-byte bodies of the authentication routes and 262,144 bytes for any other JSON body. Phase C adds
+no request body at all (its seven routes are `GET`), so the largest request stays 9,437,184 bytes; the five
+rows `searchMaxChars` to `cursorEntries` below are the limits of the users and groups lists.
 
 | Limit | Value | Enforced by | Constrains |
 |---|---|---|---|
@@ -418,6 +421,11 @@ being the 4,096-byte bodies of the authentication routes and 262,144 bytes for a
 | `CLIENT_ASSERTION_LIFETIME_SECONDS` | 300 seconds | the app | Microsoft Learn: at most 10 minutes after `nbf` |
 | `TOKEN_ENDPOINT_TIMEOUT_SECONDS` | 10 seconds | the app | one retry after 1 s on `temporarily_unavailable` |
 | `ID_TOKEN_MAX_BYTES` | 8,192 bytes | the app | size of an ID token |
+| `searchMaxChars` | 64 characters | the app | `q` of the users and groups lists: 422 `validation_failed` above it (EC-C1) |
+| `pageLimitDefault`, `pageLimitMax` | 100 and 200 rows | the app | `limit` of the directory lists (CD-10); the UI asks for 50 |
+| `graphPageSize` | 999 | the app | `$top` of a scoped scan of users or groups (R-C-01) |
+| `scanPagesMax` | 5 pages | the app | Graph pages read per request of a scoped list (FR-C-203) |
+| `cursorTtlSeconds`, `cursorEntries` | 600 seconds and 1,000 entries | the app | list cursors held in memory, least recently used out (FR-C-103) |
 | `CLOCK_TOLERANCE_SECONDS` | 60 seconds | the app | `exp`, `nbf`, `iat` of an ID token |
 | `JWKS_CACHE_HOURS`, `JWKS_REFRESH_MINUTES`, `JWKS_UNKNOWN_KID_COOLDOWN_MINUTES` | 24 hours, 60 minutes and 5 minutes | the app | signing-key rollover guidance |
 | `GRAPH_CHECK_MEMBER_GROUPS_MAX_IDS` | 20 | the app | Microsoft Learn: up to 20 groups per request |
@@ -573,10 +581,12 @@ toe). De variabele `NODE_USE_ENV_PROXY` voor een uitgaande proxy is ONGEVERIFIEE
 De repository levert zelf geen reverse proxy, CDN of ingress en heeft dus buiten de applicatie geen eigen
 grenzen. Alles wat ervoor staat moet verzoeken met een body van minimaal 9437184 bytes (9 MiB, de
 branding-import, het grootste verzoek) doorlaten, mag HTML niet cachen en moet de `Host`-header behouden.
-De tabel hierboven noemt alle 25 grenzen als getal, met wat ze afdwingt en wat ze begrenst; de bron van elk
+De tabel hierboven telt 79 rijen; elke rij noemt een of meer grenzen als getal, met wat ze afdwingt en wat ze begrenst (aangepast bij het sluiten van fase C: er stond 'alle 25 grenzen', een aantal dat al sinds fase B niet meer klopte); de bron van elk
 getal is `packages/shared/src/limits.ts`. Belangrijk voor wat ervoor staat: de keep-alive van het paneel is
 65 seconden (de idle-timeout van de proxy richting het paneel moet korter zijn, bijvoorbeeld 60 seconden),
 het ontvangen van een verzoek mag tot 60 seconden duren, en `docker stop` moet minstens 10 seconden wachten.
+Fase C voegt geen verzoekbody toe (de zeven routes zijn `GET`): het grootste verzoek blijft 9437184 bytes. De vijf
+rijen `searchMaxChars` tot en met `cursorEntries` zijn de grenzen van de lijsten met gebruikers en groepen.
 
 ### Aanbevolen repository-instellingen
 

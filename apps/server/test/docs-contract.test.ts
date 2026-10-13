@@ -980,11 +980,12 @@ describe('docs/architecture.md (FR-A-006, FR-A-185)', () => {
 // =============================================================================================
 
 const ADR_PHASE_A_COUNT = 56;
-/** ADR-0001 to 0056 (Phase A), 0101 to 0126 (assumptions B-01 to B-26) and 0151 to 0178 (PB-01 to PB-28). */
+/** ADR-0001 to 0056 (Phase A), 0101 to 0126 (assumptions B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) and 0179 (Phase C, PC-02). */
 const ADR_NUMBERS: readonly number[] = [
   ...Array.from({ length: ADR_PHASE_A_COUNT }, (_unused, index) => index + 1),
   ...Array.from({ length: 26 }, (_unused, index) => 101 + index),
   ...Array.from({ length: 28 }, (_unused, index) => 151 + index),
+  179,
 ];
 const ADR_COUNT = ADR_NUMBERS.length;
 const ADR_FIELDS = ['Status', 'Context', 'Decision', 'Consequences', 'Evidence'];
@@ -1050,6 +1051,8 @@ function assertAdrDirectory(directory: string): void {
       throw new Error(`${name}: does not name its assumption B-${pad(number - 100, 2)}`);
     if (number >= 151 && number <= 178 && !markdown.includes(`PB-${pad(number - 150, 2)}`))
       throw new Error(`${name}: does not name its decision PB-${pad(number - 150, 2)}`);
+    if (number === 179 && !markdown.includes('PC-02'))
+      throw new Error(`${name}: does not name its decision PC-02`);
   };
   check('0000-template.md', 0);
   for (const number of ADR_NUMBERS) {
@@ -1063,6 +1066,7 @@ function assertAdrDirectory(directory: string): void {
 }
 
 function adrLink(number: number): string {
+  if (number >= 179) return 'PC-02';
   if (number >= 151) return `PB-${pad(number - 150, 2)}`;
   if (number >= 101) return `B-${pad(number - 100, 2)}`;
   if (number >= 27) return number <= 54 ? `PD-${pad(number - 26, 2)}` : 'TA-01';
@@ -1121,7 +1125,7 @@ describe('docs/adr (FR-A-185)', () => {
       adrDirectory((files) => {
         files.delete('0030-decision.md');
       }),
-      { reason: /has 109 ADRs, expected 110/ },
+      { reason: /has 110 ADRs, expected 111/ },
     );
     expectGuardFails(
       assertAdrDirectory,
@@ -1200,13 +1204,20 @@ describe('docs/adr (FR-A-185)', () => {
     expectGuardFails(
       assertAdrDirectory,
       adrDirectory((files) => {
+        files.set('0179-decision.md', adrSample(179).replace('PC-02', 'PC-03'));
+      }),
+      { reason: /0179-decision\.md: does not name its decision PC-02/ },
+    );
+    expectGuardFails(
+      assertAdrDirectory,
+      adrDirectory((files) => {
         files.delete('0126-decision.md');
       }),
-      { reason: /has 109 ADRs|ADR-0126: 0 files/ },
+      { reason: /has 110 ADRs|ADR-0126: 0 files/ },
     );
   });
 
-  it('has the template and ADR-0001 to ADR-0056, 0101 to 0126 (B-01 to B-26) and 0151 to 0178 (PB-01 to PB-28) with their fields', () => {
+  it('has the template and ADR-0001 to ADR-0056, 0101 to 0126 (B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) and 0179 (PC-02) with their fields', () => {
     assertAdrDirectory(join(repositoryRoot, 'docs/adr'));
   });
 });
@@ -1358,6 +1369,7 @@ describe('spec, plan and tasks (FR-A-186)', () => {
 // and the failure names what is missing.
 
 const specPhaseB = join(repositoryRoot, 'specs/002-phase-b');
+const specPhaseC = join(repositoryRoot, 'specs/003-phase-c');
 const readPhaseB = (name: string): string => readFileSync(join(specPhaseB, name), 'utf8');
 
 function everywhere(text: string, token: string | RegExp, replacement = ''): string {
@@ -1641,8 +1653,19 @@ describe('the contract file, the route table and the negative controls (FR-B-709
         readFileSync(join(specDirectory, 'contracts/phase-a-api.md'), 'utf8'),
       ),
       phaseB: contractRouteIds(contract()),
+      // Phase C has no contract file: its route index is table 6.7.1 of the spec (T-C-024).
+      phaseC: contractRouteIds(readFileSync(join(specPhaseC, 'spec.md'), 'utf8')),
     };
     expect(input.phaseB).toHaveLength(32);
+    expect(input.phaseC).toEqual([
+      'users.list',
+      'users.get',
+      'users.groups',
+      'groups.list',
+      'groups.get',
+      'groups.owners',
+      'groups.members',
+    ]);
     expect(() => {
       assertRoutesMatchContract(input);
     }).not.toThrow();
@@ -1656,6 +1679,16 @@ describe('the contract file, the route table and the negative controls (FR-B-709
       { ...input, phaseB: [...input.phaseB, 'nowhere.listed'] },
       { reason: /nowhere\.listed, which is not in the route table/ },
     );
+    expectGuardFails(
+      assertRoutesMatchContract,
+      { ...input, phaseC: [...input.phaseC, 'users.create'] },
+      { reason: /users\.create, which is not in the route table/ },
+    );
+    expectGuardFails(
+      assertRoutesMatchContract,
+      { ...input, phaseC: input.phaseC.filter((id) => id !== 'groups.members') },
+      { reason: /groups\.members, which no contract lists/ },
+    );
   });
 
   it('the negative-control table of plan 14.6 names paths that exist', () => {
@@ -1667,5 +1700,130 @@ describe('the contract file, the route table and the negative controls (FR-B-709
       readPhaseB('plan.md').replace('server/route-table.test.ts', 'server/no-such-test.test.ts'),
       { reason: /server\/no-such-test\.test\.ts does not exist/ },
     );
+  });
+});
+
+// =============================================================================================
+// Phase C documents (FR-C-603, T-C-066 to T-C-068): permissions, API reference, owner test sheet
+// =============================================================================================
+// The guards read the documents as written: each names the item that is missing. The owner test sheet
+// must list every check of the ledger (spec 8.4) and every open claim they close, in both languages.
+
+const PHASE_C_ROUTE_IDS = [
+  'users.list',
+  'users.get',
+  'users.groups',
+  'groups.list',
+  'groups.get',
+  'groups.owners',
+  'groups.members',
+] as const;
+
+function assertPhaseCPermissions(markdown: string): void {
+  const { english, dutch } = halves(markdown);
+  for (const [label, text] of [
+    ['English', english],
+    ['Dutch', dutch],
+  ] as const) {
+    for (const id of PHASE_C_ROUTE_IDS) {
+      if (!text.includes(`\`${id}\``))
+        throw new Error(`permissions.md (${label}): Phase C route ${id} is not listed`);
+    }
+    if (
+      !/GroupMember\.ReadWrite\.All[\s\S]{0,160}?(granted, unused|verleend, ongebruikt)/i.test(text)
+    )
+      throw new Error(
+        `permissions.md (${label}): GroupMember.ReadWrite.All is not "granted, unused"`,
+      );
+    if (!text.includes('U17') || !/licen[cst]/i.test(text))
+      throw new Error(`permissions.md (${label}): the deferred licence list (U17) is missing`);
+    if (!text.includes('U66'))
+      throw new Error(`permissions.md (${label}): the manager claim U66 is missing`);
+  }
+}
+
+function assertApiReference(markdown: string): void {
+  for (const id of PHASE_C_ROUTE_IDS) {
+    if (!markdown.includes(`\`${id}\``)) throw new Error(`api.md: route ${id} is not described`);
+  }
+  for (const needle of [
+    'cursor_invalid',
+    'filter_not_allowed',
+    'not_available',
+    'hidden',
+    'restricted',
+  ]) {
+    if (!markdown.includes(needle)) throw new Error(`api.md: "${needle}" is not described`);
+  }
+  halves(markdown);
+}
+
+function assertOwnerTestSheet(markdown: string): void {
+  const { english, dutch } = halves(markdown);
+  for (const [label, text] of [
+    ['English', english],
+    ['Dutch', dutch],
+  ] as const) {
+    for (let number = 1; number <= 6; number += 1) {
+      if (!text.includes(`OV-C${String(number)}`))
+        throw new Error(`owner-test-phase-c.md (${label}): OV-C${String(number)} is missing`);
+    }
+    for (let number = 66; number <= 74; number += 1) {
+      if (!new RegExp(`\\bU${String(number)}\\b`).test(text))
+        throw new Error(`owner-test-phase-c.md (${label}): U${String(number)} is missing`);
+    }
+  }
+}
+
+describe('Phase C documents (FR-C-603)', () => {
+  it('docs/permissions.md lists the seven routes, GroupMember.ReadWrite.All as granted and unused, and the deferred licences, in both languages', () => {
+    const real = readDocument('docs/permissions.md', 'T-C-066');
+    assertPhaseCPermissions(real);
+    runNegatives(assertPhaseCPermissions, real, [
+      [
+        'a route missing',
+        (t) => everywhere(t, '`groups.owners`', '`groups.other`'),
+        /Phase C route groups\.owners is not listed/,
+      ],
+      [
+        'the write role no longer unused',
+        (t) => everywhere(t, /granted, unused/i, 'used'),
+        /not "granted, unused"/,
+      ],
+    ]);
+  });
+
+  it('docs/api.md describes the seven routes, the cursor, the basic-actor filter refusal and the states', () => {
+    const real = readDocument('docs/api.md', 'T-C-067');
+    assertApiReference(real);
+    expectGuardFails(assertApiReference, everywhere(real, '`users.groups`'), {
+      name: 'a route not described',
+      reason: /route users\.groups is not described/,
+    });
+    expectGuardFails(assertApiReference, everywhere(real, 'filter_not_allowed'), {
+      name: 'the filter refusal not described',
+      reason: /"filter_not_allowed" is not described/,
+    });
+  });
+
+  it('docs/owner-test-phase-c.md lists OV-C1 to OV-C6 and U66 to U74 in English and in Dutch', () => {
+    const real = readDocument('docs/owner-test-phase-c.md', 'T-C-068');
+    assertOwnerTestSheet(real);
+    expectGuardFails(assertOwnerTestSheet, everywhere(real, 'OV-C3'), {
+      name: 'a check missing',
+      reason: /OV-C3 is missing/,
+    });
+    expectGuardFails(assertOwnerTestSheet, everywhere(real, /\bU71\b/), {
+      name: 'a claim missing',
+      reason: /U71 is missing/,
+    });
+  });
+
+  it('the README names the new documents in both languages', () => {
+    const { english, dutch } = halves(readDocument('README.md', 'T-C-067'));
+    for (const text of [english, dutch]) {
+      expect(text).toContain('docs/api.md');
+      expect(text).toContain('docs/owner-test-phase-c.md');
+    }
   });
 });

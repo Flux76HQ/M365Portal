@@ -7,6 +7,7 @@
 // with negative fixtures (tasks.md section 0.3): a wrong value, a missing value and an extra value.
 import { describe, expect, it } from 'vitest';
 import { expectGuardFails } from '../src/testing/index.js';
+import { PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX } from '../src/schemas/common.js';
 import {
   DEFAULT_PORT,
   LIMITS,
@@ -208,10 +209,25 @@ const SPEC_6_9_2: readonly (readonly [constant: string, path: string, value: num
   ['AUTH_BODY_MAX_BYTES', 'body.authBytes', 4_096],
 ];
 
-/** The paths of spec 6.5 and 6.9.2 together: the complete shape of `LIMITS`. */
+/**
+ * Phase C spec 6.7.2 (T-C-002), row by row: [constant, `LIMITS` path, value]. The key is `directory`;
+ * a row that states two numbers has one entry per number.
+ */
+const SPEC_C_6_7_2: readonly (readonly [constant: string, path: string, value: number])[] = [
+  ['searchMaxChars', 'directory.searchMaxChars', 64],
+  ['pageLimitDefault', 'directory.pageLimitDefault', 100],
+  ['pageLimitMax', 'directory.pageLimitMax', 200],
+  ['graphPageSize', 'directory.graphPageSize', 999],
+  ['scanPagesMax', 'directory.scanPagesMax', 5],
+  ['cursorTtlSeconds', 'directory.cursorTtlSeconds', 600],
+  ['cursorEntries', 'directory.cursorEntries', 1_000],
+];
+
+/** The paths of spec 6.5, 6.9.2 and Phase C 6.7.2 together: the complete shape of `LIMITS`. */
 const SPEC_ALL: Readonly<Record<string, number>> = {
   ...SPEC_6_5,
   ...Object.fromEntries(SPEC_6_9_2.map(([, path, value]) => [path, value])),
+  ...Object.fromEntries(SPEC_C_6_7_2.map(([, path, value]) => [path, value])),
 };
 
 /** Every leaf of a nested object as `dotted.path -> value`. */
@@ -289,6 +305,62 @@ describe('LIMITS: spec sections 6.5 and 6.9.2', () => {
       (LIMITS.body as { jsonBytes: number }).jsonBytes = 1;
     }).toThrow(TypeError);
     expect(LIMITS.body.jsonBytes).toBe(262_144);
+  });
+});
+
+describe('LIMITS.directory: Phase C spec 6.7.2 (T-C-002)', () => {
+  it('names every constant and every path once, apart from the earlier tables', () => {
+    const paths = SPEC_C_6_7_2.map(([, path]) => path);
+    expect(new Set(paths).size).toBe(paths.length);
+    for (const path of paths) {
+      expect(path in SPEC_6_5, path).toBe(false);
+      expect(
+        SPEC_6_9_2.some(([, other]) => other === path),
+        path,
+      ).toBe(false);
+    }
+  });
+
+  it.each(SPEC_C_6_7_2)('%s is %d at %s', (_constant, path, value) => {
+    expect(leaves(LIMITS).get(path)).toBe(value);
+  });
+
+  it('keeps the list convention of Phase B (CD-10): the page default and ceiling are the ones the shared list schema uses', () => {
+    expect(LIMITS.directory.pageLimitDefault).toBe(PAGE_LIMIT_DEFAULT);
+    expect(LIMITS.directory.pageLimitMax).toBe(PAGE_LIMIT_MAX);
+  });
+
+  it('asks Graph for at most 999 rows a page (R-C-01) and scans a handful of pages for a scoped list', () => {
+    expect(LIMITS.directory.graphPageSize).toBe(999);
+    expect(LIMITS.directory.scanPagesMax).toBeLessThanOrEqual(10);
+    expect(LIMITS.directory.pageLimitMax).toBeLessThanOrEqual(LIMITS.directory.graphPageSize);
+  });
+
+  it('adds no request body, so the largest request of the application is unchanged (spec 6.7.2)', () => {
+    expect(LIMITS.body.importRequestBytes).toBe(9_437_184);
+  });
+
+  it('is frozen like the rest of LIMITS', () => {
+    expect(Object.isFrozen(LIMITS.directory)).toBe(true);
+    expect(() => {
+      (LIMITS.directory as { scanPagesMax: number }).scanPagesMax = 50;
+    }).toThrow(TypeError);
+  });
+
+  it('fails the guard when a value differs, is missing or is extra (negative fixtures)', () => {
+    expectGuardFails(
+      assertSpecTable,
+      { ...LIMITS, directory: { ...LIMITS.directory, scanPagesMax: 6 } },
+      { reason: 'directory.scanPagesMax is 6' },
+    );
+    const without = structuredClone(LIMITS);
+    Reflect.deleteProperty(without.directory, 'cursorTtlSeconds');
+    expectGuardFails(assertSpecTable, without, { reason: 'missing directory.cursorTtlSeconds' });
+    expectGuardFails(
+      assertSpecTable,
+      { ...LIMITS, directory: { ...LIMITS.directory, extra: 1 } },
+      { reason: 'directory.extra is not a row' },
+    );
   });
 });
 

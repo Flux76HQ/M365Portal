@@ -91,8 +91,15 @@ const SPEC_B_6_9_5: readonly (readonly [string, number])[] = [
   ['tenant_mismatch', 409],
 ];
 
-/** Phase A and Phase B together: the complete registry. */
-const ALL_CODES: readonly (readonly [string, number])[] = [...CONTRACT_6, ...SPEC_B_6_9_5];
+/** Phase C spec 6.7.3 (T-C-002), in its order: the one code Phase C adds. */
+const SPEC_C_6_7_3: readonly (readonly [string, number])[] = [['cursor_invalid', 400]];
+
+/** Phase A, Phase B and Phase C together: the complete registry. */
+const ALL_CODES: readonly (readonly [string, number])[] = [
+  ...CONTRACT_6,
+  ...SPEC_B_6_9_5,
+  ...SPEC_C_6_7_3,
+];
 
 const CODES = Object.keys(PROBLEM_CODES) as ProblemCode[];
 
@@ -107,7 +114,33 @@ describe('PROBLEM_CODES: the registry', () => {
     const actual = Object.entries(PROBLEM_CODES).map(([code, entry]) => [code, entry.status]);
     for (const row of CONTRACT_6) expect(actual, row[0]).toContainEqual([...row]);
     expect(actual.sort()).toEqual([...ALL_CODES].sort());
-    expect(CODES).toHaveLength(53);
+    expect(CODES).toHaveLength(54);
+  });
+
+  it('equals the table of Phase C spec 6.7.3 as the document states it, and answers cursor_invalid with 400', () => {
+    const spec = read('../../../specs/003-phase-c/spec.md');
+    const section = /^#### 6\.7\.3 Problem codes added([\s\S]*?)^---/m.exec(spec)?.[1] ?? '';
+    const rows = [...section.matchAll(/^\| `([a-z_]+)` \| (\d{3}) \|/gm)].map((match) => [
+      match[1],
+      Number(match[2]),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows.sort()).toEqual([...SPEC_C_6_7_3].sort());
+    expect(PROBLEM_CODES.cursor_invalid.status).toBe(400);
+  });
+
+  it('keeps the Phase C code out of the earlier tables, and every code of the registry in exactly one table', () => {
+    const named = [...CONTRACT_6, ...SPEC_B_6_9_5, ...SPEC_C_6_7_3].map(([code]) => code);
+    expect(new Set(named).size).toBe(named.length);
+    expect(CONTRACT_6.some(([code]) => code === 'cursor_invalid')).toBe(false);
+    expect(SPEC_B_6_9_5.some(([code]) => code === 'cursor_invalid')).toBe(false);
+  });
+
+  it("says in plain English that the cursor is unknown, expired or not the caller's (generic, no cursor value)", () => {
+    const { title, detail } = PROBLEM_CODES.cursor_invalid;
+    expect(title).toBe('Invalid list cursor');
+    expect(detail).toMatch(/cursor/i);
+    expect(detail).toMatch(/expired|unknown/i);
   });
 
   it('equals the table of Phase B spec 6.9.5 as the document states it', () => {
@@ -503,7 +536,7 @@ describe('the problem fragments (en and nl)', () => {
     expect(() => {
       assertFragmentMatchesRegistry(fragment);
     }).not.toThrow();
-    expect(Object.keys(fragment)).toHaveLength(54);
+    expect(Object.keys(fragment)).toHaveLength(55);
   });
 
   it('every key starts with the namespace problem and a dot (C11)', () => {

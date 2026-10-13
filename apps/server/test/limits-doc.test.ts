@@ -335,6 +335,18 @@ const ROWS: readonly RowSpec[] = [
     label: 'SCOPE_ITEMS_PER_ASSIGNMENT_MAX, SCOPE_VALUE_MAX_CHARS',
     sources: ['rbac.scopeItemsPerAssignmentMax', 'rbac.scopeValueMaxChars'],
   },
+  // Phase C, spec 6.7.2 (T-C-067): the label is the constant of the spec row (`LIMITS.directory`).
+  { label: 'searchMaxChars', sources: ['directory.searchMaxChars'] },
+  {
+    label: 'pageLimitDefault, pageLimitMax',
+    sources: ['directory.pageLimitDefault', 'directory.pageLimitMax'],
+  },
+  { label: 'graphPageSize', sources: ['directory.graphPageSize'] },
+  { label: 'scanPagesMax', sources: ['directory.scanPagesMax'] },
+  {
+    label: 'cursorTtlSeconds, cursorEntries',
+    sources: ['directory.cursorTtlSeconds', 'directory.cursorEntries'],
+  },
   {
     label: 'ASSIGNMENT_EXPIRY_MAX_DAYS',
     sources: ['rbac.assignmentExpiryMaxDays'],

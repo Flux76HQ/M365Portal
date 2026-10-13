@@ -29,6 +29,7 @@ import type { FakeTenantCore, FakeTenantModule, RouteContext } from '../types.js
 import {
   ENTRA_ROLE_TEMPLATES,
   InvalidCertificateError,
+  type GroupRecord,
   type ApplicationRecord,
   type AppRoleAssignmentRecord,
   type KeyCredentialRecord,
@@ -36,6 +37,21 @@ import {
 } from './directory.js';
 import { isGuidText } from './ids.js';
 import { FilterError, evaluate, parseFilter, parseSelect, project } from './odata.js';
+import {
+  GROUP_ADVANCED_STARTS_WITH,
+  GROUP_FILTER_PROPERTIES,
+  GROUP_ORDER_PROPERTIES,
+  USER_ADVANCED_STARTS_WITH,
+  USER_FILTER_PROPERTIES,
+  USER_ORDER_PROPERTIES,
+  decodeSkipToken,
+  encodeSkipToken,
+  hasNoOwnersInGraph,
+  parseListQuery,
+  reasonsOf,
+  selectGroups,
+  selectUsers,
+} from './lists.js';
 import {
   APPLICATION_CATALOG,
   APPLICATION_DEFAULTS,
@@ -107,6 +123,23 @@ export interface FakeGraphControl {
   groupFilterNeedsConsistencyLevel(on: boolean): void;
   /** Items per page for collections; `null` is the default of 100. */
   pageSize(size: number | null): void;
+  /**
+   * U66: does `GET /users/{id}/manager` work for an application token? `refused` (default) answers 403,
+   * which is the reading of "Application: Not supported" on the List manager page; `allowed` answers as
+   * for a delegated token (404 for a user without a manager).
+   */
+  managerForApps(mode: 'refused' | 'allowed'): void;
+  /**
+   * U67: what a hidden-membership group answers to its members without `Member.Read.Hidden`. `true`
+   * (default) is 403; `false` is an empty list. The group is also left out of `transitiveMemberOf` while
+   * this is on.
+   */
+  hiddenMembersRefused(on: boolean): void;
+  /**
+   * U36, U69: a group row comes back without `visibility`, `description`, `mailNickname` and
+   * `onPremisesSyncEnabled` (they are `null`), as if `GroupMember.Read.All` returned basic properties only.
+   */
+  omitGroupProperties(on: boolean): void;
   /** Rewrites the `@odata.nextLink` of a page (hostile links for the URL discipline tests). */
   rewriteNextLink(rewrite: ((link: string) => string) | null): void;
   /** Counts of what the fake received, for tests that assert on behaviour the call record cannot show. */
@@ -128,6 +161,9 @@ interface Settings {
   groupFilterNeedsConsistency: boolean;
   pageSize: number | null;
   rewriteNextLink: ((link: string) => string) | null;
+  managerForApps: 'refused' | 'allowed';
+  hiddenMembersRefused: boolean;
+  omitGroupProperties: boolean;
 }
 
 function defaultSettings(): Settings {
@@ -141,6 +177,9 @@ function defaultSettings(): Settings {
     groupFilterNeedsConsistency: false,
     pageSize: null,
     rewriteNextLink: null,
+    managerForApps: 'refused',
+    hiddenMembersRefused: true,
+    omitGroupProperties: false,
   };
 }
 
@@ -190,6 +229,16 @@ const NEED = {
   groups: {
     app: [['GroupMember.Read.All'], ['Group.Read.All'], ['Directory.Read.All']],
     delegated: [['GroupMember.Read.All'], ['Group.Read.All'], ['Directory.Read.All']],
+  },
+  // user-list-transitivememberof (R-C-08): User.Read.All is the least privileged for another user.
+  transitiveMemberOf: {
+    app: [['User.Read.All'], ['Directory.Read.All'], ['Group.Read.All'], ['GroupMember.Read.All']],
+    delegated: [['User.Read.All'], ['Directory.Read.All']],
+  },
+  // user-list-memberof (R-C-08): for another user only Directory.Read.All (application).
+  memberOf: {
+    app: [['Directory.Read.All']],
+    delegated: [['Directory.Read.All']],
   },
   applicationsRead: {
     app: [READ_APPLICATIONS, WRITE_APPLICATIONS, ['Directory.Read.All']],
@@ -300,6 +349,15 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
     rewriteNextLink(rewrite) {
       settings.rewriteNextLink = rewrite;
     },
+    managerForApps(mode) {
+      settings.managerForApps = mode;
+    },
+    hiddenMembersRefused(on) {
+      settings.hiddenMembersRefused = on;
+    },
+    omitGroupProperties(on) {
+      settings.omitGroupProperties = on;
+    },
     get stats() {
       return stats;
     },
@@ -350,6 +408,8 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
 
   const badRequest = (ctx: RouteContext, message: string): Response =>
     error(ctx, 400, 'Request_BadRequest', message);
+  const unsupported = (ctx: RouteContext, message: string): Response =>
+    error(ctx, 400, 'Request_UnsupportedQuery', message);
   const notFound = (ctx: RouteContext, what: string): Response =>
     error(
       ctx,
@@ -478,11 +538,22 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
     top: number | null;
     skip: number;
     filter: string | null;
+    orderby: string | null;
+    /** `$count=true` was sent. */
+    count: boolean;
   }
 
-  /** Reads `$select`, `$top`, `$filter` and `$skiptoken`; any other option is a 400. */
+  /** Reads `$select`, `$top`, `$filter`, `$orderby`, `$count` and `$skiptoken`; any other option is a 400. */
   function readQuery(ctx: RouteContext, allowed: readonly string[]): Query | Response {
     for (const name of ctx.query.keys()) {
+      if (name === '$skip') {
+        return error(
+          ctx,
+          400,
+          'Request_UnsupportedQuery',
+          'Query option $skip is not supported for this collection; follow @odata.nextLink.',
+        );
+      }
       if (!allowed.includes(name))
         return error(
           ctx,
@@ -513,11 +584,46 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
     const skipText = ctx.query.get('$skiptoken');
     let skip = 0;
     if (skipText !== null) {
-      const match = /^skip(\d{1,6})$/.exec(skipText);
-      if (match === null) return badRequest(ctx, 'Invalid $skiptoken.');
-      skip = Number(match[1]);
+      const position = decodeSkipToken(skipText);
+      if (position === null) return badRequest(ctx, 'Invalid $skiptoken.');
+      skip = position;
     }
-    return { select, top, skip, filter: ctx.query.get('$filter') };
+    const countText = ctx.query.get('$count');
+    if (countText !== null && countText !== 'true' && countText !== 'false') {
+      return badRequest(ctx, 'Invalid value for $count.');
+    }
+    const consistency = ctx.request.headers.get('consistencylevel');
+    if (consistency !== null && consistency.toLowerCase() !== 'eventual') {
+      return badRequest(ctx, 'Invalid value for the ConsistencyLevel header.');
+    }
+    return {
+      select,
+      top,
+      skip,
+      filter: ctx.query.get('$filter'),
+      orderby: ctx.query.get('$orderby'),
+      count: countText === 'true',
+    };
+  }
+
+  /**
+   * The advanced-query rule (R-C-01, R-C-02, R-C-05, R-C-06): a query that uses any of `reasons` is
+   * answered only when the request carries `ConsistencyLevel: eventual` AND `$count=true`.
+   */
+  function advancedGate(
+    ctx: RouteContext,
+    query: Query,
+    reasons: readonly string[],
+  ): Response | null {
+    if (reasons.length === 0) return null;
+    const header = ctx.request.headers.get('consistencylevel')?.toLowerCase() === 'eventual';
+    if (header && query.count) return null;
+    return error(
+      ctx,
+      400,
+      'Request_UnsupportedQuery',
+      `This query needs ConsistencyLevel: eventual and $count=true (${reasons.join(', ')}).`,
+    );
   }
 
   function unreadable(ctx: RouteContext, select: readonly string[] | null): Response | null {
@@ -563,12 +669,13 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
     const size = Math.min(query.top ?? settings.pageSize ?? 100, settings.pageSize ?? 999);
     const slice = items.slice(query.skip, query.skip + size);
     const body: Json = { '@odata.context': `${META}${contextName}`, value: slice };
+    if (query.count) body['@odata.count'] = items.length;
     if (query.skip + size < items.length) {
       const next = new URLSearchParams();
       for (const [name, value] of ctx.query) if (name !== '$skiptoken') next.set(name, value);
       const pairs = [
         ...next.entries(),
-        ['$skiptoken', `skip${String(query.skip + size)}`] as [string, string],
+        ['$skiptoken', encodeSkipToken(query.skip + size)] as [string, string],
       ]
         .map(([name, value]) => `${name}=${encodeURIComponent(value)}`)
         .join('&');
@@ -592,6 +699,71 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
     if (value === undefined) return badRequest(ctx, "Invalid object identifier ''.");
     if (!isGuid(value)) return badRequest(ctx, `Invalid object identifier '${value}'.`);
     return value.toLowerCase();
+  }
+
+  // ---- directory objects on the wire ------------------------------------------------------------
+
+  /** Does the token hold this application role (or, delegated, scope)? */
+  function holdsRole(token: IssuedToken, name: string): boolean {
+    return (token.kind === 'app' ? token.roles : token.scopes).includes(name);
+  }
+
+  const GROUP_BASIC_ONLY = ['visibility', 'description', 'mailNickname', 'onPremisesSyncEnabled'];
+
+  /** A group row; with `omitGroupProperties` the properties of U36/U69 come back `null`. */
+  function groupRow(group: GroupRecord, select: string[] | null): Json {
+    const row = project(renderGroup(group), GROUP_DEFAULTS, GROUP_CATALOG, select);
+    if (settings.omitGroupProperties) {
+      for (const name of GROUP_BASIC_ONLY) if (name in row) row[name] = null;
+    }
+    return row;
+  }
+
+  /** The names a `$select` may carry on a collection of directory objects of any type. */
+  const OBJECT_CATALOG: ReadonlySet<string> = new Set([...USER_CATALOG, ...GROUP_CATALOG]);
+
+  /**
+   * A member, an owner or a manager as the polymorphic collections show it (R-C-05): a user in full
+   * when the token may read users, a group in full, anything else (device, service principal, contact)
+   * and a user the token may not read with `id` and `@odata.type` only; the selected properties are
+   * `null`. A name in `$select` that the object's type does not have is `null`, not an error.
+   */
+  function objectRow(id: string, token: IssuedToken, select: string[] | null): Json {
+    if (select !== null) {
+      for (const name of select) {
+        if (!OBJECT_CATALOG.has(name)) {
+          throw new FilterError(`could not find a property named ${name}`);
+        }
+      }
+    }
+    const limited = (odataType: string): Json => {
+      const row: Json = { '@odata.type': odataType, id };
+      for (const name of select ?? []) if (name !== 'id') row[name] = null;
+      return row;
+    };
+    const loose = (render: Record<string, unknown>, defaults: readonly string[]): Json => {
+      const row: Json = { '@odata.type': render['@odata.type'], id };
+      for (const name of select ?? defaults) if (name !== 'id') row[name] = render[name] ?? null;
+      return row;
+    };
+    const user = directory.users.get(id);
+    if (user !== undefined) {
+      const mayRead =
+        holdsRole(token, 'User.Read.All') ||
+        holdsRole(token, 'User.ReadBasic.All') ||
+        holdsRole(token, 'Directory.Read.All');
+      return mayRead ? loose(renderUser(user), USER_DEFAULTS) : limited('#microsoft.graph.user');
+    }
+    const group = directory.groups.get(id);
+    if (group !== undefined) {
+      const row = loose(renderGroup(group), GROUP_DEFAULTS);
+      if (settings.omitGroupProperties) {
+        for (const name of GROUP_BASIC_ONLY) if (name in row) row[name] = null;
+      }
+      return row;
+    }
+    const other = directory.otherObjects.get(id);
+    return limited(other?.odataType ?? '#microsoft.graph.directoryObject');
   }
 
   // ---- routes --------------------------------------------------------------------------------
@@ -634,15 +806,28 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
 
     // ---- users ---------------------------------------------------------------------------------
     add('GET', '/users', NEED.users, (ctx) => {
-      const query = readQuery(ctx, ['$select', '$top', '$skiptoken']);
+      const query = readQuery(ctx, [
+        '$select',
+        '$top',
+        '$skiptoken',
+        '$filter',
+        '$orderby',
+        '$count',
+      ]);
       if (query instanceof Response) return query;
       try {
-        const rows = [...directory.users.values()].map((user) =>
+        const parsed = parseListQuery(query, {
+          filter: USER_FILTER_PROPERTIES,
+          orderby: USER_ORDER_PROPERTIES,
+        });
+        const gate = advancedGate(ctx, query, reasonsOf(parsed, USER_ADVANCED_STARTS_WITH));
+        if (gate !== null) return gate;
+        const rows = selectUsers(directory, parsed).map((user) =>
           project(renderUser(user), USER_DEFAULTS, USER_CATALOG, query.select),
         );
         return page(ctx, query, rows, 'users');
       } catch (failure) {
-        if (failure instanceof FilterError) return badRequest(ctx, failure.message);
+        if (failure instanceof FilterError) return unsupported(ctx, failure.message);
         throw failure;
       }
     });
@@ -724,7 +909,7 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
       try {
         return ok(ctx, 200, {
           '@odata.context': `${META}groups(${query.select === null ? '' : query.select.join(',')})/$entity`,
-          ...project(renderGroup(group), GROUP_DEFAULTS, GROUP_CATALOG, query.select),
+          ...groupRow(group, query.select),
         });
       } catch (failure) {
         if (failure instanceof FilterError) return badRequest(ctx, failure.message);
@@ -733,12 +918,17 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
     });
 
     add('GET', '/groups', NEED.groups, (ctx) => {
-      const query = readQuery(ctx, ['$select', '$top', '$filter', '$skiptoken']);
+      const query = readQuery(ctx, [
+        '$select',
+        '$top',
+        '$filter',
+        '$orderby',
+        '$count',
+        '$skiptoken',
+      ]);
       if (query instanceof Response) return query;
-      const filter = filterOf(ctx, query.filter, ['displayName', 'mail', 'mailNickname']);
-      if (filter instanceof Response) return filter;
       if (
-        filter !== null &&
+        query.filter !== null &&
         settings.groupFilterNeedsConsistency &&
         ctx.request.headers.get('consistencylevel')?.toLowerCase() !== 'eventual'
       ) {
@@ -750,25 +940,133 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
         );
       }
       try {
+        const parsed = parseListQuery(query, {
+          filter: GROUP_FILTER_PROPERTIES,
+          orderby: GROUP_ORDER_PROPERTIES,
+        });
+        const gate = advancedGate(ctx, query, reasonsOf(parsed, GROUP_ADVANCED_STARTS_WITH));
+        if (gate !== null) return gate;
         const rows: Json[] = [];
-        for (const group of directory.groups.values()) {
-          const render = renderGroup(group);
-          if (
-            filter !== null &&
-            !evaluate(filter, (property) =>
-              typeof render[property] === 'string' ? render[property] : null,
-            )
-          )
-            continue;
+        for (const group of selectGroups(directory, parsed)) {
           if (!directory.touch(group)) continue;
-          rows.push(project(render, GROUP_DEFAULTS, GROUP_CATALOG, query.select));
+          rows.push(groupRow(group, query.select));
         }
         return page(ctx, query, rows, 'groups');
+      } catch (failure) {
+        if (failure instanceof FilterError) return unsupported(ctx, failure.message);
+        throw failure;
+      }
+    });
+
+    // The relationship collections (R-C-05, R-C-06, R-C-08): every query option but $expand needs the
+    // advanced pair, and the rows are directory objects of any type.
+    const relationshipQuery = (ctx: RouteContext): Query | Response => {
+      const query = readQuery(ctx, ['$select', '$top', '$skiptoken', '$count']);
+      if (query instanceof Response) return query;
+      const options = [...ctx.query.keys()];
+      return advancedGate(ctx, query, options.length === 0 ? [] : options) ?? query;
+    };
+
+    add('GET', '/users/:id/manager', NEED.users, (ctx, token) => {
+      const query = readQuery(ctx, ['$select']);
+      if (query instanceof Response) return query;
+      if (token.kind === 'app' && settings.managerForApps === 'refused') {
+        return error(
+          ctx,
+          403,
+          'Authorization_RequestDenied',
+          'Insufficient privileges to complete the operation.',
+        );
+      }
+      const wanted = ctx.params.id ?? '';
+      const user = directory.findUser(wanted);
+      if (user === undefined) return notFound(ctx, wanted);
+      const manager = user.managerId === null ? undefined : directory.users.get(user.managerId);
+      if (manager === undefined) return notFound(ctx, 'manager');
+      try {
+        return ok(ctx, 200, {
+          '@odata.context': `${META}directoryObjects/$entity`,
+          ...objectRow(manager.id, token, query.select),
+        });
       } catch (failure) {
         if (failure instanceof FilterError) return badRequest(ctx, failure.message);
         throw failure;
       }
     });
+
+    const membershipsOf = (userId: string, transitive: boolean): string[] => {
+      if (transitive) return [...directory.transitiveGroupIds(userId)];
+      return [...directory.groups.values()]
+        .filter((group) => group.members.has(userId))
+        .map((group) => group.id);
+    };
+    const membershipRoute =
+      (transitive: boolean) =>
+      (ctx: RouteContext): Response => {
+        const query = relationshipQuery(ctx);
+        if (query instanceof Response) return query;
+        const wanted = ctx.params.id ?? '';
+        const user = directory.findUser(wanted);
+        if (user === undefined) return notFound(ctx, wanted);
+        try {
+          const rows: Json[] = [];
+          for (const id of membershipsOf(user.id, transitive)) {
+            const group = directory.groups.get(id);
+            if (group === undefined) continue;
+            // U67: a hidden-membership group is left out while the fake refuses its members.
+            if (group.hiddenMembership && settings.hiddenMembersRefused) continue;
+            rows.push(groupRow(group, query.select));
+          }
+          return page(ctx, query, rows, 'directoryObjects');
+        } catch (failure) {
+          if (failure instanceof FilterError) return badRequest(ctx, failure.message);
+          throw failure;
+        }
+      };
+    add(
+      'GET',
+      '/users/:id/transitiveMemberOf/microsoft.graph.group',
+      NEED.transitiveMemberOf,
+      membershipRoute(true),
+    );
+    add('GET', '/users/:id/memberOf', NEED.memberOf, membershipRoute(false));
+    add('GET', '/users/:id/memberOf/microsoft.graph.group', NEED.memberOf, membershipRoute(false));
+
+    const groupCollection =
+      (kind: 'members' | 'owners') => (ctx: RouteContext, token: IssuedToken) => {
+        const query = relationshipQuery(ctx);
+        if (query instanceof Response) return query;
+        const id = guidParam(ctx, ctx.params.id);
+        if (id instanceof Response) return id;
+        const group = directory.groups.get(id);
+        if (group === undefined || !directory.touch(group)) return notFound(ctx, id);
+        try {
+          let ids: string[];
+          if (kind === 'owners') {
+            // R-C-06: no owners in Graph for Exchange-created, distribution and synced groups.
+            ids = hasNoOwnersInGraph(group) ? [] : [...group.owners];
+          } else if (group.hiddenMembership && !holdsRole(token, 'Member.Read.Hidden')) {
+            if (settings.hiddenMembersRefused) {
+              return error(
+                ctx,
+                403,
+                'Authorization_RequestDenied',
+                'Insufficient privileges to complete the operation.',
+              );
+            }
+            ids = [];
+          } else {
+            ids = [...group.members];
+          }
+          const rows = ids.map((memberId) => objectRow(memberId, token, query.select));
+          return page(ctx, query, rows, 'directoryObjects');
+        } catch (failure) {
+          if (failure instanceof FilterError) return badRequest(ctx, failure.message);
+          throw failure;
+        }
+      };
+    add('GET', '/groups/:id/members', NEED.groups, groupCollection('members'));
+    add('GET', '/groups/:id/owners', NEED.groups, groupCollection('owners'));
 
     // ---- service principals ----------------------------------------------------------------------
     const spRow = (sp: ServicePrincipalRecord, select: string[] | null): Json =>

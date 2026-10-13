@@ -19,8 +19,15 @@ import {
   GraphBadRequestError,
   GraphForbiddenError,
   GraphNotFoundError,
+  GraphThrottledError,
 } from '../../../src/ports/errors.js';
-import type { GraphClient } from '../../../src/ports/graph.js';
+import type {
+  DirectoryRef,
+  GraphClient,
+  GroupListParams,
+  PageToken,
+  UserListParams,
+} from '../../../src/ports/graph.js';
 import { FakeGraphClient } from '../../fakes/fake-graph-client.js';
 import { FakeDirectory, fakeGuid, installFakeGraph } from '../../fakes/fake-tenant/graph/index.js';
 import { fake, testClock } from '../../support/msw.js';
@@ -37,6 +44,7 @@ interface Seeded {
   readonly finance: string;
   readonly secret: string;
   readonly outer: string;
+  readonly device: string;
 }
 
 /** One directory, built the same way for both subjects, so the ids are the same too. */
@@ -76,6 +84,11 @@ function seed(directory: FakeDirectory): Seeded {
   directory.addMember(outer.id, finance.id);
   directory.addMember(secret.id, anna.id);
   directory.addMember(helpdeskBe.id, bob.id);
+  // Phase C: a manager chain, an owner, a member the application cannot read.
+  anna.managerId = carol.id;
+  directory.addOwner(helpdeskNl.id, bob.id);
+  const device = directory.addOtherObject('#microsoft.graph.device', 'Laptop 1');
+  directory.addMember(helpdeskNl.id, device.id);
   return {
     anna: anna.id,
     bob: bob.id,
@@ -85,6 +98,7 @@ function seed(directory: FakeDirectory): Seeded {
     finance: finance.id,
     secret: secret.id,
     outer: outer.id,
+    device: device.id,
   };
 }
 
@@ -94,9 +108,19 @@ interface Subject {
   readonly directory: FakeDirectory;
   /** Requests the subject sent to the fake tenant (HTTP) or `null` (nothing to count). */
   requests(): number | null;
+  /** From now on every call is throttled for longer than the client will wait (429, Retry-After 120 s). */
+  throttle(): void;
 }
 
-type Factory = (options?: { roles?: readonly string[] }) => Subject;
+interface FactoryOptions {
+  readonly roles?: readonly string[];
+  /** U66: serve the manager call to an application. */
+  readonly managerAllowed?: boolean;
+  /** U67: answer an empty list (not 403) for the members of a hidden-membership group. */
+  readonly hiddenAllowed?: boolean;
+}
+
+type Factory = (options?: FactoryOptions) => Subject;
 
 const http: Factory = (options) => {
   // One fake Graph per subject: a second one mounted on the same tenant would sit behind the first.
@@ -105,6 +129,8 @@ const http: Factory = (options) => {
   const ids = seed(graph.directory);
   const roles = options?.roles ?? GRAPH_APP_ROLES;
   const token = graph.world.tokens.issue({ audience: 'graph', kind: 'app', appId: APP, roles });
+  if (options?.managerAllowed === true) graph.control.managerForApps('allowed');
+  if (options?.hiddenAllowed === true) graph.control.hiddenMembersRefused(false);
   const time = createTime();
   const client = createHttpGraphClient({
     appTokens: staticAppTokens(token.value).provider,
@@ -112,18 +138,38 @@ const http: Factory = (options) => {
     random: sequenceRandom([0]),
     scheduler: time.scheduler,
   });
-  return { client, ids, directory: graph.directory, requests: () => fake.calls.length };
+  return {
+    client,
+    ids,
+    directory: graph.directory,
+    requests: () => fake.calls.length,
+    throttle: () => {
+      graph.control.throttle({ times: 1_000, seconds: 120 });
+    },
+  };
 };
 
 const memory: Factory = (options) => {
   const directory = new FakeDirectory({ clock: { now: () => testClock.nowMs() } });
   const ids = seed(directory);
-  const client = new FakeGraphClient(
+  const client = new FakeGraphClient(directory, {
+    ...(options?.roles === undefined ? {} : { roles: options.roles }),
+    managerForApps: options?.managerAllowed === true ? 'allowed' : 'refused',
+    hiddenMembersRefused: options?.hiddenAllowed !== true,
+  });
+  return {
+    client,
+    ids,
     directory,
-    options?.roles === undefined ? {} : { roles: options.roles },
-  );
-  return { client, ids, directory, requests: () => null };
+    requests: () => null,
+    throttle: () => {
+      client.failNext(new GraphThrottledError({ retryAfterMs: 120_000 }), { times: 1_000 });
+    },
+  };
 };
+
+const USERS: Omit<UserListParams, 'top'> = { enabled: 'all', type: 'all', order: 'asc' };
+const GROUPS: Omit<GroupListParams, 'top'> = { kind: 'all', order: 'asc' };
 
 describe.each([
   ['HttpGraphClient on the fake tenant (MSW)', http],
@@ -190,6 +236,14 @@ describe.each([
         mail: 'Anna.Jansen@contoso-fake.example',
         department: 'Sales',
         accountEnabled: true,
+        // Phase C (FR-C-104): the properties of the detail; the fake gives no name parts or office.
+        givenName: null,
+        surname: null,
+        jobTitle: null,
+        officeLocation: null,
+        userType: 'Member',
+        onPremisesSyncEnabled: null,
+        createdDateTime: '2021-08-02T10:30:06Z',
       });
       expect(await client.getUser('anna.jansen@CONTOSO-FAKE.example')).toEqual(byId);
       expect(await client.getUser(ids.anna.toUpperCase())).toEqual(byId);
@@ -344,6 +398,9 @@ describe.each([
         onPremisesSyncEnabled: null,
         securityEnabled: false,
         mailEnabled: true,
+        visibility: null,
+        description: null,
+        createdDateTime: '2021-08-02T10:30:06Z',
       });
     });
 
@@ -396,6 +453,9 @@ describe.each([
         onPremisesSyncEnabled: null,
         securityEnabled: true,
         mailEnabled: false,
+        visibility: null,
+        description: null,
+        createdDateTime: '2021-08-02T10:30:06Z',
       });
       expect(await client.getGroup(ids.outer.toUpperCase())).toMatchObject({
         onPremisesSyncEnabled: true,
@@ -410,6 +470,430 @@ describe.each([
         GraphBadRequestError,
       );
       expect(subject.requests()).toBe(before);
+    });
+  });
+
+  describe('listUsers (FR-C-101, FR-C-202)', () => {
+    it('lists the users by display name with the properties of the list and null for the rest', async () => {
+      const { client, ids } = make();
+      const page = await client.listUsers({ ...USERS, top: 10 });
+      expect(page.next).toBeNull();
+      expect(page.items.map((user) => user.displayName)).toEqual(['Anna Jansen', 'Bob', 'Carol']);
+      expect(page.items[0]).toEqual({
+        id: ids.anna,
+        displayName: 'Anna Jansen',
+        userPrincipalName: 'Anna.Jansen@contoso-fake.example',
+        mail: 'Anna.Jansen@contoso-fake.example',
+        department: 'Sales',
+        accountEnabled: true,
+        jobTitle: null,
+        userType: 'Member',
+        givenName: null,
+        surname: null,
+        officeLocation: null,
+        onPremisesSyncEnabled: null,
+        createdDateTime: null,
+      });
+    });
+
+    it('keeps a property that is null in the directory as null (U36, EC-C10)', async () => {
+      const { client, ids } = make();
+      const carol = (await client.listUsers({ ...USERS, top: 10 })).items.find(
+        (u) => u.id === ids.carol,
+      );
+      expect(carol?.mail).toBeNull();
+      expect(carol?.department).toBeNull();
+    });
+
+    it.each([
+      ['a prefix of the display name', { q: 'ann' }, ['Anna Jansen']],
+      ['a prefix of the principal name, in another case', { q: 'BOB@' }, ['Bob']],
+      ['a prefix of the mail address', { q: 'anna.j' }, ['Anna Jansen']],
+      ['nothing', { q: 'zzz' }, []],
+      ['disabled users', { enabled: 'false' }, ['Bob']],
+      ['enabled users', { enabled: 'true' }, ['Anna Jansen', 'Carol']],
+      ['guests', { type: 'guest' }, ['Bob']],
+      ['members', { type: 'member' }, ['Anna Jansen', 'Carol']],
+      ['descending order', { order: 'desc' }, ['Carol', 'Bob', 'Anna Jansen']],
+      ['a search and a state', { q: 'bo', enabled: 'false', type: 'guest' }, ['Bob']],
+      ['a search that excludes the state', { q: 'bo', enabled: 'true' }, []],
+    ] as const)('filters on %s', async (_name, extra, names) => {
+      const { client, directory } = make();
+      // Bob is the guest of this test, and a user with a quote in the name is listed too.
+      for (const user of directory.users.values())
+        if (user.displayName === 'Bob') user.userType = 'Guest';
+      const page = await client.listUsers({ ...USERS, ...extra, top: 10 });
+      expect(page.items.map((user) => user.displayName)).toEqual(names);
+    });
+
+    it("finds a name with a quote (EC-C2): O'Neil", async () => {
+      const { client, directory } = make();
+      directory.addUser({
+        userPrincipalName: 'oneil@contoso-fake.example',
+        displayName: "Zoe O'Neil",
+      });
+      directory.addUser({
+        userPrincipalName: 'o2@contoso-fake.example',
+        displayName: "Zoe O'Neill-Smith",
+      });
+      const page = await client.listUsers({ ...USERS, q: "Zoe O'Neil", top: 10 });
+      expect(page.items.map((user) => user.displayName)).toEqual([
+        "Zoe O'Neil",
+        "Zoe O'Neill-Smith",
+      ]);
+    });
+
+    it('treats an injection attempt in the search text as text', async () => {
+      const { client } = make();
+      for (const q of [
+        "') or (accountEnabled eq false",
+        "x' or startsWith(displayName,'",
+        '%27 or 1 eq 1',
+      ]) {
+        const page = await client.listUsers({ ...USERS, q, top: 10 });
+        expect(page.items, q).toEqual([]);
+      }
+    });
+
+    it('leaves the principal name out of the search when asked (a basic-only actor)', async () => {
+      const { client } = make();
+      // Carol has no mail address: only her principal name starts with "carol@".
+      const withUpn = await client.listUsers({ ...USERS, q: 'carol@', top: 10 });
+      expect(withUpn.items.map((user) => user.displayName)).toEqual(['Carol']);
+      const without = await client.listUsers({
+        ...USERS,
+        q: 'carol@',
+        searchPrincipalName: false,
+        top: 10,
+      });
+      expect(without.items).toEqual([]);
+    });
+
+    it('pages with a token, in order, without a gap or a duplicate, and the last page has none', async () => {
+      const { client, directory } = make();
+      for (let index = 0; index < 22; index += 1) {
+        directory.addUser({
+          userPrincipalName: `page${String(index).padStart(2, '0')}@contoso-fake.example`,
+          displayName: `Page ${String(index).padStart(2, '0')}`,
+        });
+      }
+      const seen: string[] = [];
+      let after: PageToken | null = null;
+      let pages = 0;
+      do {
+        const page = await client.listUsers({ ...USERS, q: 'Page', top: 10, after });
+        seen.push(...page.items.map((user) => user.displayName ?? ''));
+        after = page.next;
+        pages += 1;
+      } while (after !== null);
+      expect(pages).toBe(3);
+      expect(seen).toHaveLength(22);
+      expect(new Set(seen).size).toBe(22);
+      expect(seen).toEqual([...seen].sort());
+    });
+
+    it('refuses a top outside 1 to 999 and a token it did not make', async () => {
+      const { client } = make();
+      for (const top of [0, 1000]) {
+        expect(await rejectionOf(client.listUsers({ ...USERS, top }))).toBeInstanceOf(
+          GraphBadRequestError,
+        );
+      }
+      expect(
+        await rejectionOf(
+          client.listUsers({
+            ...USERS,
+            top: 10,
+            after: 'https://evil.example/v1.0/users?$skiptoken=x' as PageToken,
+          }),
+        ),
+      ).toBeInstanceOf(GraphBadRequestError);
+    });
+
+    it('maps a throttle that outlasts the budget to GraphThrottledError', async () => {
+      const subject = make();
+      subject.throttle();
+      expect(await rejectionOf(subject.client.listUsers({ ...USERS, top: 10 }))).toBeInstanceOf(
+        GraphThrottledError,
+      );
+    });
+  });
+
+  describe('listGroups (FR-C-101, FR-C-301)', () => {
+    function kinds(directory: FakeDirectory): void {
+      directory.addGroup({
+        displayName: 'Mailing',
+        mail: 'mailing@contoso-fake.example',
+        mailEnabled: true,
+        securityEnabled: false,
+      });
+      directory.addGroup({
+        displayName: 'MailSec',
+        mail: 'mailsec@contoso-fake.example',
+        mailEnabled: true,
+        securityEnabled: true,
+      });
+    }
+
+    it('lists the groups by display name with the properties of the list', async () => {
+      const { client, ids } = make();
+      const page = await client.listGroups({ ...GROUPS, top: 20 });
+      expect(page.items.map((group) => group.displayName)).toEqual([
+        'Finance',
+        'helpdesk BE',
+        'Helpdesk NL',
+        "O'Brien outer",
+        'Secret board',
+      ]);
+      const nl = page.items.find((group) => group.id === ids.helpdeskNl);
+      expect(nl).toMatchObject({
+        groupTypes: ['Unified'],
+        mailEnabled: true,
+        securityEnabled: false,
+        mailNickname: 'helpdesknl',
+        description: null,
+        createdDateTime: null,
+      });
+    });
+
+    it.each([
+      ['m365', ['Helpdesk NL']],
+      ['security', ['Finance', 'helpdesk BE', "O'Brien outer", 'Secret board']],
+      ['mailsecurity', ['MailSec']],
+      ['distribution', ['Mailing']],
+    ] as const)('filters on the kind %s', async (kind, names) => {
+      const { client, directory } = make();
+      kinds(directory);
+      const page = await client.listGroups({ ...GROUPS, kind, top: 20 });
+      expect(page.items.map((group) => group.displayName)).toEqual(names);
+    });
+
+    it('searches display name, mail and mail nickname by prefix, and orders descending', async () => {
+      const { client, directory } = make();
+      kinds(directory);
+      const byName = await client.listGroups({ ...GROUPS, q: 'help', order: 'desc', top: 20 });
+      expect(byName.items.map((group) => group.displayName)).toEqual([
+        'Helpdesk NL',
+        'helpdesk BE',
+      ]);
+      const byMail = await client.listGroups({ ...GROUPS, q: 'mailsec@', top: 20 });
+      expect(byMail.items.map((group) => group.displayName)).toEqual(['MailSec']);
+      const byNickname = await client.listGroups({ ...GROUPS, q: 'secretb', top: 20 });
+      expect(byNickname.items.map((group) => group.displayName)).toEqual(['Secret board']);
+      const quote = await client.listGroups({ ...GROUPS, q: "O'Brien", top: 20 });
+      expect(quote.items.map((group) => group.displayName)).toEqual(["O'Brien outer"]);
+    });
+
+    it('pages with a token', async () => {
+      const { client } = make();
+      const first = await client.listGroups({ ...GROUPS, top: 2 });
+      expect(first.items).toHaveLength(2);
+      expect(first.next).not.toBeNull();
+      const second = await client.listGroups({ ...GROUPS, top: 2, after: first.next });
+      const third = await client.listGroups({ ...GROUPS, top: 2, after: second.next });
+      expect(third.next).toBeNull();
+      const all = [...first.items, ...second.items, ...third.items];
+      expect(new Set(all.map((group) => group.id)).size).toBe(5);
+    });
+
+    it('maps a throttle that outlasts the budget to GraphThrottledError', async () => {
+      const subject = make();
+      subject.throttle();
+      expect(await rejectionOf(subject.client.listGroups({ ...GROUPS, top: 10 }))).toBeInstanceOf(
+        GraphThrottledError,
+      );
+    });
+  });
+
+  describe('the manager (FR-C-107, U66)', () => {
+    it('is "not available" while the application is refused, whatever the user', async () => {
+      const { client, ids } = make();
+      expect(await client.getUserManager(ids.anna)).toEqual({ state: 'unavailable' });
+    });
+
+    it('is the manager when it is served, and none for a user without one or an unknown one', async () => {
+      const { client, ids } = make({ managerAllowed: true });
+      const result = await client.getUserManager(ids.anna);
+      expect(result).toEqual({
+        state: 'present',
+        manager: {
+          id: ids.carol,
+          kind: 'user',
+          displayName: 'Carol',
+          mail: null,
+          userPrincipalName: 'carol@contoso-fake.example',
+          department: null,
+          mailNickname: 'carol',
+        },
+      });
+      expect(await client.getUserManager(ids.carol)).toEqual({ state: 'none' });
+      expect(await client.getUserManager(fakeGuid('ghost', 9))).toEqual({ state: 'none' });
+    });
+
+    it('refuses a malformed id and sends nothing', async () => {
+      const subject = make({ managerAllowed: true });
+      const before = subject.requests();
+      expect(await rejectionOf(subject.client.getUserManager('not-a-guid'))).toBeInstanceOf(
+        GraphBadRequestError,
+      );
+      expect(subject.requests()).toBe(before);
+    });
+  });
+
+  describe('the groups of a user (FR-C-206, R-C-08)', () => {
+    it('lists the groups transitively, without a hidden-membership group while those are refused (U67)', async () => {
+      const { client, ids } = make();
+      const page = await client.listUserGroups(ids.anna, { top: 10 });
+      expect(page.items.map((group) => group.displayName).sort()).toEqual([
+        'Finance',
+        'Helpdesk NL',
+        "O'Brien outer",
+      ]);
+      expect(page.next).toBeNull();
+    });
+
+    it('lists a hidden group too when the fake does not omit it', async () => {
+      const { client, ids } = make({ hiddenAllowed: true });
+      const page = await client.listUserGroups(ids.anna, { top: 10 });
+      expect(page.items.map((group) => group.displayName)).toContain('Secret board');
+    });
+
+    it('pages, and is a typed 404 for an unknown user', async () => {
+      const { client, ids } = make();
+      const first = await client.listUserGroups(ids.anna, { top: 2 });
+      expect(first.items).toHaveLength(2);
+      const second = await client.listUserGroups(ids.anna, { top: 2, after: first.next });
+      expect(second.items).toHaveLength(1);
+      expect(second.next).toBeNull();
+      expect(
+        await rejectionOf(client.listUserGroups(fakeGuid('ghost', 2), { top: 5 })),
+      ).toBeInstanceOf(GraphNotFoundError);
+      expect(await rejectionOf(client.listUserGroups('nope', { top: 5 }))).toBeInstanceOf(
+        GraphBadRequestError,
+      );
+    });
+  });
+
+  describe('members and owners (FR-C-305, FR-C-306, R-C-05, R-C-06)', () => {
+    const byId = (rows: readonly DirectoryRef[], id: string): DirectoryRef | undefined =>
+      rows.find((row) => row.id === id);
+
+    it('lists a user in full and an object the application cannot read with the id and kind only', async () => {
+      const { client, ids } = make();
+      const page = await client.listGroupMembers(ids.helpdeskNl, { top: 10 });
+      expect(byId(page.items, ids.anna)).toEqual({
+        id: ids.anna,
+        kind: 'user',
+        displayName: 'Anna Jansen',
+        mail: 'Anna.Jansen@contoso-fake.example',
+        userPrincipalName: 'Anna.Jansen@contoso-fake.example',
+        department: 'Sales',
+        mailNickname: 'Anna.Jansen',
+      });
+      expect(byId(page.items, ids.device)).toEqual({
+        id: ids.device,
+        kind: 'other',
+        displayName: null,
+        mail: null,
+        userPrincipalName: null,
+        department: null,
+        mailNickname: null,
+      });
+    });
+
+    it('lists a nested group as a member with its basic properties', async () => {
+      const { client, ids } = make();
+      const page = await client.listGroupMembers(ids.finance, { top: 10 });
+      expect(page.items).toEqual([
+        {
+          id: ids.helpdeskNl,
+          kind: 'group',
+          displayName: 'Helpdesk NL',
+          mail: 'helpdesk-nl@contoso-fake.example',
+          userPrincipalName: null,
+          department: null,
+          mailNickname: 'helpdesknl',
+        },
+      ]);
+    });
+
+    it('lists a user as limited when the application lacks User.Read.All (limited information)', async () => {
+      const { client, ids } = make({ roles: ['GroupMember.Read.All'] });
+      const page = await client.listGroupMembers(ids.helpdeskNl, { top: 10 });
+      const anna = byId(page.items, ids.anna);
+      expect(anna).toMatchObject({
+        kind: 'user',
+        displayName: null,
+        mail: null,
+        userPrincipalName: null,
+      });
+    });
+
+    it('pages the members of a larger group', async () => {
+      const { client, ids, directory } = make();
+      for (let index = 0; index < 12; index += 1) {
+        const user = directory.addUser({
+          userPrincipalName: `m${String(index)}@contoso-fake.example`,
+        });
+        directory.addMember(ids.helpdeskBe, user.id);
+      }
+      const seen: string[] = [];
+      let after: PageToken | null = null;
+      let pages = 0;
+      do {
+        const page = await client.listGroupMembers(ids.helpdeskBe, { top: 5, after });
+        seen.push(...page.items.map((row) => row.id));
+        after = page.next;
+        pages += 1;
+      } while (after !== null);
+      expect(pages).toBe(3);
+      expect(new Set(seen).size).toBe(13);
+    });
+
+    it('refuses the members of a hidden-membership group (U67), or lists none when the fake says so', async () => {
+      const refused = make();
+      const failure = await rejectionOf(
+        refused.client.listGroupMembers(refused.ids.secret, { top: 10 }),
+      );
+      expect(failure).toBeInstanceOf(GraphForbiddenError);
+      const open = make({ hiddenAllowed: true });
+      expect((await open.client.listGroupMembers(open.ids.secret, { top: 10 })).items).toEqual([]);
+    });
+
+    it('lists the owners, and none for a distribution, mail-enabled security or synced group', async () => {
+      const { client, ids, directory } = make();
+      const owners = await client.listGroupOwners(ids.helpdeskNl, { top: 10 });
+      expect(owners.items.map((row) => row.displayName)).toEqual(['Bob']);
+      const distribution = directory.addGroup({
+        displayName: 'Mailing',
+        mailEnabled: true,
+        securityEnabled: false,
+      });
+      directory.addOwner(distribution.id, ids.bob);
+      directory.addOwner(ids.outer, ids.bob);
+      expect((await client.listGroupOwners(distribution.id, { top: 10 })).items).toEqual([]);
+      expect((await client.listGroupOwners(ids.outer, { top: 10 })).items).toEqual([]);
+    });
+
+    it('is a typed 404 for an unknown group and 400 for a malformed id', async () => {
+      const subject = make();
+      for (const call of [
+        (id: string) => subject.client.listGroupMembers(id, { top: 5 }),
+        (id: string) => subject.client.listGroupOwners(id, { top: 5 }),
+      ]) {
+        expect(await rejectionOf(call(fakeGuid('ghost', 3)))).toBeInstanceOf(GraphNotFoundError);
+        const before = subject.requests();
+        expect(await rejectionOf(call('not-a-guid'))).toBeInstanceOf(GraphBadRequestError);
+        expect(subject.requests()).toBe(before);
+      }
+    });
+
+    it('maps a throttle that outlasts the budget to GraphThrottledError', async () => {
+      const subject = make();
+      subject.throttle();
+      expect(
+        await rejectionOf(subject.client.listGroupMembers(subject.ids.helpdeskNl, { top: 5 })),
+      ).toBeInstanceOf(GraphThrottledError);
     });
   });
 
@@ -430,6 +914,18 @@ describe.each([
           return client.searchGroups('help', 5);
         case 'getGroup':
           return client.getGroup(ids.helpdeskNl);
+        case 'listUsers':
+          return client.listUsers({ ...USERS, top: 10 });
+        case 'getUserManager':
+          return client.getUserManager(ids.anna);
+        case 'listUserGroups':
+          return client.listUserGroups(ids.anna, { top: 10 });
+        case 'listGroups':
+          return client.listGroups({ ...GROUPS, top: 10 });
+        case 'listGroupMembers':
+          return client.listGroupMembers(ids.helpdeskNl, { top: 10 });
+        case 'listGroupOwners':
+          return client.listGroupOwners(ids.helpdeskNl, { top: 10 });
       }
     };
 
@@ -437,10 +933,20 @@ describe.each([
       '%s works with exactly the permissions of the map and fails 403 without any one of them',
       async (method) => {
         const needed = GRAPH_METHOD_PERMISSIONS[method].permissions;
-        const exact = make({ roles: needed });
+        const exact = make({ roles: needed, managerAllowed: true });
         await expect(call(exact.client, exact.ids, method)).resolves.not.toThrow();
         for (const missing of needed) {
-          const subject = make({ roles: needed.filter((role) => role !== missing) });
+          const subject = make({
+            roles: needed.filter((role) => role !== missing),
+            managerAllowed: true,
+          });
+          if (method === 'getUserManager') {
+            // The manager is best effort: a refusal is "not available", never an error (FR-C-107).
+            expect(await call(subject.client, subject.ids, method)).toEqual({
+              state: 'unavailable',
+            });
+            continue;
+          }
           const failure = await rejectionOf(call(subject.client, subject.ids, method));
           expect(failure, `${method} without ${missing}`).toBeInstanceOf(GraphForbiddenError);
           expect((failure as GraphForbiddenError).status).toBe(403);

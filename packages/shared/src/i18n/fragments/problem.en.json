@@ -7,6 +7,7 @@
   "problem.branding_conflict": "The appearance was changed by someone else since you opened this page. Reload to see the latest settings, then apply your change again.",
   "problem.break_glass_locked": "Too many failed break-glass attempts. Try again in {seconds} s.",
   "problem.csrf_invalid": "The security token for this page is missing or has expired. Reload the page and try again.",
+  "problem.cursor_invalid": "This list position is no longer valid, for example because it expired. The list starts again from the first page.",
   "problem.escalation_denied": "You cannot grant more access than you hold yourself. Choose a role or scope within your own access.",
   "problem.graph_throttled": "Microsoft is slowing requests down. Try again in {seconds} s.",
   "problem.graph_unavailable": "Microsoft Graph did not answer. Try again in a moment.",

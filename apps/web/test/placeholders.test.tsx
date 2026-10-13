@@ -1,9 +1,10 @@
 //
 // THE PLACEHOLDER PAGES (FR-A-129, FR-A-130; US-5.6; T-A-169).
 //
-// Users and Groups say "not available until Phase C"; Distribution lists, Contacts and the Audit log say
-// Phase D. Each says what it will do, and is gated by its read permission: an actor without it sees the
-// No-access content at the same URL. Both languages.
+// Distribution lists, Contacts and the Audit log say "not available until Phase D" (Users and Groups were
+// placeholders until Phase C replaced them with real pages: `users-page.test.tsx`, `groups-page.test.tsx`).
+// Each says what it will do, and is gated by its read permission: an actor without it sees the No-access
+// content at the same URL. Both languages.
 import { createTranslator } from '@m365portal/shared/i18n';
 import type { Permission } from '@m365portal/shared/permissions';
 import { screen } from '@testing-library/react';
@@ -15,20 +16,6 @@ const en = createTranslator('en');
 const nl = createTranslator('nl');
 
 const PAGES = [
-  {
-    path: '/users',
-    permission: 'users:read',
-    phase: 'C',
-    title: 'nav.users',
-    does: 'placeholders.users.description',
-  },
-  {
-    path: '/groups',
-    permission: 'groups:read',
-    phase: 'C',
-    title: 'nav.groups',
-    does: 'placeholders.groups.description',
-  },
   {
     path: '/distribution-lists',
     permission: 'distributionlists:read',
@@ -53,7 +40,7 @@ const PAGES = [
 ] as const satisfies readonly {
   path: string;
   permission: Permission;
-  phase: 'C' | 'D';
+  phase: 'D';
   title: Parameters<typeof en.t>[0];
   does: Parameters<typeof en.t>[0];
 }[];

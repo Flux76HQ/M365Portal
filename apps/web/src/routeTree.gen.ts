@@ -21,11 +21,15 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SigninRouteImport } from './routes/signin'
 import { Route as UsersRouteImport } from './routes/users'
+import { Route as GroupsIndexRouteImport } from './routes/groups.index'
+import { Route as GroupsIdRouteImport } from './routes/groups.$id'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsAccessRouteImport } from './routes/settings.access'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as SettingsConnectionRouteImport } from './routes/settings.connection'
 import { Route as SettingsRestoreAccessRouteImport } from './routes/settings.restore-access'
+import { Route as UsersIndexRouteImport } from './routes/users.index'
+import { Route as UsersIdRouteImport } from './routes/users.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -87,6 +91,16 @@ const UsersRoute = UsersRouteImport.update({
   path: '/users',
   getParentRoute: () => rootRouteImport,
 } as any)
+const GroupsIndexRoute = GroupsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => GroupsRoute,
+} as any)
+const GroupsIdRoute = GroupsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => GroupsRoute,
+} as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -112,6 +126,16 @@ const SettingsRestoreAccessRoute = SettingsRestoreAccessRouteImport.update({
   path: '/restore-access',
   getParentRoute: () => SettingsRoute,
 } as any)
+const UsersIndexRoute = UsersIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => UsersRoute,
+} as any)
+const UsersIdRoute = UsersIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => UsersRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -120,17 +144,21 @@ export interface FileRoutesByFullPath {
   '/contacts': typeof ContactsRoute
   '/design': typeof DesignRoute
   '/distribution-lists': typeof DistributionListsRoute
-  '/groups': typeof GroupsRoute
+  '/groups': typeof GroupsRouteWithChildren
   '/no-access': typeof NoAccessRoute
   '/settings': typeof SettingsRouteWithChildren
   '/setup': typeof SetupRoute
   '/signin': typeof SigninRoute
-  '/users': typeof UsersRoute
+  '/users': typeof UsersRouteWithChildren
+  '/groups/$id': typeof GroupsIdRoute
   '/settings/access': typeof SettingsAccessRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/connection': typeof SettingsConnectionRoute
   '/settings/restore-access': typeof SettingsRestoreAccessRoute
+  '/users/$id': typeof UsersIdRoute
+  '/groups/': typeof GroupsIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/users/': typeof UsersIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -139,16 +167,18 @@ export interface FileRoutesByTo {
   '/contacts': typeof ContactsRoute
   '/design': typeof DesignRoute
   '/distribution-lists': typeof DistributionListsRoute
-  '/groups': typeof GroupsRoute
   '/no-access': typeof NoAccessRoute
   '/setup': typeof SetupRoute
   '/signin': typeof SigninRoute
-  '/users': typeof UsersRoute
+  '/groups/$id': typeof GroupsIdRoute
   '/settings/access': typeof SettingsAccessRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/connection': typeof SettingsConnectionRoute
   '/settings/restore-access': typeof SettingsRestoreAccessRoute
+  '/users/$id': typeof UsersIdRoute
+  '/groups': typeof GroupsIndexRoute
   '/settings': typeof SettingsIndexRoute
+  '/users': typeof UsersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -158,17 +188,21 @@ export interface FileRoutesById {
   '/contacts': typeof ContactsRoute
   '/design': typeof DesignRoute
   '/distribution-lists': typeof DistributionListsRoute
-  '/groups': typeof GroupsRoute
+  '/groups': typeof GroupsRouteWithChildren
   '/no-access': typeof NoAccessRoute
   '/settings': typeof SettingsRouteWithChildren
   '/setup': typeof SetupRoute
   '/signin': typeof SigninRoute
-  '/users': typeof UsersRoute
+  '/users': typeof UsersRouteWithChildren
+  '/groups/$id': typeof GroupsIdRoute
   '/settings/access': typeof SettingsAccessRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/connection': typeof SettingsConnectionRoute
   '/settings/restore-access': typeof SettingsRestoreAccessRoute
+  '/users/$id': typeof UsersIdRoute
+  '/groups/': typeof GroupsIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/users/': typeof UsersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -185,11 +219,15 @@ export interface FileRouteTypes {
     | '/setup'
     | '/signin'
     | '/users'
+    | '/groups/$id'
     | '/settings/access'
     | '/settings/appearance'
     | '/settings/connection'
     | '/settings/restore-access'
+    | '/users/$id'
+    | '/groups/'
     | '/settings/'
+    | '/users/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -198,16 +236,18 @@ export interface FileRouteTypes {
     | '/contacts'
     | '/design'
     | '/distribution-lists'
-    | '/groups'
     | '/no-access'
     | '/setup'
     | '/signin'
-    | '/users'
+    | '/groups/$id'
     | '/settings/access'
     | '/settings/appearance'
     | '/settings/connection'
     | '/settings/restore-access'
+    | '/users/$id'
+    | '/groups'
     | '/settings'
+    | '/users'
   id:
     | '__root__'
     | '/'
@@ -222,11 +262,15 @@ export interface FileRouteTypes {
     | '/setup'
     | '/signin'
     | '/users'
+    | '/groups/$id'
     | '/settings/access'
     | '/settings/appearance'
     | '/settings/connection'
     | '/settings/restore-access'
+    | '/users/$id'
+    | '/groups/'
     | '/settings/'
+    | '/users/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -236,12 +280,12 @@ export interface RootRouteChildren {
   ContactsRoute: typeof ContactsRoute
   DesignRoute: typeof DesignRoute
   DistributionListsRoute: typeof DistributionListsRoute
-  GroupsRoute: typeof GroupsRoute
+  GroupsRoute: typeof GroupsRouteWithChildren
   NoAccessRoute: typeof NoAccessRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   SetupRoute: typeof SetupRoute
   SigninRoute: typeof SigninRoute
-  UsersRoute: typeof UsersRoute
+  UsersRoute: typeof UsersRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -330,6 +374,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UsersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/groups/': {
+      id: '/groups/'
+      path: '/'
+      fullPath: '/groups/'
+      preLoaderRoute: typeof GroupsIndexRouteImport
+      parentRoute: typeof GroupsRoute
+    }
+    '/groups/$id': {
+      id: '/groups/$id'
+      path: '/$id'
+      fullPath: '/groups/$id'
+      preLoaderRoute: typeof GroupsIdRouteImport
+      parentRoute: typeof GroupsRoute
+    }
     '/settings/': {
       id: '/settings/'
       path: '/'
@@ -365,8 +423,35 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRestoreAccessRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/users/': {
+      id: '/users/'
+      path: '/'
+      fullPath: '/users/'
+      preLoaderRoute: typeof UsersIndexRouteImport
+      parentRoute: typeof UsersRoute
+    }
+    '/users/$id': {
+      id: '/users/$id'
+      path: '/$id'
+      fullPath: '/users/$id'
+      preLoaderRoute: typeof UsersIdRouteImport
+      parentRoute: typeof UsersRoute
+    }
   }
 }
+
+interface GroupsRouteChildren {
+  GroupsIdRoute: typeof GroupsIdRoute
+  GroupsIndexRoute: typeof GroupsIndexRoute
+}
+
+const GroupsRouteChildren: GroupsRouteChildren = {
+  GroupsIdRoute: GroupsIdRoute,
+  GroupsIndexRoute: GroupsIndexRoute,
+}
+
+const GroupsRouteWithChildren =
+  GroupsRoute._addFileChildren(GroupsRouteChildren)
 
 interface SettingsRouteChildren {
   SettingsAccessRoute: typeof SettingsAccessRoute
@@ -388,6 +473,18 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
   SettingsRouteChildren,
 )
 
+interface UsersRouteChildren {
+  UsersIdRoute: typeof UsersIdRoute
+  UsersIndexRoute: typeof UsersIndexRoute
+}
+
+const UsersRouteChildren: UsersRouteChildren = {
+  UsersIdRoute: UsersIdRoute,
+  UsersIndexRoute: UsersIndexRoute,
+}
+
+const UsersRouteWithChildren = UsersRoute._addFileChildren(UsersRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuditRoute: AuditRoute,
@@ -395,12 +492,12 @@ const rootRouteChildren: RootRouteChildren = {
   ContactsRoute: ContactsRoute,
   DesignRoute: DesignRoute,
   DistributionListsRoute: DistributionListsRoute,
-  GroupsRoute: GroupsRoute,
+  GroupsRoute: GroupsRouteWithChildren,
   NoAccessRoute: NoAccessRoute,
   SettingsRoute: SettingsRouteWithChildren,
   SetupRoute: SetupRoute,
   SigninRoute: SigninRoute,
-  UsersRoute: UsersRoute,
+  UsersRoute: UsersRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

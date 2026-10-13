@@ -694,7 +694,7 @@ describe('loadNamespace: lazy namespace catalogues (FR-B-604, AM-21, CB15)', () 
     expect(createTranslatorFrom.length).toBe(2);
   });
 
-  it('names the lazy namespaces and no others (T-B-307 moved the label, Appearance, sign-in and showcase text out of the entry)', () => {
+  it('names the lazy namespaces and no others (T-C-005 added users and groups; T-B-307 moved the label, Appearance, sign-in and showcase text out of the entry)', () => {
     expect([...LAZY_NAMESPACES]).toEqual([
       'setup',
       'connection',
@@ -715,6 +715,9 @@ describe('loadNamespace: lazy namespace catalogues (FR-B-604, AM-21, CB15)', () 
       'session',
       'palette',
       'shortcuts',
+      // Phase C (T-C-005): the users and groups pages.
+      'users',
+      'groups',
     ]);
   });
 

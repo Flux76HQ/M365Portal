@@ -17,7 +17,7 @@ import { createLogger } from '../../src/logging/logger.js';
 import { requireDatabaseOf, type AppModule, type ModuleDeps } from '../../src/module.js';
 import { appModules } from '../../src/modules.js';
 import type { GraphClient } from '../../src/ports/graph.js';
-import { FakeGraphClient } from '../fakes/fake-graph-client.js';
+import { FakeGraphClient, type FakeGraphClientOptions } from '../fakes/fake-graph-client.js';
 import { FakeDirectory } from '../fakes/fake-tenant/graph/index.js';
 import { createFakeClock, type FakeClock } from '../helpers/fake-clock.js';
 import { createHttpClient, type HttpClient } from '../helpers/http-client.js';
@@ -75,6 +75,8 @@ export interface ApiFixture {
 export interface ApiFixtureOptions {
   /** Wrap or replace the Graph client the modules see. */
   readonly graph?: (fake: FakeGraphClient) => GraphClient;
+  /** Options of the in-memory Graph client (Phase C: the manager mode, hidden members). */
+  readonly graphOptions?: FakeGraphClientOptions;
   readonly env?: Readonly<Record<string, string>>;
 }
 
@@ -109,7 +111,7 @@ export async function createApiFixture(options: ApiFixtureOptions = {}): Promise
   });
   const identity = await createPolicyHarness({ db: database, clock });
   const directory = new FakeDirectory({ clock: { now: () => clock.nowMs() } });
-  const fake = new FakeGraphClient(directory);
+  const fake = new FakeGraphClient(directory, options.graphOptions ?? {});
   const graph = options.graph?.(fake) ?? fake;
   const sessions: SignedIn[] = [];
   const handle = (): AppDatabase | undefined => database;

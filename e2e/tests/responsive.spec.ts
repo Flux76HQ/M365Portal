@@ -3,8 +3,10 @@
 // centred on ultrawide, a landscape phone, and every interactive target at least 24 by 24 CSS px
 // (WCAG 2.5.8).
 import type { Page } from '@playwright/test';
-import { ROUTES } from '../routes.js';
+import { DIRECTORY_STATES, ROUTES } from '../routes.js';
 import { allowLockedSetup, expect, test } from '../fixtures.js';
+import { createDirectoryWorld, type DirectoryWorld } from '../fixtures/directory.js';
+import { resetDirectorySwitches, visitState } from '../fixtures/directory-page.js';
 import { smallTargets } from '../support/targets.js';
 
 async function horizontalOverflow(
@@ -270,4 +272,55 @@ test.describe('target size (WCAG 2.5.8)', () => {
     await expect(page.getByRole('menu')).toBeVisible();
     expect(await smallTargets(page)).toEqual([]);
   });
+});
+
+// ---- Phase C: the users and groups pages in every state, on the seeded directory (FR-C-502, FR-A-152) ----------
+// The plain routes above show the pages with the fake tenant's default data; the states are the seeded
+// directory (1,200 users, restricted rows, hidden memberships, the detail pages) at 320 px, on the desktop
+// and on the phone. The same list as the axe and the visual specs (`DIRECTORY_STATES`).
+
+test.describe('users and groups, every state', () => {
+  let world: DirectoryWorld;
+
+  test.beforeAll(async ({ browser }) => {
+    test.setTimeout(120_000);
+    world = await createDirectoryWorld(browser);
+  });
+
+  test.afterAll(async () => {
+    await world.destroy();
+  });
+
+  test.afterEach(async () => {
+    await resetDirectorySwitches();
+  });
+
+  for (const state of DIRECTORY_STATES) {
+    test(`${state.slug}: no horizontal scroll at 320 px`, async ({ page, app, guard }) => {
+      test.setTimeout(90_000);
+      await page.setViewportSize({ width: 320, height: 640 });
+      await visitState({ page, app, guard }, world, state);
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      await expectNoSidewaysScroll(page, state.slug);
+    });
+
+    for (const [label, size] of [
+      ['desktop', { width: 1440, height: 900 }],
+      ['phone', { width: 390, height: 844 }],
+    ] as const) {
+      test(`${state.slug} at ${label}: every interactive target is at least 24 by 24 px`, async ({
+        page,
+        app,
+        guard,
+      }) => {
+        test.setTimeout(90_000);
+        await page.setViewportSize(size);
+        await visitState({ page, app, guard }, world, state);
+        await page.waitForLoadState('networkidle');
+        await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+        expect(await smallTargets(page)).toEqual([]);
+      });
+    }
+  }
 });

@@ -8,14 +8,7 @@
 // file itself, parsed here independently of the code.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  codeTokens,
-  findTable,
-  headingsOf,
-  sectionOf,
-  stripMarkup,
-  tablesIn,
-} from './markdown.js';
+import { codeTokens, findTable, headingsOf, sectionOf, stripMarkup, tablesIn } from './markdown.js';
 
 export type Needle = readonly [pattern: RegExp | string, what: string];
 
@@ -91,7 +84,10 @@ export function assertReadmePhaseB(markdown: string): void {
   ]);
   requireAll('README first run (Dutch)', dutchRun, [
     ...FIRST_RUN_TOKENS,
-    [/namens (je|uw) organisatie|on behalf of your organi[sz]ation/i, 'de toestemming namens de organisatie niet geven'],
+    [
+      /namens (je|uw) organisatie|on behalf of your organi[sz]ation/i,
+      'de toestemming namens de organisatie niet geven',
+    ],
     [/beheerder/i, 'de Nederlandse tekst over de beheerder'],
     [/https/i, 'https'],
   ]);
@@ -103,12 +99,19 @@ export function assertReadmePhaseB(markdown: string): void {
     const order = ['generate-app-key', 'docker run', 'docker exec', '/setup'].map((token) =>
       text.indexOf(token),
     );
-    if (order.some((index) => index < 0) || order.some((index, i) => i > 0 && index < (order[i - 1] ?? -1))) {
-      throw new Error(`README first run (${label}): the steps are not in order (key, start, token, /setup)`);
+    if (
+      order.some((index) => index < 0) ||
+      order.some((index, i) => i > 0 && index < (order[i - 1] ?? -1))
+    ) {
+      throw new Error(
+        `README first run (${label}): the steps are not in order (key, start, token, /setup)`,
+      );
     }
   }
   if (/PREVIEW_MODE\s*=\s*true/.test(markdown)) {
-    throw new Error('README still tells the reader to start with PREVIEW_MODE=true (removed in Phase B)');
+    throw new Error(
+      'README still tells the reader to start with PREVIEW_MODE=true (removed in Phase B)',
+    );
   }
 }
 
@@ -142,18 +145,36 @@ export function assertOperationsPhaseB(markdown: string): void {
     ['outlook.office365.com', 'outbound host outlook.office365.com'],
     ['pre-rotate-', 'every pre-rotate-* copy in the key-compromise procedure'],
     ['setup-reopen', 'setup-reopen'],
-    [/SETUP_TOKEN[^.]*(remove|unset)|(remove|unset)[^.]*SETUP_TOKEN/i, 'removing SETUP_TOKEN after the first installation'],
+    [
+      /SETUP_TOKEN[^.]*(remove|unset)|(remove|unset)[^.]*SETUP_TOKEN/i,
+      'removing SETUP_TOKEN after the first installation',
+    ],
     ['rotate-app-key', 'the rotation command rotate-app-key'],
     ['APP_KEY_PREVIOUS', 'APP_KEY_PREVIOUS during a rotation'],
     ['hash-password', 'the hash-password command'],
     [/14 characters/i, 'the 14-character floor of hash-password'],
     ['NODE_USE_ENV_PROXY', 'the NODE_USE_ENV_PROXY hint'],
-    [/NODE_USE_ENV_PROXY[^|]*UNVERIFIED|UNVERIFIED[^|]*NODE_USE_ENV_PROXY|U41/, 'the NODE_USE_ENV_PROXY hint marked UNVERIFIED (U41)'],
-    [/PUBLIC_BASE_URL[^.]*(change|changed)[^.]*(setup-reopen|repair)|(setup-reopen|repair)[^.]*PUBLIC_BASE_URL/i, 'recovery for a changed PUBLIC_BASE_URL (EB-11)'],
+    [
+      /NODE_USE_ENV_PROXY[^|]*UNVERIFIED|UNVERIFIED[^|]*NODE_USE_ENV_PROXY|U41/,
+      'the NODE_USE_ENV_PROXY hint marked UNVERIFIED (U41)',
+    ],
+    [
+      /PUBLIC_BASE_URL[^.]*(change|changed)[^.]*(setup-reopen|repair)|(setup-reopen|repair)[^.]*PUBLIC_BASE_URL/i,
+      'recovery for a changed PUBLIC_BASE_URL (EB-11)',
+    ],
     [/single[- ]replica|one replica/i, 'the single-replica note (B-26)'],
-    [/lock counters|counters[^.]*(reset|lost)/i, 'a restart resets the in-memory lock counters (RB-17)'],
-    [/Key Vault|platform secret/i, 'a platform secret or Key Vault reference reaches the container as APP_KEY or APP_KEY_FILE'],
-    [/key[^.]*separately from[^.]*(`?\/data`?|the data volume)|separately from[^.]*backup/i, 'backup of the key separately from /data'],
+    [
+      /lock counters|counters[^.]*(reset|lost)/i,
+      'a restart resets the in-memory lock counters (RB-17)',
+    ],
+    [
+      /Key Vault|platform secret/i,
+      'a platform secret or Key Vault reference reaches the container as APP_KEY or APP_KEY_FILE',
+    ],
+    [
+      /key[^.]*separately from[^.]*(`?\/data`?|the data volume)|separately from[^.]*backup/i,
+      'backup of the key separately from /data',
+    ],
   ]);
   requireAll('operations.md (Dutch)', dutch, [
     ['APP_KEY', 'APP_KEY'],
@@ -204,13 +225,20 @@ export function assertSecurityPhaseB(markdown: string): void {
       /surface/i.test(header[0] ?? '') &&
       ['S', 'T', 'R', 'I', 'D', 'E'].every((letter, index) => header[index + 1] === letter),
   );
-  if (stride === undefined) throw new Error('security.md: no Phase B STRIDE table (header Surface | S | T | R | I | D | E)');
+  if (stride === undefined)
+    throw new Error(
+      'security.md: no Phase B STRIDE table (header Surface | S | T | R | I | D | E)',
+    );
   for (const surface of STRIDE_SURFACES) {
-    const row = stride.rows.find((candidate) => (candidate[0] ?? '').toLowerCase().startsWith(surface.toLowerCase()));
+    const row = stride.rows.find((candidate) =>
+      (candidate[0] ?? '').toLowerCase().startsWith(surface.toLowerCase()),
+    );
     if (row === undefined) throw new Error(`security.md: the STRIDE table has no row "${surface}"`);
     for (let column = 1; column <= 6; column += 1) {
       if ((row[column] ?? '').trim().length < 8) {
-        throw new Error(`security.md: the STRIDE row "${surface}" has an empty cell in column ${String(column)}`);
+        throw new Error(
+          `security.md: the STRIDE row "${surface}" has an empty cell in column ${String(column)}`,
+        );
       }
     }
   }
@@ -219,7 +247,9 @@ export function assertSecurityPhaseB(markdown: string): void {
   const asvs = tablesIn(english).find(
     (table) =>
       /chapter|asvs/i.test(table.header[0] ?? '') &&
-      ASVS_CHAPTERS.every((chapter) => table.rows.some((row) => (row[0] ?? '').startsWith(chapter))),
+      ASVS_CHAPTERS.every((chapter) =>
+        table.rows.some((row) => (row[0] ?? '').startsWith(chapter)),
+      ),
   );
   if (asvs === undefined) {
     throw new Error(`security.md: no ASVS level 2 table with the rows ${ASVS_CHAPTERS.join(', ')}`);
@@ -233,26 +263,43 @@ export function assertSecurityPhaseB(markdown: string): void {
 
   // The attack review of plan 16.1: 25 rows with a residual cell.
   const review = tablesIn(english).find(
-    (table) => /^#$/.test(table.header[0] ?? '') && table.header.some((cell) => /residual/i.test(cell)),
+    (table) =>
+      /^#$/.test(table.header[0] ?? '') && table.header.some((cell) => /residual/i.test(cell)),
   );
-  if (review === undefined) throw new Error('security.md: no attack-review table (header # | Attack | ... | Residual)');
+  if (review === undefined)
+    throw new Error('security.md: no attack-review table (header # | Attack | ... | Residual)');
   if (review.rows.length !== 25) {
-    throw new Error(`security.md: the attack review has ${String(review.rows.length)} rows, plan 16.1 has 25`);
+    throw new Error(
+      `security.md: the attack review has ${String(review.rows.length)} rows, plan 16.1 has 25`,
+    );
   }
   review.rows.forEach((row, index) => {
-    if (row[0] !== String(index + 1)) throw new Error(`security.md: attack-review row ${String(index + 1)} is numbered "${row[0] ?? ''}"`);
-    if (row.some((cell) => cell.trim() === '')) throw new Error(`security.md: attack-review row ${String(index + 1)} has an empty cell`);
+    if (row[0] !== String(index + 1))
+      throw new Error(
+        `security.md: attack-review row ${String(index + 1)} is numbered "${row[0] ?? ''}"`,
+      );
+    if (row.some((cell) => cell.trim() === ''))
+      throw new Error(`security.md: attack-review row ${String(index + 1)} has an empty cell`);
   });
 
   requireAll('security.md', english, [
-    [/not isolated by port|shared (across|between) ports|ports? (do|does) not isolate/i, 'cookies are not isolated by port (the localhost trade-off)'],
+    [
+      /not isolated by port|shared (across|between) ports|ports? (do|does) not isolate/i,
+      'cookies are not isolated by port (the localhost trade-off)',
+    ],
     [/combined (CSRF )?binding|csrf binding/i, 'the combined CSRF binding'],
-    [/Exchange Administrator[^.]*blast radius|blast radius[^.]*Exchange Administrator/i, 'the Exchange Administrator blast radius'],
+    [
+      /Exchange Administrator[^.]*blast radius|blast radius[^.]*Exchange Administrator/i,
+      'the Exchange Administrator blast radius',
+    ],
     [/self-signed/i, 'the self-signed certificate trade-off'],
     [/CA certificate|certificate authority/i, 'Learn advises a CA certificate'],
     [/headers[^.]*unchanged|unchanged[^.]*headers/i, 'why the headers did not change'],
     [/owner-verified|cannot prove|simulation cannot/i, 'what the simulation cannot prove'],
-    [/rotating[^.]*APP_KEY[^.]*(does not|not)[^.]*renew/i, 'rotating APP_KEY does not renew the certificate'],
+    [
+      /rotating[^.]*APP_KEY[^.]*(does not|not)[^.]*renew/i,
+      'rotating APP_KEY does not renew the certificate',
+    ],
     [/DNS rebinding/i, 'DNS rebinding'],
     [/loopback[^.]*Host|Host[^.]*loopback/i, 'the loopback Host rule'],
     [/group owners/i, 'control from the Entra side: group owners'],
@@ -262,7 +309,10 @@ export function assertSecurityPhaseB(markdown: string): void {
     [/device code flow/i, 'blocking the device code flow by Conditional Access'],
     ['manual mode', 'manual mode as the alternative'],
     ['docker inspect', 'the docker inspect exposure of -e APP_KEY'],
-    [/R-08[^.]*(closed|removed)|(closed|removed)[^.]*R-08/i, 'the Phase A preview-mode risk (R-08) closed'],
+    [
+      /R-08[^.]*(closed|removed)|(closed|removed)[^.]*R-08/i,
+      'the Phase A preview-mode risk (R-08) closed',
+    ],
     ['RB-17', 'accepted risk RB-17'],
     ['RB-18', 'accepted risk RB-18'],
     [/memory residue/i, 'accepted risk: memory residue of keys'],
@@ -315,32 +365,48 @@ export function assertPermissionsPhaseB(markdown: string, specText: string): voi
   const expected = specRoleMatrix(specText);
   if (expected.length !== 15) throw new Error('spec 6.9.4 does not list 15 permissions');
 
-  const table = findTable(english, (header) =>
-    header.some((cell) => cell.includes('Eigenaar')) && /permission/i.test(header[0] ?? ''),
+  const table = findTable(
+    english,
+    (header) =>
+      header.some((cell) => cell.includes('Eigenaar')) && /permission/i.test(header[0] ?? ''),
   );
-  if (table === undefined) throw new Error('permissions.md: no role matrix (a table with the column Eigenaar)');
+  if (table === undefined)
+    throw new Error('permissions.md: no role matrix (a table with the column Eigenaar)');
   const columns = ['Eigenaar', 'Beheerder', 'Operator', 'Helpdesk', 'Lezer', 'Bestuur'];
   const index = columns.map((name) => table.header.findIndex((cell) => cell.includes(name)));
-  if (index.some((position) => position < 0)) throw new Error('permissions.md: the role matrix lacks a role column');
+  if (index.some((position) => position < 0))
+    throw new Error('permissions.md: the role matrix lacks a role column');
   const rows = table.rawRows;
   for (const row of expected) {
     const found = rows.find((candidate) => codeTokens(candidate[0] ?? '')[0] === row.permission);
-    if (found === undefined) throw new Error(`permissions.md: the role matrix has no row for ${row.permission}`);
-    const cell = (column: number): string => stripMarkup(found[index[column] ?? 0] ?? '').toLowerCase();
+    if (found === undefined)
+      throw new Error(`permissions.md: the role matrix has no row for ${row.permission}`);
+    const cell = (column: number): string =>
+      stripMarkup(found[index[column] ?? 0] ?? '').toLowerCase();
     row.roles.forEach((mark, role) => {
       if ((mark.toLowerCase() === 'x') !== (cell(role) === 'x')) {
-        throw new Error(`permissions.md: ${row.permission} for ${columns[role] ?? ''} is "${cell(role)}", the spec has "${mark}"`);
+        throw new Error(
+          `permissions.md: ${row.permission} for ${columns[role] ?? ''} is "${cell(role)}", the spec has "${mark}"`,
+        );
       }
     });
     if (cell(5) !== row.bestuur.toLowerCase()) {
-      throw new Error(`permissions.md: ${row.permission} for Bestuur is "${cell(5)}", the spec has "${row.bestuur}"`);
+      throw new Error(
+        `permissions.md: ${row.permission} for Bestuur is "${cell(5)}", the spec has "${row.bestuur}"`,
+      );
     }
   }
-  if (rows.length !== 15) throw new Error(`permissions.md: the role matrix has ${String(rows.length)} rows, not 15`);
+  if (rows.length !== 15)
+    throw new Error(`permissions.md: the role matrix has ${String(rows.length)} rows, not 15`);
   const totals = [15, 13, 9, 6, 4, 5];
   totals.forEach((total, role) => {
-    const count = expected.filter((row) => (role < 5 ? row.roles[role]?.toLowerCase() === 'x' : row.bestuur !== '')).length;
-    if (count !== total) throw new Error(`the spec matrix gives ${String(count)} permissions for ${columns[role] ?? ''}, expected ${String(total)}`);
+    const count = expected.filter((row) =>
+      role < 5 ? row.roles[role]?.toLowerCase() === 'x' : row.bestuur !== '',
+    ).length;
+    if (count !== total)
+      throw new Error(
+        `the spec matrix gives ${String(count)} permissions for ${columns[role] ?? ''}, expected ${String(total)}`,
+      );
   });
 
   requireAll('permissions.md', english, [
@@ -350,19 +416,34 @@ export function assertPermissionsPhaseB(markdown: string, specText: string): voi
     ]),
     ['dc50a0fb-09a3-484d-be87-e023b12c6440', 'the id of Exchange.ManageAsApp'],
     ['29232cdf-9323-42fd-ade2-1d097af3e4de', 'the EXCHANGE_ROLES template exchange_administrator'],
-    ['31392ffb-586c-42d1-9346-e59415a2cc4e', 'the EXCHANGE_ROLES template exchange_recipient_administrator'],
+    [
+      '31392ffb-586c-42d1-9346-e59415a2cc4e',
+      'the EXCHANGE_ROLES template exchange_recipient_administrator',
+    ],
     ['EXCHANGE_ROLES', 'the name EXCHANGE_ROLES'],
     ['Application.ReadWrite.All', 'the delegated scope Application.ReadWrite.All'],
     ['AppRoleAssignment.ReadWrite.All', 'the delegated scope AppRoleAssignment.ReadWrite.All'],
-    ['RoleManagement.ReadWrite.Directory', 'the delegated scope RoleManagement.ReadWrite.Directory'],
+    [
+      'RoleManagement.ReadWrite.Directory',
+      'the delegated scope RoleManagement.ReadWrite.Directory',
+    ],
     ['FORBIDDEN_APP_ROLES', 'the roles the runtime application never holds'],
-    [/User\.ReadWrite\.All[\s\S]*Group\.ReadWrite\.All[\s\S]*Directory\.Read\.All/, 'the delta against the brief (three dropped, two added)'],
+    [
+      /User\.ReadWrite\.All[\s\S]*Group\.ReadWrite\.All[\s\S]*Directory\.Read\.All/,
+      'the delta against the brief (three dropped, two added)',
+    ],
     [/Exchange\.ManageAsApp/, 'the Exchange app role'],
     [/permissions-reference/, 'the permissions reference as the Learn source'],
     [/resource type/i, 'the permission to resource-type map'],
-    [/global-only|unscoped/i, 'the scope semantics (global-only permissions come from unscoped assignments only)'],
+    [
+      /global-only|unscoped/i,
+      'the scope semantics (global-only permissions come from unscoped assignments only)',
+    ],
     ['U5', 'the register id U5 for the narrower Exchange role (UNVERIFIED)'],
-    [/Group\.Read\.All[^.]*(not granted|never|dropped)|(not granted|never|dropped)[^.]*Group\.Read\.All/i, 'Group.Read.All is not granted'],
+    [
+      /Group\.Read\.All[^.]*(not granted|never|dropped)|(not granted|never|dropped)[^.]*Group\.Read\.All/i,
+      'Group.Read.All is not granted',
+    ],
   ]);
   requireAll('permissions.md (Dutch)', dutch, [
     [/Eigenaar/, 'de rol Eigenaar'],
@@ -375,7 +456,11 @@ export function assertPermissionsPhaseB(markdown: string, specText: string): voi
 // docs/architecture.md (FR-B-709, FR-B-711, PB-01, plan 11.9)
 // =============================================================================================
 
-export const PHASE_B_DEPENDENCIES: readonly (readonly [name: string, mark: RegExp, note: RegExp])[] = [
+export const PHASE_B_DEPENDENCIES: readonly (readonly [
+  name: string,
+  mark: RegExp,
+  note: RegExp,
+])[] = [
   ['libsodium-wrappers', /reuse/i, /XChaCha20/],
   ['@peculiar/x509', /reuse|adapt/i, /self-signed/i],
   ['reflect-metadata', /reuse/i, /polyfill/i],
@@ -386,17 +471,29 @@ export const PHASE_B_DEPENDENCIES: readonly (readonly [name: string, mark: RegEx
 
 export function assertArchitecturePhaseB(markdown: string): void {
   const { english, dutch } = halves(markdown);
-  const table = findTable(english, (header) =>
-    /dependency/i.test(header[0] ?? '') && header.some((cell) => /reason/i.test(cell)) && header.some((cell) => /mark/i.test(cell)),
+  const table = findTable(
+    english,
+    (header) =>
+      /dependency/i.test(header[0] ?? '') &&
+      header.some((cell) => /reason/i.test(cell)) &&
+      header.some((cell) => /mark/i.test(cell)),
   );
-  if (table === undefined) throw new Error('architecture.md: no dependency table (Dependency, Reason, Mark)');
+  if (table === undefined)
+    throw new Error('architecture.md: no dependency table (Dependency, Reason, Mark)');
   for (const [name, mark, note] of PHASE_B_DEPENDENCIES) {
-    const row = table.rows.find((candidate) => (candidate[0] ?? '').replace(/\s*\(.*\)$/, '') === name);
-    if (row === undefined) throw new Error(`architecture.md: the dependency table has no row for ${name}`);
+    const row = table.rows.find(
+      (candidate) => (candidate[0] ?? '').replace(/\s*\(.*\)$/, '') === name,
+    );
+    if (row === undefined)
+      throw new Error(`architecture.md: the dependency table has no row for ${name}`);
     const reason = row[table.header.findIndex((cell) => /reason/i.test(cell))] ?? '';
     const markCell = row[table.header.findIndex((cell) => /mark/i.test(cell))] ?? '';
-    if (!mark.test(markCell)) throw new Error(`architecture.md: ${name} has the mark "${markCell}"`);
-    if (!note.test(reason)) throw new Error(`architecture.md: the reason of ${name} does not say what it is for ("${reason}")`);
+    if (!mark.test(markCell))
+      throw new Error(`architecture.md: ${name} has the mark "${markCell}"`);
+    if (!note.test(reason))
+      throw new Error(
+        `architecture.md: the reason of ${name} does not say what it is for ("${reason}")`,
+      );
   }
   requireHeadings('architecture.md', english, [
     [/layering|layers/i, 'the layering with the integrations boundary'],
@@ -407,14 +504,20 @@ export function assertArchitecturePhaseB(markdown: string): void {
     [/global `?fetch`?|only[^.]*fetch/i, 'the fetch-only rule'],
     [/no-egress/i, 'the no-egress guard'],
     ['jsonwebtoken', 'the note that @azure/msal-node brings jsonwebtoken'],
-    [/never configures|never used|does not use/i, 'jsonwebtoken serves a certificate path this product never configures'],
+    [
+      /never configures|never used|does not use/i,
+      'jsonwebtoken serves a certificate path this product never configures',
+    ],
     ['AuthorizedResource', 'the capability-branded argument AuthorizedResource'],
     ['VisibleScope', 'the capability-branded argument VisibleScope'],
     ['projectUser', 'projectUser for every response with user attributes'],
     [/Phase C|Phases C and D|Phase D/, 'the rule for Phases C and D'],
     [/session (timing|timeouts?)/i, 'accessibility: session timing'],
     [/wizard/i, 'accessibility: the wizard'],
-    ...['secrets', 'setup', 'connection', 'auth', 'rbac'].map((module): Needle => [new RegExp(`\`${module}\``), `the module ${module}`]),
+    ...['secrets', 'setup', 'connection', 'auth', 'rbac'].map((module): Needle => [
+      new RegExp(`\`${module}\``),
+      `the module ${module}`,
+    ]),
   ]);
   requireAll('architecture.md (Dutch)', dutch, [
     [/afhankelijkhe/i, 'de afhankelijkheden'],
@@ -437,9 +540,12 @@ export function assertAdr0102(directory: string): void {
   if (file === undefined) throw new Error('ADR-0102 does not exist');
   const text = readFileSync(join(directory, file), 'utf8');
   const missing = [
-    [/interface[- ]only|interface plus|interface and/i, 'the interface-only decision for the Exchange write path'],
+    [
+      /interface[- ]only|interface plus|interface and/i,
+      'the interface-only decision for the Exchange write path',
+    ],
     [/owner/i, 'that the owner decides'],
-    [/updated/i, 'that it is updated with the owner\'s choice after the gate'],
+    [/updated/i, "that it is updated with the owner's choice after the gate"],
     [/ODB-01/, 'ODB-01'],
   ].filter(([pattern]) => !(pattern as RegExp).test(flat(text)));
   if (missing.length > 0) {
@@ -453,21 +559,56 @@ export function assertAdr0102(directory: string): void {
 
 export function assertOpenPointsPhaseB(markdown: string): void {
   const needles: Needle[] = [];
-  for (let n = 34; n <= 50; n += 1) needles.push([new RegExp(`\\| U${String(n)} \\| [^|\\s]`), `the register row U${String(n)}`]);
-  for (const id of ['U22', 'U31', 'U33', 'U40', 'U41', 'U43', 'U44']) needles.push([new RegExp(`\\b${id}\\b`), `the update to ${id}`]);
-  for (let n = 1; n <= 23; n += 1) needles.push([new RegExp(`\\| OV-${String(n).padStart(2, '0')} \\| [^|\\s]`), `the owner-verified item OV-${String(n).padStart(2, '0')}`]);
-  for (let n = 1; n <= 26; n += 1) needles.push([new RegExp(`\\| B-${String(n).padStart(2, '0')} \\| [^|\\s]`), `the assumption B-${String(n).padStart(2, '0')}`]);
-  for (let n = 1; n <= 28; n += 1) needles.push([new RegExp(`\\| PB-${String(n).padStart(2, '0')} \\| [^|\\s]`), `the decision PB-${String(n).padStart(2, '0')}`]);
-  for (let n = 1; n <= 18; n += 1) needles.push([new RegExp(`\\| RB-${String(n).padStart(2, '0')} \\| [^|\\s]`), `the risk RB-${String(n).padStart(2, '0')}`]);
-  for (let n = 1; n <= 14; n += 1) needles.push([new RegExp(`\\| PBR-${String(n).padStart(2, '0')} \\| [^|\\s]`), `the risk PBR-${String(n).padStart(2, '0')}`]);
-  for (let n = 1; n <= 18; n += 1) needles.push([new RegExp(`\\| ODB-${String(n).padStart(2, '0')} \\| [^|\\s]`), `the owner decision ODB-${String(n).padStart(2, '0')}`]);
+  for (let n = 34; n <= 50; n += 1)
+    needles.push([new RegExp(`\\| U${String(n)} \\| [^|\\s]`), `the register row U${String(n)}`]);
+  for (const id of ['U22', 'U31', 'U33', 'U40', 'U41', 'U43', 'U44'])
+    needles.push([new RegExp(`\\b${id}\\b`), `the update to ${id}`]);
+  for (let n = 1; n <= 23; n += 1)
+    needles.push([
+      new RegExp(`\\| OV-${String(n).padStart(2, '0')} \\| [^|\\s]`),
+      `the owner-verified item OV-${String(n).padStart(2, '0')}`,
+    ]);
+  for (let n = 1; n <= 26; n += 1)
+    needles.push([
+      new RegExp(`\\| B-${String(n).padStart(2, '0')} \\| [^|\\s]`),
+      `the assumption B-${String(n).padStart(2, '0')}`,
+    ]);
+  for (let n = 1; n <= 28; n += 1)
+    needles.push([
+      new RegExp(`\\| PB-${String(n).padStart(2, '0')} \\| [^|\\s]`),
+      `the decision PB-${String(n).padStart(2, '0')}`,
+    ]);
+  for (let n = 1; n <= 18; n += 1)
+    needles.push([
+      new RegExp(`\\| RB-${String(n).padStart(2, '0')} \\| [^|\\s]`),
+      `the risk RB-${String(n).padStart(2, '0')}`,
+    ]);
+  for (let n = 1; n <= 14; n += 1)
+    needles.push([
+      new RegExp(`\\| PBR-${String(n).padStart(2, '0')} \\| [^|\\s]`),
+      `the risk PBR-${String(n).padStart(2, '0')}`,
+    ]);
+  for (let n = 1; n <= 18; n += 1)
+    needles.push([
+      new RegExp(`\\| ODB-${String(n).padStart(2, '0')} \\| [^|\\s]`),
+      `the owner decision ODB-${String(n).padStart(2, '0')}`,
+    ]);
   requireAll('open-points.md', markdown, [
     ...needles,
-    [/mfa_required[^.]*amr_missing|amr_missing[^.]*mfa_required/, 'the decision: step-up without MFA gives mfa_required or amr_missing (FR-B-411), not stepup_failed'],
+    [
+      /mfa_required[^.]*amr_missing|amr_missing[^.]*mfa_required/,
+      'the decision: step-up without MFA gives mfa_required or amr_missing (FR-B-411), not stepup_failed',
+    ],
     [/F-45[^.]*250/, 'the decision: the F-45 fixture uses 250 short entries'],
     [/break-glass[^.]*actor/i, 'the decision: the actor ids anonymous and break-glass'],
-    [/default language[^.]*(delivery path|no path)|stored default language/i, 'the stored default language has no delivery path yet'],
-    [/group properties[^.]*OV-19|OV-19[^.]*group properties/i, 'the group properties of OV-19 are not visible in the panel'],
+    [
+      /default language[^.]*(delivery path|no path)|stored default language/i,
+      'the stored default language has no delivery path yet',
+    ],
+    [
+      /group properties[^.]*OV-19|OV-19[^.]*group properties/i,
+      'the group properties of OV-19 are not visible in the panel',
+    ],
     [/x5t[^.]*(constant|not a variable)/i, 'the x5t fallback is a constant, not a variable'],
     [/audit view|no audit UI|missing audit/i, 'the missing audit view (Phase D)'],
   ]);
@@ -478,18 +619,24 @@ export function assertOpenPointsPhaseB(markdown: string): void {
 // =============================================================================================
 
 export function contractRouteIds(contractText: string): string[] {
-  return [...contractText.matchAll(/^\| (?:P|R)\d+ \| `([a-z][a-zA-Z0-9.]*)` \|/gm)].map((match) => match[1] ?? '');
+  return [...contractText.matchAll(/^\| (?:P|R)\d+ \| `([a-z][a-zA-Z0-9.]*)` \|/gm)].map(
+    (match) => match[1] ?? '',
+  );
 }
 
 export function assertRoutesMatchContract(input: {
   readonly documented: readonly string[];
   readonly phaseA: readonly string[];
   readonly phaseB: readonly string[];
+  /** Phase C (spec 003, table 6.7.1): the seven read routes P33 to P39. */
+  readonly phaseC?: readonly string[];
 }): void {
   const problems: string[] = [];
-  const known = new Set([...input.phaseA, ...input.phaseB]);
-  for (const id of input.phaseB) {
-    if (!input.documented.includes(id)) problems.push(`the contract lists ${id}, which is not in the route table`);
+  const phaseC = input.phaseC ?? [];
+  const known = new Set([...input.phaseA, ...input.phaseB, ...phaseC]);
+  for (const id of [...input.phaseB, ...phaseC]) {
+    if (!input.documented.includes(id))
+      problems.push(`the contract lists ${id}, which is not in the route table`);
   }
   for (const id of input.documented) {
     if (!known.has(id)) problems.push(`the route table has ${id}, which no contract lists`);
@@ -509,14 +656,18 @@ export function assertNegativeControlTable(planText: string, root: string): void
   const end = planText.indexOf('### 14.7');
   if (start < 0 || end < start) throw new Error('plan.md has no section 14.6');
   const table = tablesIn(planText.slice(start, end))[0];
-  if (table === undefined || table.rows.length < 25) throw new Error('plan 14.6 has no negative-control table of 25 rows or more');
+  if (table === undefined || table.rows.length < 25)
+    throw new Error('plan 14.6 has no negative-control table of 25 rows or more');
   const problems: string[] = [];
   for (const row of table.rawRows) {
     for (const path of codeTokens(row[2] ?? '')) {
       const slash = path.indexOf('/');
       const prefix = path.slice(0, slash);
-      const file = path.startsWith('tools/') ? path : `${TEST_PREFIX[prefix] ?? ''}${path.slice(slash + 1)}`;
-      if (!existsSync(join(root, file))) problems.push(`${stripMarkup(row[0] ?? '')}: ${path} does not exist (${file})`);
+      const file = path.startsWith('tools/')
+        ? path
+        : `${TEST_PREFIX[prefix] ?? ''}${path.slice(slash + 1)}`;
+      if (!existsSync(join(root, file)))
+        problems.push(`${stripMarkup(row[0] ?? '')}: ${path} does not exist (${file})`);
     }
   }
   if (problems.length > 0) throw new Error(problems.join('\n'));

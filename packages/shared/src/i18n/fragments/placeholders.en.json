@@ -2,9 +2,7 @@
   "placeholders.audit.description": "Review who changed what in the panel, and export the log.",
   "placeholders.contacts.description": "Create, update and delete mail contacts of your Microsoft 365 tenant.",
   "placeholders.distributionLists.description": "Browse distribution lists, manage their members and export them.",
-  "placeholders.groups.description": "Browse the groups of your Microsoft 365 tenant and manage their members.",
   "placeholders.notAvailable": "Not available until Phase {phase}",
   "placeholders.note": "This part of the panel arrives in a later phase. It is in the menu so you can see where it will be; nothing here works yet.",
-  "placeholders.users.description": "Look up the users of your Microsoft 365 tenant and see their details and group memberships.",
   "placeholders.whatItWillDo": "What it will do"
 }

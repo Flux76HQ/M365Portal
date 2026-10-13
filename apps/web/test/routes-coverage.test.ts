@@ -5,6 +5,11 @@
 // there that the router does not have audits a Not-found page by accident. Both directions fail.
 // The one deliberate extra entry is `UNKNOWN_ROUTE`, which must NOT be a route (it is the Not-found
 // page's own address).
+//
+// PARAMETERISED ROUTES (Phase C): `/users/$id` and `/groups/$id` are pages of one user and one group. A
+// parameter has no value in a path list, so such a route needs no entry of its own; the test knows them by
+// name (`PARAMETERISED_ROUTES`), a parameterised route it does not know fails, and a listed path that
+// is a concrete address of one (`/users/<guid>`) is accepted instead of being called an unknown page.
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { createMemoryHistory } from '@tanstack/react-router';
 import { describe, expect, it } from 'vitest';
@@ -20,15 +25,37 @@ function routerPaths(): string[] {
   return [...new Set(Object.keys(router.routesByPath).map(normalise))].sort();
 }
 
-/** Throws, naming every difference, unless the two sets are equal. */
+/** The pages of one object (Phase C). The path of such a page has a `$` segment, the id of the object. */
+const PARAMETERISED_ROUTES: readonly string[] = ['/groups/$id', '/users/$id'];
+
+/** Does the listed path name a page of one of these routes (`/users/<anything>` for `/users/$id`)? */
+function isConcreteAddressOf(path: string, pattern: string): boolean {
+  const listed = path.split('/');
+  const parts = pattern.split('/');
+  return (
+    listed.length === parts.length &&
+    parts.every((part, index) => part.startsWith('$') || part === listed[index])
+  );
+}
+
+/** Throws, naming every difference, unless the two sets are equal (parameterised routes aside, see above). */
 function assertSameRoutes(listed: readonly string[], tree: readonly string[]): void {
+  const treePaths = tree.map(normalise);
+  const parameterised = treePaths.filter((path) => path.includes('$'));
   const inList = new Set(listed.map(normalise));
-  const inTree = new Set(tree.map(normalise));
+  const inTree = new Set(treePaths.filter((path) => !path.includes('$')));
   const missing = [...inTree].filter((path) => !inList.has(path)).sort();
-  const extra = [...inList].filter((path) => !inTree.has(path)).sort();
+  const extra = [...inList]
+    .filter((path) => !inTree.has(path))
+    .filter((path) => !parameterised.some((pattern) => isConcreteAddressOf(path, pattern)))
+    .sort();
+  const unknown = parameterised.filter((path) => !PARAMETERISED_ROUTES.includes(path)).sort();
   const problems = [
     ...missing.map((path) => `the router has ${path}, e2e/routes.ts does not list it`),
     ...extra.map((path) => `e2e/routes.ts lists ${path}, the router has no such route`),
+    ...unknown.map(
+      (path) => `the router has the parameterised route ${path}, this test does not know it`,
+    ),
   ];
   if (problems.length > 0) throw new Error(problems.join('; '));
 }
@@ -46,6 +73,12 @@ describe('e2e/routes.ts against the route tree', () => {
     expect(ROUTES).toEqual([...CLIENT_ROUTES, UNKNOWN_ROUTE]);
     expect(routerPaths()).not.toContain(UNKNOWN_ROUTE);
     expect(new Set(ROUTES).size).toBe(ROUTES.length);
+  });
+
+  it('knows the two parameterised routes of Phase C, and they are in the router', () => {
+    const paths = routerPaths();
+    for (const path of PARAMETERISED_ROUTES) expect(paths, path).toContain(path);
+    expect(paths.filter((path) => path.includes('$')).sort()).toEqual([...PARAMETERISED_ROUTES]);
   });
 
   it('the Phase B routes are in the router and in the list (T-B-381)', () => {
@@ -113,6 +146,37 @@ describe('e2e/routes.ts against the route tree', () => {
           reason: 'the router has /break-glass, e2e/routes.ts does not list it',
         },
       );
+    });
+
+    it('a parameterised route the test does not know fails', () => {
+      expectGuardFails(
+        () => {
+          assertSameRoutes(CLIENT_ROUTES, [...routerPaths(), '/audit/$entry']);
+        },
+        {
+          name: 'assertSameRoutes (unknown parameterised route)',
+          reason:
+            'the router has the parameterised route /audit/$entry, this test does not know it',
+        },
+      );
+    });
+
+    it('a listed address that is no page of a parameterised route fails, one that is passes', () => {
+      expectGuardFails(
+        () => {
+          assertSameRoutes([...CLIENT_ROUTES, '/users/abc/extra'], routerPaths());
+        },
+        {
+          name: 'assertSameRoutes (too long an address)',
+          reason: 'e2e/routes.ts lists /users/abc/extra, the router has no such route',
+        },
+      );
+      expect(() => {
+        assertSameRoutes(
+          [...CLIENT_ROUTES, '/users/00000000-0000-4000-8000-000000001001'],
+          routerPaths(),
+        );
+      }).not.toThrow();
     });
 
     it('the unknown path listed as a route fails', () => {

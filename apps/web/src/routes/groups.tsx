@@ -1,22 +1,16 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { Outlet, createFileRoute } from '@tanstack/react-router';
 import { NoAccess } from '../components/pages/NoAccess';
-import { PlaceholderPage } from '../components/pages/PlaceholderPage';
 import { gatedPage, requirePermission } from '../lib/gating';
+import { DIRECTORY_NAMESPACES, loadLazyNamespaces } from '../lib/locale';
 
-// Phase C (FR-A-129, FR-A-130): a placeholder that says so. Gated by `groups:read`; an actor without it sees
-// the No-access content at this same URL. The server enforces; this only decides what the page shows.
-function GroupsPage() {
-  return (
-    <PlaceholderPage
-      titleKey="nav.groups"
-      descriptionKey="placeholders.groups.description"
-      phase="C"
-    />
-  );
-}
-
+// /groups (FR-C-501): the layout of the groups pages, the list below it and one page for a group. Gated by
+// `groups:read`, as /users is by `users:read`; the text of both directory namespaces is loaded here (a
+// group's page lists users, and both name the permission message of `users`, EC-C14).
 export const Route = createFileRoute('/groups')({
   staticData: { titleKey: 'nav.groups' },
   beforeLoad: requirePermission(['groups:read']),
-  component: gatedPage(GroupsPage, NoAccess),
+  loader: async () => {
+    await loadLazyNamespaces(DIRECTORY_NAMESPACES);
+  },
+  component: gatedPage(Outlet, NoAccess),
 });

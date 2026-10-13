@@ -1180,6 +1180,14 @@ const NO_STORE_PATHS = [
   '/api/v1/me/access',
   '/api/v1/rbac/roles',
   '/api/v1/rbac',
+  // Phase C (FR-C-403, XC6): the directory reads hold personal data.
+  '/api/v1/users',
+  '/api/v1/users/3f2c1a9e-0b5d-4c61-8a77-5d9a2b7c4e10',
+  '/api/v1/users/3f2c1a9e-0b5d-4c61-8a77-5d9a2b7c4e10/groups',
+  '/api/v1/groups',
+  '/api/v1/groups/3f2c1a9e-0b5d-4c61-8a77-5d9a2b7c4e10',
+  '/api/v1/groups/3f2c1a9e-0b5d-4c61-8a77-5d9a2b7c4e10/owners',
+  '/api/v1/groups/3f2c1a9e-0b5d-4c61-8a77-5d9a2b7c4e10/members',
 ] as const;
 
 /** Paths that look similar and are not part of the list: they keep the header their route set. */
@@ -1189,6 +1197,10 @@ const OTHER_PATHS = [
   '/api/v1/members',
   '/authx/login',
   '/api/v1/authz',
+  '/api/v1/usersx',
+  '/api/v1/user',
+  '/api/v1/groupsfoo',
+  '/api/v1/group',
 ];
 
 describe('the paths of FR-B-417 are no-store whatever the route says', () => {

@@ -85,9 +85,26 @@ export interface GraphHttpDeps {
   readonly fetch?: typeof fetch;
 }
 
+/** One page of a collection (Phase C, FR-C-103). */
+export interface GraphPage {
+  readonly items: readonly unknown[];
+  /** The `@odata.nextLink` of the page, validated (same origin, under `/v1.0/`), or `null` at the end. */
+  readonly nextLink: string | null;
+  /** `@odata.count` when the answer carries one (`$count=true`), otherwise `null`. */
+  readonly count: number | null;
+}
+
 export interface GraphHttp {
   /** One call; a non-2xx answer is a typed error. */
   request(request: GraphRequest): Promise<GraphResponse>;
+  /**
+   * One page of a collection: the first page of `request`, or, with `nextLink`, the page that link
+   * names (checked by the same rule as `requestAll`; the headers of `request`, such as
+   * `ConsistencyLevel`, are sent again). The link of the next page is validated before it is
+   * returned, so a hostile link fails here and never reaches a caller. `$skip` is never sent
+   * (R-C-01); the answer is never cached. At most one page is read.
+   */
+  requestPage(request: GraphRequest, nextLink?: string): Promise<GraphPage>;
   /**
    * A collection: the `value` arrays of the first page and of every `@odata.nextLink` that stays
    * under `/v1.0/` on the same origin, at most `GRAPH_MAX_PAGES` pages.
@@ -183,6 +200,18 @@ export function createGraphHttp(deps: GraphHttpDeps): GraphHttp {
     return typeof link === 'string' ? link : undefined;
   }
 
+  /** A link Graph handed out (or a stored one): followed only on the origin, under /v1.0/ (FR-B-317). */
+  function followable(link: string): string {
+    try {
+      return resolveUnder(GRAPH_ORIGIN, GRAPH_PREFIX, link).href;
+    } catch (failure) {
+      if (failure instanceof UrlRefusedError) {
+        throw new GraphBadRequestError({ graphCode: 'invalid_next_link' });
+      }
+      throw failure;
+    }
+  }
+
   return {
     async request(request) {
       const { href, key } = urlOf(request);
@@ -197,6 +226,28 @@ export function createGraphHttp(deps: GraphHttpDeps): GraphHttp {
       const response = await send(request, href);
       if (cacheable) cache.set(key, response.body, request.cache.ttlMs);
       return response;
+    },
+
+    async requestPage(request, nextLink) {
+      if (request.method !== 'GET') throw new TypeError('requestPage reads with GET');
+      if (Object.keys(request.query ?? {}).some((name) => name.toLowerCase() === '$skip')) {
+        // Graph does not support $skip on these collections (R-C-01): the product never sends it.
+        throw new GraphBadRequestError({ graphCode: 'invalid_value' });
+      }
+      const href = nextLink === undefined ? urlOf(request).href : followable(nextLink);
+      const response = await send(request, href);
+      const value = (response.body as { value?: unknown } | null)?.value;
+      if (!Array.isArray(value)) throw new GraphBadRequestError({ graphCode: 'unexpected_shape' });
+      const link = nextLinkOf(response.body);
+      const rawCount = (response.body as { '@odata.count'?: unknown })['@odata.count'];
+      return {
+        items: value as unknown[],
+        nextLink: link === undefined ? null : followable(link),
+        count:
+          typeof rawCount === 'number' && Number.isSafeInteger(rawCount) && rawCount >= 0
+            ? rawCount
+            : null,
+      };
     },
 
     async requestAll(request) {

@@ -19,6 +19,15 @@ export { TokenLedger } from './tokens.js';
 export type { FakeWorld, IssuedToken, IssueSpec, TokenAudience } from './tokens.js';
 export { createFakeWorld } from './world.js';
 export { graphModule } from './module.js';
+export {
+  DEFAULT_SEED,
+  SEED_DOMAIN,
+  SEED_GROUPS,
+  SEED_USERS,
+  describeSeed,
+  seedDirectory,
+} from './seed-directory.js';
+export type { SeedDirectoryOptions, SeededDirectory } from './seed-directory.js';
 export type { DuplicateGrantMode, FailureSpec, FakeGraphControl, ThrottleSpec } from './module.js';
 
 export interface FakeGraph {

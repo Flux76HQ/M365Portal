@@ -41,6 +41,7 @@ const EXPECTED_TARGETS: Readonly<Record<string, string>> = {
   './rbac/*': './src/rbac/*.ts',
   './auth/*': './src/auth/*.ts',
   './setup/*': './src/setup/*.ts',
+  './directory/*': './src/directory/*.ts',
   './tokens': './src/tokens/index.ts',
   './i18n': './src/i18n/index.ts',
   './i18n/*': './src/i18n/*.ts',
@@ -49,7 +50,14 @@ const EXPECTED_TARGETS: Readonly<Record<string, string>> = {
 };
 
 /** Directories that must never hold a barrel file (TA-05; Phase B adds rbac, auth and setup, XB2). */
-const BARRELLESS_DIRECTORIES = ['src/branding', 'src/schemas', 'src/rbac', 'src/auth', 'src/setup'];
+const BARRELLESS_DIRECTORIES = [
+  'src/branding',
+  'src/schemas',
+  'src/rbac',
+  'src/auth',
+  'src/setup',
+  'src/directory',
+];
 
 /**
  * Phase B subpath families (tasks.md XB2). Their modules arrive from several streams at different
@@ -190,6 +198,15 @@ describe('exports map of @m365portal/shared', () => {
     }
   });
 
+  it('has the Phase C wildcard subpath ./directory/*, pointing at TypeScript source (T-C-003)', () => {
+    const manifest = readManifest();
+    const exportsMap = isRecord(manifest) && isRecord(manifest.exports) ? manifest.exports : {};
+    const { types, target } = targetOf(exportsMap['./directory/*']);
+    expect(target).toBe('./src/directory/*.ts');
+    expect(types).toBe(target);
+    expect(sourceFiles).toContain('src/directory/group-kind.ts');
+  });
+
   it('exposes the testing helper and the empty catalogues the other streams build on', () => {
     expect(sourceFiles).toEqual(
       expect.arrayContaining([
@@ -327,6 +344,32 @@ describe('exports map check: negative fixtures (the check must fail on purpose)'
         files,
       },
       { name: 'exports check', reason: '"./auth/*" points at ./src/auth/index.ts' },
+    );
+  });
+
+  it('fails when the Phase C subpath ./directory/* is missing, redirected, or a barrel appears (T-C-003)', () => {
+    expectGuardFails(
+      guardExports,
+      { manifest: manifestWith((map) => Reflect.deleteProperty(map, './directory/*')), files },
+      { name: 'exports check', reason: 'lacks the subpath "./directory/*"' },
+    );
+    expectGuardFails(
+      guardExports,
+      {
+        manifest: manifestWith((map) => {
+          map['./directory/*'] = {
+            types: './src/directory/index.ts',
+            default: './src/directory/index.ts',
+          };
+        }),
+        files,
+      },
+      { name: 'exports check', reason: '"./directory/*" points at ./src/directory/index.ts' },
+    );
+    expectGuardFails(
+      guardExports,
+      { manifest: manifestWith(() => undefined), files: [...files, 'src/directory/index.ts'] },
+      { name: 'exports check', reason: 'src/directory/index.ts is a barrel file' },
     );
   });
 

@@ -29,6 +29,40 @@ export interface SignInOptions {
   readonly nonce?: string | null;
 }
 
+/** A seeded row the specs name: the id and what the pages show of it. */
+export interface SeededRow {
+  readonly id: string;
+  readonly displayName: string | null;
+  readonly mail: string | null;
+}
+
+/** What `directory.seed` tells a spec (computed from the rows by the fake tenant process). */
+export interface DirectorySeedSummary {
+  /** The seed, for the failure message of a run that has to be repeated. */
+  readonly note: string;
+  readonly ids: Readonly<Record<string, string>>;
+  readonly named: Readonly<Record<string, SeededRow>>;
+  readonly counts: {
+    readonly users: number;
+    readonly groups: number;
+    readonly finance: number;
+    readonly disabled: number;
+    readonly enabled: number;
+    readonly guests: number;
+    readonly members: number;
+    readonly m365: number;
+    readonly security: number;
+    readonly mailsecurity: number;
+    readonly distribution: number;
+  };
+  /** A Finance user whose manager is outside Finance (a restricted manager for the Finance-scoped actor). */
+  readonly financeUserWithOutsideManager: SeededRow | null;
+  /** A user outside Finance: the Finance-scoped actor gets a 403 on its id. */
+  readonly outsideUser: SeededRow | null;
+  /** A user of Finance. */
+  readonly financeUser: SeededRow | null;
+}
+
 /** The panel's application as Microsoft Entra holds it. */
 export interface PanelApplication {
   readonly appId: string;
@@ -202,6 +236,31 @@ export class FakeControl {
 
   failToken(fault: Record<string, unknown>): Promise<void> {
     return this.call('entra.failToken', fault);
+  }
+
+  /** Adds the 1,200 users and 150 groups of `seedDirectory`; the answer is the same while the rows are in. */
+  seedDirectory(): Promise<DirectorySeedSummary> {
+    return this.call('directory.seed');
+  }
+
+  /** Takes the seeded rows out again (the shared tenant goes back to the people of `principals.ts`). */
+  unseedDirectory(): Promise<void> {
+    return this.call('directory.unseed');
+  }
+
+  /** U66: does the manager call work for the panel's application? Default `refused`. */
+  managerForApps(mode: 'refused' | 'allowed'): Promise<void> {
+    return this.call('graph.managerForApps', { mode });
+  }
+
+  /** U67: do the members of a hidden-membership group answer 403 (default) or an empty list? */
+  hiddenMembersRefused(on: boolean): Promise<void> {
+    return this.call('graph.hiddenMembersRefused', { on });
+  }
+
+  /** U36: group rows come back without visibility, description, nickname and sync flag. */
+  omitGroupProperties(on: boolean): Promise<void> {
+    return this.call('graph.omitGroupProperties', { on });
   }
 
   calls(): Promise<FakeCall[]> {

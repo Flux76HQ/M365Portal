@@ -2,9 +2,7 @@
   "placeholders.audit.description": "Bekijk wie wat in het paneel heeft gewijzigd en exporteer het logboek.",
   "placeholders.contacts.description": "Maak e-mailcontacten van je Microsoft 365-tenant aan, wijzig ze en verwijder ze.",
   "placeholders.distributionLists.description": "Blader door distributielijsten, beheer de leden en exporteer ze.",
-  "placeholders.groups.description": "Blader door de groepen van je Microsoft 365-tenant en beheer de leden.",
   "placeholders.notAvailable": "Niet beschikbaar tot fase {phase}",
   "placeholders.note": "Dit onderdeel van het paneel komt in een latere fase. Het staat in het menu zodat je kunt zien waar het komt; hier werkt nog niets.",
-  "placeholders.users.description": "Zoek de gebruikers van je Microsoft 365-tenant op en bekijk hun gegevens en groepslidmaatschappen.",
   "placeholders.whatItWillDo": "Wat het gaat doen"
 }

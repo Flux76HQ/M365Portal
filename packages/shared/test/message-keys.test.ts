@@ -25,6 +25,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SIGNIN_ERROR_CODES, NO_ACCESS_REASONS } from '../src/auth/signin-errors.js';
+import { GROUP_KINDS } from '../src/directory/group-kind.js';
 import { ERROR_DETAIL_CODES, ERROR_DETAIL_MESSAGE_KEYS } from '../src/i18n/detail-codes.js';
 import { LAZY_NAMESPACES, LOCALES, placeholdersOf, type Locale } from '../src/i18n/index.js';
 import { PROBLEM_CODES, problemMessageKey } from '../src/problem.js';
@@ -153,6 +154,7 @@ function requiredMessages(): Required[] {
   for (const code of ERROR_DETAIL_CODES) {
     add(ERROR_DETAIL_MESSAGE_KEYS[code], `errors[] detail code ${code}`);
   }
+  for (const kind of GROUP_KINDS) add(`groups.kind.${kind}`, `group kind ${kind}`);
   for (const code of SIGNIN_ERROR_CODES) {
     add(`signin.error.${code}`, `sign-in code ${code}`);
     add(`signin.remedy.${code}`, `sign-in code ${code} (remedy)`);
@@ -293,8 +295,9 @@ describe('every key a registry names has a message in both languages', () => {
       expect(keys.has(`noaccess.reason.${reason}`), reason).toBe(true);
   });
 
-  it('has a message for the errors[] detail codes privileged_role_group, principal_disabled and owner_changed', () => {
+  it('has a message for the errors[] detail codes graph_permission_missing, privileged_role_group, principal_disabled and owner_changed', () => {
     expect([...ERROR_DETAIL_CODES].sort()).toEqual([
+      'graph_permission_missing',
       'owner_changed',
       'principal_disabled',
       'privileged_role_group',
@@ -305,6 +308,22 @@ describe('every key a registry names has a message in both languages', () => {
           CATALOGUES[locale][ERROR_DETAIL_MESSAGE_KEYS[code]],
           `${locale}: ${code}`,
         ).toBeTruthy();
+      }
+    }
+  });
+
+  it('points graph_permission_missing at the repair on the Connection page, in both languages (EC-C14, T-C-002)', () => {
+    expect(ERROR_DETAIL_MESSAGE_KEYS.graph_permission_missing).toBe(
+      'users.error.graph_permission_missing',
+    );
+    expect(CATALOGUES.en['users.error.graph_permission_missing']).toMatch(/Connection/);
+    expect(CATALOGUES.nl['users.error.graph_permission_missing']).toMatch(/Verbinding/);
+  });
+
+  it('gives every group kind a label in the groups namespace, in both languages (FR-C-303, T-C-005)', () => {
+    for (const kind of GROUP_KINDS) {
+      for (const locale of LOCALES) {
+        expect(CATALOGUES[locale][`groups.kind.${kind}`], `${locale}: ${kind}`).toBeTruthy();
       }
     }
   });

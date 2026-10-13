@@ -3,6 +3,17 @@
 // form. Focus is visible (indicator at least 3:1 against what it sits on) and never hidden by the
 // sticky header (WCAG 2.4.11).
 import type { Locator, Page } from '@playwright/test';
+import { createDirectoryWorld, type DirectoryWorld } from '../fixtures/directory.js';
+import {
+  countStatus,
+  filterChoice,
+  heading,
+  nextPage,
+  previousPage,
+  searchField,
+  sectionNamed,
+  tableNamed,
+} from '../fixtures/directory-page.js';
 import { expect, fakeOf, test } from '../fixtures.js';
 import { SIGNIN_ERROR_STATES } from '../routes.js';
 import { smallTargets } from '../support/targets.js';
@@ -778,5 +789,153 @@ test.describe('Phase B: the Settings pages by keyboard', () => {
     await page.context().clearCookies();
     await app.goto('/break-glass');
     expect(await smallTargets(page), '/break-glass').toEqual([]);
+  });
+});
+
+// ---- Phase C (T-C-063, FR-C-502, FR-C-506; US-C1 to US-C3): users and groups with the keyboard alone -------------
+
+test.describe('Phase C: users and groups by keyboard', () => {
+  let world: DirectoryWorld;
+
+  test.beforeAll(async ({ browser }) => {
+    test.setTimeout(120_000);
+    world = await createDirectoryWorld(browser);
+  });
+
+  test.afterAll(async () => {
+    await world.destroy();
+  });
+
+  test('US-C1/US-C2: search, filter, sort, page, open a user and come back, without a mouse', async ({
+    page,
+    app,
+  }) => {
+    await app.goto('/users');
+    const table = tableNamed(page, 'Users');
+
+    // The search field takes the text and Enter applies it; the focus stays where the person works.
+    await tabTo(page, searchField(page));
+    await page.keyboard.type('a');
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/[?&]q=a(&|$)/);
+    await expect(searchField(page)).toBeFocused();
+    await expect(countStatus(page).first()).toHaveText(/\d+ users? shown/);
+
+    // The filter is one tab stop; the arrow keys choose, and the choice is in the address.
+    await tabTo(page, filterChoice(page, 'Account state', 'All accounts'));
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await expect(filterChoice(page, 'Account state', 'Disabled')).toBeChecked();
+    await expect(page).toHaveURL(/enabled=(%22)?false/);
+    await expect(filterChoice(page, 'Account state', 'Disabled')).toBeFocused();
+    await expect(countStatus(page).first()).toHaveText(/\d+ users? shown/);
+    await expect(table.locator('tbody tr', { hasText: 'Enabled' })).toHaveCount(0);
+
+    // The sortable header is a button.
+    const sort = table.getByRole('button', { name: 'Display name' });
+    await tabTo(page, sort);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/order=desc/);
+    await expect(table.getByRole('columnheader', { name: 'Display name' })).toHaveAttribute(
+      'aria-sort',
+      'descending',
+    );
+
+    // The first row is a link in the first cell: Enter opens it and the heading takes the focus.
+    // (the old rows stay on screen until the new ones arrive: wait for the count before reading a name)
+    await expect(countStatus(page).first()).toHaveText(/\d+ users? shown/);
+    const first = table.locator('tbody tr th a').first();
+    const name = await first.innerText();
+    await tabTo(page, first);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/users\/[0-9a-f-]{36}$/);
+    await expect(heading(page, name)).toBeFocused();
+
+    // The way back is a link too.
+    await tabTo(page, page.getByRole('link', { name: 'Back to users' }));
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/users$/);
+    await expect(heading(page, 'Users')).toBeFocused();
+  });
+
+  test('US-C1: paging is operated with Tab and Enter, and Previous is disabled on the first page', async ({
+    page,
+    app,
+  }) => {
+    await app.goto('/users');
+    await expect(countStatus(page).first()).toHaveText('50 users shown');
+    await expect(previousPage(page)).toBeDisabled();
+    await tabTo(page, nextPage(page), 80);
+    await page.keyboard.press('Enter');
+    await expect(page.getByText('Page 2', { exact: true })).toBeVisible();
+    await expect(previousPage(page)).toBeEnabled();
+    await expect(countStatus(page).first()).toHaveText('50 users shown');
+    await page.keyboard.press('Shift+Tab');
+    await expect(previousPage(page)).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByText('Page 1', { exact: true })).toBeVisible();
+  });
+
+  test('US-C3: filter groups by type, open a group and page through its members without a mouse', async ({
+    page,
+    app,
+  }) => {
+    await app.goto('/groups');
+    await tabTo(page, filterChoice(page, 'Group type', 'All types'));
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await expect(filterChoice(page, 'Group type', 'Security')).toBeChecked();
+    await expect(page).toHaveURL(/kind=security/);
+    await expect(countStatus(page).first()).toHaveText(/\d+ groups? shown/);
+
+    const first = tableNamed(page, 'Groups').locator('tbody tr th a').first();
+    await tabTo(page, first);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/groups\/[0-9a-f-]{36}$/);
+    await expect(page.locator('main h1')).toBeFocused();
+
+    // A group with 250 members: the members have a pager of their own.
+    await app.goto(`/groups/${world.facts.ids.bigGroup ?? ''}`);
+    const members = sectionNamed(page, 'Members');
+    await expect(countStatus(members).first()).toHaveText('50 members shown on this page');
+    await tabTo(page, nextPage(members), 100);
+    await page.keyboard.press('Enter');
+    await expect(members.getByText('Page 2', { exact: true })).toBeVisible();
+    await expect(previousPage(members)).toBeEnabled();
+    await expect(countStatus(members).first()).toHaveText('50 members shown on this page');
+  });
+
+  test('every control of the four pages is at least 24 by 24 px', async ({ page, app }) => {
+    const ids = world.facts.ids;
+    for (const path of [
+      '/users',
+      '/groups',
+      '/users?enabled=false',
+      `/users/${ids.userWithManager ?? ''}`,
+      `/groups/${ids.bigGroup ?? ''}`,
+      `/groups/${ids.hiddenGroup ?? ''}`,
+    ]) {
+      await app.goto(path);
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      // The filter radios are 24 px themselves (size-6) and sit in a label that is at least as large, so
+      // nothing on these pages is a small target any more (WCAG 2.5.8). The page has radios, or this check
+      // would pass for the wrong reason.
+      const labelSizes = await page.evaluate(() =>
+        [...document.querySelectorAll('input[type="radio"]')].map((input) => {
+          const box = input.closest('label')?.getBoundingClientRect();
+          return box === undefined ? null : [Math.round(box.width), Math.round(box.height)];
+        }),
+      );
+      if (path === '/users' || path === '/groups') {
+        expect(labelSizes.length, `${path}: radios found`).toBeGreaterThan(0);
+      }
+      for (const size of labelSizes) {
+        expect(size, `${path}: a radio sits in a label`).not.toBeNull();
+        expect(size?.[0] ?? 0, `${path}: label width`).toBeGreaterThanOrEqual(24);
+        expect(size?.[1] ?? 0, `${path}: label height`).toBeGreaterThanOrEqual(24);
+      }
+      expect(await smallTargets(page), path).toEqual([]);
+    }
   });
 });

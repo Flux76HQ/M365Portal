@@ -186,6 +186,13 @@ export const APPEARANCE_NAMESPACES = [
   'preview',
 ] as const satisfies readonly LazyNamespace[];
 
+/**
+ * The text of the users and groups pages (Phase C). All four pages load both: a user's page lists groups
+ * (kind names), a group's page lists users (the word "restricted"), and both show the Graph-permission
+ * message of `users` (EC-C14).
+ */
+export const DIRECTORY_NAMESPACES = ['users', 'groups'] as const satisfies readonly LazyNamespace[];
+
 const LanguageContext = createContext<LanguageController | null>(null);
 
 export interface LanguageProviderProps {

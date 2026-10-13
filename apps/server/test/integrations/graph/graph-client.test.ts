@@ -130,8 +130,9 @@ describe('requests (T-B-072)', () => {
     await graph.getUser('guest_x.com#EXT#@contoso.com');
     await graph.getUser("o'brien@contoso.com");
     await graph.getUser('$dollar@contoso.com');
+    // Phase C (FR-C-104) extended the properties of the detail.
     const select =
-      '?$select=id%2CdisplayName%2CuserPrincipalName%2Cmail%2Cdepartment%2CaccountEnabled';
+      '?$select=id%2CdisplayName%2CuserPrincipalName%2Cmail%2Cdepartment%2CaccountEnabled%2CgivenName%2Csurname%2CjobTitle%2CofficeLocation%2CuserType%2ConPremisesSyncEnabled%2CcreatedDateTime';
     expect(seen).toEqual([
       `/v1.0/users/${USER}${select}`,
       `/v1.0/users/Anna.Jansen%40contoso.com${select}`,
@@ -187,14 +188,14 @@ describe('requests (T-B-072)', () => {
     expect(check.calls).toHaveLength(2);
   });
 
-  it('getGroup: asks for the nine properties by name', async () => {
+  it('getGroup: asks for the twelve properties by name (Phase C added visibility, description, createdDateTime)', async () => {
     const { calls } = mountScript(GRAPH, 'GET', '/v1.0/groups/:id', [
       { status: 200, body: { id: GROUP } },
     ]);
     const { client: graph } = client();
     await graph.getGroup(GROUP);
     expect(calls[0]?.query.get('$select')).toBe(
-      'id,displayName,mail,mailNickname,groupTypes,membershipRule,onPremisesSyncEnabled,securityEnabled,mailEnabled',
+      'id,displayName,mail,mailNickname,groupTypes,membershipRule,onPremisesSyncEnabled,securityEnabled,mailEnabled,visibility,description,createdDateTime',
     );
   });
 
@@ -424,6 +425,13 @@ describe('answers are parsed by allow-lists (T-B-072, U36)', () => {
       mail: null,
       department: null,
       accountEnabled: null,
+      givenName: null,
+      surname: null,
+      jobTitle: null,
+      officeLocation: null,
+      userType: null,
+      onPremisesSyncEnabled: null,
+      createdDateTime: null,
     });
     expect(new TextEncoder().encode(user?.displayName ?? '').length).toBeLessThanOrEqual(
       MAX_STRING_BYTES,
@@ -431,11 +439,18 @@ describe('answers are parsed by allow-lists (T-B-072, U36)', () => {
     expect(JSON.stringify(user)).not.toContain('must-not-appear');
     expect(Object.keys(user ?? {}).sort()).toEqual([
       'accountEnabled',
+      'createdDateTime',
       'department',
       'displayName',
+      'givenName',
       'id',
+      'jobTitle',
       'mail',
+      'officeLocation',
+      'onPremisesSyncEnabled',
+      'surname',
       'userPrincipalName',
+      'userType',
     ]);
   });
 
@@ -454,6 +469,9 @@ describe('answers are parsed by allow-lists (T-B-072, U36)', () => {
       onPremisesSyncEnabled: null,
       securityEnabled: null,
       mailEnabled: null,
+      visibility: null,
+      description: null,
+      createdDateTime: null,
     });
     fake.reset();
     mountScript(GRAPH, 'GET', '/v1.0/groups/:id', [

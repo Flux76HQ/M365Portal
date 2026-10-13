@@ -17,6 +17,21 @@
 //                       GroupMember.Read.All (the pair the product holds)
 //   group-get, group-list
 //                       GroupMember.Read.All listed; which properties it returns: UNVERIFIED (U36)
+//
+// Phase C (research-microsoft-c.md, read 2026-10-12): the six read methods of the users and groups
+// pages. No new permission and no write role (FR-C-105): `GroupMember.ReadWrite.All` is granted by the
+// wizard and used by no row.
+//   user-list           User.Read.All (application, least privileged)
+//   user-list-manager   Application: "Not supported" on the page (U66); delegated User.Read.All
+//   user-list-transitivememberof
+//                       Application least privileged User.Read.All; higher Directory.Read.All,
+//                       Group.Read.All, GroupMember.Read.All (R-C-08). `memberOf` would need
+//                       Directory.Read.All and is not used.
+//   group-list-members  Least privileged GroupMember.ReadBasic.All; GroupMember.Read.All is listed as
+//                       higher privileged (R-C-05). Users among the members come back with `id` only
+//                       unless the application also holds User.Read.All (limited information), which
+//                       it does; that is a property of the answer, not of the call.
+//   group-list-owners   GroupMember.Read.All on the PowerShell page (U68)
 import type { GraphClient } from '../../ports/graph.js';
 import type { GraphAppRole } from '@m365portal/shared/setup/graph-roles';
 
@@ -58,6 +73,37 @@ export const GRAPH_METHOD_PERMISSIONS = {
     page: 'https://learn.microsoft.com/graph/api/group-get?view=graph-rest-1.0',
     permissions: ['GroupMember.Read.All'],
     unverified: ['U36'],
+  },
+  listUsers: {
+    page: 'https://learn.microsoft.com/graph/api/user-list?view=graph-rest-1.0',
+    permissions: ['User.Read.All'],
+    unverified: ['U70', 'U72'],
+  },
+  getUserManager: {
+    page: 'https://learn.microsoft.com/graph/api/user-list-manager?view=graph-rest-1.0',
+    permissions: ['User.Read.All'],
+    unverified: ['U66'],
+  },
+  listUserGroups: {
+    page: 'https://learn.microsoft.com/graph/api/user-list-transitivememberof?view=graph-rest-1.0',
+    permissions: ['User.Read.All'],
+    unverified: ['U67', 'U74'],
+  },
+  listGroups: {
+    page: 'https://learn.microsoft.com/graph/api/group-list?view=graph-rest-1.0',
+    permissions: ['GroupMember.Read.All'],
+    unverified: ['U36', 'U69'],
+  },
+  listGroupMembers: {
+    page: 'https://learn.microsoft.com/graph/api/group-list-members?view=graph-rest-1.0',
+    permissions: ['GroupMember.Read.All'],
+    least: ['GroupMember.ReadBasic.All'],
+    unverified: ['U67', 'U71'],
+  },
+  listGroupOwners: {
+    page: 'https://learn.microsoft.com/graph/api/group-list-owners?view=graph-rest-1.0',
+    permissions: ['GroupMember.Read.All'],
+    unverified: ['U68', 'U71'],
   },
 } as const satisfies Record<keyof GraphClient, GraphMethodPermissions>;
 
