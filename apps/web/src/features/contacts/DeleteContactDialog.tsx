@@ -93,15 +93,17 @@ export function DeleteContactDialog({
     setPending(true);
     try {
       const answer = await deleteContact(api, contact.id, typed);
-      refreshContacts(queryClient);
-      refreshListsOfContacts(queryClient);
       const count = answer.removedFromLists.length;
       toast({
         title: count === 0 ? t('contacts.deleted.none') : t('contacts.deleted.lists', { count }),
         tone: 'success',
       });
       onOpenChange(false);
-      void navigate({ to: '/contacts' });
+      // Leave the detail page first: its queries are then inactive and are only marked stale, so the deleted
+      // contact is never asked for again (it would answer 404).
+      await navigate({ to: '/contacts' });
+      refreshContacts(queryClient);
+      refreshListsOfContacts(queryClient);
     } catch (error) {
       setFailure(messageForError(translator, error, { publicOrigin: me.publicOrigin }));
     } finally {

@@ -33,6 +33,7 @@ import { signInAs } from './sign-in.js';
 import {
   generateRunSecrets,
   isRunning,
+  makePwshShimDirectory,
   makeRunDirectory,
   makeTlsMaterial,
   repoRoot,
@@ -195,6 +196,7 @@ export default async function globalSetup(): Promise<void> {
 
   const runDir = makeRunDirectory();
   const logDir = join(runDir, 'logs');
+  makePwshShimDirectory(runDir);
   const state: ServersState = {
     runDir,
     tls: makeTlsMaterial(runDir),

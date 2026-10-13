@@ -3,7 +3,12 @@
 // form. Focus is visible (indicator at least 3:1 against what it sits on) and never hidden by the
 // sticky header (WCAG 2.4.11).
 import type { Locator, Page } from '@playwright/test';
-import { createDirectoryWorld, type DirectoryWorld } from '../fixtures/directory.js';
+import {
+  createDirectoryWorld,
+  seedDirectoryOnly,
+  type DirectoryWorld,
+} from '../fixtures/directory.js';
+import { visitMemberState } from '../fixtures/member-states.js';
 import {
   countStatus,
   filterChoice,
@@ -15,7 +20,8 @@ import {
   tableNamed,
 } from '../fixtures/directory-page.js';
 import { expect, fakeOf, test } from '../fixtures.js';
-import { SIGNIN_ERROR_STATES } from '../routes.js';
+import { MEMBER_STATES, SIGNIN_ERROR_STATES } from '../routes.js';
+import { clearExchangeSeed, seedExchange } from '../support/exchange-seed.js';
 import { smallTargets } from '../support/targets.js';
 import { reachWizardState } from '../support/wizard-states.js';
 import { allowStaleCsrfAfterUnlock, setupTokenOfB } from '../support/wizard-page.js';
@@ -936,6 +942,245 @@ test.describe('Phase C: users and groups by keyboard', () => {
         expect(size?.[1] ?? 0, `${path}: label height`).toBeGreaterThanOrEqual(24);
       }
       expect(await smallTargets(page), path).toEqual([]);
+    }
+  });
+});
+
+// ---- Phase D, step D1 (T-D-181, FR-D-902, SC-D-010): lists, contacts and group members by keyboard -----------------------
+// Every flow of US-D1 to US-D3 with the keyboard alone: search and filter, open an object, the member picker (type,
+// ArrowDown into the results, Space to select, Tab to the button), the confirmations (focus in, Escape out, focus
+// back where it was), the contact form and the typed delete confirmation. Every control on every state is at least
+// 24 by 24 px (WCAG 2.5.8), the dialogs open.
+
+test.describe('Phase D: distribution lists, contacts and group members by keyboard', () => {
+  let seeded: Awaited<ReturnType<typeof seedDirectoryOnly>>;
+
+  test.beforeAll(async () => {
+    test.setTimeout(120_000);
+    seeded = await seedDirectoryOnly();
+  });
+
+  test.afterAll(async () => {
+    await seeded.destroy();
+    clearExchangeSeed();
+  });
+
+  test.beforeEach(() => {
+    seedExchange();
+  });
+
+  test('US-D1: search and filter the lists, open one and come back, without a mouse', async ({
+    page,
+    app,
+  }) => {
+    await app.goto('/distribution-lists');
+    const table = tableNamed(page, 'Distribution lists');
+    await expect(table.getByRole('link')).toHaveCount(5);
+
+    await tabTo(page, page.getByRole('searchbox', { name: 'Search by name or email address' }));
+    await page.keyboard.type('Mar');
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/[?&]q=Mar(&|$)/);
+    await expect(table.getByRole('link')).toHaveText(['Marketing']);
+    await page.keyboard.press('Control+A');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.press('Enter');
+    await expect(table.getByRole('link')).toHaveCount(5);
+
+    await tabTo(page, filterChoice(page, 'List type', 'All types'));
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await expect(filterChoice(page, 'List type', 'Dynamic')).toBeChecked();
+    await expect(page).toHaveURL(/kind=dynamic/);
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowUp');
+    await expect(filterChoice(page, 'List type', 'All types')).toBeChecked();
+    await expect(table.getByRole('link')).toHaveCount(5);
+
+    const first = table.getByRole('link', { name: 'Marketing' });
+    await tabTo(page, first);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/distribution-lists\/[0-9a-f-]{36}$/);
+    await expect(heading(page, 'Marketing')).toBeFocused();
+    await tabTo(page, page.getByRole('link', { name: 'Back to distribution lists' }));
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/distribution-lists$/);
+    await expect(heading(page, 'Distribution lists')).toBeFocused();
+  });
+
+  test('US-D1: add a member with the keyboard alone: the dialog traps focus, Escape gives it back', async ({
+    page,
+    app,
+  }) => {
+    await app.goto('/distribution-lists');
+    await tableNamed(page, 'Distribution lists').getByRole('link', { name: 'Marketing' }).click();
+    await expect(heading(page, 'Marketing')).toBeVisible();
+    const open = page.getByRole('button', { name: 'Add members', exact: true });
+    await tabTo(page, open);
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Add members' });
+    await expect(dialog).toBeVisible();
+    expect(await insideDialog(page)).toBe(true);
+    // Tab never leaves the dialog.
+    for (let index = 0; index < 12; index += 1) {
+      await page.keyboard.press('Tab');
+      expect(await insideDialog(page), `Tab stop ${String(index + 1)}`).toBe(true);
+    }
+    // Escape closes it and the focus is back on the button that opened it.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(open).toBeFocused();
+
+    // Again, and this time through: type, ArrowDown into the results, Space selects, Tab to the button.
+    await page.keyboard.press('Enter');
+    const search = dialog.getByRole('searchbox');
+    await tabTo(page, search);
+    await page.keyboard.type('Ad');
+    await page.keyboard.press('Enter');
+    const adam = dialog.getByRole('checkbox', { name: /Adam Administrator/ });
+    await expect(adam).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await expect(adam).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(adam).toBeChecked();
+    await expect(dialog.getByText('1 selected')).toBeVisible();
+    await tabTo(page, dialog.getByRole('button', { name: 'Add 1 member' }));
+    await page.keyboard.press('Enter');
+    const result = page.getByRole('region', { name: 'Result of the last change' });
+    await expect(result.getByRole('row', { name: /Adam Administrator/ })).toContainText('Added');
+    await expect(open).toBeFocused();
+    // The result can be dismissed with the keyboard too.
+    await tabTo(page, result.getByRole('button', { name: 'Dismiss result' }));
+    await page.keyboard.press('Enter');
+    await expect(result).toHaveCount(0);
+  });
+
+  test('US-D1: remove a member with the keyboard alone: Space selects, the confirmation takes the focus', async ({
+    page,
+    app,
+  }) => {
+    await app.goto('/distribution-lists');
+    await tableNamed(page, 'Distribution lists').getByRole('link', { name: 'Marketing' }).click();
+    await expect(heading(page, 'Marketing')).toBeVisible();
+    const remove = page.getByRole('button', { name: 'Remove selected', exact: true });
+    await expect(remove).toBeDisabled();
+    const rita = page.getByRole('checkbox', { name: 'Select Rita Reader' });
+    await tabTo(page, rita);
+    await page.keyboard.press('Space');
+    await expect(rita).toBeChecked();
+    await expect(remove).toBeEnabled();
+    await tabTo(page, remove);
+    await page.keyboard.press('Enter');
+    const confirm = page.getByRole('alertdialog', { name: 'Remove 1 member?' });
+    await expect(confirm).toBeVisible();
+    expect(await insideDialog(page)).toBe(true);
+    // Escape cancels and gives the focus back.
+    await page.keyboard.press('Escape');
+    await expect(confirm).toBeHidden();
+    await expect(remove).toBeFocused();
+    await page.keyboard.press('Enter');
+    await tabTo(page, confirm.getByRole('button', { name: 'Remove 1 member' }));
+    await page.keyboard.press('Enter');
+    await expect(
+      page.getByRole('region', { name: 'Result of the last change' }).getByRole('row', {
+        name: /Rita Reader/,
+      }),
+    ).toContainText('Removed');
+  });
+
+  test('US-D2: create, edit and delete a contact with the keyboard alone', async ({
+    page,
+    app,
+  }) => {
+    await app.goto('/contacts');
+    const create = page.getByRole('button', { name: 'New contact' });
+    await tabTo(page, create);
+    await page.keyboard.press('Enter');
+    const form = page.getByRole('dialog', { name: 'New contact' });
+    await expect(form).toBeVisible();
+    // An empty submit puts the focus on the first wrong field.
+    await tabTo(page, form.getByRole('button', { name: 'Create contact' }));
+    await page.keyboard.press('Enter');
+    await expect(form.getByRole('textbox', { name: /^Display name/ })).toBeFocused();
+    await page.keyboard.type('Key Board');
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('key.board');
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('key@board.example');
+    // Enter in a text field submits the form.
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/contacts\/[0-9a-f-]{36}$/);
+    await expect(heading(page, 'Key Board')).toBeVisible();
+
+    await tabTo(page, page.getByRole('button', { name: 'Edit contact' }));
+    await page.keyboard.press('Enter');
+    const edit = page.getByRole('dialog', { name: 'Edit contact' });
+    await expect(edit).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(edit).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Edit contact' })).toBeFocused();
+
+    // The delete confirmation: the focus starts on Cancel; the typed name enables the work.
+    await tabTo(page, page.getByRole('button', { name: 'Delete contact' }));
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('alertdialog', { name: 'Delete this contact?' });
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await tabTo(page, dialog.getByRole('textbox', { name: 'Display name of the contact' }));
+    await page.keyboard.type('Key Board');
+    await tabTo(page, dialog.getByRole('button', { name: 'Delete contact' }));
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/contacts$/);
+    await expect(tableNamed(page, 'Contacts').getByRole('link', { name: 'Key Board' })).toHaveCount(
+      0,
+    );
+  });
+
+  test('US-D3: add a user to a group with the keyboard alone', async ({ page, app }) => {
+    await app.goto(`/groups/${seeded.facts.ids.m365Group ?? ''}`);
+    const open = page.getByRole('button', { name: 'Add members', exact: true });
+    await tabTo(page, open, 100);
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Add members' });
+    await tabTo(page, dialog.getByRole('searchbox'));
+    await page.keyboard.type('Rita');
+    await page.keyboard.press('Enter');
+    const rita = dialog.getByRole('checkbox', { name: /Rita Reader/ });
+    await expect(rita).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Space');
+    await tabTo(page, dialog.getByRole('button', { name: 'Add 1 member' }));
+    await page.keyboard.press('Enter');
+    await expect(
+      page.getByRole('region', { name: 'Result of the last change' }).getByRole('row', {
+        name: /Rita Reader/,
+      }),
+    ).toBeVisible();
+    // Put the group back as it was for the specs that follow.
+    const select = page.getByRole('checkbox', { name: 'Select Rita Reader' });
+    await select.check();
+    await page.getByRole('button', { name: 'Remove selected', exact: true }).click();
+    await page
+      .getByRole('alertdialog', { name: 'Remove 1 member?' })
+      .getByRole('button', { name: 'Remove 1 member' })
+      .click();
+    await expect(page.getByRole('checkbox', { name: 'Select Rita Reader' })).toHaveCount(0);
+  });
+
+  test('every control of every state is at least 24 by 24 px (WCAG 2.5.8), the dialogs open', async ({
+    page,
+    app,
+    guard,
+  }) => {
+    test.setTimeout(240_000);
+    for (const state of MEMBER_STATES) {
+      const visited = await visitMemberState({ page, app, guard }, seeded.facts.ids, state);
+      try {
+        await page.waitForLoadState('networkidle');
+        await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+        expect(await smallTargets(page), state.slug).toEqual([]);
+      } finally {
+        await visited.cleanup();
+      }
     }
   });
 });

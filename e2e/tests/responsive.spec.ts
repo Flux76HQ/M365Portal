@@ -3,9 +3,15 @@
 // centred on ultrawide, a landscape phone, and every interactive target at least 24 by 24 CSS px
 // (WCAG 2.5.8).
 import type { Page } from '@playwright/test';
-import { DIRECTORY_STATES, ROUTES } from '../routes.js';
+import { DIRECTORY_STATES, MEMBER_STATES, ROUTES } from '../routes.js';
 import { allowLockedSetup, expect, test } from '../fixtures.js';
-import { createDirectoryWorld, type DirectoryWorld } from '../fixtures/directory.js';
+import {
+  createDirectoryWorld,
+  seedDirectoryOnly,
+  type DirectoryWorld,
+} from '../fixtures/directory.js';
+import { visitMemberState } from '../fixtures/member-states.js';
+import { clearExchangeSeed } from '../support/exchange-seed.js';
 import { resetDirectorySwitches, visitState } from '../fixtures/directory-page.js';
 import { smallTargets } from '../support/targets.js';
 
@@ -322,5 +328,56 @@ test.describe('users and groups, every state', () => {
         expect(await smallTargets(page)).toEqual([]);
       });
     }
+  }
+});
+
+// ---- Phase D, step D1 (T-D-181, FR-D-902): lists, contacts and group members in every state ------------------------------
+// The fake Exchange behind the `pwsh` shim and the seeded directory, at 320 px (no sideways scroll, with the add
+// dialog, the result, the confirmations and the contact form open) and on the phone (390 px: every target at least
+// 24 by 24 px). The same list as the axe and the visual specs (`MEMBER_STATES`).
+
+test.describe('distribution lists, contacts and group members, every state', () => {
+  let seeded: Awaited<ReturnType<typeof seedDirectoryOnly>>;
+
+  test.beforeAll(async () => {
+    test.setTimeout(120_000);
+    seeded = await seedDirectoryOnly();
+  });
+
+  test.afterAll(async () => {
+    await seeded.destroy();
+    clearExchangeSeed();
+  });
+
+  for (const state of MEMBER_STATES) {
+    test(`${state.slug}: no horizontal scroll at 320 px`, async ({ page, app, guard }) => {
+      test.setTimeout(90_000);
+      await page.setViewportSize({ width: 320, height: 640 });
+      const visited = await visitMemberState({ page, app, guard }, seeded.facts.ids, state);
+      try {
+        await page.waitForLoadState('networkidle');
+        await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+        await expectNoSidewaysScroll(page, state.slug);
+      } finally {
+        await visited.cleanup();
+      }
+    });
+
+    test(`${state.slug} on the phone: every interactive target is at least 24 by 24 px`, async ({
+      page,
+      app,
+      guard,
+    }) => {
+      test.setTimeout(90_000);
+      await page.setViewportSize({ width: 390, height: 844 });
+      const visited = await visitMemberState({ page, app, guard }, seeded.facts.ids, state);
+      try {
+        await page.waitForLoadState('networkidle');
+        await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+        expect(await smallTargets(page)).toEqual([]);
+      } finally {
+        await visited.cleanup();
+      }
+    });
   }
 });

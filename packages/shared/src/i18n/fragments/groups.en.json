@@ -66,7 +66,7 @@
   "groups.owners.notAvailable": "Owners are not available for this kind of group.",
   "groups.owners.restricted.one": "{count} owner you cannot see",
   "groups.owners.restricted.other": "{count} owners you cannot see",
-  "groups.page.description": "Browse the groups of your Microsoft 365 tenant. This page only shows information; nothing can be changed here.",
+  "groups.page.description": "Browse the groups of your Microsoft 365 tenant. You can add and remove members of Microsoft 365 and security groups here; other kinds of groups are shown read-only.",
   "groups.readOnly.badge": "Read-only",
   "groups.readOnly.explain": "This kind of group is read-only in Microsoft Graph.",
   "groups.result.count.one": "{count} group shown",

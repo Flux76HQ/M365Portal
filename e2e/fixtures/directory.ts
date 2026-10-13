@@ -70,7 +70,7 @@ export interface DirectoryWorld {
 const SESSION_COOKIE = 'm365portal_session';
 
 /** An API client signed in as the Owner with a fresh step-up, and the way to end that session again. */
-async function ownerWithStepUp(
+export async function ownerWithStepUp(
   browser: Browser,
 ): Promise<{ readonly api: ApiClient; close(): Promise<void> }> {
   const context = await browser.newContext({

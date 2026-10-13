@@ -1,23 +1,14 @@
-// Pages (FR-A-130; E-18; US-5): placeholders say which phase brings them and what they will do; a page
+// Pages (FR-A-130; E-18; US-5): placeholders say which phase brings them and what they will do (since step D1 only
+// the audit log is one; distribution lists and contacts are real pages); a page
 // the actor may not open says No-access at the same URL; an unknown address is Not-found; the error
 // boundary shows the request id and never a stack; with JavaScript off the <noscript> message appears
 // in both languages.
 import type { Page } from '@playwright/test';
 import { expect, test, type StoredPrincipalName } from '../fixtures.js';
+import { clearExchangeSeed, seedExchange } from '../support/exchange-seed.js';
 
+// Step D1 made `/distribution-lists` and `/contacts` real pages (below); `/audit` follows in step D2.
 const PLACEHOLDERS = [
-  {
-    path: '/distribution-lists',
-    title: 'Distribution lists',
-    phase: 'D',
-    does: 'Browse distribution lists, manage their members and export them.',
-  },
-  {
-    path: '/contacts',
-    title: 'Contacts',
-    phase: 'D',
-    does: 'Create, update and delete mail contacts of your Microsoft 365 tenant.',
-  },
   {
     path: '/audit',
     title: 'Audit log',
@@ -46,9 +37,63 @@ test.describe('placeholder pages', () => {
     await page.addInitScript(() => {
       window.localStorage.setItem('m365portal.locale', 'nl');
     });
-    await app.goto('/contacts');
+    await app.goto('/audit');
     await expect(page.getByText('Niet beschikbaar tot fase D')).toBeVisible();
     await expect(page.getByRole('heading', { level: 2, name: 'Wat het gaat doen' })).toBeVisible();
+  });
+
+  // Step D1: the two pages are real. Not a word of the placeholder is left, the pages have their controls, and
+  // they speak Dutch in Dutch (the Exchange worker behind them is the fake of the topology).
+  test.describe('the pages of step D1 are real pages, not placeholders', () => {
+    test.beforeEach(() => {
+      seedExchange();
+    });
+    test.afterAll(() => {
+      clearExchangeSeed();
+    });
+
+    for (const [path, title, region, control] of [
+      [
+        '/distribution-lists',
+        'Distribution lists',
+        'Distribution lists',
+        'Search by name or email address',
+      ],
+      ['/contacts', 'Contacts', 'Contacts', 'Search by name or email address'],
+    ] as const) {
+      test(`${path} is a page with a table and a search, and says nothing of Phase D`, async ({
+        page,
+        app,
+      }) => {
+        await app.goto(path);
+        await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
+        await expect(page.getByRole('table', { name: region })).toBeVisible();
+        await expect(page.getByRole('searchbox', { name: control })).toBeVisible();
+        await expect(page).toHaveTitle(new RegExp(title));
+        await expect(page.getByText(/Not available until Phase/)).toHaveCount(0);
+        await expect(page.getByText('What it will do')).toHaveCount(0);
+        await expect(page.getByText(/nothing here works yet/)).toHaveCount(0);
+      });
+    }
+
+    test('the contacts page offers "New contact" to the owner', async ({ page, app }) => {
+      await app.goto('/contacts');
+      await expect(page.getByRole('button', { name: 'New contact' })).toBeVisible();
+    });
+
+    test('the pages are Dutch in Dutch', async ({ page, app }) => {
+      await page.addInitScript(() => {
+        window.localStorage.setItem('m365portal.locale', 'nl');
+      });
+      await app.goto('/distribution-lists');
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Distributielijsten' }),
+      ).toBeVisible();
+      await expect(page.getByRole('table', { name: 'Distributielijsten' })).toBeVisible();
+      await app.goto('/contacts');
+      await expect(page.getByRole('heading', { level: 1, name: 'Contacten' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Nieuw contact' })).toBeVisible();
+    });
   });
 
   test('the Settings overview lists Appearance and says what arrives later', async ({

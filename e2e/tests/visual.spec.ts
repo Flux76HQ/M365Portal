@@ -16,12 +16,15 @@ import type { Page, TestInfo } from '@playwright/test';
 import { expect, fakeOf, test } from '../fixtures.js';
 import { restoreDefaults } from '../branding-helpers.js';
 import { pathOfState, seedDirectoryOnly } from '../fixtures/directory.js';
+import { visitMemberState } from '../fixtures/member-states.js';
 import {
   DIRECTORY_STATES,
+  MEMBER_STATES,
   NO_ACCESS_STATES,
   SIGNIN_ERROR_STATES,
   WIZARD_STATES,
 } from '../routes.js';
+import { clearExchangeSeed } from '../support/exchange-seed.js';
 import { isSelfHostedFont } from '../support/self-hosted-font.mjs';
 import { allowStaleCsrfAfterUnlock } from '../support/wizard-page.js';
 import { reachWizardState } from '../support/wizard-states.js';
@@ -315,6 +318,51 @@ test.describe('Phase C: users and groups (owner, seeded directory)', () => {
         await shoot(page, state.slug, testInfo, { fullPage: false });
       } finally {
         await fakeOf().managerForApps('refused');
+      }
+    });
+  }
+});
+
+// ---- Phase D, step D1 (T-D-181, FR-D-902): lists, contacts and group members ------------------------------------------
+// The states with `visual: true` in `MEMBER_STATES`: the lists (loaded, empty), a list with its members, a
+// synchronised list with the read-only badge, the add dialog, the result of a change, the confirmation to remove,
+// the contacts (loaded), a contact with its lists, the create form with its errors, the delete confirmation, and the
+// member editor of a group and a read-only group. Light and dark, desktop and mobile; the same rules as above. The
+// fake Exchange is seeded the same way every time (`standardSeed`: its identifiers come from a counter and its
+// dates are fixed) and the directory is the seeded one, so the pictures are the same from run to run; times and
+// codes are pinned and masked all the same. The baselines are NOT made here: they are taken from the artefact of
+// the first CI run, as for Phase B and C, so each of these tests fails with "A snapshot doesn't exist" until then.
+
+test.describe('Phase D: lists, contacts and group members (owner, seeded Exchange and directory)', () => {
+  let seeded: Awaited<ReturnType<typeof seedDirectoryOnly>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedDirectoryOnly();
+  });
+
+  test.afterAll(async () => {
+    await seeded.destroy();
+    clearExchangeSeed();
+  });
+
+  for (const state of MEMBER_STATES.filter((entry) => entry.visual === true)) {
+    test(state.slug, async ({ page, app, guard }, testInfo) => {
+      test.skip(testInfo.project.name === 'ultrawide', 'one ultrawide screenshot: the Dashboard');
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      const visited = await visitMemberState({ page, app, guard }, seeded.facts.ids, state);
+      try {
+        await app.ready();
+        await assertSelfHostedFont(page);
+        await page.waitForLoadState('networkidle');
+        await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+        await page.evaluate(() => {
+          for (const element of [document.scrollingElement, ...document.querySelectorAll('*')]) {
+            if (element !== null && element.scrollTop !== 0) element.scrollTop = 0;
+          }
+        });
+        await shoot(page, state.slug, testInfo, { fullPage: false });
+      } finally {
+        await visited.cleanup();
       }
     });
   }
