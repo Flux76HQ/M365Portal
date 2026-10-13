@@ -169,6 +169,17 @@ describe('responses', () => {
     ).toBe(true);
   });
 
+  it('accepts the optional AADSTS number of a refused connect and nothing like it as text (Amendment 2)', () => {
+    const answer = (error: unknown) =>
+      ExchangeResponseSchema.safeParse({ v: 1, id: ID, ok: false, error }).success;
+    expect(answer({ code: 'permission_denied', aadsts: 700016 })).toBe(true);
+    expect(answer({ code: 'permission_denied' })).toBe(true);
+    expect(answer({ code: 'permission_denied', aadsts: '700016' })).toBe(false);
+    expect(answer({ code: 'permission_denied', aadsts: 0 })).toBe(false);
+    expect(answer({ code: 'permission_denied', aadsts: 1.5 })).toBe(false);
+    expect(answer({ code: 'permission_denied', aadsts: 10_000_000 })).toBe(false);
+  });
+
   it('refuses free-text error messages, unknown codes and a mix of data and error (FR-D-107)', () => {
     expect(
       ExchangeResponseSchema.safeParse({

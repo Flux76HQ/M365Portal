@@ -5,7 +5,8 @@
 //
 //   - The process is NOT started here. The session starts `pwsh` at its first request, so a server without
 //     `pwsh` starts and answers every feature that does not use Exchange; the registry builds this lazily.
-//   - The command is `pwsh` on the PATH (the image installs it, ADR 0180). The script is the generated file
+//   - The command is `pwsh` on the PATH, else the directory the image installs it in (ADR 0180: the image
+//     copies PowerShell to /opt/microsoft/powershell/7 and puts nothing on the PATH). The script is the generated file
 //     of the build: next to the bundle in the image, in the source tree under tsx and Vitest.
 //   - Where the certificate comes from is the `ExchangeCredentialSource` of the deployment: `start.ts` wires
 //     `createSecretsCredentialSource` (pwsh/credential-source.ts, re-exported by the registry), which reads the certificate and the PKCS#8 key
@@ -30,8 +31,17 @@ import { createNodeWorkerLauncher, type WorkerLauncher } from './pwsh/worker-lau
 
 export { createSecretsCredentialSource } from './pwsh/credential-source.js';
 
-/** The command that starts the worker: found on the PATH of the process. */
+/** The command that starts the worker: found on the PATH of the process, else in `PWSH_INSTALL_DIRECTORIES`. */
 export const PWSH_COMMAND = 'pwsh';
+
+/**
+ * Where the image installs PowerShell (Dockerfile, stage `pwsh-fetch`). That directory is NOT on the PATH of
+ * the image, so a lookup on the PATH alone leaves the bare word `pwsh`, `spawn` fails with ENOENT, and every
+ * Exchange call ends as `worker_crashed` (0.3.63). The directory is the last place the lookup tries.
+ */
+export const PWSH_INSTALL_DIRECTORIES: readonly string[] = Object.freeze([
+  '/opt/microsoft/powershell/7',
+]);
 
 /**
  * The file `command` names on the PATH of the SERVER process: the first absolute directory of `pathVariable`
@@ -39,10 +49,15 @@ export const PWSH_COMMAND = 'pwsh';
  * PATH of its own, so the search must happen here, once, in the environment that the operator (or the
  * image) really configured; a command that is not found stays as it is and fails at the start of the
  * worker (503 `exchange_unavailable`, the process stays up). A command with a slash is used as given.
+ * `fallbackDirectories` are tried after the PATH (absolute directories only).
  */
-export function resolveCommand(command: string, pathVariable: string | undefined): string {
+export function resolveCommand(
+  command: string,
+  pathVariable: string | undefined,
+  fallbackDirectories: readonly string[] = [],
+): string {
   if (command.includes('/')) return command;
-  for (const directory of (pathVariable ?? '').split(delimiter)) {
+  for (const directory of [...(pathVariable ?? '').split(delimiter), ...fallbackDirectories]) {
     if (!isAbsolute(directory)) continue;
     const candidate = join(directory, command);
     try {
@@ -127,7 +142,9 @@ export function createExchangeRuntime(
     launcher:
       settings.launcher ??
       createNodeWorkerLauncher({
-        command: settings.command ?? resolveCommand(PWSH_COMMAND, settings.parentEnv.PATH),
+        command:
+          settings.command ??
+          resolveCommand(PWSH_COMMAND, settings.parentEnv.PATH, PWSH_INSTALL_DIRECTORIES),
         scriptPath: settings.scriptPath ?? defaultExchangeScript(),
         homeDir: settings.homeDir,
         parentEnv: settings.parentEnv,

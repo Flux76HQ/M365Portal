@@ -54,7 +54,9 @@ function lines(worker: WorkerProcess): { next(): Promise<string>; exited: Promis
     }
   });
   const exited = new Promise<void>((resolve) => {
-    worker.onExit(resolve);
+    worker.onExit(() => {
+      resolve();
+    });
   });
   return {
     next: () =>
