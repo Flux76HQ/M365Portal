@@ -29,8 +29,8 @@ You need:
   Exchange Administrator role to the application), and you can sign in to the panel as **G**, the Owner.
 - **A build whose Exchange credential source is finished.** Sections A to F (OV-D1) talk to the worker script
   directly with a test certificate and **do not need it**. Sections G (Exchange part), H and I need the panel
-  itself to connect to Exchange. The certificate format is decided (PEM) and the change was still in progress when
-  this sheet was written (open-points.md, FD-01). If the **Distribution lists** page of your build only says that
+  itself to connect to Exchange. The credential source is built (the certificate and key reach the worker as PEM;
+  open-points.md, FD-01) but has not been proven against a real `pwsh` or a tenant: that is what this test is for. If the **Distribution lists** page of your build only says that
   Exchange is unavailable (503 `exchange_unavailable` in the Network tab) and the Settings, Connection page shows the
   roles as granted for more than 15 minutes, the credential source is not in your build: answer the Exchange
   steps of G, H and I **Not tested**, but still do the group steps of G (13, 22 to 24), which use only Microsoft Graph.
@@ -44,7 +44,13 @@ You need:
   openssl req -x509 -newkey rsa:2048 -nodes -days 7 -subj "/CN=m365portal-ovd1" \
     -keyout ovd1.key -out ovd1.crt
   openssl pkcs8 -topk8 -nocrypt -in ovd1.key -out ovd1.pk8.pem
+  head -n 1 ovd1.crt ovd1.pk8.pem
   ```
+
+  Both files are PEM text, which is the shape the worker's `connect` line carries: `ovd1.crt` is an X.509
+  certificate (the first line is `-----BEGIN CERTIFICATE-----`) and `ovd1.pk8.pem` is an unencrypted PKCS#8 key (the
+  first line is `-----BEGIN PRIVATE KEY-----`, not `ENCRYPTED PRIVATE KEY` or `RSA PRIVATE KEY`). The `head`
+  command prints only those two first lines, each under its file name, never the key.
 
   Upload `ovd1.crt` (the public part only) under the application registration, Certificates & secrets,
   Certificates. **Delete it again in section K.** The files `ovd1.key` and `ovd1.pk8.pem` hold a private key: keep
@@ -91,9 +97,6 @@ the test files, a token, a cookie, or a screenshot that shows any of these.
    jq -cn '{v:1,type:"shutdown",id:"a1b2c3d4-00000012"}' > shutdown.json
    ```
 
-   If your build answers `invalid_argument` to every connect line, it still expects the older PKCS#12 shape
-   (`format:"pfx-base64"`, `data`, `password`); the phase report says which shape the build has. Report which one
-   you used.
 5. Run the worker with these three lines and **do not copy the answer**; look at the shape only:
 
    ```sh
@@ -344,7 +347,7 @@ these.
 
 | Item | Result (Pass, Fail, Not tested) | Facts to report |
 |---|---|---|
-| OV-D1 (steps 1 to 12) | | PowerShell and module versions; image size in MB; seconds from start to the ping answer. Did the in-memory connect work (U75: yes or no), which connect shape you used, the `code` if not and whether `tmpfs` worked and left 0 files; the number of files with a key found while the worker ran; whether every read cmdlet of step 9 answered, the role on the application and the minutes until `role_pending` ended (U76); which Exchange application permissions exist (U77); which cmdlets answered `not supported` (U83); resident memory in MiB (U84); whether the call after 14 idle minutes worked without a new connect (U85). |
+| OV-D1 (steps 1 to 12) | | PowerShell and module versions; image size in MB; seconds from start to the ping answer. Did the in-memory connect work (U75: yes or no), the `code` if not and whether `tmpfs` worked and left 0 files; the number of files with a key found while the worker ran; whether every read cmdlet of step 9 answered, the role on the application and the minutes until `role_pending` ended (U76); which Exchange application permissions exist (U77); which cmdlets answered `not supported` (U83); resident memory in MiB (U84); whether the call after 14 idle minutes worked without a new connect (U85). |
 | OV-D2 (steps 13 to 24) | | Words for each step: group add, repeat and remove (13); list add (14, U78 with bypass) and the seconds until it showed (15, U82); repeat add (16); no-mailbox reason (17); the four `ok` and `code` pairs of step 18 (U78 without the bypass, U94); remove (19); dynamic and synchronised lists read-only (20); step-up above 20 (21); role-assignable group reason (22, U96); other read-only groups (23); any status other than 200 (24). Whether you ever saw "Microsoft refused the change" for a plain add or remove (U92, U93). |
 | OV-D4 (steps 36 to 38) | | Counts per operation for the five cmdlets (U90); whether the user field of the panel's entry shows a person, the application, a GUID or nothing (U89); whether `BypassSecurityGroupManagerCheck` appears in the parameters; the exit code of `verify-audit`. |
 | OV-D5 (steps 25 to 35) | | Created, duplicate address refused (yes or no, U97), duplicate alias refused, same display name created (U95), saved and "Change at least one field" (U15), the contact in L1 and "Already a member" (U98), the contact's Distribution lists section listed L1 (U97), search and kind filter work and the count is right (U79, U99), Managers as names, addresses or empty (U98), delete message and lists count, wrong name refused, synchronised objects read-only (U80). |
@@ -384,8 +387,9 @@ Je hebt nodig:
   Exchange-beheerder) en je als **G**, de Eigenaar, in het paneel kunt aanmelden.
 - **Een build waarvan de bron voor de Exchange-inloggegevens af is.** De secties A tot en met F (OV-D1) spreken het
   workerscript direct aan met een testcertificaat en **hebben die niet nodig**. De secties G (Exchange-deel), H en I
-  hebben het nodig dat het paneel zelf met Exchange verbindt. Het certificaatformaat is besloten (PEM) en de
-  wijziging was bij het schrijven van dit blad nog in uitvoering (open-points.md, FD-01). Zegt de pagina
+  hebben het nodig dat het paneel zelf met Exchange verbindt. De bron voor de inloggegevens is gebouwd
+  (certificaat en sleutel komen als PEM bij de worker; open-points.md, FD-01), maar is nog niet bewezen met een echte
+  `pwsh` of een tenant: daar dient deze test voor. Zegt de pagina
   **Distributielijsten** van jouw build alleen dat Exchange niet beschikbaar is (503 `exchange_unavailable` in het
   tabblad Network) en toont Instellingen, Verbinding de rollen al ruim 15 minuten als verleend, dan zit de bron er
   niet in: beantwoord de Exchange-stappen van G, H en I met **Niet getest**, maar doe wel de groepsstappen van G (13,
@@ -395,8 +399,11 @@ Je hebt nodig:
 - Een **testcertificaat** voor de workerstappen van sectie B. Het certificaat van het paneel is niet te exporteren
   (de sleutel blijft verzegeld in de database); maak dus een apart certificaat met de `openssl`-opdrachten uit de
   Engelse versie hierboven, upload alleen `ovd1.crt` bij de applicatieregistratie en **verwijder het weer in sectie
-  K**. `ovd1.key` en `ovd1.pk8.pem` bevatten een privésleutel: bewaar ze buiten de repository en cloudmappen en
-  verwijder ze na de test.
+  K**. Beide bestanden zijn PEM-tekst, zoals de `connect`-regel van de worker die draagt: `ovd1.crt` is een
+  X.509-certificaat (`-----BEGIN CERTIFICATE-----`) en `ovd1.pk8.pem` een niet-versleutelde PKCS#8-sleutel
+  (`-----BEGIN PRIVATE KEY-----`, dus niet `ENCRYPTED PRIVATE KEY` of `RSA PRIVATE KEY`); `head -n 1 ovd1.crt
+  ovd1.pk8.pem` toont die eerste regels. `ovd1.key` en `ovd1.pk8.pem` bevatten een privésleutel: bewaar ze buiten de
+  repository en cloudmappen en verwijder ze na de test.
 - **Testdata**, eenmalig door jou gemaakt in het Exchange-beheercentrum, het Entra-beheercentrum en het Microsoft
   365-beheercentrum: een distributielijst **L1** (jij bent eigenaar, de applicatie **niet**), drie gebruikers **U1**,
   **U3** (met mailbox) en **U2** (zonder mailbox, bijvoorbeeld zonder licentie), een cloud-beveiligingsgroep **G1**
@@ -424,8 +431,7 @@ Stappen 1 tot en met 3, de opdrachten zijn letterlijk dezelfde als in de Engelse
 ### B. OV-D1: verbinden met het certificaat in het geheugen (5 minuten, U75, U76, U77)
 
 Stap 4: bouw met de `jq`-opdrachten van de Engelse versie de `connect`-regel (`format:"pem"`, certificaat als PEM, sleutel
-als PKCS#8; een build die nog het oudere PKCS#12-formaat verwacht antwoordt `invalid_argument` op elke
-`connect`-regel: meld welk formaat je gebruikte) en de bestanden `call.json` en `shutdown.json`, in een bestand dat
+als PKCS#8) en de bestanden `call.json` en `shutdown.json`, in een bestand dat
 alleen jij kunt lezen. Stap 5: voer de drie regels in de worker uit en **kopieer het antwoord niet**.
 `ok: true` bij het antwoord op `connect` en bij `Get-DistributionGroup` betekent dat **U75 klopt** (het certificaat
 werd op Linux uit het geheugen gebruikt). Bij `role_pending`: 5 minuten wachten en opnieuw (hoe lang het duurde is
@@ -601,7 +607,7 @@ Eén regel per controle in de tabel van de Engelse versie (Item, Resultaat: Gesl
 feiten): OV-D1 (stappen 1 tot en met 12), OV-D2 (13 tot en met 24), OV-D4 (36 tot en met 38), OV-D5 (25 tot en met 35)
 en het besluit over de grootte van de image (J). Toegestaan: een resultaatwoord, getallen, seconden, milliseconden,
 MiB, MB, HTTP-statuscodes, de `code` van de worker, de redenwoorden van het paneel, versienummers en namen van rollen en
-machtigingen. **Niet toegestaan:** namen, adressen, id's, tokens, het wachtwoord, bestandsinhoud of schermafbeeldingen
+machtigingen. **Niet toegestaan:** namen, adressen, id's, tokens, de sleutel, bestandsinhoud of schermafbeeldingen
 daarvan. Zie je iets dat je niet kunt verklaren, beschrijf het dan in woorden en stop; probeer het niet opnieuw op een
 manier die gegevens wijzigt. De besluiten die volgen (geheugenpad of `tmpfs`, een smallere rol dan Exchange-beheerder,
 de bypass, het plafond voor de image, of we doorgaan met stap D2) staan in het rapport van stap D1.

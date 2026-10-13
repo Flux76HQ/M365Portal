@@ -1890,7 +1890,7 @@ describe('Phase C documents (FR-C-603)', () => {
 // =============================================================================================
 // The same shape as the Phase C guards: each guard names the item that is missing, and a negative
 // takes that item out. What these documents may NOT do is claim more than the gate notes say, so the
-// credential source (FD-01) must read "decided, in progress" and the approval line must stay empty.
+// credential source (FD-01) must read "built, not proven against a tenant" and the approval line must stay empty.
 
 const PHASE_D1_ROUTE_IDS = [
   'distributionlists.list',
@@ -2020,9 +2020,15 @@ function assertOpenPointsPhaseD1(markdown: string): void {
     if (!row(id).test(markdown)) throw new Error(`open-points.md: the finding ${id} is missing`);
   }
   const credential = /^\|\s*FD-01\s*\|.*$/m.exec(markdown)?.[0] ?? '';
-  if (!/in progress/i.test(credential) || !/PEM/.test(credential))
+  if (
+    !credential.includes('PEM') ||
+    !/\bbuilt\b/i.test(credential) ||
+    !/NOT proven/i.test(credential) ||
+    !/tenant/i.test(credential) ||
+    /in progress/i.test(credential)
+  )
     throw new Error(
-      'open-points.md: FD-01 must say that the PEM credential source is decided and in progress',
+      'open-points.md: FD-01 must say that the PEM credential source is built and is not proven against a tenant',
     );
 }
 
@@ -2086,7 +2092,7 @@ describe('Phase D step D1 documents (FR-D-807)', () => {
     });
   });
 
-  it('docs/open-points.md has U75 to U100, OV-D1 to OV-D9, the D1 decisions, assumptions, risks and findings, and says the credential source is decided and in progress', () => {
+  it('docs/open-points.md has U75 to U100, OV-D1 to OV-D9, the D1 decisions, assumptions, risks and findings, and says the PEM credential source is built and not proven against a tenant', () => {
     const real = readDocument('docs/open-points.md', 'T-D-191');
     assertOpenPointsPhaseD1(real);
     runNegatives(assertOpenPointsPhaseD1, real, [
@@ -2095,8 +2101,14 @@ describe('Phase D step D1 documents (FR-D-807)', () => {
       ['no ODD-10', (t) => withoutLines(t, /^\|\s*ODD-10\s*\|/), /row ODD-10/],
       ['no FD-07', (t) => withoutLines(t, /^\|\s*FD-07\s*\|/), /finding FD-07/],
       [
-        'the credential source no longer in progress',
-        (t) => t.replace(/^\|\s*FD-01\s*\|.*$/m, (line) => line.replace(/in progress/gi, 'done')),
+        'the credential source claimed as proven',
+        (t) => t.replace(/^\|\s*FD-01\s*\|.*$/m, (line) => line.replace(/not proven/gi, 'proven')),
+        /FD-01 must say/,
+      ],
+      [
+        'the credential source back to in progress',
+        (t) =>
+          t.replace(/^\|\s*FD-01\s*\|.*$/m, (line) => line.replace(/\bbuilt\b/gi, 'in progress')),
         /FD-01 must say/,
       ],
     ]);

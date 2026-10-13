@@ -2,9 +2,9 @@
 
 Date / datum: 2026-10-13 · Branch `claude/modest-bohr-45f4kf`, build `0.3.58` (HEAD `44287d2` plus the documentation of this report) · Spec: `specs/004-phase-d/spec.md` · Gate notes: `specs/004-phase-d/gate-notes/GD1-0.md`, `GD1-web.md`, `GD1-server-a.md`, `GD1-server-b.md`
 
-Status: **Step D1 of Phase D is built; the owner test against a real Microsoft 365 test tenant is open; CI results (quality, e2e, image, CodeQL, Trivy, visual baselines) are pending.** Two things are not finished and are named here first: **(1)** the Exchange features cannot connect until the credential source of the worker is built (decided on 2026-10-13: PEM, **in progress**, not done); **(2)** the Ubuntu image has never been built or measured, and its **size ceiling is the owner's decision**. Nothing in this report claims what only a real tenant or a built image can show.
+Status: **Step D1 of Phase D is built; the owner test against a real Microsoft 365 test tenant is open; CI results (quality, e2e, image, CodeQL, Trivy, visual baselines) are pending.** Two things are not finished and are named here first: **(1)** the credential source of the worker is **built** (decided on 2026-10-13: PEM, option C) but **not proven**: nothing has run against a real `pwsh` or a tenant (U75, OV-D1); **(2)** the Ubuntu image has never been built or measured, and its **size ceiling is the owner's decision**. Nothing in this report claims what only a real tenant or a built image can show.
 
-Status: **Stap D1 van Fase D is gebouwd; de test van de eigenaar op een echte Microsoft 365-testtenant staat open; de CI-resultaten (quality, e2e, image, CodeQL, Trivy, visuele baselines) zijn "pending".** Twee dingen zijn niet af en staan hier vooraan: **(1)** de Exchange-functies kunnen pas verbinden als de bron van de inloggegevens van de worker gebouwd is (besloten op 2026-10-13: PEM, **in uitvoering**, niet klaar); **(2)** de Ubuntu-image is nooit gebouwd of gemeten en het **plafond voor zijn grootte is jouw besluit**. Dit rapport beweert niets wat alleen een echte tenant of een gebouwde image kan laten zien.
+Status: **Stap D1 van Fase D is gebouwd; de test van de eigenaar op een echte Microsoft 365-testtenant staat open; de CI-resultaten (quality, e2e, image, CodeQL, Trivy, visuele baselines) zijn "pending".** Twee dingen zijn niet af en staan hier vooraan: **(1)** de bron van de inloggegevens van de worker is **gebouwd** (besloten op 2026-10-13: PEM, optie C) maar **niet bewezen**: niets is gedraaid tegen een echte `pwsh` of een tenant (U75, OV-D1); **(2)** de Ubuntu-image is nooit gebouwd of gemeten en het **plafond voor zijn grootte is jouw besluit**. Dit rapport beweert niets wat alleen een echte tenant of een gebouwde image kan laten zien.
 
 ---
 
@@ -16,7 +16,7 @@ Status: **Stap D1 van Fase D is gebouwd; de test van de eigenaar op een echte Mi
 
 **Wat niet zeker is.** Hoe Microsoft echt antwoordt: **U75 tot en met U100** (onder andere of het certificaat op Linux uit het geheugen werkt, of de rol van de service principal de beheerderscontrole van een lijst vervult, hoe lang Exchange nodig heeft om een wijziging te tonen en of het Exchange-auditlog de uitvoeringen van het paneel bevat). Die sluit alleen jouw test, **OV-D1, OV-D2, OV-D4 en OV-D5**, met het stappenplan in [`docs/owner-test-phase-d1.md`](../owner-test-phase-d1.md) (ongeveer 90 minuten plus 30 minuten wachten). Ook niet bewezen: de gebouwde image (`docker build`, grootte, starttijd, de arm64-ping), de volledige e2e-matrix en de visuele baselines; die komen van de CI.
 
-**Twee dingen die nog niet af zijn.** (1) De Exchange-pagina's antwoorden "Exchange is niet beschikbaar" tot de bron van de inloggegevens is gebouwd; jij koos PEM, de wijziging is in uitvoering. Groepsledenbeheer via Graph werkt wel. (2) De image is geschat op 500 tot 550 MB tegen een plafond van 400 MB; de CI-stap faalt tot jij een plafond kiest.
+**Twee dingen die nog niet af zijn.** (1) De bron van de inloggegevens is gebouwd (jij koos PEM) maar niet bewezen tegen een echte `pwsh` of tenant; kan Exchange niet verbinden, dan antwoorden de Exchange-pagina's "Exchange is niet beschikbaar". Groepsledenbeheer via Graph werkt wel. (2) De image is geschat op 500 tot 550 MB tegen een plafond van 400 MB; de CI-stap faalt tot jij een plafond kiest.
 
 **De vraag.** Mag stap D2 (CSV-export en auditscherm) beginnen, en welk plafond kies je voor de image? Zie sectie 5.
 
@@ -32,7 +32,7 @@ Status: **Stap D1 van Fase D is gebouwd; de test van de eigenaar op een echte Mi
 - **Web**: Distribution lists (search, kind filter, detail, members, add and remove with the result table), Contacts (list, detail, create, edit, delete dialogs, validation at the field), member editing on the Groups page (five read-only cases with their reason), a shared member picker; all in lazy chunks and lazy catalogues in Dutch and English.
 - **Audit**: seven actions (`dl.member.add|remove`, `group.member.add|remove`, `contact.create|update|delete`), one entry per member plus a summary entry; no name or address in any entry.
 - **Limits** (`LIMITS.exchange`, `.distributionLists`, `.groupMembers`, `.contacts`, `.rateLimit.export`): eight new rows in `docs/operations.md`, compared with the code by `limits-doc.test.ts`. The largest request stays 9,437,184 bytes (a write body holds at most 200 GUIDs).
-- **Docs**: `docs/api.md`, `docs/permissions.md` Part 5, `docs/operations.md`, `docs/security.md`, ADR-0180 and ADR-0181, `README.md`, `docs/open-points.md` (U75 to U100, FD-01 to FD-22), `docs/owner-test-phase-d1.md`, this report; all in Dutch and English.
+- **Docs**: `docs/api.md`, `docs/permissions.md` Part 5, `docs/operations.md`, `docs/security.md`, ADR-0180 and ADR-0181, `README.md`, `docs/open-points.md` (U75 to U100, FD-01 to FD-24), `docs/owner-test-phase-d1.md`, this report; all in Dutch and English.
 
 **Deliberately not built in D1**: the export and the audit screen (D2), role administration, certificate rotation, break-glass hardening and telemetry (D3), members of dynamic lists, creating or deleting lists and groups, changing the names of a contact, owner and manager changes, licences (U17, U48), and the credential source of the worker (FD-01, in progress).
 
@@ -93,15 +93,15 @@ De volledige lijst, in het Engels en Nederlands, staat in [`docs/owner-test-phas
 
 ## 4. Open points, deviations and decisions / Open punten, afwijkingen en besluiten
 
-Full registers: `docs/open-points.md`, section "Phase D" (U75 to U100 with status, OV-D1 to OV-D9, ODD-01 to ODD-11, AD, RD and the findings FD-01 to FD-22).
+Full registers: `docs/open-points.md`, section "Phase D" (U75 to U100 with status, OV-D1 to OV-D9, ODD-01 to ODD-11, AD, RD and the findings FD-01 to FD-24).
 
 ### 4.1 Not yet done in step D1 / Nog niet gedaan
 
-1. **The credential source of the worker (FD-01).** Decided: PEM (option C). In progress in a separate change. Until it lands every Exchange route answers 503 `exchange_unavailable`; Graph features work.
+1. **The credential source of the worker (FD-01).** Decided: PEM (option C). **Built** (`SecretsRuntime.withCertificateMaterial`, `credential-source.ts`, the tmpfs fallback derives a PKCS#12 from the PEMs; GD1-0 Amendment 1) and **not proven** against a real `pwsh` or a tenant (`CreateFromPem`, `Connect-ExchangeOnline`: U75, OV-D1). If the source cannot produce the certificate every Exchange route answers 503 `exchange_unavailable`; Graph features work.
 2. **The image has never been built or measured** (FD-02, FD-03); the ceiling is the owner's.
 3. U75 to U100 and OV-D1, OV-D2, OV-D4, OV-D5: the owner test (all `open`).
 4. CI for the step (FD-21), the e2e specs for the two pages and the visual baselines (FD-20), the gate note `GD1.md`.
-5. Dynamic lists show no members and nothing says why (FD-05); the `narrow_search` message was missing at the gate (FD-06, being added elsewhere); a list of more than about 2,500 members cannot be read (FD-07).
+5. Dynamic lists show no members and nothing says why (FD-05); the `narrow_search` message was missing at the gate and now exists (FD-06, FD-24); a list of more than about 2,500 members cannot be read (FD-07).
 
 ### 4.2 Deviations from the spec and tasks, with evidence / Afwijkingen
 
@@ -112,7 +112,7 @@ The code is right in each case; spec and tasks were amended and say so.
 | 1 | Route ids of `distributionlists.*` are lower case (the audit action grammar has no capital letter); spec 6.11.1 amended | GD1-server-b, FD-04 |
 | 2 | Layout routes `distribution-lists.tsx` and `contacts.tsx` plus `.index` routes, because a route with a child must render an outlet | GD1-web |
 | 3 | Dynamic lists have no member list (`Get-DynamicDistributionGroupMember` is not on the allow-list); the frozen schema has no state field | GD1-server-a, GD1-server-b, FD-05 |
-| 4 | `narrow_search` is a detail code that had no catalogue message | GD1-server-b, FD-06 |
+| 4 | `narrow_search` is a detail code that had no catalogue message at the gate; it has one now (`distributionLists.error.narrow_search`, `contacts.error.narrow_search`) | GD1-server-b, GD1-0 Amendment 1, FD-06, FD-24 |
 | 5 | A hidden-membership group is 409 `read_only_object` for writes | GD1-server-b, FD-08 |
 | 6 | P45 issues no cursor; users without a mailbox address are not offered | GD1-server-b, FD-09 |
 | 7 | `validation_failed` carries the code of a custom message; `Retry-After` on `exchange_unavailable` (30 s) and `exchange_throttled` | GD1-server-b, FD-10 |
@@ -133,7 +133,7 @@ The code is right in each case; spec and tasks were amended and say so.
 | ODB-03 | Exchange Administrator plus both app roles; narrowing only after OV-D1 | closed 2026-10-13; the wizard grants both |
 | ODD-01 | Group member writes through Graph in Phase D | closed 2026-10-13; built in D1 |
 | ODD-08 | Distroless is dropped for an Ubuntu LTS runtime | implemented in D1 |
-| ODD-09 | Certificate format handed to the worker: PKCS#12 (A or B) or PEM (C) | **decided C, PEM, 2026-10-13; in progress, not done** |
+| ODD-09 | Certificate format handed to the worker: PKCS#12 (A or B) or PEM (C) | **decided C, PEM, 2026-10-13; built, not proven against `pwsh` or a tenant** |
 | ODD-10 | The image size ceiling | **owner, open** |
 | ODD-11 | Bundle budget for the three steps (+2,048 B gzip JS, +3,072 B Brotli first load) | recorded 2026-10-13 |
 
@@ -143,7 +143,7 @@ The code is right in each case; spec and tasks were amended and say so.
 
 1. **The image size ceiling (ODD-10).** The new image is estimated at 500 to 550 MB against 400 MB, and unmeasured. Measure the first build (`docker image inspect --format '{{.Size}}' <image>`; OV-D1 step 2 asks for the number) and tell the ceiling you accept, or ask for a smaller image. The CI step `Image size budget` fails until then; nobody else raises it.
 2. **Large lists (FD-07).** A list with more than about 2,500 members cannot be read through a 1 MiB protocol line. Tell whether that is acceptable for your tenant or whether the line or the projection should change before D2.
-3. **Already decided, for the record:** PKCS#12 against PEM for the worker's certificate was **decided on 2026-10-13: PEM**; the change is in progress and the credential source will be reported in its own gate note.
+3. **Already decided, for the record:** PKCS#12 against PEM for the worker's certificate was **decided on 2026-10-13: PEM**; it is built (GD1-0 Amendment 1) and not proven against a real `pwsh` or a tenant.
 4. **Bundle room.** About 1.8 KB of first-load room is left for D2 and D3; any more needs a further approval.
 
 ### The question / De vraag

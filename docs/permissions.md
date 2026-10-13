@@ -384,7 +384,7 @@ application may manage it.
 All Exchange calls run in the `pwsh` worker, which connects with the application id, the tenant's
 `.onmicrosoft.com` domain and the certificate (app-only). The certificate reaches the worker in memory
 (`EXCHANGE_KEY_HANDOVER=memory`), or through a short-lived file on a tmpfs (`tmpfs`, the fallback); whether the
-in-memory path works on Linux is U75, and the format of the hand-over is decided but still being built (PEM, see
+in-memory path works on Linux is U75, and the hand-over is PEM, built but not proven against a real `pwsh` or a tenant (see
 [open-points.md](open-points.md), finding FD-01). The worker may call **ten cmdlets and nothing else**, each
 with a closed set of parameters (ADR-0181):
 
@@ -601,8 +601,8 @@ het panel leest dus eerst. Het antwoord op het verwijderen van een niet-lid staa
 **Distributielijsten en contacten via de Exchange-worker (P40 tot en met P45, P47 tot en met P52).** Alle
 Exchange-aanroepen lopen via de `pwsh`-worker (app-only, applicatie-id, `.onmicrosoft.com`-domein en
 certificaat). Het certificaat komt in het geheugen bij de worker (`EXCHANGE_KEY_HANDOVER=memory`) of via een
-kortlevend bestand op een tmpfs (`tmpfs`, de terugval); of het geheugenpad op Linux werkt is U75, en het
-formaat van de overdracht is besloten maar nog in aanbouw (PEM; bevinding FD-01). De worker mag **tien cmdlets
+kortlevend bestand op een tmpfs (`tmpfs`, de terugval); of het geheugenpad op Linux werkt is U75, en de
+overdracht is PEM, gebouwd maar niet bewezen tegen een echte `pwsh` of een tenant (bevinding FD-01). De worker mag **tien cmdlets
 en niets anders**, elk met een gesloten parameterset (ADR-0181):
 
 | Cmdlet | Gebruikt door | Learn |

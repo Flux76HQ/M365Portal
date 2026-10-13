@@ -398,17 +398,25 @@ panel**. The private key never reaches the disk of the container in the default 
 
 | `EXCHANGE_KEY_HANDOVER` | What happens | When to use it |
 |---|---|---|
-| `memory` (default) | The server sends the certificate and key to the worker as one `connect` line on the pipe; the script builds the certificate object in memory and passes it to `Connect-ExchangeOnline -Certificate`. Nothing is written. | Always, unless OV-D1 shows that the module will not take it on Linux (U75) |
-| `tmpfs` (fallback) | The script writes the key to a file with mode 0600 in a private directory under `/dev/shm` (a tmpfs), connects, and removes the file at once. The first use is refused when that directory is not a tmpfs. | Only after OV-D1 says the in-memory path fails. A residual risk remains: the key exists in a file for the time of the connect |
+| `memory` (default) | The server sends the certificate and the key to the worker as PEM text in one `connect` line on the stdin pipe; the script builds the certificate object in memory (`X509Certificate2.CreateFromPem`) and passes it to `Connect-ExchangeOnline -Certificate`. Nothing is written. | Always, unless OV-D1 shows that the module will not take it on Linux (U75) |
+| `tmpfs` (fallback) | The script writes the two PEMs to files (a certificate file and a key file, `cert.pem` and `key.pem` in kind, with a random token in the name) in a private directory under `/dev/shm` (a tmpfs), derives a PKCS#12 file from them (the cmdlet's `-CertificateFilePath` wants one; its password is random and exists only inside the function), connects, and removes all three files in a `finally` block. Every file has mode 0600. The first use is refused when that directory is not a tmpfs. | Only after OV-D1 says the in-memory path fails. A residual risk remains: the key exists in a file for the time of the connect |
 
-- **Which format the connect line carries is decided but not finished.** The first contract carried a PKCS#12
-  container and a password, which Phase B cannot produce (it stores a sealed PKCS#8 key and a public
-  certificate; Node cannot write PKCS#12). The owner decided on 2026-10-13 for **PEM**: the script builds the
-  certificate with `X509Certificate2.CreateFromPem` from the certificate and the PKCS#8 key, with no password.
-  That change, and the narrow, audited method that hands the key to the server's hand-over code once and zeroes
-  it after, are **in progress** in a separate change (finding FD-01). **Until a credential source exists every
-  Exchange route answers 503 `exchange_unavailable`**; the process starts and every Graph feature (users,
-  groups and group members) works. When it lands, this paragraph and OV-D1 are updated.
+- **The connect line carries PEM, and the credential source is built but not proven.** The first contract carried
+  a PKCS#12 container and a password, which Phase B cannot produce (it stores a sealed PKCS#8 key and a public
+  certificate; Node cannot write PKCS#12). The owner decided on 2026-10-13 for **PEM** (option C) and it is built:
+  the connect line is `certificate: { format: 'pem', certificate, privateKey }` (an X.509 `CERTIFICATE` and an
+  unencrypted PKCS#8 `PRIVATE KEY`, no password), sent in memory over the stdin pipe, and the script builds the
+  certificate with `X509Certificate2.CreateFromPem`. The server gets the PEMs from one audited accessor,
+  `SecretsRuntime.withCertificateMaterial`, which hands them to a callback and revokes them afterwards; each
+  access is a log line with the purpose and the thumbprint, never the key. If the secrets module is degraded, or
+  there is no certificate, no key that opens it or no initial domain, the Exchange routes answer 503
+  `exchange_unavailable` (reason `credential_unavailable`) and every Graph feature (users, groups and group
+  members) keeps working. **Not proven against a real `pwsh` or a tenant** (`CreateFromPem` and
+  `Connect-ExchangeOnline -Certificate` on Linux: U75, OV-D1); finding FD-01.
+- **The worker command is looked up on the server's PATH.** The server finds `pwsh` with its own lookup
+  (`resolveCommand` in `integrations/exchange/runtime.ts`), because the worker itself starts with a short
+  environment without a `PATH`. This is what lets the e2e shim (`e2e/support/pwsh-shim/`) stand in for PowerShell
+  without a test hook; the image does not contain the shim.
 - **No key on disk is a tested property**, not a promise: a canary key is planted and the container's files are
   searched after a connect, in both modes (`no-key-on-disk.test.ts`). The real behaviour of the module on Linux is
   OV-D1 step 10.
@@ -468,7 +476,7 @@ is unchanged at 9,437,184 bytes.
 
 | You see | Likely cause |
 |---|---|
-| Every distribution list, contact and Exchange-backed page answers 503 `exchange_unavailable` | The Exchange credential source is not built yet (FD-01), or the role was granted minutes ago (`exchange_role_pending`, wait and retry), or the worker could not start (`pwsh` missing: an image that is not the Phase D image) |
+| Every distribution list, contact and Exchange-backed page answers 503 `exchange_unavailable` | The Exchange credential source cannot produce the certificate (degraded secrets, no certificate or no initial domain: reason `credential_unavailable`; built, but not proven against a tenant, FD-01), or the role was granted minutes ago (`exchange_role_pending`, wait and retry), or the worker could not start (`pwsh` missing: an image that is not the Phase D image) |
 | 503 `exchange_unavailable` with `exchange_timeout` | A call exceeded 120 seconds; the worker was restarted. Try again |
 | 503 `exchange_throttled` | Exchange asked for a wait and the retry budget is spent; `Retry-After` says how long |
 | 503 `exchange_permission_missing` | Exchange refused the application: the Entra role is missing (Settings, Connection) or a manager check failed |
@@ -741,15 +749,24 @@ bij de eerste Exchange-aanroep (niet bij het opstarten), met regelgebonden JSON 
 
 **Certificaat en sleutel.** De worker verbindt met applicatie-id, het `.onmicrosoft.com`-domein en het certificaat
 van het paneel. `EXCHANGE_KEY_HANDOVER=memory` (standaard): certificaat en sleutel gaan als één `connect`-regel
-over de pipe en het script bouwt het certificaat in het geheugen; er wordt niets geschreven. `tmpfs` is de
-terugval (bestand met modus 0600 in een privémap onder `/dev/shm`, direct na het verbinden verwijderd, met een
-restrisico) en alleen nodig als OV-D1 laat zien dat het geheugenpad op Linux niet werkt (U75). **Het formaat van
-de `connect`-regel is besloten maar niet af**: het eerste contract droeg een PKCS#12 en een wachtwoord, wat
-Fase B niet kan maken; de eigenaar besloot op 2026-10-13 voor **PEM** (`X509Certificate2.CreateFromPem`, geen
-wachtwoord). Die wijziging en de smalle, geauditeerde methode die de sleutel eenmalig aan de overdracht geeft
-zijn **in uitvoering** (bevinding FD-01). **Zolang er geen bron voor de inloggegevens is, antwoordt elke
-Exchange-route 503 `exchange_unavailable`**; het proces start en alles via Graph (gebruikers, groepen,
-groepsleden) werkt. Dat er geen sleutel op schijf komt is een geteste eigenschap (een kanariesleutel wordt
+over de stdin-pipe, als PEM-tekst, en het script bouwt het certificaat in het geheugen; er wordt niets geschreven.
+`tmpfs` is de terugval: het script schrijft de twee PEM's naar bestanden (een certificaat- en een sleutelbestand, met
+een willekeurig token in de naam) in een privémap onder `/dev/shm`, leidt daar een PKCS#12-bestand van af (dat wil
+`-CertificateFilePath`; het wachtwoord is willekeurig en bestaat alleen binnen de functie), verbindt en verwijdert
+alle drie de bestanden in een `finally`-blok, allemaal met modus 0600, met een restrisico. Het is alleen nodig als
+OV-D1 laat zien dat het geheugenpad op Linux niet werkt (U75). **De `connect`-regel draagt PEM en de bron van de
+inloggegevens is gebouwd, maar niet bewezen**: het eerste contract droeg een PKCS#12 en een wachtwoord, wat Fase B
+niet kan maken; de eigenaar besloot op 2026-10-13 voor **PEM** (optie C): `certificate: { format: 'pem',
+certificate, privateKey }` (een X.509-`CERTIFICATE` en een niet-versleutelde PKCS#8-`PRIVATE KEY`, geen
+wachtwoord), in het geheugen over de pipe, en het script bouwt het certificaat met `X509Certificate2.CreateFromPem`.
+De server krijgt de PEM's van één geauditeerde toegangsmethode, `SecretsRuntime.withCertificateMaterial`, die ze aan
+een callback geeft en daarna intrekt; elke toegang is een logregel met doel en vingerafdruk, nooit de sleutel. Is de
+geheimenmodule gedegradeerd, of ontbreekt het certificaat, een sleutel die het opent of het initiële domein, dan
+antwoordt elke Exchange-route 503 `exchange_unavailable` (reden `credential_unavailable`); het proces start en alles
+via Graph (gebruikers, groepen, groepsleden) werkt. **Niet bewezen tegen een echte `pwsh` of een tenant**
+(`CreateFromPem` en `Connect-ExchangeOnline -Certificate` op Linux: U75, OV-D1; bevinding FD-01). De workeropdracht
+wordt op het PATH van de server opgezocht (`resolveCommand`), omdat de worker zelf zonder `PATH` start; daardoor kan
+de e2e-shim zonder testhaak voor PowerShell instaan. Dat er geen sleutel op schijf komt is een geteste eigenschap (een kanariesleutel wordt
 geplant en na het verbinden wordt in de bestanden gezocht, in beide modi); het echte gedrag van de module is
 OV-D1 stap 10. Geheugenresten van de sleutel zijn een aanvaard risico (zie [security.md](security.md)).
 
@@ -779,7 +796,7 @@ entrypoint zijn gelijk. Geen nieuwe Compose-mappingregel, geen volume, geen migr
 9.437.184 bytes.
 
 **Symptomen.** Elke Exchange-pagina antwoordt 503 `exchange_unavailable`: de bron van de inloggegevens is nog niet
-gebouwd (FD-01), de rol is minuten geleden verleend (`exchange_role_pending`, wacht en probeer opnieuw) of
+te maken (verzegelde geheimen gedegradeerd of geen certificaat of initieel domein, reden `credential_unavailable`; gebouwd maar niet bewezen, FD-01), de rol is minuten geleden verleend (`exchange_role_pending`, wacht en probeer opnieuw) of
 `pwsh` ontbreekt (een image die niet de Fase D-image is). `exchange_timeout`: een aanroep duurde langer dan 120
 seconden. 503 `exchange_throttled`: de herhaalruimte is op; `Retry-After` zegt hoe lang. 503
 `exchange_permission_missing`: de Entra-rol ontbreekt (Instellingen, Verbinding) of de beheerderscontrole faalde.

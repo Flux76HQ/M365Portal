@@ -494,13 +494,19 @@ that does and does not protect:
   reach what the process user reaches, the sealed database included. The protection is that nothing an
   administrator types becomes code (below), not a kernel boundary. A seccomp profile or a separate container (ODB-01
   option B) was not chosen for D1 (ADR-0180, item 7).
-- **The key.** In the default mode the certificate and its key travel once, over the pipe, in one `connect` line,
-  and the script builds the certificate object in memory. No file is written (`no-key-on-disk.test.ts`: the memory mode creates no file and no directory;
+- **The key.** In the default mode the certificate and its key travel once, as PEM text held in memory, over the
+  stdin pipe, in one `connect` line (never in an argument, the environment or a log), and the script builds the
+  certificate object in memory (`CreateFromPem`). No file is written (`no-key-on-disk.test.ts`: the memory mode creates no file and no directory;
   the fallback removes its file and directory; a canary scan with negative controls proves the scan can fail). The fallback
-  (`EXCHANGE_KEY_HANDOVER=tmpfs`) writes a mode 0600 file under `/dev/shm` for the time of the connect and removes
-  it; it refuses a directory that is not a tmpfs. The server side of the hand-over (a narrow, audited method that
-  hands the key over once and zeroes it) is **not built yet** (FD-01); until it is, no key is read and every
-  Exchange route answers 503. Whether the module accepts an in-memory certificate on Linux is U75.
+  (`EXCHANGE_KEY_HANDOVER=tmpfs`) writes the two PEMs to files (certificate and key, `cert.pem` and `key.pem` in kind, with a
+  random token in the name) and a PKCS#12 file derived from them, all mode 0600 under `/dev/shm`, for the time of the
+  connect, and removes all three in a `finally` block; it refuses a directory that is not a tmpfs. The server side
+  of the hand-over is built: one accessor, `SecretsRuntime.withCertificateMaterial`, is the single audited way the
+  PEMs leave the secrets module; it hands them to a callback and revokes them afterwards, each access is a log
+  line (purpose and thumbprint, never the key), and a test pins the files that may name it. The PEM strings cannot
+  be wiped from memory (an accepted risk, below). With a degraded secrets state, no certificate, no key that opens
+  it or no initial domain, no key is read and the Exchange routes answer 503. Whether the module accepts an
+  in-memory `CreateFromPem` certificate on Linux is U75, **not proven against a real `pwsh` or a tenant**.
 - **Recycling.** The worker is replaced after 500 calls or 3,600 seconds and killed at a deadline of 120 seconds
   (`exchange.*` in [operations.md](operations.md#limits-outside-the-repository)): bounded memory (Learn: repeated
   connect and disconnect can leak) and no call that hangs a request for ever. Memory residue of the key in the
@@ -555,8 +561,8 @@ pattern and a maximum length, switch, boolean, result size, enumerated value) an
 
 ### Accepted risks and gaps of step D1
 
-- **FD-01** The credential source for the worker is not built: Exchange features answer 503 until it is. This is a
-  gap, not a control.
+- **FD-01** The credential source for the worker (PEM) is built but not proven against a real `pwsh` or a tenant
+  (U75, OV-D1). Until the owner test passes, treat the in-memory and `tmpfs` paths as unproven.
 - The worker shares the user and file system of the panel (above). A hardening review may ask for a seccomp
   profile or a separate container.
 - The runtime packages of the Ubuntu image are not pinned by version; Trivy and Dependabot cover them. The image
@@ -686,9 +692,16 @@ en ADR-0181.
   geheugenmodus maakt geen bestand en geen map, de terugval ruimt bestand en map op; een kanariescan met negatieve
   controles bewijst dat de scan kan falen). De terugval
   (`EXCHANGE_KEY_HANDOVER=tmpfs`) schrijft een bestand met modus 0600 onder `/dev/shm` voor de duur van het
-  verbinden en verwijdert het; een map die geen tmpfs is, wordt geweigerd. De serverkant van de overdracht is
-  **nog niet gebouwd** (FD-01): tot dan wordt geen sleutel gelezen en antwoordt elke Exchange-route 503. Of de
-  module een certificaat uit het geheugen op Linux accepteert, is U75. De worker wordt na 500 aanroepen of 3.600
+  verbinden en verwijdert het; een map die geen tmpfs is, wordt geweigerd. De PEM-tekst blijft in het geheugen
+  en gaat over de stdin-pipe, nooit in een argument, de omgeving of een log. De terugval schrijft de twee PEM's naar
+  bestanden (certificaat en sleutel, met een willekeurig token in de naam) en een daarvan afgeleid PKCS#12-bestand,
+  allemaal met modus 0600, en verwijdert alle drie in een `finally`-blok. De serverkant van de overdracht is
+  gebouwd: één toegangsmethode, `SecretsRuntime.withCertificateMaterial`, is de enige geauditeerde weg waarlangs de
+  PEM's de geheimenmodule verlaten; ze gaat naar een callback en wordt daarna ingetrokken, elke toegang is een
+  logregel (doel en vingerafdruk, nooit de sleutel). Bij een gedegradeerde geheimenstaat, geen certificaat, geen
+  sleutel die het opent of geen initieel domein wordt geen sleutel gelezen en antwoordt elke Exchange-route 503. Of
+  de module een certificaat uit het geheugen op Linux accepteert, is U75, **niet bewezen tegen een echte `pwsh` of
+  een tenant**. De worker wordt na 500 aanroepen of 3.600
   seconden vervangen en na 120 seconden gedood.
 - **De toegestane lijst: niets wat een beheerder typt wordt een opdracht.** Een aanroep is `{ cmdlet, args }` met
   een van **tien namen** en argumenten die tegen een gesloten tabel worden gecontroleerd (soort, patroon, maximale
@@ -707,8 +720,8 @@ en ADR-0181.
   auditregel plus een samenvatting in dezelfde transactie; contacten auditen veldnamen, nooit waarden. Het
   vocabulaire telt zeven acties en negen detailsleutels, geen kan een naam of adres bevatten. Een lijstnaam, een
   ledenadres of een zoektekst komt in geen logregel (een test zoekt naar kanarienamen).
-- **Aanvaarde risico's en gaten.** FD-01: de bron van de inloggegevens van de worker is niet gebouwd (een gat, geen
-  maatregel). De worker deelt gebruiker en bestandssysteem met het paneel. De pakketten van de Ubuntu-image zijn
+- **Aanvaarde risico's en gaten.** FD-01: de bron van de inloggegevens van de worker (PEM) is gebouwd maar niet bewezen
+  tegen een echte `pwsh` of een tenant (U75, OV-D1). De worker deelt gebruiker en bestandssysteem met het paneel. De pakketten van de Ubuntu-image zijn
   niet op versie vastgezet (Trivy en Dependabot dekken ze); de image is groter en heeft een shell. Bij de
   `tmpfs`-terugval staat de sleutel even in een bestand. Exchange is uiteindelijk consistent (`readBackPending`,
   U82). Wat Microsoft echt antwoordt (U75 tot en met U100) is ongeverifieerd tot de eigenaar test; elk heeft een

@@ -189,9 +189,9 @@ OpenAPI tag stays `distributionLists`.
   ([ADR-0179](adr/0179-directory-cursor-store-and-restricted-rows.md)). The lists and contacts come from
   Exchange, which does not page: the server reads the result once, keeps it in memory for the cursor
   (`exchange.listBufferMax`, 10,000 rows) and pages over it. A search that matches more than 10,000 rows is
-  422 `validation_failed` with `errors[0] = { "pointer": "/q", "code": "narrow_search" }`; at the
-  gate the catalogue had no message for that detail code, so the web app fell back to the generic validation
-  text; a separate change adds the message (finding FD-06 in [open-points.md](open-points.md)).
+  422 `validation_failed` with `errors[0] = { "pointer": "/q", "code": "narrow_search" }`; the
+  catalogue has a message for that detail code (`distributionLists.error.narrow_search` and, on the contacts
+  pages, `contacts.error.narrow_search`, in both languages).
 - Names and addresses are data: the web app renders them as text, the logs never contain them, and no audit
   entry holds a name, an address or a field value (only ids and field names).
 - Microsoft text never reaches a response. The `detail` of a problem is generic English.
@@ -339,7 +339,7 @@ Request body, the same for all four (`DELETE` carries a body too):
 | 409 | `read_only_object` | Dynamic or synchronised list; synchronised contact; group of a kind or with hidden membership that Graph cannot write |
 | 409 | `conflict` | Duplicate contact address or alias (pointer `/externalEmailAddress` or `/alias`, no id) |
 | 422 | `validation_failed` | Bad query, path or body; detail codes `narrow_search` (`/q`), the contact validation codes, `confirm_mismatch` |
-| 503 | `exchange_unavailable` | The worker, the Exchange role or Exchange is not available (`Retry-After: 30`). Detail codes `exchange_role_pending` (the role was granted recently and has not propagated) and `exchange_timeout`. **Until the Exchange credential source is built (finding FD-01), every Exchange route answers this** |
+| 503 | `exchange_unavailable` | The worker, the Exchange role or Exchange is not available (`Retry-After: 30`). Detail codes `exchange_role_pending` (the role was granted recently and has not propagated) and `exchange_timeout`. **It is also the answer when the credential source cannot produce the certificate (degraded secrets, no certificate or no initial domain; built but not proven against a tenant, finding FD-01)** |
 | 503 | `exchange_throttled` | Exchange throttled the request after the retry budget (`Retry-After` from the hint) |
 | 503 | `exchange_permission_missing` | Exchange refused the application: the role, or the manager check |
 | 503 | `graph_unavailable`, `graph_throttled`, `secrets_unavailable` | As in Phase C; for P45, P53 and P54 |
@@ -470,9 +470,9 @@ De OpenAPI-tag blijft `distributionLists`.
   hebben. Lijsten en contacten komen uit Exchange, dat niet pagineert: de server leest het resultaat één keer,
   houdt het voor de cursor in het geheugen (`exchange.listBufferMax`, 10.000 rijen) en pagineert daarover. Een
   zoekopdracht met meer dan 10.000 treffers geeft 422 `validation_failed` met `errors[0] = { "pointer":
-  "/q", "code": "narrow_search" }`; bij de poort had de catalogus nog geen melding voor die
-  detailcode, dus de webapp viel terug op de algemene validatietekst; een aparte wijziging voegt de melding toe
-  (bevinding FD-06 in [open-points.md](open-points.md)).
+  "/q", "code": "narrow_search" }`; de catalogus heeft een melding voor die
+  detailcode (`distributionLists.error.narrow_search` en, op de contactpagina's, `contacts.error.narrow_search`, in
+  beide talen).
 - Namen en adressen zijn gegevens: de webapp toont ze als tekst, de logs bevatten ze nooit en geen
   auditregel bevat een naam, adres of veldwaarde (alleen id's en veldnamen). Microsoft-tekst komt nooit in
   een antwoord; de `detail` is algemeen Engels.
@@ -571,8 +571,9 @@ per lid een resultaat in de volgorde van het verzoek, een `summary` (`total`, `a
 kan schrijven of met verborgen lidmaatschap) en `conflict` (dubbel adres of alias, zonder id); 422
 `validation_failed` (met onder meer `narrow_search`, de contactcodes en `confirm_mismatch`); 503
 `exchange_unavailable` (worker, rol of Exchange niet beschikbaar; `Retry-After: 30`; detailcodes
-`exchange_role_pending` en `exchange_timeout`; **zolang de bron van het Exchange-certificaat niet is gebouwd,
-bevinding FD-01, antwoordt elke Exchange-route zo**), 503 `exchange_throttled`, 503
+`exchange_role_pending` en `exchange_timeout`; **ook als de bron van het Exchange-certificaat het
+certificaat niet kan leveren (geheimen gedegradeerd, geen certificaat of initieel domein; gebouwd maar niet bewezen
+tegen een tenant, bevinding FD-01)**), 503 `exchange_throttled`, 503
 `exchange_permission_missing` (rol of beheerderscontrole geweigerd) en de Graph-codes van Fase C.
 `builtin_role` en `rotation_failed` staan in het register voor stap D3.
 

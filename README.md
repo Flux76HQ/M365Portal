@@ -40,10 +40,10 @@ This is **Phase D step D1, distribution lists, contacts and group members**, on 
 
 What does **not** exist yet:
 
-- **The Exchange features cannot work until the worker's credential source is finished.** The decision is made
-  (the certificate reaches the worker as PEM) and the change is in progress; until it lands, every Exchange
-  page answers "Exchange is unavailable" while the rest of the panel, group member editing included, works
-  ([docs/open-points.md](docs/open-points.md), FD-01).
+- **The Exchange features are not proven against a real tenant.** The worker's credential source is built (the
+  certificate reaches the worker as PEM); it has not been run against a real `pwsh` or a tenant (U75, OV-D1). If
+  Exchange cannot be reached, every Exchange page answers "Exchange is unavailable" while the rest of the panel,
+  group member editing included, works ([docs/open-points.md](docs/open-points.md), FD-01).
 - **The image size ceiling is the owner's decision.** The new image is estimated at 500 to 550 MB against the
   old ceiling of 400 MB and has not been measured; the `Image size budget` step of the CI `image` job fails until
   the ceiling is set ([docs/operations.md](docs/operations.md#the-exchange-worker-phase-d-step-d1)).
@@ -278,10 +278,10 @@ Dit is **Fase D stap D1, distributielijsten, contacten en groepsleden**, bovenop
 
 Wat er **nog niet** is:
 
-- **De Exchange-functies werken pas als de bron van de inloggegevens van de worker af is.** Het besluit is genomen
-  (het certificaat komt als PEM bij de worker) en de wijziging is in uitvoering; tot dan antwoordt elke Exchange-pagina
-  "Exchange is niet beschikbaar" terwijl de rest van het paneel, groepsledenbeheer inbegrepen, werkt
-  ([docs/open-points.md](docs/open-points.md), FD-01).
+- **De Exchange-functies zijn niet bewezen tegen een echte tenant.** De bron van de inloggegevens van de worker is
+  gebouwd (het certificaat komt als PEM bij de worker); ze is niet gedraaid tegen een echte `pwsh` of een tenant (U75,
+  OV-D1). Is Exchange niet te bereiken, dan antwoordt elke Exchange-pagina "Exchange is niet beschikbaar" terwijl de
+  rest van het paneel, groepsledenbeheer inbegrepen, werkt ([docs/open-points.md](docs/open-points.md), FD-01).
 - **Het plafond voor de grootte van de image is aan de eigenaar.** De nieuwe image is geschat op 500 tot 550 MB
   tegen het oude plafond van 400 MB en niet gemeten; de stap `Image size budget` van de CI-job `image` faalt tot het
   plafond is gezet ([docs/operations.md](docs/operations.md#de-exchange-worker-fase-d-stap-d1)).
