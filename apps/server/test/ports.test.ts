@@ -64,7 +64,10 @@ import type {
   ValidatedIdToken,
 } from '../src/ports/identity.js';
 import type {
+  ExchangeAdminApiClient,
+  ExchangeCapabilities,
   ExchangeClient,
+  ExchangeWriteCapability,
   ExchangeOrganizationConfig,
   ExchangeProbeResult,
   ExchangeRecipient,
@@ -608,7 +611,7 @@ describe('the error taxonomy: nothing from outside gets in (canary)', () => {
 // ---------------------------------------------------------------------------------------------
 
 describe('the port signatures (plan 8.1)', () => {
-  it('GraphClient is app-only and read-only: the six methods of Phase B and the six reads of Phase C', () => {
+  it('GraphClient is app-only: the six methods of Phase B, the six reads of Phase C and the two member writes of Phase D', () => {
     expectTypeOf<keyof GraphClient>().toEqualTypeOf<
       | 'getOrganization'
       | 'probeUsers'
@@ -622,6 +625,14 @@ describe('the port signatures (plan 8.1)', () => {
       | 'listGroups'
       | 'listGroupMembers'
       | 'listGroupOwners'
+      | 'addGroupMember'
+      | 'removeGroupMember'
+    >();
+    expectTypeOf<GraphClient['addGroupMember']>().toEqualTypeOf<
+      (groupId: Guid, memberId: Guid, o?: CallOptions) => Promise<void>
+    >();
+    expectTypeOf<GraphClient['removeGroupMember']>().toEqualTypeOf<
+      (groupId: Guid, memberId: Guid, o?: CallOptions) => Promise<void>
     >();
     expectTypeOf<GraphClient['getOrganization']>().toEqualTypeOf<() => Promise<OrganizationInfo>>();
     expectTypeOf<GraphClient['probeUsers']>().toEqualTypeOf<() => Promise<void>>();
@@ -687,24 +698,47 @@ describe('the port signatures (plan 8.1)', () => {
     >();
   });
 
-  it('ExchangeClient has no write capability in Phase B', () => {
-    expectTypeOf<ReturnType<ExchangeClient['capabilities']>['write']>().toEqualTypeOf<
-      readonly []
-    >();
-    expectTypeOf<ReturnType<ExchangeClient['capabilities']>['read']>().toEqualTypeOf<
-      readonly ('organizationConfig' | 'distributionGroupMembers')[]
-    >();
-    expectTypeOf<keyof ExchangeClient>().toEqualTypeOf<
+  it('ExchangeAdminApiClient (the Phase B surface) is the probe and the two reads, with no write method', () => {
+    expectTypeOf<keyof ExchangeAdminApiClient>().toEqualTypeOf<
       'capabilities' | 'probe' | 'getOrganizationConfig' | 'listDistributionGroupMembers'
     >();
-    expectTypeOf<ExchangeClient['probe']>().toEqualTypeOf<
+    expectTypeOf<
+      ReturnType<ExchangeAdminApiClient['capabilities']>
+    >().toEqualTypeOf<ExchangeCapabilities>();
+    expectTypeOf<ExchangeAdminApiClient['probe']>().toEqualTypeOf<
       (o?: { skipCache?: boolean }) => Promise<ExchangeProbeResult>
     >();
-    expectTypeOf<ExchangeClient['getOrganizationConfig']>().toEqualTypeOf<
+    expectTypeOf<ExchangeAdminApiClient['getOrganizationConfig']>().toEqualTypeOf<
       (select?: readonly string[]) => Promise<ExchangeOrganizationConfig>
     >();
-    expectTypeOf<ExchangeClient['listDistributionGroupMembers']>().toEqualTypeOf<
+    expectTypeOf<ExchangeAdminApiClient['listDistributionGroupMembers']>().toEqualTypeOf<
       (identity: string, o?: { resultSize?: number }) => AsyncIterable<ExchangeRecipient>
+    >();
+  });
+
+  it('ExchangeClient (Phase D) adds the lists, the contacts and exactly five writes, and a closed write union', () => {
+    expectTypeOf<ExchangeClient>().toExtend<ExchangeAdminApiClient>();
+    expectTypeOf<Exclude<keyof ExchangeClient, keyof ExchangeAdminApiClient>>().toEqualTypeOf<
+      | 'listDistributionGroups'
+      | 'getDistributionGroup'
+      | 'addDistributionGroupMember'
+      | 'removeDistributionGroupMember'
+      | 'listMailContacts'
+      | 'getMailContact'
+      | 'createMailContact'
+      | 'updateMailContact'
+      | 'removeMailContact'
+      | 'listRecipientMemberships'
+    >();
+    expectTypeOf<ExchangeCapabilities['write']>().toEqualTypeOf<
+      readonly ExchangeWriteCapability[]
+    >();
+    expectTypeOf<ExchangeWriteCapability>().toEqualTypeOf<
+      | 'addDistributionGroupMember'
+      | 'removeDistributionGroupMember'
+      | 'createMailContact'
+      | 'updateMailContact'
+      | 'removeMailContact'
     >();
     expectTypeOf<ExchangeProbeResult>().toEqualTypeOf<{
       status: 'ok' | 'not_ready' | 'unavailable';

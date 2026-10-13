@@ -183,6 +183,8 @@ export interface GroupRecord extends Replicating {
   visibility: string | null;
   /** As Graph sends it: UTC without milliseconds. */
   createdDateTime: string;
+  /** A role-assignable group: adding a member needs RoleManagement.ReadWrite.Directory (Phase D, R-D-08). */
+  isAssignableToRole: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -306,6 +308,7 @@ export interface NewGroup {
   description?: string | null;
   visibility?: string | null;
   createdDateTime?: string;
+  isAssignableToRole?: boolean;
 }
 
 export class FakeDirectory {
@@ -502,6 +505,7 @@ export class FakeDirectory {
       description: spec.description ?? null,
       visibility: spec.visibility ?? null,
       createdDateTime: spec.createdDateTime ?? '2021-08-02T10:30:06Z',
+      isAssignableToRole: spec.isAssignableToRole ?? false,
       pending: 0,
     };
     this.groups.set(id, group);

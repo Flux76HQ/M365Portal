@@ -69,6 +69,15 @@ import {
   renderServicePrincipal,
   renderUser,
 } from './render.js';
+import {
+  applyAdd,
+  applyRemove,
+  checkAdd,
+  checkRemove,
+  deleteObject,
+  deletePermissionFor,
+  type RemoveNonMember,
+} from './member-writes.js';
 import type { FakeWorld, IssuedToken } from './tokens.js';
 
 const HOST = 'graph.microsoft.com';
@@ -142,8 +151,13 @@ export interface FakeGraphControl {
   omitGroupProperties(on: boolean): void;
   /** Rewrites the `@odata.nextLink` of a page (hostile links for the URL discipline tests). */
   rewriteNextLink(rewrite: ((link: string) => string) | null): void;
+  /**
+   * U93: what `DELETE /groups/{id}/members/{id}/$ref` answers for an object that is not a member. The
+   * page is silent; `not_found` (404, default) or `no_content` (204).
+   */
+  removeNonMember(mode: RemoveNonMember): void;
   /** Counts of what the fake received, for tests that assert on behaviour the call record cannot show. */
-  readonly stats: { readonly policyRefusals: number };
+  readonly stats: { readonly policyRefusals: number; readonly objectsDeleted: number };
 }
 
 interface Faults {
@@ -164,6 +178,7 @@ interface Settings {
   managerForApps: 'refused' | 'allowed';
   hiddenMembersRefused: boolean;
   omitGroupProperties: boolean;
+  removeNonMember: RemoveNonMember;
 }
 
 function defaultSettings(): Settings {
@@ -180,6 +195,7 @@ function defaultSettings(): Settings {
     managerForApps: 'refused',
     hiddenMembersRefused: true,
     omitGroupProperties: false,
+    removeNonMember: 'not_found',
   };
 }
 
@@ -229,6 +245,21 @@ const NEED = {
   groups: {
     app: [['GroupMember.Read.All'], ['Group.Read.All'], ['Directory.Read.All']],
     delegated: [['GroupMember.Read.All'], ['Group.Read.All'], ['Directory.Read.All']],
+  },
+  // group-post-members, group-delete-members (R-D-08): GroupMember.ReadWrite.All for a user member.
+  groupMembersWrite: {
+    app: [['GroupMember.ReadWrite.All'], ['Group.ReadWrite.All'], ['Directory.ReadWrite.All']],
+    delegated: [
+      ['GroupMember.ReadWrite.All'],
+      ['Group.ReadWrite.All'],
+      ['Directory.ReadWrite.All'],
+    ],
+  },
+  // group-delete-members without /$ref deletes the member object: the call needs no member role at
+  // all in the fake (the handler checks the permission of the OBJECT, the trap of R-D-08).
+  groupMemberDelete: {
+    app: [['GroupMember.ReadWrite.All'], ['Group.ReadWrite.All'], ['Directory.ReadWrite.All']],
+    delegated: [['GroupMember.ReadWrite.All']],
   },
   // user-list-transitivememberof (R-C-08): User.Read.All is the least privileged for another user.
   transitiveMemberOf: {
@@ -306,7 +337,7 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
   const { directory } = world;
   let settings = defaultSettings();
   const faults: Faults = { throttles: [], failures: [] };
-  const stats = { policyRefusals: 0 };
+  const stats = { policyRefusals: 0, objectsDeleted: 0 };
 
   const control: FakeGraphControl = {
     replicationDelay(delay) {
@@ -358,6 +389,9 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
     omitGroupProperties(on) {
       settings.omitGroupProperties = on;
     },
+    removeNonMember(mode) {
+      settings.removeNonMember = mode;
+    },
     get stats() {
       return stats;
     },
@@ -369,6 +403,7 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
       faults.throttles.length = 0;
       faults.failures.length = 0;
       stats.policyRefusals = 0;
+      stats.objectsDeleted = 0;
       world.reset();
     });
     mount(core);
@@ -770,7 +805,7 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
 
   function mount(core: FakeTenantCore): void {
     const add = (
-      method: 'GET' | 'POST' | 'PATCH',
+      method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
       path: string | RegExp,
       need: Need,
       handler: Handler,
@@ -1067,6 +1102,81 @@ export function graphModule(world: FakeWorld): GraphModuleResult {
       };
     add('GET', '/groups/:id/members', NEED.groups, groupCollection('members'));
     add('GET', '/groups/:id/owners', NEED.groups, groupCollection('owners'));
+
+    // ---- group members: the two writes of Phase D (R-D-08) ------------------------------------------
+    // The reference of a member: `https://graph.microsoft.com/v1.0/directoryObjects/{id}` and nothing else.
+    const MEMBER_REF =
+      /^https:\/\/graph\.microsoft\.com\/v1\.0\/directoryObjects\/([0-9a-fA-F-]{36})$/;
+
+    add('POST', '/groups/:id/members/$ref', NEED.groupMembersWrite, async (ctx, token) => {
+      const id = guidParam(ctx, ctx.params.id);
+      if (id instanceof Response) return id;
+      const body = await bodyOf(ctx);
+      if (body instanceof Response) return body;
+      const reference = body['@odata.id'];
+      if (Object.keys(body).length !== 1 || typeof reference !== 'string') {
+        return badRequest(ctx, 'The request body must be {"@odata.id": "<reference>"}.');
+      }
+      const matched = MEMBER_REF.exec(reference);
+      if (matched === null || !isGuid(matched[1] ?? '')) {
+        return badRequest(ctx, 'The member reference must name a directory object by its id.');
+      }
+      const memberId = (matched[1] ?? '').toLowerCase();
+      const verdict = checkAdd(
+        directory,
+        id,
+        memberId,
+        token.kind === 'app' ? token.roles : token.scopes,
+      );
+      if (!verdict.ok) {
+        return error(
+          ctx,
+          verdict.status,
+          verdict.code,
+          verdict.status === 404
+            ? `Resource '${memberId}' does not exist or one of its queried reference-property objects are not present.`
+            : 'The request could not be completed.',
+        );
+      }
+      applyAdd(directory, id, memberId);
+      return noContent(ctx);
+    });
+
+    add('DELETE', '/groups/:id/members/:memberId/$ref', NEED.groupMembersWrite, (ctx) => {
+      const id = guidParam(ctx, ctx.params.id);
+      if (id instanceof Response) return id;
+      const memberId = guidParam(ctx, ctx.params.memberId);
+      if (memberId instanceof Response) return memberId;
+      const verdict = checkRemove(directory, id, memberId, settings.removeNonMember);
+      if (!verdict.ok) {
+        return error(ctx, verdict.status, verdict.code, 'The request could not be completed.');
+      }
+      applyRemove(directory, id, memberId);
+      return noContent(ctx);
+    });
+
+    // The same path WITHOUT /$ref: it deletes the member object itself, if the application may (R-D-08).
+    add('DELETE', '/groups/:id/members/:memberId', NEED.groupMemberDelete, (ctx, token) => {
+      const id = guidParam(ctx, ctx.params.id);
+      if (id instanceof Response) return id;
+      const memberId = guidParam(ctx, ctx.params.memberId);
+      if (memberId instanceof Response) return memberId;
+      const group = directory.groups.get(id);
+      if (!group?.members.has(memberId)) return notFound(ctx, memberId);
+      const needed = deletePermissionFor(directory, memberId);
+      const held = token.kind === 'app' ? token.roles : token.scopes;
+      if (needed === undefined || !held.includes(needed)) {
+        return error(
+          ctx,
+          403,
+          'Authorization_RequestDenied',
+          'Insufficient privileges to complete the operation.',
+        );
+      }
+      deleteObject(directory, memberId);
+      stats.objectsDeleted += 1;
+      return noContent(ctx);
+    });
 
     // ---- service principals ----------------------------------------------------------------------
     const spRow = (sp: ServicePrincipalRecord, select: string[] | null): Json =>

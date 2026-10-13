@@ -11,7 +11,9 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "schema:snapshot": "tsx scripts/schema-snapshot.ts",
-    "schema:check": "tsx scripts/check-schema.ts"
+    "schema:check": "tsx scripts/check-schema.ts",
+    "exchange:generate": "tsx scripts/generate-exchange-worker.ts",
+    "exchange:check": "tsx scripts/generate-exchange-worker.ts --check"
   },
   "dependencies": {
     "@azure/msal-node": "catalog:",

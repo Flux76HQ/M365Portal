@@ -361,6 +361,59 @@ export class ExchangeUnsupportedError extends ExchangeError {
   }
 }
 
+/**
+ * The closed list of reasons a cmdlet call fails, as the worker protocol states them
+ * (`EXCHANGE_ERROR_CODES` in `@m365portal/shared/exchange/protocol`; a test pins that the two lists
+ * are equal). The ports import nothing, so the list is written out here too.
+ */
+export const EXCHANGE_COMMAND_CODES = [
+  'not_found',
+  'already_exists',
+  'already_member',
+  'not_a_member',
+  'member_type_not_allowed',
+  'permission_denied',
+  'manager_check',
+  'read_only_object',
+  'throttled',
+  'timeout',
+  'invalid_argument',
+  'not_connected',
+  'role_pending',
+  'internal',
+] as const;
+export type ExchangeCommandCode = (typeof EXCHANGE_COMMAND_CODES)[number];
+
+/**
+ * A cmdlet ran (or was refused before it ran) and Exchange said no for a reason in the closed list
+ * (Phase D, FR-D-105). Carries the code and `Retry-After`, never a message: Exchange's own text can
+ * hold a name or an address (FR-D-107). `throttled` and `timeout` are the retryable ones.
+ */
+export class ExchangeCommandError extends ExchangeError {
+  readonly commandCode: ExchangeCommandCode;
+
+  constructor(
+    commandCode: ExchangeCommandCode,
+    details?: Pick<IntegrationErrorDetails, 'retryAfterMs'>,
+  ) {
+    super(
+      {
+        name: 'ExchangeCommandError',
+        code: 'exchange_command',
+        retryable: commandCode === 'throttled' || commandCode === 'timeout',
+      },
+      details,
+    );
+    this.commandCode = (EXCHANGE_COMMAND_CODES as readonly string[]).includes(commandCode)
+      ? commandCode
+      : 'internal';
+  }
+
+  protected override extraJson(): Record<string, string> {
+    return { commandCode: this.commandCode };
+  }
+}
+
 function optionalStatus(status: number | undefined): { status?: number } {
   return status === undefined ? {} : { status };
 }

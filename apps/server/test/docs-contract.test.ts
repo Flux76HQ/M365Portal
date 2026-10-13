@@ -980,12 +980,13 @@ describe('docs/architecture.md (FR-A-006, FR-A-185)', () => {
 // =============================================================================================
 
 const ADR_PHASE_A_COUNT = 56;
-/** ADR-0001 to 0056 (Phase A), 0101 to 0126 (assumptions B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) and 0179 (Phase C, PC-02). */
+/** ADR-0001 to 0056 (Phase A), 0101 to 0126 (assumptions B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (Phase C, PC-02) and 0180 (Phase D, ODB-01, the runtime base). */
 const ADR_NUMBERS: readonly number[] = [
   ...Array.from({ length: ADR_PHASE_A_COUNT }, (_unused, index) => index + 1),
   ...Array.from({ length: 26 }, (_unused, index) => 101 + index),
   ...Array.from({ length: 28 }, (_unused, index) => 151 + index),
   179,
+  180,
 ];
 const ADR_COUNT = ADR_NUMBERS.length;
 const ADR_FIELDS = ['Status', 'Context', 'Decision', 'Consequences', 'Evidence'];
@@ -1053,6 +1054,8 @@ function assertAdrDirectory(directory: string): void {
       throw new Error(`${name}: does not name its decision PB-${pad(number - 150, 2)}`);
     if (number === 179 && !markdown.includes('PC-02'))
       throw new Error(`${name}: does not name its decision PC-02`);
+    if (number === 180 && !markdown.includes('ODB-01'))
+      throw new Error(`${name}: does not name its decision ODB-01`);
   };
   check('0000-template.md', 0);
   for (const number of ADR_NUMBERS) {
@@ -1066,6 +1069,7 @@ function assertAdrDirectory(directory: string): void {
 }
 
 function adrLink(number: number): string {
+  if (number >= 180) return 'ODB-01';
   if (number >= 179) return 'PC-02';
   if (number >= 151) return `PB-${pad(number - 150, 2)}`;
   if (number >= 101) return `B-${pad(number - 100, 2)}`;
@@ -1125,7 +1129,7 @@ describe('docs/adr (FR-A-185)', () => {
       adrDirectory((files) => {
         files.delete('0030-decision.md');
       }),
-      { reason: /has 110 ADRs, expected 111/ },
+      { reason: /has 111 ADRs, expected 112/ },
     );
     expectGuardFails(
       assertAdrDirectory,
@@ -1211,13 +1215,20 @@ describe('docs/adr (FR-A-185)', () => {
     expectGuardFails(
       assertAdrDirectory,
       adrDirectory((files) => {
+        files.set('0180-decision.md', adrSample(180).replace('ODB-01', 'ODB-02'));
+      }),
+      { reason: /0180-decision\.md: does not name its decision ODB-01/ },
+    );
+    expectGuardFails(
+      assertAdrDirectory,
+      adrDirectory((files) => {
         files.delete('0126-decision.md');
       }),
-      { reason: /has 110 ADRs|ADR-0126: 0 files/ },
+      { reason: /has 111 ADRs|ADR-0126: 0 files/ },
     );
   });
 
-  it('has the template and ADR-0001 to ADR-0056, 0101 to 0126 (B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) and 0179 (PC-02) with their fields', () => {
+  it('has the template and ADR-0001 to ADR-0056, 0101 to 0126 (B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (PC-02) and 0180 (ODB-01) with their fields', () => {
     assertAdrDirectory(join(repositoryRoot, 'docs/adr'));
   });
 });

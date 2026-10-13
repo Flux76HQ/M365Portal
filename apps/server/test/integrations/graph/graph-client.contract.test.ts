@@ -102,6 +102,21 @@ function seed(directory: FakeDirectory): Seeded {
   };
 }
 
+/**
+ * Phase D (FR-D-351): the targets of the member writes, made on demand so that the Phase C
+ * expectations about the shared seed stay as they were. `bob` is the one member of `target`.
+ */
+function writeTargets(directory: FakeDirectory, bob: string) {
+  const target = directory.addGroup({ displayName: 'Write target' });
+  directory.addMember(target.id, bob);
+  const dave = directory.addUser({
+    userPrincipalName: 'dave@contoso-fake.example',
+    displayName: 'Dave',
+  });
+  const roleGroup = directory.addGroup({ displayName: 'Role group', isAssignableToRole: true });
+  return { target: target.id, dave: dave.id, roleGroup: roleGroup.id };
+}
+
 interface Subject {
   readonly client: GraphClient;
   readonly ids: Seeded;
@@ -897,10 +912,163 @@ describe.each([
     });
   });
 
+  describe('addGroupMember and removeGroupMember (FR-D-351, R-D-08)', () => {
+    const members = async (client: GraphClient, group: string): Promise<string[]> => {
+      const page = await client.listGroupMembers(group, { top: 50 });
+      return page.items.map((item) => item.id).sort();
+    };
+    const BAD_IDS = ['', 'not-a-guid', '../x', 'a/b', 'x'.repeat(40)];
+
+    it('adds a user to a security group and the group then lists the user', async () => {
+      const { client, ids, directory } = make();
+      const t = writeTargets(directory, ids.bob);
+      await expect(client.addGroupMember(t.target, t.dave)).resolves.toBeUndefined();
+      expect(await members(client, t.target)).toEqual([ids.bob, t.dave].sort());
+    });
+
+    it('adds a user to a Microsoft 365 group, and takes the ids in any case', async () => {
+      const { client, ids } = make();
+      await client.addGroupMember(ids.helpdeskNl.toUpperCase(), ids.carol.toUpperCase());
+      expect(await members(client, ids.helpdeskNl)).toContain(ids.carol);
+    });
+
+    it('says bad request for an object that is already a member (U92: it cannot be told from other 400s)', async () => {
+      const { client, ids, directory } = make();
+      const t = writeTargets(directory, ids.bob);
+      const failure = await rejectionOf(client.addGroupMember(t.target, ids.bob));
+      expect(failure).toBeInstanceOf(GraphBadRequestError);
+      expect((failure as GraphBadRequestError).status).toBe(400);
+    });
+
+    it('says not found for a user or a group that does not exist', async () => {
+      const { client, ids, directory } = make();
+      const t = writeTargets(directory, ids.bob);
+      expect(
+        await rejectionOf(client.addGroupMember(t.target, fakeGuid('ghost', 9))),
+      ).toBeInstanceOf(GraphNotFoundError);
+      expect(await rejectionOf(client.addGroupMember(fakeGuid('ghost', 9), t.dave))).toBeInstanceOf(
+        GraphNotFoundError,
+      );
+    });
+
+    it('refuses a Microsoft 365 group as a member of any group, and a member of a dynamic or synced group', async () => {
+      const { client, ids, directory } = make();
+      const t = writeTargets(directory, ids.bob);
+      expect(await rejectionOf(client.addGroupMember(t.target, ids.helpdeskNl))).toBeInstanceOf(
+        GraphBadRequestError,
+      );
+      expect(await rejectionOf(client.addGroupMember(ids.finance, t.dave))).toBeInstanceOf(
+        GraphBadRequestError,
+      );
+      expect(await rejectionOf(client.addGroupMember(ids.outer, t.dave))).toBeInstanceOf(
+        GraphBadRequestError,
+      );
+    });
+
+    it('lets a security group hold a security group', async () => {
+      const { client, ids, directory } = make();
+      const t = writeTargets(directory, ids.bob);
+      await client.addGroupMember(t.target, ids.helpdeskBe);
+      expect(await members(client, t.target)).toContain(ids.helpdeskBe);
+    });
+
+    it('is forbidden for a device unless the application may manage devices (R-D-08)', async () => {
+      const { client, ids, directory } = make();
+      const t = writeTargets(directory, ids.bob);
+      const failure = await rejectionOf(client.addGroupMember(t.target, ids.device));
+      expect(failure).toBeInstanceOf(GraphForbiddenError);
+      const elevated = make({ roles: [...GRAPH_APP_ROLES, 'Device.ReadWrite.All'] });
+      const et = writeTargets(elevated.directory, elevated.ids.bob);
+      await expect(
+        elevated.client.addGroupMember(et.target, elevated.ids.device),
+      ).resolves.toBeUndefined();
+    });
+
+    it('is forbidden for a role-assignable group: the application does not hold RoleManagement.ReadWrite.Directory', async () => {
+      const { client, ids, directory } = make();
+      const t = writeTargets(directory, ids.bob);
+      const failure = await rejectionOf(client.addGroupMember(t.roleGroup, t.dave));
+      expect(failure).toBeInstanceOf(GraphForbiddenError);
+    });
+
+    it('refuses a malformed id before any request', async () => {
+      const subject = make();
+      const t = writeTargets(subject.directory, subject.ids.bob);
+      for (const bad of BAD_IDS) {
+        const before = subject.requests();
+        expect(await rejectionOf(subject.client.addGroupMember(bad, t.dave))).toBeInstanceOf(
+          GraphBadRequestError,
+        );
+        expect(await rejectionOf(subject.client.addGroupMember(t.target, bad))).toBeInstanceOf(
+          GraphBadRequestError,
+        );
+        expect(
+          await rejectionOf(subject.client.removeGroupMember(bad, subject.ids.bob)),
+        ).toBeInstanceOf(GraphBadRequestError);
+        expect(await rejectionOf(subject.client.removeGroupMember(t.target, bad))).toBeInstanceOf(
+          GraphBadRequestError,
+        );
+        expect(subject.requests()).toBe(before);
+      }
+    });
+
+    it('removes a member, and the group no longer lists it', async () => {
+      const { client, ids, directory } = make();
+      const t = writeTargets(directory, ids.bob);
+      await expect(client.removeGroupMember(t.target, ids.bob)).resolves.toBeUndefined();
+      expect(await members(client, t.target)).toEqual([]);
+    });
+
+    it('says not found for an object that is not a member (U93: the choice of the fake, OV-D2 records the real answer)', async () => {
+      const { client, ids, directory } = make();
+      const t = writeTargets(directory, ids.bob);
+      expect(await rejectionOf(client.removeGroupMember(t.target, t.dave))).toBeInstanceOf(
+        GraphNotFoundError,
+      );
+      expect(
+        await rejectionOf(client.removeGroupMember(fakeGuid('ghost', 9), ids.bob)),
+      ).toBeInstanceOf(GraphNotFoundError);
+    });
+
+    it('refuses to remove a member of a dynamic group', async () => {
+      const subject = make();
+      const t = writeTargets(subject.directory, subject.ids.bob);
+      subject.directory.addMember(subject.ids.finance, t.dave);
+      expect(
+        await rejectionOf(subject.client.removeGroupMember(subject.ids.finance, t.dave)),
+      ).toBeInstanceOf(GraphBadRequestError);
+    });
+
+    it('removes the membership and NEVER the member object, even for an application that may delete users (R-D-08)', async () => {
+      const subject = make({ roles: [...GRAPH_APP_ROLES, 'User.ReadWrite.All'] });
+      const t = writeTargets(subject.directory, subject.ids.bob);
+      await subject.client.removeGroupMember(t.target, subject.ids.bob);
+      expect(subject.directory.users.has(subject.ids.bob)).toBe(true);
+      expect(await subject.client.getUser(subject.ids.bob)).not.toBeNull();
+    });
+
+    it('maps a throttle that outlasts the budget to GraphThrottledError, for both calls', async () => {
+      const subject = make();
+      const t = writeTargets(subject.directory, subject.ids.bob);
+      subject.throttle();
+      expect(await rejectionOf(subject.client.addGroupMember(t.target, t.dave))).toBeInstanceOf(
+        GraphThrottledError,
+      );
+      expect(
+        await rejectionOf(subject.client.removeGroupMember(t.target, subject.ids.bob)),
+      ).toBeInstanceOf(GraphThrottledError);
+    });
+  });
+
   describe('permissions (permissions-map.ts)', () => {
     const methods = Object.keys(GRAPH_METHOD_PERMISSIONS) as GraphMethodName[];
 
-    const call = (client: GraphClient, ids: Seeded, method: GraphMethodName): Promise<unknown> => {
+    const call = (
+      client: GraphClient,
+      ids: Seeded,
+      targets: { target: string; dave: string },
+      method: GraphMethodName,
+    ): Promise<unknown> => {
       switch (method) {
         case 'getOrganization':
           return client.getOrganization();
@@ -926,6 +1094,10 @@ describe.each([
           return client.listGroupMembers(ids.helpdeskNl, { top: 10 });
         case 'listGroupOwners':
           return client.listGroupOwners(ids.helpdeskNl, { top: 10 });
+        case 'addGroupMember':
+          return client.addGroupMember(targets.target, targets.dave);
+        case 'removeGroupMember':
+          return client.removeGroupMember(targets.target, ids.bob);
       }
     };
 
@@ -934,20 +1106,22 @@ describe.each([
       async (method) => {
         const needed = GRAPH_METHOD_PERMISSIONS[method].permissions;
         const exact = make({ roles: needed, managerAllowed: true });
-        await expect(call(exact.client, exact.ids, method)).resolves.not.toThrow();
+        const exactTargets = writeTargets(exact.directory, exact.ids.bob);
+        await expect(call(exact.client, exact.ids, exactTargets, method)).resolves.not.toThrow();
         for (const missing of needed) {
           const subject = make({
             roles: needed.filter((role) => role !== missing),
             managerAllowed: true,
           });
+          const targets = writeTargets(subject.directory, subject.ids.bob);
           if (method === 'getUserManager') {
             // The manager is best effort: a refusal is "not available", never an error (FR-C-107).
-            expect(await call(subject.client, subject.ids, method)).toEqual({
+            expect(await call(subject.client, subject.ids, targets, method)).toEqual({
               state: 'unavailable',
             });
             continue;
           }
-          const failure = await rejectionOf(call(subject.client, subject.ids, method));
+          const failure = await rejectionOf(call(subject.client, subject.ids, targets, method));
           expect(failure, `${method} without ${missing}`).toBeInstanceOf(GraphForbiddenError);
           expect((failure as GraphForbiddenError).status).toBe(403);
         }

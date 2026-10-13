@@ -47,6 +47,14 @@ import type {
 } from '../../src/ports/graph.js';
 import type { FakeDirectory, GroupRecord, UserRecord } from './fake-tenant/graph/index.js';
 import {
+  applyAdd,
+  applyRemove,
+  checkAdd,
+  checkRemove,
+  type MemberWriteResult,
+  type RemoveNonMember,
+} from './fake-tenant/graph/member-writes.js';
+import {
   GROUP_FILTER_PROPERTIES,
   GROUP_ORDER_PROPERTIES,
   USER_FILTER_PROPERTIES,
@@ -74,6 +82,8 @@ export interface FakeGraphClientOptions {
   readonly managerForApps?: 'refused' | 'allowed';
   /** U67: are members of a hidden-membership group refused (403) and the group left out of a user's groups? Default true. */
   readonly hiddenMembersRefused?: boolean;
+  /** U93: what removing an object that is not a member answers. Default `not_found`, as the fake Graph. */
+  readonly removeNonMember?: RemoveNonMember;
 }
 
 function invalid(): GraphBadRequestError {
@@ -155,6 +165,7 @@ export class FakeGraphClient implements GraphClient {
   readonly #roles: ReadonlySet<string>;
   readonly #managerForApps: 'refused' | 'allowed';
   readonly #hiddenMembersRefused: boolean;
+  readonly #removeNonMember: RemoveNonMember;
   readonly #failures: { method: FakeGraphMethod | undefined; error: GraphError; left: number }[] =
     [];
 
@@ -163,6 +174,7 @@ export class FakeGraphClient implements GraphClient {
     this.#roles = new Set(options.roles ?? GRAPH_APP_ROLES);
     this.#managerForApps = options.managerForApps ?? 'refused';
     this.#hiddenMembersRefused = options.hiddenMembersRefused ?? true;
+    this.#removeNonMember = options.removeNonMember ?? 'not_found';
   }
 
   /** The next `times` calls (of one method, or any) throw `error`. */
@@ -361,6 +373,26 @@ export class FakeGraphClient implements GraphClient {
     });
   }
 
+  // ---- Phase D (FR-D-351): the two writes, with the rules of the fake Graph (member-writes.ts) ----
+
+  addGroupMember(groupId: Guid, memberId: Guid, o?: CallOptions): Promise<void> {
+    return this.#run('addGroupMember', [groupId, memberId, o], () => {
+      const group = guid(groupId);
+      const member = guid(memberId);
+      throwUnlessOk(checkAdd(this.#directory, group, member, [...this.#roles]));
+      applyAdd(this.#directory, group, member);
+    });
+  }
+
+  removeGroupMember(groupId: Guid, memberId: Guid, o?: CallOptions): Promise<void> {
+    return this.#run('removeGroupMember', [groupId, memberId, o], () => {
+      const group = guid(groupId);
+      const member = guid(memberId);
+      throwUnlessOk(checkRemove(this.#directory, group, member, this.#removeNonMember));
+      applyRemove(this.#directory, group, member);
+    });
+  }
+
   #group(groupId: Guid): GroupRecord {
     const group = this.#directory.groups.get(guid(groupId));
     if (group === undefined || !this.#directory.touch(group)) {
@@ -441,6 +473,15 @@ export class FakeGraphClient implements GraphClient {
       return Promise.reject(failure instanceof Error ? failure : new Error('unexpected'));
     }
   }
+}
+
+/** A refusal of the member rules as the typed error the real client throws for that status. */
+function throwUnlessOk(result: MemberWriteResult): void {
+  if (result.ok) return;
+  const details = { graphCode: result.code };
+  if (result.status === 404) throw new GraphNotFoundError(details);
+  if (result.status === 403) throw new GraphForbiddenError(details);
+  throw new GraphBadRequestError(details);
 }
 
 function offsetOf(after: PageToken | null | undefined): number {

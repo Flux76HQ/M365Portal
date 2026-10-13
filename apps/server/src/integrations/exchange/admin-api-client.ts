@@ -1,5 +1,5 @@
 // `AdminApiExchangeClient`: the Exchange Online Admin API read adapter (T-B-080, FR-B-314; plan
-// 8.7). It implements the `ExchangeClient` port for the two documented read calls and nothing else:
+// 8.7). It implements the `ExchangeAdminApiClient` port for the two documented read calls and nothing else:
 //
 //   getOrganizationConfig  POST https://outlook.office365.com/adminapi/v2.0/<tid>/OrganizationConfig?$select=...
 //                          {"CmdletInput":{"CmdletName":"Get-OrganizationConfig"}}
@@ -43,7 +43,8 @@ import {
   type ExchangeError,
 } from '../../ports/errors.js';
 import type {
-  ExchangeClient,
+  ExchangeAdminApiClient,
+  ExchangeCapabilities,
   ExchangeOrganizationConfig,
   ExchangeProbeResult,
   ExchangeRecipient,
@@ -138,7 +139,7 @@ export interface AdminApiExchangeClientDeps {
   };
 }
 
-export class AdminApiExchangeClient implements ExchangeClient {
+export class AdminApiExchangeClient implements ExchangeAdminApiClient {
   readonly #engine: CallEngine;
   readonly #clock: Clock;
   readonly #tenant: string;
@@ -189,10 +190,7 @@ export class AdminApiExchangeClient implements ExchangeClient {
     });
   }
 
-  capabilities(): {
-    read: readonly ('organizationConfig' | 'distributionGroupMembers')[];
-    write: readonly [];
-  } {
+  capabilities(): ExchangeCapabilities {
     return { read: ['organizationConfig', 'distributionGroupMembers'], write: [] };
   }
 

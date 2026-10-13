@@ -155,6 +155,7 @@ the rights listed in step 4.
 | `AUTH_REQUIRE_MFA` | `true` | Require a multi-factor sign-in from Entra |
 | `AUTH_MFA_AMR_VALUES` | `mfa,multipleauthn` | The `amr` values that count as multi-factor |
 | `BREAK_GLASS_USERNAME` / `BREAK_GLASS_PASSWORD_HASH` | unset | Optional emergency account that can only restore an Owner (both or neither) |
+| `EXCHANGE_KEY_HANDOVER` | `memory` | How the Exchange certificate reaches the PowerShell worker: `memory` or `tmpfs` (fallback) |
 
 The full table with all rules is in [docs/operations.md](docs/operations.md#environment-variables). An invalid
 value stops the start and names the variable.

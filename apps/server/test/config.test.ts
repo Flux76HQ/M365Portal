@@ -26,11 +26,13 @@ import {
   removedVariablesIn,
   CROSS_MESSAGES,
   ENV_MESSAGES,
+  EXCHANGE_KEY_HANDOVER_VALUES,
   REMOVED_VARIABLE_NAMES,
   SecretText,
   type AppConfig,
   type ConfigIssue,
 } from '../src/config/index.js';
+import { CERTIFICATE_MODES } from '../src/integrations/exchange/pwsh/key-handover.js';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -114,9 +116,13 @@ describe('the variable list (FR-A-010, spec 6.9.1)', () => {
   it('adds the 14 variables of table 6.9.1 with their defaults, in the order of the table', () => {
     const fromSpec = specBVariables();
     expect(fromSpec).toHaveLength(14);
-    const phaseB = ENV_VARIABLES.slice(10);
+    const phaseB = ENV_VARIABLES.slice(10, 24);
     expect(phaseB.map(({ name, defaultText }) => ({ name, defaultText }))).toEqual(fromSpec);
-    expect(ENV_VARIABLES).toHaveLength(24);
+    expect(ENV_VARIABLES).toHaveLength(25);
+    // Phase D adds one: the way the Exchange certificate reaches the worker (T-D-114).
+    expect(ENV_VARIABLES.slice(24)).toEqual([
+      { name: 'EXCHANGE_KEY_HANDOVER', defaultText: 'memory' },
+    ]);
   });
 
   it('marks the secret variables, and only those', () => {
@@ -182,6 +188,7 @@ describe('defaults', () => {
       rbac: { groupCacheTtlMs: 300_000 },
       auth: { requireMfa: true, mfaAmrValues: ['mfa', 'multipleauthn'] },
       breakGlass: undefined,
+      exchangeKeyHandover: 'memory',
     } satisfies AppConfig);
     expect(config.hsts.maxAgeSeconds).toBe(LIMITS.hstsMaxAgeSeconds);
   });
@@ -1264,6 +1271,8 @@ describe('reporting an invalid configuration', () => {
       AUTH_MFA_AMR_VALUES: `${CANARY}-amr`,
       BREAK_GLASS_USERNAME: `${CANARY} user`,
       BREAK_GLASS_PASSWORD_HASH: `${CANARY}-hash`,
+      // Phase D.
+      EXCHANGE_KEY_HANDOVER: `${CANARY}-handover`,
     };
     const issues = issuesOf(env);
     expect(issues.map((issue) => issue.variable).sort()).toEqual([...ENV_VARIABLE_NAMES].sort());
@@ -1430,5 +1439,32 @@ describe('readPosture', () => {
     ]) {
       expect(text).not.toContain(forbidden);
     }
+  });
+});
+
+describe('EXCHANGE_KEY_HANDOVER (T-D-114, FR-D-103)', () => {
+  it('is memory when unset and accepts memory and tmpfs', () => {
+    expect(configOf({}).exchangeKeyHandover).toBe('memory');
+    expect(configOf({ EXCHANGE_KEY_HANDOVER: 'memory' }).exchangeKeyHandover).toBe('memory');
+    expect(configOf({ EXCHANGE_KEY_HANDOVER: 'tmpfs' }).exchangeKeyHandover).toBe('tmpfs');
+  });
+
+  it('refuses anything else with the fixed message and no value in it', () => {
+    for (const bad of ['file', 'TMPFS', 'Memory', ' tmpfs', 'disk', 'true']) {
+      const issues = issuesOf({ EXCHANGE_KEY_HANDOVER: bad });
+      expect(
+        issues.map((issue) => issue.variable),
+        bad,
+      ).toEqual(['EXCHANGE_KEY_HANDOVER']);
+      expect(formatConfigIssues(issues), bad).toContain(ENV_MESSAGES.EXCHANGE_KEY_HANDOVER);
+      expect(formatConfigIssues(issues), bad).not.toContain(`'${bad}'`);
+      expect(ENV_MESSAGES.EXCHANGE_KEY_HANDOVER).toBe(
+        'EXCHANGE_KEY_HANDOVER must be memory or tmpfs',
+      );
+    }
+  });
+
+  it('lists the same two values as the key hand-over of the worker', () => {
+    expect([...EXCHANGE_KEY_HANDOVER_VALUES]).toEqual([...CERTIFICATE_MODES]);
   });
 });

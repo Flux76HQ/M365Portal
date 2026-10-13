@@ -79,6 +79,7 @@ invalid value stops the start and names the variable, never its value. Do not co
 | `AUTH_MFA_AMR_VALUES` | `mfa,multipleauthn` | The `amr` values that count as multi-factor: 1 to 8 distinct comma-separated values of 2 to 32 characters from `a-z 0-9`; `pwd`, `wia` and `x509` are refused. |
 | `BREAK_GLASS_USERNAME` | `unset` | The break-glass account: 3 to 64 characters from `A-Z a-z 0-9 . _ -`. Both break-glass variables, or neither. |
 | `BREAK_GLASS_PASSWORD_HASH` | `unset` | Secret. The `scrypt:` line that `hash-password` writes; no `$`. |
+| `EXCHANGE_KEY_HANDOVER` | `memory` | `memory` or `tmpfs`. How the Exchange certificate reaches the PowerShell worker: `memory` sends it over the pipe and writes nothing; `tmpfs` is the fallback that writes a file with mode 0600 to a private directory on a tmpfs (`/dev/shm`) for the time of the connection and removes it again (refused at the first use when that directory is not a tmpfs). |
 
 **HSTS opt-ins.** `includeSubDomains` is a promise about every subdomain, for the whole `max-age`, in
 every browser that saw it once; `preload` asks browser vendors to hard-code the host and cannot easily be

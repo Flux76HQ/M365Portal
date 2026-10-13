@@ -29,7 +29,7 @@ import {
   SecretsUnavailableError,
   type SecretsUnavailableReason,
 } from '../ports/errors.js';
-import type { ExchangeClient } from '../ports/exchange.js';
+import type { ExchangeAdminApiClient } from '../ports/exchange.js';
 import type { GraphClient } from '../ports/graph.js';
 import type { AppTokenProvider, BootstrapAuthenticator, OidcClient } from '../ports/identity.js';
 import type { TenantProvisioner } from '../ports/provisioner.js';
@@ -50,7 +50,7 @@ import type { TenantPin } from './tenant-pin.js';
 
 export interface ClientsRegistry {
   graph(): GraphClient;
-  exchange(): ExchangeClient;
+  exchange(): ExchangeAdminApiClient;
   oidc(): OidcClient;
   appTokens(): AppTokenProvider;
   /** Drops the clients and builds them again on the next use, and re-warms them if `start()` ran. */
@@ -115,7 +115,7 @@ export interface ProbeSpec {
 export interface ProbeClients {
   readonly appTokens: AppTokenProvider;
   readonly graph: GraphClient;
-  readonly exchange: ExchangeClient;
+  readonly exchange: ExchangeAdminApiClient;
   /** Drops the token cache and the holder reference. Idempotent. */
   close(): void;
 }
@@ -152,7 +152,7 @@ interface Built {
   readonly holder: CertificateHolderPort;
   readonly appTokens: MsalAppTokenProvider;
   readonly graph: GraphClient;
-  readonly exchange: ExchangeClient;
+  readonly exchange: ExchangeAdminApiClient;
   readonly oidc: OidcClient;
 }
 
@@ -212,7 +212,7 @@ export function createClientsRegistry(deps: ClientsRegistryDeps): ClientsRegistr
     tenantId: string,
     clientId: string,
     holder: CertificateHolderPort,
-  ): { appTokens: MsalAppTokenProvider; graph: GraphClient; exchange: ExchangeClient } {
+  ): { appTokens: MsalAppTokenProvider; graph: GraphClient; exchange: ExchangeAdminApiClient } {
     const appTokens = createMsalAppTokenProvider({
       tenantId,
       clientId,
