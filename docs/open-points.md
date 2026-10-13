@@ -779,6 +779,46 @@ Gaps and inconsistencies found while consolidating `GC0` to `GC3` and the code. 
 
 For Phase D the owner will be asked for ODB-01 (the Exchange write path), ODB-03 (Exchange role and second app role) and ODB-08 (certificate renewal) before building starts; their rows above stay `owner`.
 
+## Phase D (2026-10-13)
+
+Written spec-first in `specs/004-phase-d/` (spec, research). No Phase D code exists at this point.
+
+### Unverified Microsoft claims U75 to U91
+
+Date of the register: 2026-10-13 (Microsoft Learn only). Source of each: `specs/004-phase-d/research-microsoft-d.md`, summary table. Status words as above.
+
+| # | Claim | Where used | Tried | Needed to close | Status (2026-10-13) |
+|---|---|---|---|---|---|
+| U75 | `Connect-ExchangeOnline -Certificate` with an in-memory X509Certificate2 works on Linux `pwsh` and writes no key to disk | see spec 004 section 8.4 | parameter documented without platform; Linux not stated for it | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U76 | Exchange Recipient Administrator is enough for all Phase D cmdlets | see spec 004 section 8.4 | role listed as supported; per-cmdlet not read | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U77 | `Exchange.ManageAsAppV2` exists and what it does | see spec 004 section 8.4 | not on Learn; only `Exchange.ManageAsApp` | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U78 | An app-only principal not in `ManagedBy` needs `-BypassSecurityGroupManagerCheck`, satisfied by its Entra role | see spec 004 section 8.4 | rule stated for user accounts only | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U79 | Default `-ResultSize` and paging of the cmdlets | see spec 004 section 8.4 | pages show "None"; 1,000 only for the Admin API | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U80 | How to detect on-premises-synced groups and contacts, and that contacts reject cloud writes the same way | see spec 004 section 8.4 | only a group troubleshooting page | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U81 | Numeric throttling limits for EXO PowerShell app-only | see spec 004 section 8.4 | none given | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U82 | Delay between a write and a correct read-back | see spec 004 section 8.4 | none given for EXO cmdlets | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U83 | First module version with REST for all cmdlets | see spec 004 section 8.4 | "since 2023", no version | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U84 | Image size, `pwsh` and connect start time, memory of a warm session | see spec 004 section 8.4 | none given | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U85 | Lifetime and renewal of an app-only session in a long-lived `pwsh` | see spec 004 section 8.4 | none given | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U86 | `iss` of the proof JWT: app id or object id | see spec 004 section 8.4 | the two pages read differ | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U87 | One-year cap on certificate validity and the maximum number of `keyCredentials` | see spec 004 section 8.4 | not stated; only the optional policy (180 days recommended) | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U88 | Propagation time of a newly added certificate | see spec 004 section 8.4 | none given | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U89 | Service-principal cmdlet runs are in the Exchange admin audit log, and how they are identified | see spec 004 section 8.4 | page speaks of administrators and users | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U90 | Each Phase D write cmdlet is in the logged set | see spec 004 section 8.4 | "some are not logged", no list | OV-D1 to OV-D4 (spec 004 section 8.4) | open |
+| U91 | The current Laposta CSV import format (columns, separator, encoding) | FR-D-402 | not read | owner reads Laposta's import help; OV-D6 | open |
+
+### Phase D owner decisions
+
+| ID | Decision | Status |
+|---|---|---|
+| ODB-01 | A: a `pwsh` worker in the one container on an Ubuntu LTS base | closed 2026-10-13 (owner) |
+| ODB-03 | Exchange Administrator plus both app roles; narrowing only after OV-13 and OV-D1 | closed 2026-10-13 (owner) |
+| ODB-08 | Repair flow in B plus `addKey` self-rotation in D | closed 2026-10-13 (owner) |
+| ODD-01 | Group member writes (Graph) are in Phase D | closed 2026-10-13 (owner) |
+| ODD-02 | Delivery in three steps D1, D2, D3 with an owner test after each | closed 2026-10-13 (owner) |
+| ODD-03 | RBAC administration in full as the brief describes | closed 2026-10-13 (owner) |
+| ODD-04 to ODD-08 | Audit retention, denial cap, break-glass hardening, export rate, Ubuntu runtime: defaults in `specs/004-phase-d/spec.md` section 10 | defaults; owner agrees at GD0 |
+
 ## Nederlands
 
 Dit bestand bundelt de onverifieerde Microsoft-aannames (U1 tot en met U18), de overige onverifieerde
