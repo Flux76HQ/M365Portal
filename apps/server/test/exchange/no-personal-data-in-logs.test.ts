@@ -32,6 +32,7 @@ const ALLOWED_KEYS = new Set([
   'result',
   'errorType',
   'errorId',
+  'errorHints',
 ]);
 const OUTCOMES = new Set([
   'ok',

@@ -396,6 +396,7 @@ export class PwshExchangeClient implements ExchangeClient {
             result: code,
             errorType: response.error.detail?.type ?? null,
             errorId: response.error.detail?.errorId ?? null,
+            errorHints: response.error.detail?.hints ?? null,
           },
           'exchange call failed',
         );

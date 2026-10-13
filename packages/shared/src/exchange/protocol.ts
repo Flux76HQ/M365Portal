@@ -138,6 +138,11 @@ export const ExchangeResponseSchema = z.discriminatedUnion('ok', [
             .string()
             .regex(/^[A-Za-z0-9_.]{1,120}$/)
             .optional(),
+          // GD1-0 Amendment 4: words of a closed list that the error text contains, and HTTP status numbers.
+          hints: z
+            .array(z.string().regex(/^[a-z0-9_]{1,24}$/))
+            .max(16)
+            .optional(),
         })
         .optional(),
     }),

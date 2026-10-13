@@ -346,6 +346,7 @@ export class ExchangeWorkerSession implements ExchangeSession {
           aadsts: hello.error.aadsts ?? null,
           errorType: hello.error.detail?.type ?? null,
           errorId: hello.error.detail?.errorId ?? null,
+          errorHints: hello.error.detail?.hints ?? null,
         },
         'exchange worker connect refused',
       );
