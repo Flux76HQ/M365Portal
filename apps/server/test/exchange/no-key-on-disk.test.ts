@@ -136,6 +136,22 @@ describe('the process the worker runs in', () => {
     expect(Object.keys(env)).not.toContain('SETUP_TOKEN');
   });
 
+  it('adds EXCHANGE_DEBUG_ERRORTEXT=1 only on request, and never copies it from the parent', () => {
+    const base = Object.keys(buildWorkerEnvironment(parent, { homeDir: '/tmp/x' }));
+    expect(base).not.toContain('EXCHANGE_DEBUG_ERRORTEXT');
+    const withParent = buildWorkerEnvironment(
+      { ...parent, EXCHANGE_DEBUG_ERRORTEXT: '1' },
+      { homeDir: '/tmp/x' },
+    );
+    expect(Object.keys(withParent)).not.toContain('EXCHANGE_DEBUG_ERRORTEXT');
+    const on = buildWorkerEnvironment(parent, { homeDir: '/tmp/x', debugErrorText: true });
+    expect(on.EXCHANGE_DEBUG_ERRORTEXT).toBe('1');
+    expect(Object.keys(on).sort()).toEqual([...base, 'EXCHANGE_DEBUG_ERRORTEXT'].sort());
+    expect(
+      Object.keys(buildWorkerEnvironment(parent, { homeDir: '/tmp/x', debugErrorText: false })),
+    ).not.toContain('EXCHANGE_DEBUG_ERRORTEXT');
+  });
+
   it('puts only the script path and the mode on the command line, never a secret', () => {
     const args = buildWorkerArguments({
       scriptPath: '/app/dist/exchange/worker-script.ps1',

@@ -81,6 +81,7 @@ invalid value stops the start and names the variable, never its value. Do not co
 | `BREAK_GLASS_USERNAME` | `unset` | The break-glass account: 3 to 64 characters from `A-Z a-z 0-9 . _ -`. Both break-glass variables, or neither. |
 | `BREAK_GLASS_PASSWORD_HASH` | `unset` | Secret. The `scrypt:` line that `hash-password` writes; no `$`. |
 | `EXCHANGE_KEY_HANDOVER` | `memory` | `memory` or `tmpfs`. How the Exchange certificate reaches the PowerShell worker: `memory` sends it over the pipe and writes nothing; `tmpfs` is the fallback that writes a file with mode 0600 to a private directory on a tmpfs (`/dev/shm`) for the time of the connection and removes it again (refused at the first use when that directory is not a tmpfs). |
+| `EXCHANGE_DEBUG_ERRORTEXT` | `unset` | Troubleshooting only, off by default. `1` makes the worker add a masked, truncated error text to a failed Exchange call and the server log it (see [Temporary diagnostics](#temporary-diagnostics-exchange_debug_errortext)); `0` is the explicit off; anything else, an empty value included, stops the start. Remove it when you are done. |
 
 **HSTS opt-ins.** `includeSubDomains` is a promise about every subdomain, for the whole `max-age`, in
 every browser that saw it once; `preload` asks browser vendors to hard-code the host and cannot easily be
@@ -463,6 +464,7 @@ memory of a long-running worker (U84).
 | `.github/workflows/image.yml` | The arm64 smoke step also pings the Exchange worker; no step added or renamed | Not an operator file |
 | `docker-compose.yml` | `EXCHANGE_KEY_HANDOVER:` passed through from the environment (unset or empty means the default) | Keeps working untouched; the variable is optional |
 | `.env.example` | `EXCHANGE_KEY_HANDOVER=memory` with its comment | Add the line by hand only if you want to change it (`tmpfs`); the default is `memory` |
+| `docker-compose.yml`, `.env.example` (added later in D1) | `EXCHANGE_DEBUG_ERRORTEXT:` passed through; `#EXCHANGE_DEBUG_ERRORTEXT=` commented out | Keeps working untouched; unset means off. Add `EXCHANGE_DEBUG_ERRORTEXT=1` by hand only for troubleshooting and remove it afterwards |
 
 New variable: **`EXCHANGE_KEY_HANDOVER`**, default `memory`, values `memory` or `tmpfs`, in the environment table
 above. No new Compose mapping line, no new volume, no migration. The largest request the application accepts
@@ -479,6 +481,32 @@ is unchanged at 9,437,184 bytes.
 | A member change says "Microsoft refused the change" or "no permission" for one member | The member's own answer (`rejected`, `permission_missing`): for a group, a role-assignable group answers this (U96) |
 | The change is made but the member list does not show it | `readBackPending`: Exchange can take a while (U82); refresh the members |
 | The image is "unhealthy" or the container does not start after the update | The first Phase D image is much larger and slower to pull; check `docker logs`. The Node health check is unchanged |
+
+### Temporary diagnostics: `EXCHANGE_DEBUG_ERRORTEXT`
+
+By default the worker never sends free text (FR-D-107): a failed Exchange call is a code of a closed list plus the
+.NET type name, the error id and a few words of a fixed vocabulary (`errorType`, `errorId`, `errorHints` in the
+`exchange_fault` log entry). Some modules report their error with `Write-Error` and no word of that vocabulary
+matches (`errorType` and `errorId` both `Microsoft.PowerShell.Commands.WriteErrorException`, `errorHints` empty).
+For that case there is one **temporary, opt-in exception**, recorded as GD1-0 amendment 5:
+
+- **Turn it on.** Set `EXCHANGE_DEBUG_ERRORTEXT=1` in the environment of the panel container (the Compose file passes it
+  through, so with Compose or Dockhand add the line `EXCHANGE_DEBUG_ERRORTEXT=1` to the stack's `.env` or environment
+  variables; with `docker run` add `-e EXCHANGE_DEBUG_ERRORTEXT=1`), then recreate the container. The start logs one warning, `{"event":"exchange_debug_errortext","enabled":true}`, as
+  long as the mode is on.
+- **What you get.** The `exchange_fault` entry of a failed call and the `connect_refused` entry of a refused connect
+  carry `errorText` and `errorTextLength`. The text is the message of the outermost exception and, when it differs,
+  of the innermost one, joined with ` | `. Before it leaves the worker, e-mail addresses, GUIDs and runs of 20 or
+  more token-like characters (`A-Z a-z 0-9 + / = _ -`) become `X`, white space and control characters collapse to a
+  space, and the result is cut at 300 characters. `errorTextLength` is the length of the unmasked outer message,
+  so `0` shows an empty message. Without the mode both fields are `null`, and the server logs no text even if a
+  worker sent one.
+- **Read it before you share it.** The masking is a pattern, not a proof: a display name, a tenant name or a
+  cmdlet parameter in the message is **not** masked. Read the log lines yourself before you paste them anywhere.
+  Nothing else carries the text: no page, API answer, audit entry or error page.
+- **Turn it off.** Remove the variable (or set it to `0`) and recreate the container. Do not leave it on: it is for
+  one troubleshooting session. An empty value (`EXCHANGE_DEBUG_ERRORTEXT=`) stops the start, like every other
+  variable.
 
 ### Secret files and stack managers
 
@@ -794,7 +822,9 @@ arm64-rooktest pingt ook de worker; geen stap toegevoegd of hernoemd), `docker-c
 doorgegeven; leeg betekent de standaard) en `.env.example` (`EXCHANGE_KEY_HANDOVER=memory`). Een bestaande
 installatie blijft ongewijzigd werken: image ophalen en de container opnieuw maken; volume, uid, poort en
 entrypoint zijn gelijk. Geen nieuwe Compose-mappingregel, geen volume, geen migratie; het grootste verzoek blijft
-9.437.184 bytes.
+9.437.184 bytes. Later in D1 komt `EXCHANGE_DEBUG_ERRORTEXT:` bij in `docker-compose.yml` (doorgegeven; niet
+ingesteld betekent uit) en `#EXCHANGE_DEBUG_ERRORTEXT=` (uitgecommentarieerd) in `.env.example`; een bestaande installatie
+blijft ongewijzigd werken.
 
 **Symptomen.** Elke Exchange-pagina antwoordt 503 `exchange_unavailable`: de bron van de inloggegevens is nog niet
 te maken (verzegelde geheimen gedegradeerd of geen certificaat of initieel domein, reden `credential_unavailable`; gebouwd maar niet bewezen, FD-01), de rol is minuten geleden verleend (`exchange_role_pending`, wacht en probeer opnieuw) of
@@ -803,6 +833,21 @@ seconden. 503 `exchange_throttled`: de herhaalruimte is op; `Retry-After` zegt h
 `exchange_permission_missing`: de Entra-rol ontbreekt (Instellingen, Verbinding) of de beheerderscontrole faalde.
 "Microsoft heeft de wijziging geweigerd" bij één lid: het antwoord voor dat lid (een rol-toewijsbare groep geeft
 dit, U96). De wijziging is gedaan maar de ledenlijst toont haar niet: `readBackPending`, ververs de leden (U82).
+
+**Tijdelijke diagnose: `EXCHANGE_DEBUG_ERRORTEXT`.** Standaard stuurt de worker nooit vrije tekst (FR-D-107): een
+mislukte Exchange-aanroep is een code uit een gesloten lijst plus de .NET-typenaam, de fout-id en enkele woorden uit
+een vaste woordenlijst (`errorType`, `errorId`, `errorHints` in het logregeltje `exchange_fault`). Meldt een module
+zijn fout met `Write-Error` en past geen woord uit die lijst, dan is er één **tijdelijke uitzondering waarvoor je
+kiest** (GD1-0 amendement 5). Zet `EXCHANGE_DEBUG_ERRORTEXT=1` in de omgeving van de paneelcontainer en maak de
+container opnieuw; de start logt dan één waarschuwing, `{"event":"exchange_debug_errortext","enabled":true}`. De
+logregels `exchange_fault` en `connect_refused` krijgen `errorText` en `errorTextLength`: de tekst van de buitenste
+en, als die anders is, de binnenste uitzondering, gescheiden door ` | `, waarin e-mailadressen, GUID's en reeksen
+van 20 of meer tokentekens door `X` zijn vervangen, witruimte is samengevouwen en het geheel op 300 tekens is
+afgekapt; `errorTextLength` is de lengte van de ongemaskeerde buitenste melding (`0` toont een lege melding). Zonder
+de modus zijn beide velden `null`. **Lees het log zelf door voordat je het deelt**: het maskeren is een patroon, geen
+bewijs; een weergavenaam of tenantnaam in de melding wordt niet gemaskeerd. Halen: verwijder de variabele (of zet
+hem op `0`) en maak de container opnieuw. Laat hem niet staan; een lege waarde stopt de start, zoals bij elke
+variabele.
 
 **Geheimbestanden en stackbeheerders.** Een stackbeheerder die zelf **in een container** draait (Dockhand en
 vergelijkbaar) leest je Compose-bestand vanuit zijn eigen container. Staat het geheimbestand als **absoluut pad van

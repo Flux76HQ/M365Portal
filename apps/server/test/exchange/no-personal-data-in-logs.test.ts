@@ -33,6 +33,8 @@ const ALLOWED_KEYS = new Set([
   'errorType',
   'errorId',
   'errorHints',
+  'errorText',
+  'errorTextLength',
 ]);
 const OUTCOMES = new Set([
   'ok',
@@ -123,6 +125,65 @@ describe('a run with canary values through every method', () => {
       expect(call.fields.requestId).toMatch(/^[A-Za-z0-9-]{8,64}$/);
       expect(typeof call.fields.durationMs).toBe('number');
     }
+  });
+
+  it('logs no error text in the default mode, whatever a worker sends (GD1-0 amendment 5)', async () => {
+    const h = clientHarness();
+    const detail = {
+      type: 'Microsoft.PowerShell.Commands.WriteErrorException',
+      errorId: 'Microsoft.PowerShell.Commands.WriteErrorException',
+      hints: [],
+      text: `${CANARIES[0]} ${CANARIES[1]} not found`,
+      textLength: 99,
+    };
+    h.launcher.script((call) => (call.index === 0 ? { error: 'internal', detail } : undefined));
+    await rejectionOf(h.drive(h.client.listMailContacts({ prefix: CANARIES[0] })));
+    const refusing = clientHarness();
+    refusing.launcher.connect({ error: 'internal', detail });
+    await rejectionOf(
+      refusing.drive(refusing.session.request({ cmdlet: 'Get-OrganizationConfig', args: {} })),
+    );
+    const entries = [...h.log.entries, ...refusing.log.entries];
+    const faults = entries.filter((entry) => 'errorText' in entry.fields);
+    expect(faults.map((entry) => entry.fields.reason ?? entry.fields.event).sort()).toEqual([
+      'connect_refused',
+      'exchange_fault',
+    ]);
+    for (const entry of faults) {
+      expect(entry.fields.errorText).toBeNull();
+      expect(entry.fields.errorTextLength).toBeNull();
+      expect(entry.fields.errorType).toBe(detail.type);
+    }
+    expect(JSON.stringify(entries)).not.toContain('not found');
+    expect(() => {
+      checkEntries(entries);
+    }).not.toThrow();
+  });
+
+  it('logs the masked text of the opt-in diagnostic mode, and only that, for a call and a refused connect', async () => {
+    const h = clientHarness({ debugErrorText: true });
+    const masked = 'The role X is not assigned to application X | Cannot find X for X';
+    const detail = { type: 'System.Exception', hints: ['role'], text: masked, textLength: 4321 };
+    h.launcher.script((call) => (call.index === 0 ? { error: 'internal', detail } : undefined));
+    await rejectionOf(h.drive(h.client.listMailContacts({ prefix: CANARIES[0] })));
+    const refusing = clientHarness({ debugErrorText: true });
+    refusing.launcher.connect({
+      error: 'internal',
+      detail: { ...detail, textLength: 0, text: '' },
+    });
+    await rejectionOf(
+      refusing.drive(refusing.session.request({ cmdlet: 'Get-OrganizationConfig', args: {} })),
+    );
+    const fault = h.log.entries.find((entry) => entry.fields.event === 'exchange_fault');
+    expect(fault?.fields.errorText).toBe(masked);
+    expect(fault?.fields.errorTextLength).toBe(4321);
+    const refused = refusing.log.entries.find((entry) => entry.fields.reason === 'connect_refused');
+    expect(refused?.fields.errorText).toBe('');
+    expect(refused?.fields.errorTextLength).toBe(0);
+    // Nothing else of the request reaches the log, and the canary scan still holds.
+    expect(() => {
+      checkEntries([...h.log.entries, ...refusing.log.entries]);
+    }).not.toThrow();
   });
 
   it('puts no canary in an error: not in the message, JSON, string or inspect form', async () => {

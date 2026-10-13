@@ -24,6 +24,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ExchangeResponseSchema } from '@m365portal/shared/exchange/protocol';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ExchangeCommandError, ExchangeUnavailableError } from '../../src/ports/errors.js';
 import type { ExchangeCredentialSource } from '../../src/integrations/exchange/pwsh/key-handover.js';
@@ -523,6 +524,29 @@ describe.skipIf(!hasPwsh)(
     }, 60_000);
 
     describe('a worker never dies of a cmdlet failure (0.3.63 diagnosis)', () => {
+      it('reads the message of ErrorDetails too, for hints and for the opt-in text (a Write-Error of a module keeps it there)', () => {
+        const source = readFileSync(
+          join(
+            dirname(fileURLToPath(import.meta.url)),
+            '../../src/integrations/exchange/pwsh/worker-script.ps1',
+          ),
+          'utf8',
+        );
+        const from = source.indexOf('function Get-ExceptionText');
+        const to = source.indexOf('# The AADSTS number');
+        const script = `Set-StrictMode -Version 3.0
+${source.slice(from, to)}
+$r = [System.Management.Automation.ErrorRecord]::new([System.Exception]::new(''), 'X', 'NotSpecified', $null)
+$r.ErrorDetails = [System.Management.Automation.ErrorDetails]::new('The role is unauthorized (HTTP 401)')
+(Get-ErrorHints $r) -join ','
+(Get-DebugErrorText $r).Length`;
+        const run = spawnSync(PWSH, ['-NoProfile', '-NonInteractive', '-Command', script], {
+          encoding: 'utf8',
+          env: { PATH: process.env.PATH ?? '', HOME: tmpdir() },
+        });
+        expect(run.stdout.trim().split('\n')).toEqual(['role,unauthorized,http_401', '35']);
+      }, 60_000);
+
       it('turns an error text into words of a closed list and HTTP numbers, and none of the text (Amendment 4)', () => {
         const source = readFileSync(
           join(
@@ -543,6 +567,106 @@ try { Write-Error 'The role assigned to application CANARYNAME is not supported 
         expect(run.stdout.trim()).toBe('role,assigned,application,supported,http_403');
         expect(run.stdout).not.toMatch(/CANARY|canary/i);
       }, 60_000);
+
+      describe('the opt-in error text of the diagnostic mode (Amendment 5)', () => {
+        const GUID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+        const TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789';
+        const OUTER = `The role assigned to CANARYNAME\t is not supported\r\nfor canary.address@canary-zone.example (id ${GUID}, token ${TOKEN}).`;
+        const INNER = 'Inner: no scope for other.canary@canary-zone.example';
+
+        /** `Send-Failure -Record` of the real script, run in real pwsh, with or without the opt-in variable. */
+        function failureWith(
+          env: Record<string, string>,
+          outer: string,
+          inner: string | null,
+        ): { error: { code: string; detail?: Record<string, unknown> } } {
+          const source = readFileSync(SCRIPT, 'utf8');
+          const from = source.indexOf('function Send-Line');
+          const to = source.indexOf('# The AADSTS number');
+          expect(from).toBeGreaterThan(0);
+          expect(to).toBeGreaterThan(from);
+          const script = `${source.slice(from, to)}
+$script:ProtocolOut = [Console]::Out
+$script:ProtocolVersion = 1
+$outer = $env:TEST_OUTER
+$inner = $env:TEST_INNER
+try {
+    if ($env:TEST_INNER_SET -eq '1') { throw [System.InvalidOperationException]::new($outer, [System.ArgumentException]::new($inner)) }
+    throw [System.InvalidOperationException]::new($outer)
+} catch { Send-Failure -Id 'request-0001' -Code 'internal' -Record $_ }`;
+          const run = spawnSync(PWSH, ['-NoProfile', '-NonInteractive', '-Command', script], {
+            encoding: 'utf8',
+            env: {
+              PATH: process.env.PATH ?? '',
+              HOME: tmpdir(),
+              TEST_OUTER: outer,
+              TEST_INNER: inner ?? '',
+              TEST_INNER_SET: inner === null ? '0' : '1',
+              ...env,
+            },
+          });
+          expect(run.status, run.stderr).toBe(0);
+          return JSON.parse(run.stdout.trim()) as {
+            error: { code: string; detail?: Record<string, unknown> };
+          };
+        }
+
+        it('sends neither text nor textLength unless the variable is exactly 1', () => {
+          for (const env of [
+            {} as Record<string, string>,
+            { EXCHANGE_DEBUG_ERRORTEXT: '0' },
+            { EXCHANGE_DEBUG_ERRORTEXT: 'true' },
+          ]) {
+            const answer = failureWith(env, OUTER, INNER);
+            const detail = answer.error.detail ?? {};
+            expect(Object.keys(detail), JSON.stringify(env)).not.toContain('text');
+            expect(Object.keys(detail), JSON.stringify(env)).not.toContain('textLength');
+            expect(JSON.stringify(answer)).not.toMatch(/CANARY|canary|role assigned/i);
+            expect(detail.type).toBe('System.ArgumentException');
+          }
+        }, 120_000);
+
+        it('sends the outer and the inner message, masked, joined with a bar, and the unmasked length of the outer', () => {
+          const answer = failureWith({ EXCHANGE_DEBUG_ERRORTEXT: '1' }, OUTER, INNER);
+          const detail = answer.error.detail ?? {};
+          expect(detail.text).toBe(
+            'The role assigned to CANARYNAME is not supported for X (id X, token X). | Inner: no scope for X',
+          );
+          expect(detail.textLength).toBe(OUTER.length);
+          const wire = JSON.stringify(answer);
+          for (const secret of ['canary.address', 'canary-zone', 'other.canary', GUID, TOKEN]) {
+            expect(wire, secret).not.toContain(secret);
+          }
+          // The schema of the protocol accepts it as it is.
+          expect(
+            ExchangeResponseSchema.safeParse({ ...answer, v: 1, id: 'request-0001', ok: false })
+              .success,
+          ).toBe(true);
+        }, 60_000);
+
+        it('sends one message when the exception has no inner one or the same text, and shows an empty message by its length', () => {
+          const plain = failureWith({ EXCHANGE_DEBUG_ERRORTEXT: '1' }, 'Just one message', null);
+          expect(plain.error.detail).toMatchObject({ text: 'Just one message', textLength: 16 });
+          const same = failureWith({ EXCHANGE_DEBUG_ERRORTEXT: '1' }, 'Same text', 'Same text');
+          expect(same.error.detail?.text).toBe('Same text');
+          const empty = failureWith({ EXCHANGE_DEBUG_ERRORTEXT: '1' }, '', null);
+          expect(empty.error.detail).toMatchObject({ textLength: 0 });
+          expect(String(empty.error.detail?.text).length).toBeLessThanOrEqual(300);
+        }, 120_000);
+
+        it('cuts the masked text at 300 characters, after masking, and reports the full outer length', () => {
+          const long = `${'word '.repeat(400)}tail canary.long@canary-zone.example`;
+          const answer = failureWith({ EXCHANGE_DEBUG_ERRORTEXT: '1' }, long, null);
+          const detail = answer.error.detail ?? {};
+          expect(String(detail.text)).toHaveLength(300);
+          expect(detail.textLength).toBe(long.length);
+          expect(JSON.stringify(answer)).not.toContain('canary-zone');
+          // An address at the very end of a long message is masked before the cut, never half-cut.
+          const edge = `${'a '.repeat(140)}canary.edge@canary-zone.example`;
+          const edged = failureWith({ EXCHANGE_DEBUG_ERRORTEXT: '1' }, edge, null);
+          expect(JSON.stringify(edged)).not.toMatch(/canary|zone/);
+        }, 120_000);
+      });
 
       /** The worker script driven by hand: lines in, lines out, the exit record, stderr kept for the assertions only. */
       async function drive(

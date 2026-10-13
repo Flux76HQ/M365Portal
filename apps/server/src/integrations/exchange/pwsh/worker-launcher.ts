@@ -82,10 +82,16 @@ export const WORKER_FIXED_ENV = Object.freeze([
   'LANG',
 ] as const);
 
+/**
+ * The one name that is set only on request: `1` in the temporary, opt-in diagnostic mode (GD1-0 amendment 5), set from
+ * the server's configuration and never copied from the parent environment.
+ */
+export const WORKER_DEBUG_ENV = 'EXCHANGE_DEBUG_ERRORTEXT';
+
 /** The environment of the worker: the fixed names with `homeDir` as home, and the allowed names of the parent. */
 export function buildWorkerEnvironment(
   parent: Readonly<Record<string, string | undefined>>,
-  options: { readonly homeDir: string },
+  options: { readonly homeDir: string; readonly debugErrorText?: boolean },
 ): Record<string, string> {
   const env: Record<string, string> = {
     HOME: options.homeDir,
@@ -105,6 +111,7 @@ export function buildWorkerEnvironment(
     const value = parent[name];
     if (typeof value === 'string' && value.length > 0) env[name] = value;
   }
+  if (options.debugErrorText === true) env[WORKER_DEBUG_ENV] = '1';
   return env;
 }
 
@@ -148,6 +155,8 @@ export interface NodeWorkerLauncherOptions {
   readonly homeDir: string;
   /** The environment the allowed names are copied from. */
   readonly parentEnv: Readonly<Record<string, string | undefined>>;
+  /** `EXCHANGE_DEBUG_ERRORTEXT=1` of the server: the worker gets the same variable and adds a masked error text (opt-in). */
+  readonly debugErrorText?: boolean;
   /** For tests: other arguments than `buildWorkerArguments` (a Node program is not `pwsh`). */
   readonly argumentsFor?: (options: WorkerLaunchOptions) => string[];
   /** For tests: environment variables added to the fixed ones (the real runtime passes none). */
@@ -170,7 +179,10 @@ export function createNodeWorkerLauncher(options: NodeWorkerLauncherOptions): Wo
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: {
-          ...buildWorkerEnvironment(options.parentEnv, { homeDir: options.homeDir }),
+          ...buildWorkerEnvironment(options.parentEnv, {
+            homeDir: options.homeDir,
+            ...(options.debugErrorText === true ? { debugErrorText: true } : {}),
+          }),
           ...options.extraEnv,
         },
         cwd: options.homeDir,

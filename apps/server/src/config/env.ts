@@ -97,6 +97,11 @@ export interface AppConfig {
   readonly breakGlass: { readonly username: string; readonly passwordHash: SecretText } | undefined;
   /** `EXCHANGE_KEY_HANDOVER`: the certificate goes to the worker in memory (default) or as a file on a tmpfs (T-D-114). */
   readonly exchangeKeyHandover: ExchangeKeyHandover;
+  /**
+   * `EXCHANGE_DEBUG_ERRORTEXT=1`: the temporary, opt-in diagnostic mode in which the Exchange worker adds a masked,
+   * truncated error text to a failure and the server logs it (GD1-0 amendment 5, an explicit exception to FR-D-107).
+   */
+  readonly exchangeDebugErrorText: boolean;
 }
 
 /** Where an `APP_KEY` comes from: nothing, the variable, or a file read at start. */
@@ -273,6 +278,12 @@ function parseKeyHandover(raw: string): ExchangeKeyHandover | undefined {
   return EXCHANGE_KEY_HANDOVER_VALUES.find((value) => value === raw);
 }
 
+/** `EXCHANGE_DEBUG_ERRORTEXT`: only `1` turns the diagnostic text on; `0` is the explicit off; anything else is refused. */
+function parseDebugErrorText(raw: string): boolean | undefined {
+  if (raw === '1') return true;
+  return raw === '0' ? false : undefined;
+}
+
 function parseLogLevel(raw: string): LogLevel | undefined {
   return LOG_LEVELS.find((level) => level === raw);
 }
@@ -371,6 +382,7 @@ export const ENV_VARIABLE_NAMES = [
   'BREAK_GLASS_PASSWORD_HASH',
   // Phase D (T-D-114).
   'EXCHANGE_KEY_HANDOVER',
+  'EXCHANGE_DEBUG_ERRORTEXT',
 ] as const;
 export type EnvName = (typeof ENV_VARIABLE_NAMES)[number];
 
@@ -447,6 +459,8 @@ export const ENV_VARIABLES: readonly EnvVariable[] = [
   { name: 'BREAK_GLASS_PASSWORD_HASH', defaultText: UNSET, secret: true },
   // Phase D, T-D-114 (FR-D-103): how the Exchange certificate reaches the PowerShell worker.
   { name: 'EXCHANGE_KEY_HANDOVER', defaultText: 'memory' },
+  // GD1-0 amendment 5: a temporary, opt-in diagnostic mode (masked error text in the server log). Off.
+  { name: 'EXCHANGE_DEBUG_ERRORTEXT', defaultText: UNSET },
 ];
 
 const BOOLEAN_TEXT = (name: string): string => `${name} must be true or false`;
@@ -496,6 +510,7 @@ export const ENV_MESSAGES: Readonly<Record<EnvName, string>> = {
   BREAK_GLASS_PASSWORD_HASH:
     'BREAK_GLASS_PASSWORD_HASH must be a scrypt: hash with N from 16384 to 131072, r 8 to 16, p 1 to 4 and 128 * N * r of at most 134217728',
   EXCHANGE_KEY_HANDOVER: 'EXCHANGE_KEY_HANDOVER must be memory or tmpfs',
+  EXCHANGE_DEBUG_ERRORTEXT: 'EXCHANGE_DEBUG_ERRORTEXT must be 1 (on) or 0 (off)',
 };
 
 /** Cross-variable messages, also fixed texts. */
@@ -621,6 +636,7 @@ export const EnvSchema = z
       fallbackOf('EXCHANGE_KEY_HANDOVER'),
       parseKeyHandover,
     ),
+    EXCHANGE_DEBUG_ERRORTEXT: variable('EXCHANGE_DEBUG_ERRORTEXT', undefined, parseDebugErrorText),
   })
   .transform((values, context): AppConfig => {
     // Every default above is a valid value, so a field is only undefined when it has no default.
@@ -718,6 +734,7 @@ export const EnvSchema = z
             }
           : undefined,
       exchangeKeyHandover: values.EXCHANGE_KEY_HANDOVER ?? 'memory',
+      exchangeDebugErrorText: values.EXCHANGE_DEBUG_ERRORTEXT ?? false,
     });
   });
 

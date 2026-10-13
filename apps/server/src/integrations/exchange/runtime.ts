@@ -82,6 +82,8 @@ export interface ExchangeWorkerSettings {
   readonly parentEnv: Readonly<Record<string, string | undefined>>;
   /** `EXCHANGE_KEY_HANDOVER`: `memory` (default) or the `tmpfs` fallback (FR-D-103). */
   readonly handover?: HandoverConfig;
+  /** `EXCHANGE_DEBUG_ERRORTEXT=1`: the worker adds a masked, truncated error text to a failure (GD1-0 amendment 5). Default off. */
+  readonly debugErrorText?: boolean;
   /**
    * Where the certificate and its key (PEM) come from, per pinned tenant. Absent: no source exists and every
    * Exchange call answers 503 `exchange_unavailable`.
@@ -148,6 +150,7 @@ export function createExchangeRuntime(
         scriptPath: settings.scriptPath ?? defaultExchangeScript(),
         homeDir: settings.homeDir,
         parentEnv: settings.parentEnv,
+        ...(settings.debugErrorText === true ? { debugErrorText: true } : {}),
       }),
     credentials,
     clock: context.clock,
@@ -155,12 +158,14 @@ export function createExchangeRuntime(
     random: context.random,
     ...(context.log === undefined ? {} : { log: context.log }),
     handover: settings.handover ?? DEFAULT_HANDOVER,
+    ...(settings.debugErrorText === true ? { debugErrorText: true } : {}),
   });
   const client = new PwshExchangeClient({
     session,
     random: context.random,
     scheduler: context.scheduler,
     ...(context.log === undefined ? {} : { log: context.log }),
+    ...(settings.debugErrorText === true ? { debugErrorText: true } : {}),
   });
   return { client, close: () => session.close() };
 }

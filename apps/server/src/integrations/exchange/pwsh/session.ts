@@ -88,6 +88,8 @@ export interface SessionDeps {
   readonly scheduler: Scheduler;
   readonly random: RandomSource;
   readonly log?: ExchangeLog;
+  /** `EXCHANGE_DEBUG_ERRORTEXT=1`: log the masked error text a worker sends. Default off: a text is then never logged, whatever arrives. */
+  readonly debugErrorText?: boolean;
   /** `memory` (default) or the tmpfs fallback. */
   readonly handover?: HandoverConfig;
   /** The file system of the fallback; default the real one. */
@@ -347,6 +349,10 @@ export class ExchangeWorkerSession implements ExchangeSession {
           errorType: hello.error.detail?.type ?? null,
           errorId: hello.error.detail?.errorId ?? null,
           errorHints: hello.error.detail?.hints ?? null,
+          // Present only in the opt-in diagnostic mode (EXCHANGE_DEBUG_ERRORTEXT=1): masked and cut by the worker.
+          errorText: this.#deps.debugErrorText === true ? (hello.error.detail?.text ?? null) : null,
+          errorTextLength:
+            this.#deps.debugErrorText === true ? (hello.error.detail?.textLength ?? null) : null,
         },
         'exchange worker connect refused',
       );

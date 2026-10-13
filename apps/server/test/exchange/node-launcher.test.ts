@@ -21,7 +21,10 @@ afterEach(() => {
   for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function launcher(parentEnv: Record<string, string | undefined> = {}) {
+function launcher(
+  parentEnv: Record<string, string | undefined> = {},
+  extra: { debugErrorText?: boolean } = {},
+) {
   const home = mkdtempSync(join(tmpdir(), 'exo-launcher-'));
   scratch.push(home);
   return {
@@ -31,6 +34,7 @@ function launcher(parentEnv: Record<string, string | undefined> = {}) {
       scriptPath: CHILD,
       homeDir: join(home, 'pwsh-home'),
       parentEnv,
+      ...extra,
       argumentsFor: (options) => [CHILD, '--mode', options.certificateMode],
     }),
   };
@@ -88,6 +92,29 @@ describe('the child process', () => {
     expect(statSync(join(home, 'pwsh-home')).mode & 0o777).toBe(0o700);
     worker.kill();
     await io.exited;
+  });
+
+  it('gives the worker EXCHANGE_DEBUG_ERRORTEXT only when the diagnostic mode is on, never from the parent environment', async () => {
+    const seen = async (
+      parentEnv: Record<string, string | undefined>,
+      extra: { debugErrorText?: boolean },
+    ): Promise<string[]> => {
+      const { launcher: l } = launcher(parentEnv, extra);
+      const worker = l.launch({ certificateMode: 'memory' });
+      const io = lines(worker);
+      worker.write(`${JSON.stringify({ v: 1, type: 'ping', id: 'ping-00001' })}\n`);
+      const answer = JSON.parse(await io.next()) as { data: { env: string[] } };
+      worker.kill();
+      await io.exited;
+      return answer.data.env;
+    };
+    expect(await seen({}, {})).not.toContain('EXCHANGE_DEBUG_ERRORTEXT');
+    // The server's own variable is not copied through: only the configuration switches it.
+    expect(await seen({ EXCHANGE_DEBUG_ERRORTEXT: '1' }, {})).not.toContain(
+      'EXCHANGE_DEBUG_ERRORTEXT',
+    );
+    expect(await seen({}, { debugErrorText: false })).not.toContain('EXCHANGE_DEBUG_ERRORTEXT');
+    expect(await seen({}, { debugErrorText: true })).toContain('EXCHANGE_DEBUG_ERRORTEXT');
   });
 
   it('throws stderr away: a certificate echoed on stderr never reaches the reader', async () => {

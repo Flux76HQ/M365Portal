@@ -572,6 +572,12 @@ pattern and a maximum length, switch, boolean, result size, enumerated value) an
   (`readBackPending`).
 - What Microsoft really answers (U75 to U100) is unverified until the owner tests; every one of them has a designed
   fallback that fails closed (a message, never a silent success).
+- **FD-25, a documented exception to FR-D-107.** `EXCHANGE_DEBUG_ERRORTEXT=1` is a temporary, opt-in diagnostic mode (GD1-0
+  amendment 5, owner decision 2026-10-13): the worker adds an error text, masked (e-mail addresses, GUIDs and long
+  token-like runs replaced by `X`) and cut at 300 characters, and the server writes it to its own log (`errorText`,
+  `errorTextLength`). Off by default; with it off the worker sends no text and the server logs none, even if a worker
+  sent one (`no-personal-data-in-logs.test.ts`). The masking is a pattern: a display name or a tenant name in the message
+  is not masked, so the owner reads the log before sharing it and removes the variable afterwards (`docs/operations.md`).
 
 ## Application verification (ASVS)
 
@@ -725,7 +731,12 @@ en ADR-0181.
   niet op versie vastgezet (Trivy en Dependabot dekken ze); de image is groter en heeft een shell. Bij de
   `tmpfs`-terugval staat de sleutel even in een bestand. Exchange is uiteindelijk consistent (`readBackPending`,
   U82). Wat Microsoft echt antwoordt (U75 tot en met U100) is ongeverifieerd tot de eigenaar test; elk heeft een
-  ontworpen terugval die dichtgaat (een melding, nooit een stil succes).
+  ontworpen terugval die dichtgaat (een melding, nooit een stil succes). FD-25, een vastgelegde uitzondering op FR-D-107:
+  `EXCHANGE_DEBUG_ERRORTEXT=1` is een tijdelijke diagnosemodus waarvoor je zelf kiest (GD1-0 amendement 5, besluit van de
+  eigenaar 2026-10-13): de worker voegt een gemaskeerde (e-mailadressen, GUID's en lange tokenreeksen vervangen door `X`),
+  op 300 tekens afgekapte foutmelding toe en de server schrijft die in zijn eigen log. Standaard uit; uit betekent geen
+  tekst van de worker en geen tekst in het log. Een weergavenaam of tenantnaam wordt niet gemaskeerd: lees het log voor
+  je het deelt en haal de variabele daarna weg (`docs/operations.md`).
 
 ### ASVS
 
