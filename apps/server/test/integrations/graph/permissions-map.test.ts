@@ -45,6 +45,13 @@ const PORT_METHODS = [
   'checkMemberGroups',
   'searchGroups',
   'getGroup',
+  // Phase C (FR-C-101): the six reads of the users and groups pages.
+  'listUsers',
+  'getUserManager',
+  'listUserGroups',
+  'listGroups',
+  'listGroupMembers',
+  'listGroupOwners',
 ];
 
 describe('permissions-map (T-B-072)', () => {
@@ -87,6 +94,36 @@ describe('permissions-map (T-B-072)', () => {
       'User.Read.All',
       'GroupMember.Read.All',
     ]);
+  });
+
+  it('has the six Phase C rows: the pages, the permissions, the UNVERIFIED items (FR-C-105)', () => {
+    const rows = GRAPH_METHOD_PERMISSIONS;
+    expect(rows.listUsers.permissions).toEqual(['User.Read.All']);
+    expect(rows.getUserManager.permissions).toEqual(['User.Read.All']);
+    expect(rows.getUserManager.unverified).toContain('U66');
+    // transitiveMemberOf works with User.Read.All; memberOf would need Directory.Read.All (R-C-08).
+    expect(rows.listUserGroups.permissions).toEqual(['User.Read.All']);
+    expect(rows.listUserGroups.page).toContain('user-list-transitivememberof');
+    expect(rows.listGroups.permissions).toEqual(['GroupMember.Read.All']);
+    expect(rows.listGroupMembers.permissions).toEqual(['GroupMember.Read.All']);
+    expect(rows.listGroupMembers.unverified).toEqual(expect.arrayContaining(['U67', 'U71']));
+    expect(rows.listGroupOwners.permissions).toEqual(['GroupMember.Read.All']);
+    expect(rows.listGroupOwners.unverified).toContain('U68');
+  });
+
+  it('uses no write role: GroupMember.ReadWrite.All is granted and appears in no row (FR-C-105, ODB-02)', () => {
+    const used = Object.values(GRAPH_METHOD_PERMISSIONS).flatMap((row) => [...row.permissions]);
+    expect(used).not.toContain('GroupMember.ReadWrite.All');
+    for (const permission of used) expect(permission).not.toMatch(/ReadWrite|Write/);
+    // The negative: a row that names the write role fails the same rule.
+    const rule = (permissions: readonly string[]): void => {
+      if (permissions.some((permission) => /ReadWrite|Write/.test(permission))) {
+        throw new Error('a write role is used');
+      }
+    };
+    expectGuardFails(rule, ['User.Read.All', 'GroupMember.ReadWrite.All'], {
+      reason: 'a write role is used',
+    });
   });
 
   it('negative: a map with a missing row, a foreign permission, an empty set or a wrong page fails the check', () => {

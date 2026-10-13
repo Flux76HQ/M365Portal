@@ -7,6 +7,7 @@
 // real tenant must confirm is the owner-verified ledger, not this file.
 import { createHash } from 'node:crypto';
 import { EXCHANGE_ROLES } from '@m365portal/shared/setup/graph-roles';
+import { expectGuardFails } from '@m365portal/shared/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminApiExchangeClient } from '../../src/integrations/exchange/admin-api-client.js';
 import { createHttpGraphClient } from '../../src/integrations/graph/graph-client.js';
@@ -28,7 +29,14 @@ import { createTestCertificate } from '../support/test-certificate.js';
 import { x5tOf } from './fake-tenant/entra/assertion.js';
 import { seedApplication } from './fake-tenant/entra/index.js';
 import { installFakeExchange } from './fake-tenant/exchange/index.js';
-import { ENTRA_ROLE_TEMPLATES, fakeGuid, installFakeGraph } from './fake-tenant/graph/index.js';
+import {
+  ENTRA_ROLE_TEMPLATES,
+  describeSeed,
+  fakeGuid,
+  installFakeGraph,
+  seedDirectory,
+  type FakeGraph,
+} from './fake-tenant/graph/index.js';
 import {
   PANEL_CALLBACK,
   holderFor,
@@ -104,6 +112,72 @@ export const STRICT_RULES: readonly { rule: string; learn: string }[] = [
   {
     rule: 'an application management policy can refuse a credential lifetime',
     learn: 'https://learn.microsoft.com/graph/api/resources/keycredentialconfiguration (U19)',
+  },
+];
+
+/**
+ * The strict rules of the directory routes (Phase C, FR-C-601). Each has a case in the describe block
+ * "Graph directory reads are strict" below, found by the `rule` text; the gate note and the owner's
+ * ledger (OV-C1 to OV-C6) take them from here.
+ */
+export const DIRECTORY_STRICT_RULES: readonly { rule: string; learn: string }[] = [
+  {
+    rule: '$top above 999 is 400',
+    learn: 'https://learn.microsoft.com/graph/api/user-list (maximum page size 999)',
+  },
+  {
+    rule: '$skip is 400 on the directory collections',
+    learn: 'https://learn.microsoft.com/graph/api/user-list ($skip is not supported)',
+  },
+  {
+    rule: '$filter with $orderby needs ConsistencyLevel: eventual and $count=true',
+    learn:
+      'https://learn.microsoft.com/graph/aad-advanced-queries; https://learn.microsoft.com/graph/api/user-list',
+  },
+  {
+    rule: 'any $count=true needs the header',
+    learn: 'https://learn.microsoft.com/graph/aad-advanced-queries',
+  },
+  {
+    rule: 'the not operator needs the advanced pair',
+    learn: 'https://learn.microsoft.com/graph/aad-advanced-queries (not, ne, endsWith)',
+  },
+  {
+    rule: 'startsWith on a non-default property needs the advanced pair',
+    learn:
+      'https://learn.microsoft.com/graph/aad-advanced-queries (property table; our reading, U70)',
+  },
+  {
+    rule: 'a filter outside the grammar of FR-C-202 and FR-C-301 is 400 Request_UnsupportedQuery',
+    learn: 'plan 6; the fake accepts exactly what the product sends',
+  },
+  {
+    rule: 'members and owners need the advanced pair for every query option but $expand',
+    learn: 'https://learn.microsoft.com/graph/api/group-list-members; .../group-list-owners',
+  },
+  {
+    rule: 'memberOf of an application token needs Directory.Read.All',
+    learn: 'https://learn.microsoft.com/graph/api/user-list-memberof',
+  },
+  {
+    rule: 'the manager call is refused to application tokens by default (U66)',
+    learn: 'https://learn.microsoft.com/graph/api/user-list-manager (Application: Not supported)',
+  },
+  {
+    rule: 'members of a hidden-membership group are refused without Member.Read.Hidden (U67)',
+    learn: 'https://learn.microsoft.com/graph/api/group-list-members (Member.Read.Hidden)',
+  },
+  {
+    rule: 'owners are empty for distribution, mail-enabled security and synced groups',
+    learn: 'https://learn.microsoft.com/graph/api/group-list-owners',
+  },
+  {
+    rule: 'objects the token cannot read come back with id and @odata.type only',
+    learn: 'https://learn.microsoft.com/graph/permissions-overview (limited information)',
+  },
+  {
+    rule: 'a page is followed by an opaque $skiptoken in @odata.nextLink',
+    learn: 'https://learn.microsoft.com/graph/paging',
   },
 ];
 
@@ -814,5 +888,778 @@ describe('negative: a lenient fake would have accepted what these tests refuse',
     expect((await raw('GET', `${GRAPH}/users?$top=1&$select=id`, { token: withRole })).status).toBe(
       200,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Phase C: the directory reads (T-C-013, T-C-014, T-C-015, FR-C-601)
+// ---------------------------------------------------------------------------------------------
+
+const APP_ROLES = ['User.Read.All', 'GroupMember.Read.All', 'GroupMember.ReadWrite.All'] as const;
+const EVENTUAL = { ConsistencyLevel: 'eventual' } as const;
+
+function graphUrl(path: string, params: Readonly<Record<string, string>> = {}): string {
+  const pairs = Object.entries(params).map(([n, v]) => `${n}=${encodeURIComponent(v)}`);
+  return `${GRAPH}${path}${pairs.length === 0 ? '' : `?${pairs.join('&')}`}`;
+}
+
+function tokenWith(graph: FakeGraph, roles: readonly string[] = APP_ROLES): string {
+  return graph.world.tokens.issue({
+    audience: 'graph',
+    kind: 'app',
+    appId: fakeGuid('selftest-directory-app', 1),
+    roles,
+  }).value;
+}
+
+/** A small directory with the shapes the rules below need. */
+function smallDirectory(graph: FakeGraph) {
+  const { directory } = graph;
+  const boss = directory.addUser({
+    userPrincipalName: 'boss@contoso-fake.example',
+    displayName: 'Boss',
+    department: 'Finance',
+  });
+  const anna = directory.addUser({
+    userPrincipalName: 'anna@contoso-fake.example',
+    displayName: 'Anna',
+    department: 'Sales',
+    managerId: boss.id,
+  });
+  const bob = directory.addUser({
+    userPrincipalName: 'bob@contoso-fake.example',
+    displayName: 'Bob',
+    accountEnabled: false,
+    userType: 'Guest',
+  });
+  const m365 = directory.addGroup({
+    displayName: 'Team',
+    groupTypes: ['Unified'],
+    mailEnabled: true,
+    securityEnabled: false,
+    mail: 'team@contoso-fake.example',
+  });
+  const hidden = directory.addGroup({
+    displayName: 'Hidden',
+    groupTypes: ['Unified'],
+    mailEnabled: true,
+    securityEnabled: false,
+    hiddenMembership: true,
+  });
+  const distribution = directory.addGroup({
+    displayName: 'Mailing',
+    mailEnabled: true,
+    securityEnabled: false,
+    mail: 'mailing@contoso-fake.example',
+  });
+  const device = directory.addOtherObject('#microsoft.graph.device', 'Laptop');
+  directory.addMember(m365.id, anna.id);
+  directory.addMember(m365.id, device.id);
+  directory.addOwner(m365.id, boss.id);
+  directory.addMember(hidden.id, anna.id);
+  directory.addOwner(distribution.id, boss.id);
+  return { boss, anna, bob, m365, hidden, distribution, device };
+}
+
+describe('Graph directory reads are strict (FR-C-601)', () => {
+  it('lists the rules, each with a Learn page or a plan reference', () => {
+    expect(DIRECTORY_STRICT_RULES.length).toBeGreaterThanOrEqual(14);
+    for (const entry of DIRECTORY_STRICT_RULES) expect(entry.learn.length).toBeGreaterThan(10);
+  });
+
+  describe('the refusals', () => {
+    interface Refusal {
+      readonly rule: string;
+      readonly path: string;
+      readonly params?: Record<string, string>;
+      readonly headers?: Record<string, string>;
+      readonly status: number;
+      readonly code: string;
+    }
+    const REFUSALS: readonly Refusal[] = [
+      {
+        rule: '$top above 999 is 400',
+        path: '/users',
+        params: { $top: '1000' },
+        status: 400,
+        code: 'Request_BadRequest',
+      },
+      {
+        rule: '$top above 999 is 400',
+        path: '/groups',
+        params: { $top: '0' },
+        status: 400,
+        code: 'Request_BadRequest',
+      },
+      {
+        rule: '$skip is 400 on the directory collections',
+        path: '/users',
+        params: { $skip: '10' },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: '$skip is 400 on the directory collections',
+        path: '/groups',
+        params: { $skip: '10' },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: '$filter with $orderby needs ConsistencyLevel: eventual and $count=true',
+        path: '/users',
+        params: { $filter: "startsWith(displayName,'a')", $orderby: 'displayName' },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: '$filter with $orderby needs ConsistencyLevel: eventual and $count=true',
+        path: '/users',
+        params: { $filter: "startsWith(displayName,'a')", $orderby: 'displayName', $count: 'true' },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: '$filter with $orderby needs ConsistencyLevel: eventual and $count=true',
+        path: '/users',
+        params: { $filter: "startsWith(displayName,'a')", $orderby: 'displayName' },
+        headers: EVENTUAL,
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: 'any $count=true needs the header',
+        path: '/groups',
+        params: { $count: 'true' },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: 'the not operator needs the advanced pair',
+        path: '/groups',
+        params: { $filter: "not groupTypes/any(c:c eq 'Unified')" },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: 'the not operator needs the advanced pair',
+        path: '/users',
+        params: { $filter: "userType ne 'Guest'" },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: 'the not operator needs the advanced pair',
+        path: '/users',
+        params: { $filter: 'userType eq null' },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: 'startsWith on a non-default property needs the advanced pair',
+        path: '/users',
+        params: { $filter: "startsWith(userPrincipalName,'a')" },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: 'startsWith on a non-default property needs the advanced pair',
+        path: '/groups',
+        params: { $filter: "startsWith(mailNickname,'a')" },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      ...[
+        "contains(displayName,'a')",
+        "displayName in ('a','b')",
+        "displayName ge 'a'",
+        "startsWith(displayName,'a') xor startsWith(mail,'a')",
+        "endsWith(assignedLicenses,'a')",
+        "assignedLicenses/any(c:c eq 'x')",
+        'accountEnabled eq 1',
+        "startsWith(displayName,'unterminated)",
+        "displayName eq'a'",
+        "(startsWith(displayName,'a')",
+        'unknownFunction(displayName)',
+      ].map((filter): Refusal => ({
+        rule: 'a filter outside the grammar of FR-C-202 and FR-C-301 is 400 Request_UnsupportedQuery',
+        path: '/users',
+        params: { $filter: filter },
+        headers: EVENTUAL,
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      })),
+      {
+        rule: 'a filter outside the grammar of FR-C-202 and FR-C-301 is 400 Request_UnsupportedQuery',
+        path: '/users',
+        params: { $search: '"displayName:a"' },
+        headers: EVENTUAL,
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: 'a filter outside the grammar of FR-C-202 and FR-C-301 is 400 Request_UnsupportedQuery',
+        path: '/users',
+        params: { $orderby: 'jobTitle desc' },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: 'members and owners need the advanced pair for every query option but $expand',
+        path: '/groups/GROUP/members',
+        params: { $top: '5' },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: 'members and owners need the advanced pair for every query option but $expand',
+        path: '/groups/GROUP/owners',
+        params: { $select: 'id,displayName' },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: 'members and owners need the advanced pair for every query option but $expand',
+        path: '/groups/GROUP/members',
+        params: { $top: '5', $count: 'true' },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: 'members and owners need the advanced pair for every query option but $expand',
+        path: '/users/ANNA/transitiveMemberOf/microsoft.graph.group',
+        params: { $top: '5' },
+        status: 400,
+        code: 'Request_UnsupportedQuery',
+      },
+      {
+        rule: 'memberOf of an application token needs Directory.Read.All',
+        path: '/users/ANNA/memberOf',
+        status: 403,
+        code: 'Authorization_RequestDenied',
+      },
+      {
+        rule: 'memberOf of an application token needs Directory.Read.All',
+        path: '/users/ANNA/memberOf/microsoft.graph.group',
+        status: 403,
+        code: 'Authorization_RequestDenied',
+      },
+      {
+        rule: 'the manager call is refused to application tokens by default (U66)',
+        path: '/users/ANNA/manager',
+        status: 403,
+        code: 'Authorization_RequestDenied',
+      },
+      {
+        rule: 'members of a hidden-membership group are refused without Member.Read.Hidden (U67)',
+        path: '/groups/HIDDEN/members',
+        params: { $top: '5', $count: 'true' },
+        headers: EVENTUAL,
+        status: 403,
+        code: 'Authorization_RequestDenied',
+      },
+    ];
+
+    it.each(
+      REFUSALS.map(
+        (refusal, index) =>
+          [
+            `${String(index + 1)}. ${refusal.rule}: ${refusal.path} ${JSON.stringify(refusal.params ?? {})}`,
+            refusal,
+          ] as const,
+      ),
+    )('%s', async (_name, refusal) => {
+      const graph = installFakeGraph(fake);
+      const ids = smallDirectory(graph);
+      const path = refusal.path
+        .replace('GROUP', ids.m365.id)
+        .replace('HIDDEN', ids.hidden.id)
+        .replace('ANNA', ids.anna.id);
+      const answer = await raw('GET', graphUrl(path, refusal.params), {
+        token: tokenWith(graph),
+        ...(refusal.headers === undefined ? {} : { headers: refusal.headers }),
+      });
+      expect(answer.status).toBe(refusal.status);
+      expect((answer.body as { error: { code: string } }).error.code).toBe(refusal.code);
+    });
+
+    it('has a case for every rule of the list', () => {
+      const covered = new Set(REFUSALS.map((refusal) => refusal.rule));
+      const behavioural = new Set([
+        'owners are empty for distribution, mail-enabled security and synced groups',
+        'objects the token cannot read come back with id and @odata.type only',
+        'a page is followed by an opaque $skiptoken in @odata.nextLink',
+      ]);
+      for (const { rule } of DIRECTORY_STRICT_RULES) {
+        expect(covered.has(rule) || behavioural.has(rule), rule).toBe(true);
+      }
+    });
+  });
+
+  describe('what the advanced pair opens', () => {
+    it('serves filter, orderby, count, not, or and the lambda with the header and $count=true', async () => {
+      const graph = installFakeGraph(fake);
+      smallDirectory(graph);
+      const token = tokenWith(graph);
+      const users = await raw(
+        'GET',
+        graphUrl('/users', {
+          $filter:
+            "(startsWith(displayName,'a') or startsWith(mail,'x') or startsWith(userPrincipalName,'zz')) and accountEnabled eq true",
+          $orderby: 'displayName desc',
+          $select: 'id,displayName,userType',
+          $count: 'true',
+          $top: '10',
+        }),
+        { token, headers: EVENTUAL },
+      );
+      expect(users.status).toBe(200);
+      const body = users.body as { value: { displayName: string }[]; '@odata.count': number };
+      expect(body.value.map((row) => row.displayName)).toEqual(['Anna']);
+      expect(body['@odata.count']).toBe(1);
+
+      const groups = await raw(
+        'GET',
+        graphUrl('/groups', {
+          $filter:
+            "not groupTypes/any(c:c eq 'Unified') and mailEnabled eq true and securityEnabled eq false",
+          $orderby: 'displayName asc',
+          $count: 'true',
+          $select: 'id,displayName,groupTypes,mailEnabled,securityEnabled',
+        }),
+        { token, headers: EVENTUAL },
+      );
+      expect(groups.status).toBe(200);
+      expect(
+        (groups.body as { value: { displayName: string }[] }).value.map((r) => r.displayName),
+      ).toEqual(['Mailing']);
+
+      const unified = await raw(
+        'GET',
+        graphUrl('/groups', { $filter: "groupTypes/any(c:c eq 'Unified')" }),
+        { token },
+      );
+      expect((unified.body as { value: unknown[] }).value).toHaveLength(2);
+    });
+
+    it('does not need the header for a default query: eq, startsWith on displayName, and (U37 off)', async () => {
+      const graph = installFakeGraph(fake);
+      smallDirectory(graph);
+      const token = tokenWith(graph);
+      const answer = await raw(
+        'GET',
+        graphUrl('/users', {
+          $filter:
+            "startsWith(displayName,'b') and userType eq 'Guest' and accountEnabled eq false",
+          $select: 'id,displayName',
+        }),
+        { token },
+      );
+      expect(answer.status).toBe(200);
+      expect((answer.body as { value: unknown[] }).value).toHaveLength(1);
+    });
+
+    it('orders by display name, case-insensitively, ties by id, in both directions', async () => {
+      const graph = installFakeGraph(fake);
+      for (const name of ['bravo', 'Alpha', 'alpha', 'Charlie']) {
+        graph.directory.addUser({
+          userPrincipalName: `${name}@contoso-fake.example`,
+          displayName: name,
+        });
+      }
+      const token = tokenWith(graph);
+      const names = async (direction: string): Promise<string[]> => {
+        const answer = await raw(
+          'GET',
+          graphUrl('/users', { $orderby: `displayName ${direction}`, $select: 'id,displayName' }),
+          { token },
+        );
+        return (answer.body as { value: { displayName: string }[] }).value.map(
+          (r) => r.displayName,
+        );
+      };
+      expect(await names('asc')).toEqual(['Alpha', 'alpha', 'bravo', 'Charlie']);
+      expect(await names('desc')).toEqual(['Charlie', 'bravo', 'Alpha', 'alpha'].map((n) => n));
+    });
+  });
+
+  describe('paging', () => {
+    it('follows an opaque @odata.nextLink, in order, without a gap or a duplicate', async () => {
+      const graph = installFakeGraph(fake);
+      for (let index = 0; index < 25; index += 1) {
+        graph.directory.addUser({
+          userPrincipalName: `u${String(index).padStart(2, '0')}@contoso-fake.example`,
+          displayName: `User ${String(index).padStart(2, '0')}`,
+        });
+      }
+      const token = tokenWith(graph);
+      const seen: string[] = [];
+      let url: string | undefined = graphUrl('/users', {
+        $orderby: 'displayName',
+        $top: '10',
+        $count: 'true',
+        $select: 'id,displayName',
+      });
+      let pages = 0;
+      while (url !== undefined) {
+        const answer = await raw('GET', url, { token, headers: EVENTUAL });
+        expect(answer.status).toBe(200);
+        const body = answer.body as {
+          value: { displayName: string }[];
+          '@odata.nextLink'?: string;
+        };
+        seen.push(...body.value.map((r) => r.displayName));
+        url = body['@odata.nextLink'];
+        if (url !== undefined) {
+          const token_ = new URL(url).searchParams.get('$skiptoken') ?? '';
+          expect(token_).not.toMatch(/^skip\d+$/);
+          expect(token_).not.toMatch(/^\d+$/);
+        }
+        pages += 1;
+      }
+      expect(pages).toBe(3);
+      expect(seen).toHaveLength(25);
+      expect(new Set(seen).size).toBe(25);
+      expect(seen).toEqual([...seen].sort());
+    });
+
+    it('refuses a skiptoken that is not one it made', async () => {
+      const graph = installFakeGraph(fake);
+      smallDirectory(graph);
+      const answer = await raw('GET', graphUrl('/users', { $skiptoken: 'skip3' }), {
+        token: tokenWith(graph),
+      });
+      expect(answer.status).toBe(400);
+    });
+  });
+
+  describe('relationships', () => {
+    it('lists the groups of a user transitively through the group cast, omitting hidden ones while they are refused (U67)', async () => {
+      const graph = installFakeGraph(fake);
+      const { anna, m365, hidden } = smallDirectory(graph);
+      const outer = graph.directory.addGroup({ displayName: 'Outer' });
+      graph.directory.addMember(outer.id, m365.id);
+      const token = tokenWith(graph);
+      const path = `/users/${anna.id}/transitiveMemberOf/microsoft.graph.group`;
+      const query = { $select: 'id,displayName', $top: '10', $count: 'true' };
+      const refused = await raw('GET', graphUrl(path, query), { token, headers: EVENTUAL });
+      const names = (answer: { body: unknown }): string[] =>
+        (answer.body as { value: { displayName: string }[] }).value
+          .map((r) => r.displayName)
+          .sort();
+      expect(names(refused)).toEqual(['Outer', 'Team']);
+      graph.control.hiddenMembersRefused(false);
+      const open = await raw('GET', graphUrl(path, query), { token, headers: EVENTUAL });
+      expect(names(open)).toEqual(['Hidden', 'Outer', 'Team']);
+      expect(hidden.hiddenMembership).toBe(true);
+    });
+
+    it('serves memberOf to an application token that holds Directory.Read.All', async () => {
+      const graph = installFakeGraph(fake);
+      const { anna } = smallDirectory(graph);
+      const token = tokenWith(graph, [...APP_ROLES, 'Directory.Read.All']);
+      const answer = await raw('GET', graphUrl(`/users/${anna.id}/memberOf`), { token });
+      expect(answer.status).toBe(200);
+    });
+
+    it('answers the manager: 403 for an app by default, 404 without a manager, the object when allowed', async () => {
+      const graph = installFakeGraph(fake);
+      const { anna, boss } = smallDirectory(graph);
+      const token = tokenWith(graph);
+      const query = { $select: 'id,displayName,mail,userPrincipalName,department,mailNickname' };
+      expect(
+        (await raw('GET', graphUrl(`/users/${anna.id}/manager`, query), { token })).status,
+      ).toBe(403);
+      graph.control.managerForApps('allowed');
+      const ok = await raw('GET', graphUrl(`/users/${anna.id}/manager`, query), { token });
+      expect(ok.status).toBe(200);
+      expect(ok.body).toMatchObject({ id: boss.id, displayName: 'Boss', department: 'Finance' });
+      const none = await raw('GET', graphUrl(`/users/${boss.id}/manager`, query), { token });
+      expect(none.status).toBe(404);
+      // A delegated token is not "an application": it is served in the default mode too.
+      graph.control.managerForApps('refused');
+      const delegated = graph.world.issueDelegatedToken({
+        userId: fakeGuid('admin', 3),
+        scopes: ['User.Read.All'],
+      }).value;
+      expect(
+        (await raw('GET', graphUrl(`/users/${anna.id}/manager`, query), { token: delegated }))
+          .status,
+      ).toBe(200);
+    });
+
+    it('owners are empty for distribution, mail-enabled security and synced groups, and listed for the rest', async () => {
+      const graph = installFakeGraph(fake);
+      const { m365, distribution } = smallDirectory(graph);
+      const synced = graph.directory.addGroup({
+        displayName: 'Synced',
+        onPremisesSyncEnabled: true,
+      });
+      const mailSecurity = graph.directory.addGroup({
+        displayName: 'MailSec',
+        mailEnabled: true,
+        securityEnabled: true,
+      });
+      for (const group of [synced, mailSecurity]) {
+        graph.directory.addOwner(
+          group.id,
+          graph.directory.addUser({
+            userPrincipalName: `o-${group.id.slice(-4)}@contoso-fake.example`,
+          }).id,
+        );
+      }
+      const token = tokenWith(graph);
+      const owners = async (id: string): Promise<number> => {
+        const answer = await raw(
+          'GET',
+          graphUrl(`/groups/${id}/owners`, {
+            $select: 'id,displayName',
+            $top: '10',
+            $count: 'true',
+          }),
+          { token, headers: EVENTUAL },
+        );
+        expect(answer.status).toBe(200);
+        return (answer.body as { value: unknown[] }).value.length;
+      };
+      expect(await owners(m365.id)).toBe(1);
+      expect(await owners(distribution.id)).toBe(0);
+      expect(await owners(synced.id)).toBe(0);
+      expect(await owners(mailSecurity.id)).toBe(0);
+    });
+
+    it('shows an object the token cannot read with id and @odata.type only, other properties null', async () => {
+      const graph = installFakeGraph(fake);
+      const { m365, anna, device } = smallDirectory(graph);
+      const query = {
+        $select: 'id,displayName,mail,userPrincipalName,department,mailNickname',
+        $top: '10',
+        $count: 'true',
+      };
+      const rows = async (roles: readonly string[]): Promise<Record<string, unknown>[]> => {
+        const answer = await raw('GET', graphUrl(`/groups/${m365.id}/members`, query), {
+          token: tokenWith(graph, roles),
+          headers: EVENTUAL,
+        });
+        expect(answer.status).toBe(200);
+        return (answer.body as { value: Record<string, unknown>[] }).value;
+      };
+      const full = await rows(APP_ROLES);
+      expect(full.find((row) => row.id === anna.id)).toMatchObject({
+        '@odata.type': '#microsoft.graph.user',
+        displayName: 'Anna',
+        department: 'Sales',
+      });
+      expect(full.find((row) => row.id === device.id)).toEqual({
+        '@odata.type': '#microsoft.graph.device',
+        id: device.id,
+        displayName: null,
+        mail: null,
+        userPrincipalName: null,
+        department: null,
+        mailNickname: null,
+      });
+      // GroupMember.Read.All alone: users come back limited (R-C-05).
+      const limited = await rows(['GroupMember.Read.All']);
+      expect(limited.find((row) => row.id === anna.id)).toMatchObject({
+        '@odata.type': '#microsoft.graph.user',
+        displayName: null,
+        mail: null,
+      });
+    });
+
+    it('answers an empty members list for a hidden group when the switch says so, owners still listed', async () => {
+      const graph = installFakeGraph(fake);
+      const { hidden } = smallDirectory(graph);
+      graph.directory.addOwner(
+        hidden.id,
+        graph.directory.addUser({ userPrincipalName: 'h@contoso-fake.example' }).id,
+      );
+      graph.control.hiddenMembersRefused(false);
+      const token = tokenWith(graph);
+      const query = { $select: 'id', $top: '10', $count: 'true' };
+      const members = await raw('GET', graphUrl(`/groups/${hidden.id}/members`, query), {
+        token,
+        headers: EVENTUAL,
+      });
+      expect((members.body as { value: unknown[] }).value).toEqual([]);
+      const owners = await raw('GET', graphUrl(`/groups/${hidden.id}/owners`, query), {
+        token,
+        headers: EVENTUAL,
+      });
+      expect((owners.body as { value: unknown[] }).value).toHaveLength(1);
+      // With Member.Read.Hidden the members come back, whatever the switch says.
+      graph.control.hiddenMembersRefused(true);
+      const privileged = tokenWith(graph, [...APP_ROLES, 'Member.Read.Hidden']);
+      const listed = await raw('GET', graphUrl(`/groups/${hidden.id}/members`, query), {
+        token: privileged,
+        headers: EVENTUAL,
+      });
+      expect((listed.body as { value: unknown[] }).value).toHaveLength(1);
+    });
+
+    it('omits the basic-only properties of a group when asked (U36, U69)', async () => {
+      const graph = installFakeGraph(fake);
+      const { m365 } = smallDirectory(graph);
+      graph.directory.groups.get(m365.id)!.visibility = 'Private';
+      const token = tokenWith(graph);
+      const read = async (): Promise<Record<string, unknown>> => {
+        const answer = await raw(
+          'GET',
+          graphUrl(`/groups/${m365.id}`, {
+            $select: 'id,displayName,visibility,mailNickname,groupTypes',
+          }),
+          { token },
+        );
+        return answer.body as Record<string, unknown>;
+      };
+      expect(await read()).toMatchObject({ visibility: 'Private' });
+      graph.control.omitGroupProperties(true);
+      expect(await read()).toMatchObject({
+        visibility: null,
+        mailNickname: null,
+        groupTypes: ['Unified'],
+      });
+    });
+  });
+
+  describe('permissions', () => {
+    it('refuses the reads without the role Learn lists, and serves them with it', async () => {
+      const graph = installFakeGraph(fake);
+      const { anna, m365 } = smallDirectory(graph);
+      const none = tokenWith(graph, []);
+      const advanced = { $top: '5', $count: 'true', $select: 'id' };
+      const calls: [string, Record<string, string>, string, string][] = [
+        ['/users', {}, 'User.Read.All', 'GroupMember.Read.All'],
+        ['/groups', {}, 'GroupMember.Read.All', 'User.Read.All'],
+        [`/groups/${m365.id}/members`, advanced, 'GroupMember.Read.All', 'User.Read.All'],
+        [`/groups/${m365.id}/owners`, advanced, 'GroupMember.Read.All', 'User.Read.All'],
+        [
+          `/users/${anna.id}/transitiveMemberOf/microsoft.graph.group`,
+          advanced,
+          'User.Read.All',
+          'Organization.Read.All',
+        ],
+      ];
+      for (const [path, params, needed, other] of calls) {
+        const headers = Object.keys(params).length > 0 ? EVENTUAL : undefined;
+        const options = (token: string) => ({
+          token,
+          ...(headers === undefined ? {} : { headers }),
+        });
+        expect((await raw('GET', graphUrl(path, params), options(none))).status, path).toBe(403);
+        expect(
+          (await raw('GET', graphUrl(path, params), options(tokenWith(graph, [other])))).status,
+          `${path} with ${other}`,
+        ).toBe(403);
+        expect(
+          (await raw('GET', graphUrl(path, params), options(tokenWith(graph, [needed])))).status,
+          `${path} with ${needed}`,
+        ).toBe(200);
+      }
+    });
+  });
+
+  describe('the seeded directory (seedDirectory)', () => {
+    it('offers 1,200 users and 150 groups of every kind, deterministic for a seed', () => {
+      const first = installFakeGraph(fake);
+      const seeded = seedDirectory(first.directory);
+      const note = describeSeed(seeded);
+      expect(first.directory.users.size, note).toBe(1_200);
+      expect(first.directory.groups.size, note).toBe(150);
+      const ids = seeded.ids;
+      expect(first.directory.groups.get(ids.bigGroup)?.members.size, note).toBe(250);
+      expect(first.directory.groups.get(ids.hiddenGroup)?.hiddenMembership, note).toBe(true);
+      expect(first.directory.users.get(ids.noManagerUser)?.managerId, note).toBeNull();
+      expect(first.directory.users.get(ids.userWithManager)?.managerId, note).toBe(
+        ids.managerOfWithManager,
+      );
+      expect(first.directory.users.get(ids.guest)?.userType, note).toBe('Guest');
+      expect(first.directory.users.get(ids.disabledUser)?.accountEnabled, note).toBe(false);
+      expect(first.directory.users.get(ids.nullTypeUser)?.userType, note).toBeNull();
+      expect(first.directory.users.get(ids.quoteUser)?.displayName, note).toContain("'");
+      expect(first.directory.users.get(ids.noMailUser)?.mail, note).toBeNull();
+      expect(
+        Array.from(first.directory.users.get(ids.diacriticUser)?.displayName ?? '').some(
+          (char) => char.charCodeAt(0) > 127,
+        ),
+        note,
+      ).toBe(true);
+      for (const kind of ['m365', 'security', 'mailsecurity', 'distribution'] as const) {
+        expect(seeded.kinds[kind].length, `${note} ${kind}`).toBeGreaterThan(5);
+      }
+      // Same seed, same directory (ids included); another seed, other memberships.
+      fake.reset();
+      const second = installFakeGraph(fake);
+      const again = seedDirectory(second.directory);
+      expect(again.ids).toEqual(seeded.ids);
+      expect([...second.directory.users.values()]).toEqual([...first.directory.users.values()]);
+      expect([...second.directory.groups.values()].map((group) => [...group.members])).toEqual(
+        [...first.directory.groups.values()].map((group) => [...group.members]),
+      );
+      fake.reset();
+      const other = installFakeGraph(fake);
+      seedDirectory(other.directory, { seed: 7 });
+      expect([...other.directory.users.values()].map((user) => user.managerId)).not.toEqual(
+        [...first.directory.users.values()].map((user) => user.managerId),
+      );
+    });
+
+    it('pages through all 1,200 users in order over HTTP, 999 at a time', async () => {
+      const graph = installFakeGraph(fake);
+      const seeded = seedDirectory(graph.directory);
+      const token = tokenWith(graph);
+      let url: string | undefined = graphUrl('/users', {
+        $orderby: 'displayName',
+        $top: '999',
+        $count: 'true',
+        $select: 'id,displayName',
+      });
+      const ids: string[] = [];
+      let pages = 0;
+      while (url !== undefined) {
+        const answer = await raw('GET', url, { token, headers: EVENTUAL });
+        const body = answer.body as {
+          value: { id: string }[];
+          '@odata.nextLink'?: string;
+          '@odata.count': number;
+        };
+        expect(body['@odata.count'], describeSeed(seeded)).toBe(1_200);
+        ids.push(...body.value.map((row) => row.id));
+        url = body['@odata.nextLink'];
+        pages += 1;
+      }
+      expect(pages).toBe(2);
+      expect(new Set(ids).size).toBe(1_200);
+    });
+  });
+
+  describe('negative: a lenient fake would have accepted what these tests refuse', () => {
+    it('the refusal guard fails for a request the fake serves, and for a status that is not the documented one', async () => {
+      const graph = installFakeGraph(fake);
+      smallDirectory(graph);
+      const token = tokenWith(graph);
+      const assertRefused = async (request: {
+        path: string;
+        params: Record<string, string>;
+      }): Promise<void> => {
+        const answer = await raw('GET', graphUrl(request.path, request.params), { token });
+        if (answer.status !== 400)
+          throw new Error(`the fake served ${String(answer.status)}, Learn refuses`);
+      };
+      // Allowed by Learn (default query): the guard must fail on it, which proves it can see a 200.
+      await expectGuardFails(
+        assertRefused,
+        { path: '/users', params: { $top: '999' } },
+        { reason: 'the fake served 200' },
+      );
+      // Refused by Learn: the guard passes.
+      await expect(
+        assertRefused({ path: '/users', params: { $top: '1000' } }),
+      ).resolves.toBeUndefined();
+      await expect(
+        assertRefused({ path: '/users', params: { $skip: '1' } }),
+      ).resolves.toBeUndefined();
+    });
   });
 });

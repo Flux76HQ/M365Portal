@@ -108,6 +108,24 @@ class PoisonedGraph implements GraphClient {
   getGroup(id: string): Promise<DirectoryGroup | null> {
     return this.#inner.getGroup(id);
   }
+  listUsers(...args: Parameters<GraphClient['listUsers']>) {
+    return this.#inner.listUsers(...args);
+  }
+  getUserManager(...args: Parameters<GraphClient['getUserManager']>) {
+    return this.#inner.getUserManager(...args);
+  }
+  listUserGroups(...args: Parameters<GraphClient['listUserGroups']>) {
+    return this.#inner.listUserGroups(...args);
+  }
+  listGroups(...args: Parameters<GraphClient['listGroups']>) {
+    return this.#inner.listGroups(...args);
+  }
+  listGroupMembers(...args: Parameters<GraphClient['listGroupMembers']>) {
+    return this.#inner.listGroupMembers(...args);
+  }
+  listGroupOwners(...args: Parameters<GraphClient['listGroupOwners']>) {
+    return this.#inner.listGroupOwners(...args);
+  }
 }
 
 /** Counts how many checkMemberGroups calls are in flight at once. */
@@ -423,6 +441,12 @@ describe('bisection of a rejected chunk (U38)', () => {
       getUser: (id, o) => poisoned.getUser(id, o),
       searchGroups: (p, n) => poisoned.searchGroups(p, n),
       getGroup: (id) => poisoned.getGroup(id),
+      listUsers: (...args) => poisoned.listUsers(...args),
+      getUserManager: (...args) => poisoned.getUserManager(...args),
+      listUserGroups: (...args) => poisoned.listUserGroups(...args),
+      listGroups: (...args) => poisoned.listGroups(...args),
+      listGroupMembers: (...args) => poisoned.listGroupMembers(...args),
+      listGroupOwners: (...args) => poisoned.listGroupOwners(...args),
     };
     const service = createMembershipService({
       database: () => t.db,

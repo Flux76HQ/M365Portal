@@ -369,7 +369,7 @@ describe('users (T-B-065; user-get, user-list)', () => {
     expect(pages).toEqual([2, 2, 1]);
   });
 
-  it('refuses $top outside 1 to 999 and a $filter on users', async () => {
+  it('refuses $top outside 1 to 999 and a $filter on a property outside the grammar', async () => {
     const { appToken } = setup();
     const token = appToken();
     for (const top of ['0', '1000', 'x', '-1']) {
@@ -379,7 +379,7 @@ describe('users (T-B-065; user-get, user-list)', () => {
       (
         await raw(
           'GET',
-          `${G}/users?$filter=${encodeURIComponent("startswith(displayName,'a')")}`,
+          `${G}/users?$filter=${encodeURIComponent("startswith(assignedLicenses,'a')")}`,
           { token },
         )
       ).status,

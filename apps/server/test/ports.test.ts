@@ -608,7 +608,7 @@ describe('the error taxonomy: nothing from outside gets in (canary)', () => {
 // ---------------------------------------------------------------------------------------------
 
 describe('the port signatures (plan 8.1)', () => {
-  it('GraphClient is app-only and read-only, with the six methods', () => {
+  it('GraphClient is app-only and read-only: the six methods of Phase B and the six reads of Phase C', () => {
     expectTypeOf<keyof GraphClient>().toEqualTypeOf<
       | 'getOrganization'
       | 'probeUsers'
@@ -616,6 +616,12 @@ describe('the port signatures (plan 8.1)', () => {
       | 'checkMemberGroups'
       | 'searchGroups'
       | 'getGroup'
+      | 'listUsers'
+      | 'getUserManager'
+      | 'listUserGroups'
+      | 'listGroups'
+      | 'listGroupMembers'
+      | 'listGroupOwners'
     >();
     expectTypeOf<GraphClient['getOrganization']>().toEqualTypeOf<() => Promise<OrganizationInfo>>();
     expectTypeOf<GraphClient['probeUsers']>().toEqualTypeOf<() => Promise<void>>();

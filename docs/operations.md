@@ -418,6 +418,11 @@ being the 4,096-byte bodies of the authentication routes and 262,144 bytes for a
 | `CLIENT_ASSERTION_LIFETIME_SECONDS` | 300 seconds | the app | Microsoft Learn: at most 10 minutes after `nbf` |
 | `TOKEN_ENDPOINT_TIMEOUT_SECONDS` | 10 seconds | the app | one retry after 1 s on `temporarily_unavailable` |
 | `ID_TOKEN_MAX_BYTES` | 8,192 bytes | the app | size of an ID token |
+| `searchMaxChars` | 64 characters | the app | `q` of the users and groups lists: 422 `validation_failed` above it (EC-C1) |
+| `pageLimitDefault`, `pageLimitMax` | 100 and 200 rows | the app | `limit` of the directory lists (CD-10); the UI asks for 50 |
+| `graphPageSize` | 999 | the app | `$top` of a scoped scan of users or groups (R-C-01) |
+| `scanPagesMax` | 5 pages | the app | Graph pages read per request of a scoped list (FR-C-203) |
+| `cursorTtlSeconds`, `cursorEntries` | 600 seconds and 1,000 entries | the app | list cursors held in memory, least recently used out (FR-C-103) |
 | `CLOCK_TOLERANCE_SECONDS` | 60 seconds | the app | `exp`, `nbf`, `iat` of an ID token |
 | `JWKS_CACHE_HOURS`, `JWKS_REFRESH_MINUTES`, `JWKS_UNKNOWN_KID_COOLDOWN_MINUTES` | 24 hours, 60 minutes and 5 minutes | the app | signing-key rollover guidance |
 | `GRAPH_CHECK_MEMBER_GROUPS_MAX_IDS` | 20 | the app | Microsoft Learn: up to 20 groups per request |

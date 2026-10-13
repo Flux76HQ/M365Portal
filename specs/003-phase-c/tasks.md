@@ -118,115 +118,115 @@ XC1 `apps/server/src/modules.ts` append factory (T-C-024). XC2 `ports/graph.ts` 
 
 ## 3. S-C2 Graph client, fake tenant, server module (T-C-010 to T-C-028)
 
-- [ ] **T-C-010** Port DTOs and the version bump (FR-C-104)
+- [x] **T-C-010** Port DTOs and the version bump (FR-C-104)
   - Files: `apps/server/src/ports/graph.ts`, `apps/server/src/integrations/graph/schemas.ts`, `VERSION` (via `python scripts/bump_version.py`)
   - Needs: GC0
   - Test first: `server/integrations/graph/schemas.test.ts` (+ negative: `$select` with `assignedLicenses` fails)
   - Done when: `DirectoryUser`, `DirectoryGroup`, `DirectoryRef`, `PageToken` exist; strings capped; absent is `null`
 
-- [ ] **T-C-011** [P] `GraphHttp.requestPage` (FR-C-103)
+- [x] **T-C-011** [P] `GraphHttp.requestPage` (FR-C-103)
   - Files: `apps/server/src/integrations/graph/graph-http.ts`, `apps/server/test/integrations/graph/graph-http.test.ts`
   - Needs: GC0
   - Test first: `server/integrations/graph/graph-http.test.ts` (nextLink of another origin refused, header resent, 5 MiB cap, no `$skip`)
   - Done when: `requestPage` returns `{ items, nextLink, count }`; `requestAll` unchanged
 
-- [ ] **T-C-012** [P] Query builder (FR-C-102, FR-C-202, FR-C-301)
+- [x] **T-C-012** [P] Query builder (FR-C-102, FR-C-202, FR-C-301)
   - Files: `apps/server/src/integrations/graph/directory-query.ts`, `apps/server/test/integrations/graph/directory-query.test.ts`
   - Needs: GC0
   - Test first: `server/integrations/graph/directory-query.test.ts` (exact strings for every enum, quote doubling, injection canaries, length limit)
   - Done when: no other file builds a directory `$filter`
 
-- [ ] **T-C-013** [P] Fake tenant: OData grammar and the advanced-query rule (FR-C-601)
+- [x] **T-C-013** [P] Fake tenant: OData grammar and the advanced-query rule (FR-C-601)
   - Files: `apps/server/test/fakes/fake-tenant/graph/odata.ts`
   - Needs: GC0
   - Test first: `server/fakes/fake-tenant.selftest.test.ts` (cases: `or`, `not`, `any`, `$orderby`+`$filter` without header is 400, `$skip` 400, `$top` 1000 400, unknown function 400)
   - Done when: each refusal of spec FR-C-601 has a case and a message
 
-- [ ] **T-C-014** Fake tenant: routes, seeds, switches (FR-C-601)
+- [x] **T-C-014** Fake tenant: routes, seeds, switches (FR-C-601)
   - Files: `apps/server/test/fakes/fake-tenant/graph/{module,directory}.ts`, `apps/server/test/fakes/fake-tenant/graph/seed-directory.ts`
   - Needs: T-C-013
   - Test first: `server/fakes/fake-tenant.selftest.test.ts` (paging with `@odata.nextLink`, `$select`, members limited information, owners empty for distribution, hidden-membership refusal, `memberOf` refused for apps, manager mode)
   - Done when: seed is deterministic (seed printed on failure) and offers the data of FR-C-601
 
-- [ ] **T-C-015** Fake tenant strictness self-test completes (FR-C-601)
+- [x] **T-C-015** Fake tenant strictness self-test completes (FR-C-601)
   - Files: `apps/server/test/fakes/fake-tenant.selftest.test.ts`
   - Needs: T-C-014
   - Test first: the self-test itself (+ negative: a request that Learn forbids must fail on the fake)
   - Done when: every row of the "refuses" list in FR-C-601 is covered
 
-- [ ] **T-C-016** `HttpGraphClient` and `FakeGraphClient` methods (FR-C-101, FR-C-106, FR-C-107, FR-C-108)
+- [x] **T-C-016** `HttpGraphClient` and `FakeGraphClient` methods (FR-C-101, FR-C-106, FR-C-107, FR-C-108)
   - Files: `apps/server/src/integrations/graph/graph-client.ts`, `apps/server/test/fakes/fake-graph-client.ts`
   - Needs: T-C-010, T-C-011, T-C-012, T-C-014
   - Test first: `server/integrations/graph/contract.test.ts` (both implementations; 404, 403, 429, limited-information members, manager states, null properties)
   - Done when: six methods behave identically on both; Graph 403 maps to `GraphForbiddenError`
 
-- [ ] **T-C-017** Permissions map and the read-only guard (FR-C-105)
+- [x] **T-C-017** Permissions map and the read-only guard (FR-C-105)
   - Files: `apps/server/src/integrations/graph/permissions-map.ts`, `apps/server/test/integrations/graph/{permissions-map,read-only}.test.ts`
   - Needs: T-C-016
   - Test first: `server/integrations/graph/permissions-map.test.ts`, `server/integrations/graph/read-only.test.ts` (+ negative fixture method `addMember`)
   - Done when: rows exist for the six methods; fake and real allow with the listed permission and refuse without; `GroupMember.ReadWrite.All` appears in no row
 
-- [ ] **T-C-018** [P] Cursor store (FR-C-103, FR-C-108)
+- [x] **T-C-018** [P] Cursor store (FR-C-103, FR-C-108)
   - Files: `apps/server/src/directory/cursor-store.ts`, `apps/server/test/directory/cursor-store.test.ts`
   - Needs: GC0
   - Test first: `server/directory/cursor-store.test.ts` (actor binding, TTL with injected clock, LRU at 1,000, entropy, foreign handle)
   - Done when: `take` of a foreign or expired handle is `null`
 
-- [ ] **T-C-019** Scoped scan (FR-C-203)
+- [x] **T-C-019** Scoped scan (FR-C-203)
   - Files: `apps/server/src/directory/scoped-list.ts`, `apps/server/test/directory/scoped-list.test.ts`
   - Needs: T-C-018
   - Test first: `server/directory/scoped-list.test.ts` (seeded property test, 20,000 cases against the naive reference; resume after a partially used page; stops at 5 pages)
   - Done when: no duplicate, no gap, a missing attribute never matches
 
-- [ ] **T-C-020** [P] Restricted rows (FR-C-307)
+- [x] **T-C-020** [P] Restricted rows (FR-C-307)
   - Files: `apps/server/src/directory/restricted-rows.ts`, `apps/server/test/directory/restricted-rows.test.ts`
   - Needs: GC0
   - Test first: `server/directory/restricted-rows.test.ts` (+ negative: a handler returning the raw row fails)
   - Done when: restricted rows carry no id, name or address
 
-- [ ] **T-C-021** Mappers and services with capability arguments (FR-C-204, FR-C-401)
+- [x] **T-C-021** Mappers and services with capability arguments (FR-C-204, FR-C-401)
   - Files: `apps/server/src/directory/{mappers,users-service,groups-service}.ts`, `apps/server/test/directory/{mappers,capability-types}.test.ts`
   - Needs: T-C-016, T-C-019, T-C-020
   - Test first: `server/directory/mappers.test.ts` (`basic` projection on every path), `server/directory/capability-types.test.ts` (`@ts-expect-error` calls without capabilities)
   - Done when: no wire user is built outside the mappers (scan test)
 
-- [ ] **T-C-022** Users routes P33 to P35 (FR-C-201, FR-C-205, FR-C-206, EC-C1 to EC-C6, EC-C15)
+- [x] **T-C-022** Users routes P33 to P35 (FR-C-201, FR-C-205, FR-C-206, EC-C1 to EC-C6, EC-C15)
   - Files: `apps/server/src/directory/users-routes.ts`, `apps/server/test/directory/users-routes.test.ts`
   - Needs: T-C-021
   - Test first: `server/directory/users-routes.test.ts` (list order and paging; filters; scoped actor; `basic` actor; 404 vs 403; manager none and unavailable; user groups need both permissions)
   - Done when: ODB-11 holds in tests (out-of-scope id is 403, unknown id 404)
 
-- [ ] **T-C-023** Groups routes P36 to P39 (FR-C-301, FR-C-304 to FR-C-306, FR-C-108, EC-C7 to EC-C10)
+- [x] **T-C-023** Groups routes P36 to P39 (FR-C-301, FR-C-304 to FR-C-306, FR-C-108, EC-C7 to EC-C10)
   - Files: `apps/server/src/directory/groups-routes.ts`, `apps/server/test/directory/groups-routes.test.ts`
   - Needs: T-C-021
   - Test first: `server/directory/groups-routes.test.ts` (four kinds, hidden membership makes no members call, owners `not_available`, 250 members paged, restricted rows)
   - Done when: the fake records show no members request for a hidden group
 
-- [ ] **T-C-024** Module wiring, cache headers, route-table guards (FR-C-401 to FR-C-403)
+- [x] **T-C-024** Module wiring, cache headers, route-table guards (FR-C-401 to FR-C-403)
   - Files: `apps/server/src/directory/{module,routes}.ts`, `apps/server/src/modules.ts` (XC1), `apps/server/src/http/cache-headers.ts` (XC6), `apps/server/test/directory/{policy-applied,routes-table}.test.ts`
   - Needs: T-C-022, T-C-023
   - Test first: `server/directory/policy-applied.test.ts` (a handler that skips the policy gets 500 `policy_not_applied`), `server/directory/routes-table.test.ts` (+ negative: a POST route fails), `server/cache-headers.test.ts`
   - Done when: seven routes in the OpenAPI document, all GET, `no-store`
 
-- [ ] **T-C-025** [P] Source guards: no licences, no writes, no PII in logs (FR-C-207, FR-C-402, FR-C-405)
+- [x] **T-C-025** [P] Source guards: no licences, no writes, no PII in logs (FR-C-207, FR-C-402, FR-C-405)
   - Files: `apps/server/test/directory/{no-licences,no-writes,no-pii-in-logs}.test.ts`
   - Needs: T-C-024
   - Test first: the three tests (+ negatives)
   - Done when: database file byte-identical after a request mix; canary names absent from the log sink
 
-- [ ] **T-C-026** [P] Denial audit and ODB-11 (FR-C-205, FR-C-304, FR-C-402)
+- [x] **T-C-026** [P] Denial audit and ODB-11 (FR-C-205, FR-C-304, FR-C-402)
   - Files: `apps/server/test/audit-denials.test.ts` (route list extension), `apps/server/test/directory/audit-reads.test.ts`
   - Needs: T-C-024
   - Test first: `server/audit-denials.test.ts` (table: seven routes times actor kinds; reasons `permission_missing` and `scope_mismatch`), `server/directory/audit-reads.test.ts` (a successful read writes no audit row)
   - Done when: a denial of a read is audited before the 403 is sent
 
-- [ ] **T-C-027** [P] Error mapping (FR-C-106, EC-C13, EC-C14)
+- [x] **T-C-027** [P] Error mapping (FR-C-106, EC-C13, EC-C14)
   - Files: `apps/server/test/directory/errors.test.ts`
   - Needs: T-C-024
   - Test first: `server/directory/errors.test.ts` (Graph 403 gives 503 `graph_unavailable` with detail code; throttle; unexpected shape; no Graph text in the response)
   - Done when: all rows pass
 
-- [ ] **T-C-028** **Gate GC1**: server
+- [x] **T-C-028** **Gate GC1**: server
   - Files: `specs/003-phase-c/gate-notes/GC1.md`
   - Needs: T-C-017, T-C-024 to T-C-027
   - Test first: `pnpm --filter @m365portal/server lint typecheck test`, `pnpm lint`, `pnpm typecheck`, `pnpm test:packages`, `pnpm docs:check`
@@ -236,67 +236,67 @@ XC1 `apps/server/src/modules.ts` append factory (T-C-024). XC2 `ports/graph.ts` 
 
 ## 4. S-C3 Web (T-C-040 to T-C-050)
 
-- [ ] **T-C-040** MSW handlers from the wire schemas (support for all web tests)
+- [x] **T-C-040** MSW handlers from the wire schemas (support for all web tests)
   - Files: `apps/web/test/support/directory-handlers.ts`
   - Needs: GC0
   - Test first: `web/directory-handlers.test.ts` (every handler response parses with the shared schema)
   - Done when: handlers cover list, detail, sub-lists, the error and restricted states
 
-- [ ] **T-C-041** Paging, state notices and restricted row (FR-C-502, FR-C-503)
+- [x] **T-C-041** Paging, state notices and restricted row (FR-C-502, FR-C-503)
   - Files: `apps/web/src/features/directory/{useCursorPaging,StateNotice,RestrictedRow}.tsx`, `apps/web/src/lib/query.ts` (key factories)
   - Needs: T-C-040
   - Test first: `web/use-cursor-paging.test.tsx` (next, previous, reset on filter change, `cursor_invalid` restarts), `web/restricted-row.test.tsx`
   - Done when: previous pages are remembered; the notice shows a distinct message per state of section 5
 
-- [ ] **T-C-042** Users list page (FR-C-501, FR-C-502, US-C1)
+- [x] **T-C-042** Users list page (FR-C-501, FR-C-502, US-C1)
   - Files: `apps/web/src/features/users/{UsersPage,UserFilters,queries}.tsx`
   - Needs: T-C-041
   - Test first: `web/users-page.test.tsx` (search, filters, order via `aria-sort`, URL state, empty note, error and retry, `basic` actor hides state/type filters)
   - Done when: table is semantic with a caption; result count is announced politely
 
-- [ ] **T-C-043** User detail page (FR-C-503, US-C2, EC-C5, EC-C6)
+- [x] **T-C-043** User detail page (FR-C-503, US-C2, EC-C5, EC-C6)
   - Files: `apps/web/src/features/users/UserDetail.tsx`
   - Needs: T-C-041
   - Test first: `web/user-detail.test.tsx` (manager present, none, unavailable; groups section hidden without `groups:read`; groups failure does not hide core data)
   - Done when: each section loads and fails independently
 
-- [ ] **T-C-044** Groups list page (FR-C-501, FR-C-302, FR-C-303, US-C3)
+- [x] **T-C-044** Groups list page (FR-C-501, FR-C-302, FR-C-303, US-C3)
   - Files: `apps/web/src/features/groups/{GroupsPage,GroupFilters,queries}.tsx`
   - Needs: T-C-041
   - Test first: `web/groups-page.test.tsx` (four kinds, kind badge has text, read-only marker, dynamic-list note, paging)
   - Done when: kind comes from `groupKindOf` only
 
-- [ ] **T-C-045** Group detail page (FR-C-503, EC-C7 to EC-C9, US-C3, US-C6)
+- [x] **T-C-045** Group detail page (FR-C-503, EC-C7 to EC-C9, US-C3, US-C6)
   - Files: `apps/web/src/features/groups/{GroupDetail,MembersTable}.tsx`
   - Needs: T-C-041
   - Test first: `web/group-detail.test.tsx` (hidden membership message, owners not available, restricted count, 250 members paged, member kinds)
   - Done when: members and owners load independently
 
-- [ ] **T-C-046** Route files and gating (FR-C-501) (XC7)
+- [x] **T-C-046** Route files and gating (FR-C-501) (XC7)
   - Files: `apps/web/src/routes/{users,groups,users.$id,groups.$id}.tsx`, `apps/web/src/routeTree.gen.ts` (regenerated), `e2e/routes.ts` is not touched here
   - Needs: T-C-042 to T-C-045
   - Test first: `web/routes-coverage.test.ts` (+ negative), `web/gating.test.tsx`, `pnpm routes:check`
   - Done when: placeholder pages gone; navigation and command registry unchanged and still gated by `users:read` and `groups:read`
 
-- [ ] **T-C-047** Strings nl and en (FR-C-504) (XC7)
+- [x] **T-C-047** Strings nl and en (FR-C-504) (XC7)
   - Files: `packages/shared/src/i18n/locales/lazy/{users,groups}.{nl,en}.json` (filled), entry catalogue edit removing `placeholders.users.description` and `placeholders.groups.description`
   - Needs: T-C-042 to T-C-045
   - Test first: `shared/i18n-catalogue.test.ts`, `shared/message-keys.test.ts`, `pnpm i18n:check`
   - Done when: no value in a third script; nothing literal in JSX (lint)
 
-- [ ] **T-C-048** [P] No-HTML-injection and a11y unit checks (FR-C-404, FR-C-506)
+- [x] **T-C-048** [P] No-HTML-injection and a11y unit checks (FR-C-404, FR-C-506)
   - Files: `apps/web/test/{no-html-injection,directory-a11y}.test.tsx`
   - Needs: T-C-046
   - Test first: both tests (names like `<img src=x onerror=...>`; `jest-axe`-style checks as in Phase B web tests)
   - Done when: names render as text; zero violations in the unit-level states
 
-- [ ] **T-C-049** [P] Bundle budget (FR-C-505)
+- [x] **T-C-049** [P] Bundle budget (FR-C-505)
   - Files: none (read only: `scripts/bundle-budget.json`)
   - Needs: T-C-047
   - Test first: `pnpm build && pnpm bundle:check`
   - Done when: numbers within the Phase B budget; both namespaces and the pages are separate chunks; otherwise stop and report (no growth is assumed)
 
-- [ ] **T-C-050** **Gate GC2**: web
+- [x] **T-C-050** **Gate GC2**: web
   - Files: `specs/003-phase-c/gate-notes/GC2.md`
   - Needs: T-C-046 to T-C-049
   - Test first: `pnpm --filter @m365portal/web lint typecheck test`, `pnpm lint`, `pnpm typecheck`, `pnpm i18n:check`, `pnpm routes:check`, `pnpm bundle:check`

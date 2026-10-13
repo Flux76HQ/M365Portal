@@ -12,6 +12,17 @@
 //   searchGroups        GET  /groups?$filter=startswith(displayName,'...')&$top=n&$select=...
 //   getGroup            GET  /groups/{id}?$select=...            404 is `null`
 //
+// Phase C adds the six read methods of the users and groups pages (FR-C-101); the queries are built by
+// directory-query.ts only, one page at a time (`GraphHttp.requestPage`), and a page's "next" is a
+// `PageToken`: the validated `@odata.nextLink`, which stays on the server (FR-C-103).
+//   listUsers           GET  /users                                  advanced pair, one page
+//   getUserManager      GET  /users/{id}/manager                     404 none; 403, 400, bad shape unavailable
+//   listUserGroups      GET  /users/{id}/transitiveMemberOf/microsoft.graph.group
+//   listGroups          GET  /groups                                 advanced pair, one page
+//   listGroupMembers    GET  /groups/{id}/members                    advanced pair, one page
+//   listGroupOwners     GET  /groups/{id}/owners                     advanced pair, one page
+// Lists are never cached (personal data, FR-C-102); `getUser` and `getGroup` keep their 60 s cache.
+//
 // Rules this file keeps:
 //   - `checkMemberGroups` never uses `/directoryObjects/{id}/checkMemberGroups` (Learn lists
 //     Directory.Read.All for that form); every group id is validated as a GUID BEFORE any request,
@@ -30,18 +41,38 @@ import { LIMITS } from '@m365portal/shared/limits';
 import { chunkIds, mapLimited } from '@m365portal/shared/rbac/batching';
 import type { AccessToken, AppTokenProvider } from '../../ports/identity.js';
 import type { Clock, RandomSource, Scheduler } from '../../ports/clock.js';
-import { GraphBadRequestError, GraphNotFoundError } from '../../ports/errors.js';
+import {
+  GraphBadRequestError,
+  GraphForbiddenError,
+  GraphNotFoundError,
+} from '../../ports/errors.js';
 import type {
   CallOptions,
   DirectoryGroup,
+  DirectoryPage,
+  DirectoryRef,
   DirectoryUser,
   GraphClient,
+  GroupListParams,
   Guid,
+  ManagerResult,
   OrganizationInfo,
+  PageRequest,
+  PageToken,
+  UserListParams,
 } from '../../ports/graph.js';
 import { isGuid, guidSegment, keySegment, odataString, pathSegment } from '../http/url-guard.js';
 import { GRAPH_CACHE_TTL_MS } from './cache.js';
 import { refusedAsBadRequest } from './errors-map.js';
+import {
+  groupsQuery,
+  managerQuery,
+  membersQuery,
+  ownersQuery,
+  userGroupsQuery,
+  usersQuery,
+  type DirectoryQuery,
+} from './directory-query.js';
 import { createGraphHttp, type GraphHttp, type GraphLog } from './graph-http.js';
 import {
   GROUP_SELECT,
@@ -49,7 +80,10 @@ import {
   GroupRow,
   MemberGroups,
   OrganizationList,
+  RefList,
+  RefRow,
   USER_SELECT,
+  UserList,
   UserRow,
 } from './schemas.js';
 
@@ -186,6 +220,95 @@ export class HttpGraphClient implements GraphClient {
       if (failure instanceof GraphNotFoundError) return null;
       throw failure;
     }
+  }
+
+  // ---- Phase C: the read methods of the users and groups pages (FR-C-101) --------------------
+
+  async listUsers(params: UserListParams, o?: CallOptions): Promise<DirectoryPage<DirectoryUser>> {
+    const page = await this.#page(usersQuery(params), params.after, o);
+    return { items: parse(UserList, { value: page.items }).value, next: page.next };
+  }
+
+  async getUserManager(userId: Guid, o?: CallOptions): Promise<ManagerResult> {
+    const request = managerQuery(userId);
+    try {
+      const { body } = await this.#http.request({
+        method: 'GET',
+        route: request.route,
+        path: request.path,
+        query: request.query,
+        ...this.#options(o),
+      });
+      const parsed = RefRow.safeParse(body);
+      // An unexpected shape is "not available", never an error page (FR-C-107, EC-C6).
+      return parsed.success ? { state: 'present', manager: parsed.data } : { state: 'unavailable' };
+    } catch (failure) {
+      if (failure instanceof GraphNotFoundError) return { state: 'none' };
+      // 403 (the application may not read it, U66) and 400 are "not available".
+      if (failure instanceof GraphForbiddenError || failure instanceof GraphBadRequestError) {
+        return { state: 'unavailable' };
+      }
+      throw failure;
+    }
+  }
+
+  async listUserGroups(
+    userId: Guid,
+    page: PageRequest,
+    o?: CallOptions,
+  ): Promise<DirectoryPage<DirectoryGroup>> {
+    const result = await this.#page(userGroupsQuery(userId, page.top), page.after, o);
+    return { items: parse(GroupList, { value: result.items }).value, next: result.next };
+  }
+
+  async listGroups(
+    params: GroupListParams,
+    o?: CallOptions,
+  ): Promise<DirectoryPage<DirectoryGroup>> {
+    const page = await this.#page(groupsQuery(params), params.after, o);
+    return { items: parse(GroupList, { value: page.items }).value, next: page.next };
+  }
+
+  async listGroupMembers(
+    groupId: Guid,
+    page: PageRequest,
+    o?: CallOptions,
+  ): Promise<DirectoryPage<DirectoryRef>> {
+    const result = await this.#page(membersQuery(groupId, page.top), page.after, o);
+    return { items: parse(RefList, { value: result.items }).value, next: result.next };
+  }
+
+  async listGroupOwners(
+    groupId: Guid,
+    page: PageRequest,
+    o?: CallOptions,
+  ): Promise<DirectoryPage<DirectoryRef>> {
+    const result = await this.#page(ownersQuery(groupId, page.top), page.after, o);
+    return { items: parse(RefList, { value: result.items }).value, next: result.next };
+  }
+
+  /** One page of a built query, or the page `after` names; the answer is never cached. */
+  async #page(
+    query: DirectoryQuery,
+    after: PageToken | null | undefined,
+    o: CallOptions | undefined,
+  ): Promise<{ items: readonly unknown[]; next: PageToken | null }> {
+    const page = await this.#http.requestPage(
+      {
+        method: 'GET',
+        route: query.route,
+        path: query.path,
+        query: query.query,
+        consistencyLevelEventual: query.consistencyLevelEventual,
+        ...this.#options(o),
+      },
+      after ?? undefined,
+    );
+    // The link was validated by GraphHttp; this is the one place that makes a token from it.
+    return {
+      items: page.items,
+      next: page.nextLink === null ? null : (page.nextLink as PageToken),
+    };
   }
 
   /** Forgets cached users and groups (the revalidation path after a change the panel made itself). */

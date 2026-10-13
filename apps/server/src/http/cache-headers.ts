@@ -17,7 +17,10 @@
 // Phase B (FR-B-417, T-B-195): the sign-in and setup surface is never stored, whatever a route says.
 // `/auth/*`, `/api/v1/auth/*`, `/api/v1/setup/*`, `/api/v1/connection/*`, `/api/v1/me` (and
 // `/api/v1/me/access`), `/api/v1/rbac/*` and every HTML page answer `no-store`; a header such as
-// `public, max-age=600` set by one of those routes is replaced. `setCookieDiscipline` is the last
+// `public, max-age=600` set by one of those routes is replaced.
+//
+// Phase C (FR-C-403, seam XC6): `/api/v1/users*` and `/api/v1/groups*` hold personal data (names,
+// addresses, memberships) and join the list. `setCookieDiscipline` is the last
 // word on `Set-Cookie`: only the three panel cookies, built as `auth/cookies.ts` builds them, leave
 // the process.
 //
@@ -161,6 +164,9 @@ const NO_STORE_PATHS: readonly RegExp[] = [
   /^\/api\/v1\/connection(?:\/|$)/,
   /^\/api\/v1\/me(?:\/|$)/,
   /^\/api\/v1\/rbac(?:\/|$)/,
+  // Phase C (FR-C-403): the directory reads hold personal data.
+  /^\/api\/v1\/users(?:\/|$)/,
+  /^\/api\/v1\/groups(?:\/|$)/,
 ];
 
 /** Is this path one that must be `no-store` whatever its route says (FR-B-417)? */

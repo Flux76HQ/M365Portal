@@ -37,7 +37,7 @@ const WEB = join(SERVER_ROOT, 'test', 'fixtures', 'web-dist');
 const MIGRATIONS = defaultPaths().migrationsFolder;
 
 const PHASE_B_IDS = ['secrets', 'setup', 'connection', 'auth', 'rbac'] as const;
-const IDS = ['branding', ...PHASE_B_IDS] as const;
+const IDS = ['branding', ...PHASE_B_IDS, 'directory'] as const;
 
 function fakeDeps(): ModuleDeps {
   const log = createLogger({ level: 'silent' });
@@ -57,9 +57,9 @@ function fakeDeps(): ModuleDeps {
 }
 
 describe('appModules (CB2)', () => {
-  it('lists branding first, then secrets, setup, connection, auth and rbac', () => {
+  it('lists branding first, then secrets, setup, connection, auth and rbac, and Phase C appends directory', () => {
     const deps = fakeDeps();
-    expect(appModules).toHaveLength(6);
+    expect(appModules).toHaveLength(7);
     expect(appModules.map((factory) => factory(deps).id)).toEqual([...IDS]);
   });
 
@@ -100,6 +100,7 @@ describe('the stub modules (AM-01)', () => {
     expect(sourceOf('connection')).toMatch(/S-B3/);
     expect(sourceOf('auth')).toMatch(/S-B4/);
     expect(sourceOf('rbac')).toMatch(/S-B5/);
+    expect(sourceOf('directory')).toMatch(/S-C2/);
   });
 });
 

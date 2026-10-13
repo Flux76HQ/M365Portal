@@ -1358,6 +1358,7 @@ describe('spec, plan and tasks (FR-A-186)', () => {
 // and the failure names what is missing.
 
 const specPhaseB = join(repositoryRoot, 'specs/002-phase-b');
+const specPhaseC = join(repositoryRoot, 'specs/003-phase-c');
 const readPhaseB = (name: string): string => readFileSync(join(specPhaseB, name), 'utf8');
 
 function everywhere(text: string, token: string | RegExp, replacement = ''): string {
@@ -1641,8 +1642,19 @@ describe('the contract file, the route table and the negative controls (FR-B-709
         readFileSync(join(specDirectory, 'contracts/phase-a-api.md'), 'utf8'),
       ),
       phaseB: contractRouteIds(contract()),
+      // Phase C has no contract file: its route index is table 6.7.1 of the spec (T-C-024).
+      phaseC: contractRouteIds(readFileSync(join(specPhaseC, 'spec.md'), 'utf8')),
     };
     expect(input.phaseB).toHaveLength(32);
+    expect(input.phaseC).toEqual([
+      'users.list',
+      'users.get',
+      'users.groups',
+      'groups.list',
+      'groups.get',
+      'groups.owners',
+      'groups.members',
+    ]);
     expect(() => {
       assertRoutesMatchContract(input);
     }).not.toThrow();
@@ -1655,6 +1667,16 @@ describe('the contract file, the route table and the negative controls (FR-B-709
       assertRoutesMatchContract,
       { ...input, phaseB: [...input.phaseB, 'nowhere.listed'] },
       { reason: /nowhere\.listed, which is not in the route table/ },
+    );
+    expectGuardFails(
+      assertRoutesMatchContract,
+      { ...input, phaseC: [...input.phaseC, 'users.create'] },
+      { reason: /users\.create, which is not in the route table/ },
+    );
+    expectGuardFails(
+      assertRoutesMatchContract,
+      { ...input, phaseC: input.phaseC.filter((id) => id !== 'groups.members') },
+      { reason: /groups\.members, which no contract lists/ },
     );
   });
 

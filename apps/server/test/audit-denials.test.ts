@@ -37,6 +37,16 @@ import {
   type SeededSession,
 } from './helpers/policy-harness.js';
 import { assign, guid } from './helpers/rbac-db.js';
+import {
+  ALL_GROUPS,
+  BASIC_USERS,
+  DEPARTMENT_FINANCE,
+  FULL_USERS,
+  createDirectoryFixture,
+  getJson,
+  groupsScoped,
+  usersScoped,
+} from './directory/support.js';
 
 const RBAC: Permission = 'rbac:manage';
 const REASONS = [
@@ -541,5 +551,160 @@ describe('the guard behind the walk fails a pipeline that audits wrongly (tasks.
       },
       { reason: 'anonymous write was not audited' },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Phase C (T-C-026, FR-C-205, FR-C-304, FR-C-402, ODB-11): the seven read routes of the directory,
+// times the kinds of caller. A denial of a read by a signed-in caller is audited BEFORE the 403, with
+// the route id as the action and `permission_missing` or `scope_mismatch` as the reason; an anonymous
+// read, a success, a 404 and a 422 write nothing.
+// ---------------------------------------------------------------------------------------------
+
+describe('the directory routes: answers and audit entries (FR-C-402, ODB-11)', () => {
+  type Who = 'nobody' | 'expired' | 'noRole' | 'otherPermission' | 'scoped' | 'full';
+
+  interface Row {
+    readonly route: string;
+    readonly path: (ids: Record<string, string>) => string;
+    readonly expect: Record<Who, readonly [status: number, reason: string | null]>;
+  }
+
+  /** Written from the spec (tables 6.7.1 and 6.4), not from the code. */
+  const TABLE: readonly Row[] = [
+    {
+      route: 'users.list',
+      path: () => '/api/v1/users',
+      expect: {
+        nobody: [401, null],
+        expired: [401, null],
+        noRole: [403, 'permission_missing'],
+        otherPermission: [403, 'permission_missing'],
+        scoped: [200, null],
+        full: [200, null],
+      },
+    },
+    {
+      route: 'users.get',
+      path: (ids) => `/api/v1/users/${ids.sales ?? ''}`,
+      expect: {
+        nobody: [401, null],
+        expired: [401, null],
+        noRole: [403, 'permission_missing'],
+        otherPermission: [403, 'permission_missing'],
+        scoped: [403, 'scope_mismatch'],
+        full: [200, null],
+      },
+    },
+    {
+      route: 'users.groups',
+      path: (ids) => `/api/v1/users/${ids.sales ?? ''}/groups`,
+      expect: {
+        nobody: [401, null],
+        expired: [401, null],
+        noRole: [403, 'permission_missing'],
+        otherPermission: [403, 'permission_missing'],
+        scoped: [403, 'scope_mismatch'],
+        full: [200, null],
+      },
+    },
+    {
+      route: 'groups.list',
+      path: () => '/api/v1/groups',
+      expect: {
+        nobody: [401, null],
+        expired: [401, null],
+        noRole: [403, 'permission_missing'],
+        otherPermission: [403, 'permission_missing'],
+        scoped: [200, null],
+        full: [200, null],
+      },
+    },
+    ...(['groups.get', 'groups.owners', 'groups.members'] as const).map((route): Row => ({
+      route,
+      path: (ids) =>
+        `/api/v1/groups/${ids.group ?? ''}${route === 'groups.get' ? '' : `/${route.split('.')[1] ?? ''}`}`,
+      expect: {
+        nobody: [401, null],
+        expired: [401, null],
+        noRole: [403, 'permission_missing'],
+        otherPermission: [403, 'permission_missing'],
+        scoped: [403, 'scope_mismatch'],
+        full: [200, null],
+      },
+    })),
+  ];
+
+  const WHO: readonly Who[] = ['nobody', 'expired', 'noRole', 'otherPermission', 'scoped', 'full'];
+
+  it.each(TABLE.flatMap((row) => WHO.map((who) => [row.route, who, row] as const)))(
+    '%s as %s',
+    async (route, who, row) => {
+      const f = await createDirectoryFixture();
+      const sales = [...f.directory.users.values()].find((user) => user.department === 'Sales');
+      const group = f.directory.groups.get(f.seeded.ids.bigGroup);
+      const ids = { sales: sales?.id ?? '', group: group?.id ?? '' };
+      const forUsersRoute = route.startsWith('users.');
+      const caller = {
+        nobody: () => f.anonymous(),
+        expired: () => f.signIn({ kind: 'user', roles: [], sessionAge: 'expired' }).client,
+        noRole: () => f.signIn({ kind: 'user', roles: [] }).client,
+        // The permission of the OTHER family (and for P35 users:read alone).
+        otherPermission: () => f.actor(...(forUsersRoute ? [ALL_GROUPS] : [FULL_USERS])).client,
+        scoped: () =>
+          f.actor(
+            usersScoped([DEPARTMENT_FINANCE]),
+            groupsScoped([
+              { target: 'group', match: { by: 'prefix', attr: 'displayName', value: 'Zzz' } },
+            ]),
+          ).client,
+        full: () => f.actor(FULL_USERS, ALL_GROUPS).client,
+      }[who]();
+      const answer = await getJson<{ code?: string }>(caller, row.path(ids));
+      const [status, reason] = row.expect[who];
+      expect(answer.status).toBe(status);
+      if (status === 403) expect(answer.body.code).toBe('permission_denied');
+      const audited = f.rows();
+      if (reason === null) {
+        expect(audited, 'no audit row').toEqual([]);
+      } else {
+        // Exactly one entry, written before the answer left, naming the route and the reason.
+        expect(audited).toHaveLength(1);
+        expect(audited[0]).toMatchObject({
+          action: route,
+          outcome: 'denied',
+          reason_code: reason,
+          actor_kind: 'user',
+        });
+        // The entry names the route and the permission, not the person or the group asked for.
+        expect(audited[0]?.detail ?? '').not.toContain(ids.sales || 'unreachable');
+        expect(audited[0]?.detail ?? '').not.toContain(ids.group || 'unreachable');
+      }
+    },
+  );
+
+  it('P35 needs the second permission: users:read in full alone is permission_missing, not scope_mismatch', async () => {
+    const f = await createDirectoryFixture();
+    const me = f.actor(FULL_USERS);
+    const user = [...f.directory.users.values()][3];
+    const answer = await getJson<{ code: string }>(
+      me.client,
+      `/api/v1/users/${user?.id ?? ''}/groups`,
+    );
+    expect([answer.status, answer.body.code]).toEqual([403, 'permission_denied']);
+    expect(f.rows().map((row) => [row.action, row.reason_code])).toEqual([
+      ['users.groups', 'permission_missing'],
+    ]);
+    // A basic grant on the user is a shortfall of the permission as well.
+    const basic = f.actor(BASIC_USERS, ALL_GROUPS);
+    const second = await getJson<{ code: string }>(
+      basic.client,
+      `/api/v1/users/${user?.id ?? ''}/groups`,
+    );
+    expect(second.status).toBe(403);
+    expect(f.rows().map((row) => row.reason_code)).toEqual([
+      'permission_missing',
+      'permission_missing',
+    ]);
   });
 });

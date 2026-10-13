@@ -145,6 +145,21 @@ export interface UserRecord {
   givenName: string | null;
   surname: string | null;
   jobTitle: string | null;
+  officeLocation: string | null;
+  /** `Member`, `Guest`, anything else Graph might send, or `null` (U72). */
+  userType: string | null;
+  onPremisesSyncEnabled: boolean | null;
+  /** As Graph sends it: UTC without milliseconds. */
+  createdDateTime: string;
+  /** The object id of the manager, or `null`: the manager call answers 404 (R-C-07). */
+  managerId: string | null;
+}
+
+/** A directory object the product has no page for: a device, a service principal, a contact. */
+export interface OtherObjectRecord {
+  id: string;
+  odataType: string;
+  displayName: string | null;
 }
 
 export interface GroupRecord extends Replicating {
@@ -159,8 +174,15 @@ export interface GroupRecord extends Replicating {
   mailEnabled: boolean | null;
   /** The group has hidden membership: `checkMemberGroups` omits it without `Member.Read.Hidden`. */
   hiddenMembership: boolean;
-  /** Object ids of the direct members: users and groups. */
+  /** Object ids of the direct members: users, groups and other objects (`otherObjects`). */
   members: Set<string>;
+  /** Object ids of the owners: users and other objects (service principals). */
+  owners: Set<string>;
+  description: string | null;
+  /** `Private`, `Public` or `null`; `hiddenMembership` overrides it with `HiddenMembership`. */
+  visibility: string | null;
+  /** As Graph sends it: UTC without milliseconds. */
+  createdDateTime: string;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -259,6 +281,15 @@ export interface NewUser {
   mail?: string | null;
   department?: string | null;
   accountEnabled?: boolean | null;
+  givenName?: string | null;
+  surname?: string | null;
+  jobTitle?: string | null;
+  officeLocation?: string | null;
+  /** Default `Member`. */
+  userType?: string | null;
+  onPremisesSyncEnabled?: boolean | null;
+  createdDateTime?: string;
+  managerId?: string | null;
 }
 
 export interface NewGroup {
@@ -272,6 +303,9 @@ export interface NewGroup {
   securityEnabled?: boolean | null;
   mailEnabled?: boolean | null;
   hiddenMembership?: boolean;
+  description?: string | null;
+  visibility?: string | null;
+  createdDateTime?: string;
 }
 
 export class FakeDirectory {
@@ -282,6 +316,7 @@ export class FakeDirectory {
   organization!: OrganizationRecord;
   readonly users = new Map<string, UserRecord>();
   readonly groups = new Map<string, GroupRecord>();
+  readonly otherObjects = new Map<string, OtherObjectRecord>();
   readonly applications = new Map<string, ApplicationRecord>();
   readonly servicePrincipals = new Map<string, ServicePrincipalRecord>();
   readonly appRoleAssignments = new Map<string, AppRoleAssignmentRecord>();
@@ -317,6 +352,7 @@ export class FakeDirectory {
     this.#counters.clear();
     this.users.clear();
     this.groups.clear();
+    this.otherObjects.clear();
     this.applications.clear();
     this.servicePrincipals.clear();
     this.appRoleAssignments.clear();
@@ -424,12 +460,24 @@ export class FakeDirectory {
       mail: spec.mail === undefined ? spec.userPrincipalName : spec.mail,
       department: spec.department ?? null,
       accountEnabled: spec.accountEnabled === undefined ? true : spec.accountEnabled,
-      givenName: null,
-      surname: null,
-      jobTitle: null,
+      givenName: spec.givenName ?? null,
+      surname: spec.surname ?? null,
+      jobTitle: spec.jobTitle ?? null,
+      officeLocation: spec.officeLocation ?? null,
+      userType: spec.userType === undefined ? 'Member' : spec.userType,
+      onPremisesSyncEnabled: spec.onPremisesSyncEnabled ?? null,
+      createdDateTime: spec.createdDateTime ?? '2021-08-02T10:30:06Z',
+      managerId: spec.managerId ?? null,
     };
     this.users.set(id, user);
     return user;
+  }
+
+  /** A device, service principal or contact: a member or owner the product cannot read (R-C-05). */
+  addOtherObject(odataType: string, displayName: string | null = null): OtherObjectRecord {
+    const record: OtherObjectRecord = { id: this.newId('other'), odataType, displayName };
+    this.otherObjects.set(record.id, record);
+    return record;
   }
 
   addGroup(spec: NewGroup): GroupRecord {
@@ -450,6 +498,10 @@ export class FakeDirectory {
       mailEnabled: spec.mailEnabled === undefined ? false : spec.mailEnabled,
       hiddenMembership: spec.hiddenMembership ?? false,
       members: new Set(),
+      owners: new Set(),
+      description: spec.description ?? null,
+      visibility: spec.visibility ?? null,
+      createdDateTime: spec.createdDateTime ?? '2021-08-02T10:30:06Z',
       pending: 0,
     };
     this.groups.set(id, group);
@@ -460,6 +512,12 @@ export class FakeDirectory {
     const group = this.groups.get(groupId);
     if (group === undefined) throw new Error(`no such group: ${groupId}`);
     group.members.add(memberId);
+  }
+
+  addOwner(groupId: string, ownerId: string): void {
+    const group = this.groups.get(groupId);
+    if (group === undefined) throw new Error(`no such group: ${groupId}`);
+    group.owners.add(ownerId);
   }
 
   /** Looks a user up by object id or, case-insensitively, by user principal name. */
