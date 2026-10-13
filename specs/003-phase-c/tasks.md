@@ -157,7 +157,7 @@ XC1 `apps/server/src/modules.ts` append factory (T-C-024). XC2 `ports/graph.ts` 
 - [x] **T-C-016** `HttpGraphClient` and `FakeGraphClient` methods (FR-C-101, FR-C-106, FR-C-107, FR-C-108)
   - Files: `apps/server/src/integrations/graph/graph-client.ts`, `apps/server/test/fakes/fake-graph-client.ts`
   - Needs: T-C-010, T-C-011, T-C-012, T-C-014
-  - Test first: `server/integrations/graph/contract.test.ts` (both implementations; 404, 403, 429, limited-information members, manager states, null properties)
+  - Test first: `server/integrations/graph/graph-client.contract.test.ts` (both implementations; 404, 403, 429, limited-information members, manager states, null properties). Amended at the closing of Phase C: the file is `graph-client.contract.test.ts` (its Phase B name), not `contract.test.ts`; `manager.test.ts` was added next to it (FR-C-107)
   - Done when: six methods behave identically on both; Graph 403 maps to `GraphForbiddenError`
 
 - [x] **T-C-017** Permissions map and the read-only guard (FR-C-105)
@@ -236,7 +236,7 @@ XC1 `apps/server/src/modules.ts` append factory (T-C-024). XC2 `ports/graph.ts` 
 
 ## 4. S-C3 Web (T-C-040 to T-C-050)
 
-- [x] **T-C-040** MSW handlers from the wire schemas (support for all web tests)
+- [x] **T-C-040** MSW handlers from the wire schemas (support for all web tests). Amended at the closing of Phase C: not MSW. `msw` is not a dependency of the web package and the install protocol forbids adding one in this phase; the handlers are a `fetch` stand-in that plugs into `renderApp({ fetch })` (GC2)
   - Files: `apps/web/test/support/directory-handlers.ts`
   - Needs: GC0
   - Test first: `web/directory-handlers.test.ts` (every handler response parses with the shared schema)
@@ -309,13 +309,13 @@ XC1 `apps/server/src/modules.ts` append factory (T-C-024). XC2 `ports/graph.ts` 
 - [x] **T-C-060** e2e fixtures: actors and the seeded directory (FR-C-602)
   - Files: `e2e/fixtures/directory.ts`
   - Needs: GC1, GC2
-  - Test first: `e2e/fixtures.unit.test.ts` (an actor with a department scope and one with `basic` are created through the real RBAC API)
+  - Test first: `e2e/tests/directory-fixtures.spec.ts` (a Playwright spec, not `e2e/fixtures.unit.test.ts`: it reads the seeded directory and the three actors back through the product's own routes). Amended at the closing of Phase C: the department-scoped actor is created through the real RBAC API, the `basic` actor is not, because no assignable role holds `users:read` basic before Phase D; the fixture writes a custom role and its assignment into the database (`e2e/fixtures/directory.ts`)
   - Done when: three actors available (full, department-scoped, basic)
 
 - [x] **T-C-061** Users e2e (FR-C-602, US-C1, US-C2, US-C4, US-C5)
   - Files: `e2e/tests/users.spec.ts`
   - Needs: T-C-060
-  - Test first: the spec (search, filter, paging to the end of 1,200, detail, manager unavailable, outside user 403 page, `basic` view)
+  - Test first: the spec (search, filter, paging to the end of 1,200, detail, manager unavailable, outside user 403 page, `basic` view with the database-written role of T-C-060)
   - Done when: green on the three-process topology
 
 - [x] **T-C-062** Groups e2e (FR-C-602, US-C3, US-C6)
@@ -372,13 +372,13 @@ XC1 `apps/server/src/modules.ts` append factory (T-C-024). XC2 `ports/graph.ts` 
   - Test first: the negative-control ledger (each guard of section 0.3 seen red once)
   - Done when: note written with the ledger
 
-- [ ] **T-C-071** Consolidate open points (documentation task; the only task that edits `docs/open-points.md`)
+- [x] **T-C-071** Consolidate open points (documentation task; the only task that edits `docs/open-points.md`)
   - Files: `docs/open-points.md`
   - Needs: GC1, GC2
   - Test first: `server/docs-contract.test.ts` (ids referenced in the spec exist in the register)
   - Done when: U66 to U74, ODC-01 to ODC-05, PC-01 to PC-06, RC-01 to RC-06 are present with status; findings of the gate notes are added
 
-- [ ] **T-C-999** Phase C report and stop
+- [x] **T-C-999** Phase C report and stop
   - Files: `docs/phase-reports/phase-C.md`
   - Needs: T-C-070, T-C-071
   - Test first: none (report)
@@ -436,3 +436,5 @@ XC1 `apps/server/src/modules.ts` append factory (T-C-024). XC2 `ports/graph.ts` 
 ## 7. Owner-verified ledger
 
 OV-C1 to OV-C6 are in spec section 8.4; `T-C-068` writes the step list, `T-C-999` hands it over.
+
+Amended at the closing of Phase C (T-C-071): `server/directory/perf.test.ts` (SC-C4, informational) was not built and is in no task; the `basic` half of OV-C6 cannot be done through the RBAC API before Phase D (spec FR-C-602). T-C-069, T-C-070 and T-C-064 (baselines) stay open: the full run is the orchestrator's, the baselines come from CI. Gate note: `gate-notes/GC3.md`.

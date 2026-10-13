@@ -42,7 +42,7 @@ an addition of this stream. `docs/permissions.md` refers to these ids.
 | U14 | Graph accepts `http://127.0.0.1` in `web.redirectUris` | Wizard redirect URIs | Learn says the portal cannot; the manifest can | A dev-tenant PATCH test; default to `http://localhost` |
 | U15 | `Set-Contact` parameters for first and last name, and that it works app-only with the chosen Exchange role | Contacts edit, CSV export | `Set-MailContact` has no `-FirstName` or `-LastName`; the `Set-Contact` page was not read | Read the `Set-Contact` page when Phase D starts |
 | U16 | The identity-and-access throttling limits (write quota 3,000 per 2 min 30 s) cover users and group memberships | `GraphClient` and `ExchangeClient` backoff | The limits table was read; the resource list was not | Read the resource list under "Identity and access service limits" |
-| U17 | Permission and shape for reading licence assignments app-only (`assignedLicenses`, beta `cloudLicensing` APIs) | Users list "licenties" column | `licenseDetails` documents "Application: Not supported"; the other APIs were seen only as search snippets | Read the `user` resource page and the `cloudLicensing` pages in Phase C |
+| U17 | Permission and shape for reading licence assignments app-only (`assignedLicenses`, beta `cloudLicensing` APIs) | Users list "licenties" column | `licenseDetails` documents "Application: Not supported"; the other APIs were seen only as search snippets | Read the `user` resource page and the `cloudLicensing` pages in Phase C. **Deferred on 2026-10-13 (owner decision D-C3):** licences are not built in Phase C; there is no licence column, field, filter or request (`server/directory/no-licences.test.ts` scans for it). Not read, not closed; to be picked up only if the owner asks for licences |
 | U18 | Which OWASP ASVS version (4.0.3 or 5.0) the level 2 mapping targets, and the control identifiers | security.md | The ASVS text was not read for the Phase A documents; the mapping is at chapter level | Choose the version, read its text, copy the control ids (Phase D, FR-D-006) |
 
 ### Other unverified items (not Microsoft)
@@ -473,7 +473,7 @@ Date of the register: 2026-10-10 (Microsoft Learn only), closed items marked on 
 | U45 | The response envelope of the Admin API (top-level array, `value` array or single object) and its error body | FR-B-314 | `get-started`, `OrganizationConfig` and `DistributionGroupMember` pages read; they show requests, not responses | OV-06 records a real answer |
 | U46 | `Group.ReadBasic.All` is named in Learn's List groups table but has no section in the permissions reference; whether it exists for applications | fallback ladder of plan 8.8 | permissions reference searched | Learn clarification or a tenant listing of the Graph service principal's `appRoles` |
 | U47 | Entra accepts an uploaded self-signed certificate with exactly `basicConstraints` (cA=false, critical) and `keyUsage` digitalSignature (critical) and nothing else; re-sending existing key credentials as read (with `key`) preserves them in a full-list `PATCH` | FR-B-106, FR-B-306 | plan probe V-B02; Learn pages carried | OV-03, OV-04 |
-| U48 | `assignedLicenses` is returned for `GET /users?$select=assignedLicenses` with `User.Read.All` alone | Phase C | user-list page: its property exceptions do not list it | the Phase C spec |
+| U48 | `assignedLicenses` is returned for `GET /users?$select=assignedLicenses` with `User.Read.All` alone | Phase C | user-list page: its property exceptions do not list it | the Phase C spec. **Deferred on 2026-10-13 (D-C3):** `assignedLicenses` is never selected (a `$select` containing it fails `schemas.test.ts`); not tested, not closed |
 | U49 | Application `tags`: maximum count and length, so that `m365portal-install-<32 hex>` is accepted | FR-B-303 | none on Learn | OV-03 |
 | U50 | `$select` of `passwordCredentials` and `keyCredentials` on `GET /applications/{id}` and `GET /servicePrincipals(appId='...')`, and `GET .../owners?$select=id`, return the collections (without secret text) to a delegated caller holding `Application.ReadWrite.All`; the properties are named on the application, service principal and passwordCredential resource pages and both owner lists name `Application.Read.All`, but no page shows a `$select` of the credential collections | FR-B-318, FR-B-319 | resource pages and both owner-list pages read on 2026-10-10 | OV-03; fallback: an unreadable count stops adoption (fail closed) and V4 shows `not_checked` for it |
 | U51 | Whether Graph sends `Retry-After` as seconds only or also as an HTTP date (both are read) | FR-B-312 | Learn's Graph throttling page says seconds | OV-01 |
@@ -617,7 +617,7 @@ owner's choice after the gate.
 | ODB-08 | Certificate renewal | Repair flow in B and `addKey` self-rotation in D (default); or only repair | Repair in B, `addKey` in D | B-22; a lapsed certificate always needs an administrator | Before the Phase D plan | owner |
 | ODB-09 | Session numbers | Idle 30 minutes, absolute 8 hours (default), or others | Defaults | B-25 | The owner test | owner |
 | ODB-10 | Group-derived revocation delay | `GROUP_CACHE_TTL_SECONDS` 300 (default) or shorter | 300 | Shorter means more Graph calls (4 resource units per 20 groups per refresh); OV-16 measures Graph's own delay | The owner test | owner |
-| ODB-11 | Out-of-scope single objects | 403 `permission_denied` (default) or 404 | 403 | Brief: invisible or read-only. 404 hides existence; Phase C decides for lists (they filter by `visibleScopes`) | The Phase C spec | owner |
+| ODB-11 | Out-of-scope single objects | 403 `permission_denied` (default) or 404 | 403 | Brief: invisible or read-only. 404 hides existence; Phase C decides for lists (they filter by `visibleScopes`) | The Phase C spec | closed on 2026-10-13: decision D-C2, 403 `permission_denied` for a single object outside the scope, built and tested (`users-routes.test.ts`, `groups-routes.test.ts`, `audit-denials.test.ts`) |
 | ODB-12 | Denial audit volume | Audit permissioned reads of authenticated actors (default) or writes only | Both | B-21; the brief asks for every refused action | The owner test | owner |
 | ODB-13 | Admin API probe in verification | Keep V5 as a warning (default) or drop it until ODB-01 is decided | Keep | Preview terms U25; a warning never blocks | The owner test | owner |
 | ODB-14 | First Owner other than the bootstrap administrator | Allowed only in manual mode (default), always, or never | Manual mode only | B-16; the brief says the signed-in Global Administrator becomes Owner | The Phase B gate | owner |
@@ -695,59 +695,89 @@ owner can overturn it.
 
 ## Phase C (2026-10-12)
 
-Added by the Phase C specification task from `specs/003-phase-c/spec.md` (sections 8 to 11), `plan.md` (section 10) and `research-microsoft-c.md`. Numbering: this file already held U1 to U65 (the gap that `docs/phase-reports/phase-B.md` section 4.1 item 10 noted for U51 to U65 is closed: all of them have rows above), so nothing was renumbered and Phase C continues at **U66**. Status words as above.
+Consolidated at the closing of Phase C on 2026-10-13 by task `T-C-071` from the gate notes `specs/003-phase-c/gate-notes/GC0.md` to `GC3.md` (the e2e and documentation streams included). Added first by the Phase C specification task from `specs/003-phase-c/spec.md` (sections 8 to 11), `plan.md` (section 10) and `research-microsoft-c.md`. Numbering: this file already held U1 to U65 (the gap that `docs/phase-reports/phase-B.md` section 4.1 item 10 noted for U51 to U65 is closed: all of them have rows above), so nothing was renumbered and Phase C continues at **U66**. Status words as above.
 
 ### Unverified Microsoft claims U66 to U74
 
-Date of the register: 2026-10-12 (Microsoft Learn only).
+Date of the register: 2026-10-12 (Microsoft Learn only); final wording and status as of the closing of Phase C, 2026-10-13. Status words as above.
 
-| # | Claim | Where used | Tried | Needed to close |
-|---|---|---|---|---|
-| U66 | `GET /users/{id}/manager` (and `$expand=manager`) works for an application token holding `User.Read.All`; the List manager page says Application: "Not supported", a sibling page lists `User.Read.All` | FR-C-107, EC-C6 | List manager page read 2026-10-12 | OV-C2; the design degrades to "not available" |
-| U67 | What Graph answers for the members of a `HiddenMembership` group without `Member.Read.Hidden` (empty list or 403), and whether such groups are missing from a user's `transitiveMemberOf` | FR-C-108, FR-C-206 | permissions text and members page read | OV-C5; the panel does not call members for such groups |
-| U68 | `GET /groups/{id}/owners` accepts `GroupMember.Read.All` for application tokens (the PowerShell page says so; the REST permission table was seen only in part) | FR-C-305 | Get-MgGroupOwner page, owners page excerpt | OV-C4 |
-| U69 | The distribution and mail-enabled-security filters (`not groupTypes/any(c:c eq 'Unified') and mailEnabled eq ... and securityEnabled eq ...`) with `$orderby=displayName`, `$count=true` and the header work for an application holding only `GroupMember.Read.All`; `$select` of `visibility`, `mailNickname`, `description`, `onPremisesSyncEnabled` is returned (extends U36) | FR-C-301, FR-C-304 | group-list page filter table | OV-C1 |
-| U70 | `startsWith` joined by `or` over `displayName`, `mail`, `userPrincipalName`, combined with `and accountEnabled eq ...`, `userType eq ...` and `$orderby=displayName` under the advanced pair is accepted | FR-C-202 | each part documented alone (advanced-queries property table) | OV-C1; fallback: `displayName` only |
-| U71 | `$select=id,displayName,mail,userPrincipalName` on the polymorphic members and owners collections returns those properties for users (and `displayName`, `mail` for groups) | FR-C-306 | members page: query options supported | OV-C4; fallback: no `$select` |
-| U72 | The literal values of `userType` are `Member` and `Guest`, and users with a null `userType` exist; "member" then means `Member` only | FR-C-202 | property table says `eq` and `eq null` work | OV-C1 |
-| U73 | A `nextLink` of an advanced query keeps working without resending `ConsistencyLevel` (the client always resends it) | FR-C-103 | not stated on the pages read | none; harmless |
-| U74 | Which properties `transitiveMemberOf/microsoft.graph.group` returns for an application holding `User.Read.All` and `GroupMember.Read.All` (limited-information rule) | FR-C-206 | permissions-overview excerpt | OV-C5; groups with `null` names show a dash |
+| # | Claim | Where used | Tried | Needed to close | Status (2026-10-13) |
+|---|---|---|---|---|---|
+| U66 | `GET /users/{id}/manager` (and `$expand=manager`) works for an application token holding `User.Read.All`; the List manager page says Application: "Not supported", a sibling page lists `User.Read.All` | FR-C-107, EC-C6 | List manager page read 2026-10-12 | OV-C2; the design degrades to "not available" | open. Built as a designed degradation: `unavailable` on 403, 400 or an odd shape; the fake refuses the manager for apps by default (`managerForApps('refused')`). Nothing tried beyond Learn; only a real tenant closes it |
+| U67 | What Graph answers for the members of a `HiddenMembership` group without `Member.Read.Hidden` (empty list or 403), and whether such groups are missing from a user's `transitiveMemberOf` | FR-C-108, FR-C-206 | permissions text and members page read | OV-C5; the panel does not call members for such groups | open. Built: no members call for `HiddenMembership`; the fake omits such groups from a user's groups. The real answer is not known |
+| U68 | `GET /groups/{id}/owners` accepts `GroupMember.Read.All` for application tokens (the PowerShell page says so; the REST permission table was seen only in part) | FR-C-305 | Get-MgGroupOwner page, owners page excerpt | OV-C4 | open. Built with `GroupMember.Read.All`; a Graph 403 shows the translated `graph_permission_missing` message, never an error page |
+| U69 | The distribution and mail-enabled-security filters (`not groupTypes/any(c:c eq 'Unified') and mailEnabled eq ... and securityEnabled eq ...`) with `$orderby=displayName`, `$count=true` and the header work for an application holding only `GroupMember.Read.All`; `$select` of `visibility`, `mailNickname`, `description`, `onPremisesSyncEnabled` is returned (extends U36) | FR-C-301, FR-C-304 | group-list page filter table | OV-C1 | open. Built as written; `unknown` kind is a designed state (RC-01). Strictness of the fake is our reading (RC-04) |
+| U70 | `startsWith` joined by `or` over `displayName`, `mail`, `userPrincipalName`, combined with `and accountEnabled eq ...`, `userType eq ...` and `$orderby=displayName` under the advanced pair is accepted | FR-C-202 | each part documented alone (advanced-queries property table) | OV-C1; fallback: `displayName` only | open. The fake treats `startsWith` on `userPrincipalName`, `department` and `mailNickname` as needing the advanced pair (not on `displayName`, `mail`): our reading (GC1 deviation 6). The fallback `displayName` only is not built |
+| U71 | `$select=id,displayName,mail,userPrincipalName,department,mailNickname` on the polymorphic members and owners collections (and the manager) returns those properties for users (and `displayName`, `mail`, `mailNickname` for groups); amended 2026-10-13 from four to six properties | FR-C-306 | members page: query options supported | OV-C4; fallback: no `$select` | open. The code selects six properties, `department` and `mailNickname` included, because restricted-row decisions need the scope attributes (GC1 deviation 2). The fallback "no `$select`" is not built |
+| U72 | The literal values of `userType` are `Member` and `Guest`, and users with a null `userType` exist; "member" then means `Member` only | FR-C-202 | property table says `eq` and `eq null` work | OV-C1 | open. Built with the literals `Member` and `Guest`; a null `userType` is neither |
+| U73 | A `nextLink` of an advanced query keeps working without resending `ConsistencyLevel` (the client always resends it) | FR-C-103 | not stated on the pages read | none; harmless | open, harmless: the client always resends the header on a `nextLink` |
+| U74 | Which properties `transitiveMemberOf/microsoft.graph.group` returns for an application holding `User.Read.All` and `GroupMember.Read.All` (limited-information rule) | FR-C-206 | permissions-overview excerpt | OV-C5; groups with `null` names show a dash | open. Built as written; groups with a null name show a dash |
 
-Carried and still open, relevant to Phase C: U1, U8, U36 (its "is `GroupMember.Read.All` listed for group list" half is answered by the group-list page; which properties come back stays open), U37 (not needed: Phase C always sends the advanced pair), **U17 and U48 (licences: deferred by the owner on 2026-10-13, no licence column in Phase C)**.
+No U66 to U74 claim was closed in Phase C: no automated test can reach a real tenant, and Microsoft Learn was read once (2026-10-12, `research-microsoft-c.md`). All nine wait for the owner test OV-C1 to OV-C5 (`docs/owner-test-phase-c.md`).
+
+Carried and still open, relevant to Phase C: U1, U8, U36 (its "is `GroupMember.Read.All` listed for group list" half is answered by the group-list page; which properties come back stays open), U37 (not needed: Phase C always sends the advanced pair), **U17 and U48 (licences: deferred by the owner on 2026-10-13, no licence column in Phase C; status `deferred`, the licences are not built)**.
 
 ### Phase C owner decisions
 
-Recorded (owner, 2026-10-13): **D-C1** first version is read only (no create/update/delete, no group-membership writes, no password reset, no licence changes; no new Graph permission; `GroupMember.ReadWrite.All` is "granted, unused" in Phase C, ODB-02 default). **D-C2** ODB-11 closed: a single object outside the visible scope answers 403 `permission_denied`; lists filter by `visibleScopes`. **D-C3** no licence column; U17 stays open (deferred).
+Recorded (owner, 2026-10-13): **D-C1** first version is read only (no create/update/delete, no group-membership writes, no password reset, no licence changes; no new Graph permission; `GroupMember.ReadWrite.All` is "granted, unused" in Phase C, ODB-02 default). **D-C2** ODB-11 closed: a single object outside the visible scope answers 403 `permission_denied`; lists filter by `visibleScopes`. **D-C3** no licence column; U17 stays open (deferred). D-C1 to D-C3 are `recorded` and implemented.
+
+On 2026-10-13 the owner said in chat that the default choices below are fine for now: ODC-01 to ODC-05 are therefore `recorded` as **default implemented, owner agreed 2026-10-13**. The owner can still overturn any of them after the owner test (OV-C2 for ODC-05, OV-C5 for ODC-04).
 
 | ID | Decision | Options | Default in the spec | Needed by | Status |
 |---|---|---|---|---|---|
-| ODC-01 | Audit of successful reads | Denials only (the code today; default); or an entry per detail view; or per list | Denials only | The owner test | owner |
-| ODC-02 | Distribution and mail-enabled security groups in the Groups list | Shown read-only with a badge (default); or hidden until Phase D | Shown, read-only | The Phase C gate | owner |
-| ODC-03 | Search semantics | Prefix on name, mail and principal name (default); or tokenised `$search` | Prefix | The owner test | owner |
-| ODC-04 | Hidden-membership groups | State "hidden", no call (default); or request `Member.Read.Hidden` later | State "hidden" | After OV-C5 | owner |
-| ODC-05 | Manager | Best effort, "not available" when refused (default); or drop until U66 is closed | Best effort | After OV-C2 | owner |
+| ODC-01 | Audit of successful reads | Denials only (the code today; default); or an entry per detail view; or per list | Denials only | The owner test | recorded: default implemented, owner agreed 2026-10-13 |
+| ODC-02 | Distribution and mail-enabled security groups in the Groups list | Shown read-only with a badge (default); or hidden until Phase D | Shown, read-only | The Phase C gate | recorded: default implemented, owner agreed 2026-10-13 |
+| ODC-03 | Search semantics | Prefix on name, mail and principal name (default); or tokenised `$search` | Prefix | The owner test | recorded: default implemented, owner agreed 2026-10-13 |
+| ODC-04 | Hidden-membership groups | State "hidden", no call (default); or request `Member.Read.Hidden` later | State "hidden" | After OV-C5 | recorded: default implemented, owner agreed 2026-10-13 |
+| ODC-05 | Manager | Best effort, "not available" when refused (default); or drop until U66 is closed | Best effort | After OV-C2 | recorded: default implemented, owner agreed 2026-10-13 |
 
 ### Phase C assumptions, plan decisions and risks
 
 | ID | Statement | Status |
 |---|---|---|
-| AC-01 | The tenant is a workforce tenant (not B2C): `$count` and `$search` exist | recorded |
-| AC-02 | A scan of 5 Graph pages per request is acceptable for scoped lists | recorded |
-| AC-03 | Names and addresses are personal data: no logs, no disk cache | recorded |
-| AC-04 | Only direct group members in the first version | recorded |
-| AC-05 | The role templates of Phase B already grant `users:read` and `groups:read` as needed | recorded |
-| PC-01 | `GraphHttp.requestPage` is added instead of changing `requestAll` | recorded |
-| PC-02 | The cursor store is in memory, not a signed token | recorded |
-| PC-03 | Prefix search over `$search` (ODC-03) | recorded |
-| PC-04 | One pure query-builder module | recorded |
-| PC-05 | Restricted rows for members and owners; omission for a user's groups | recorded |
-| PC-06 | Ids in paths are GUIDs only (no UPN lookups) | recorded |
-| RC-01 | `GroupMember.Read.All` alone returns too few group properties (U36): kinds show as `unknown` (M / M) | open |
-| RC-02 | The manager call is refused for applications (U66) (H / L) | open |
-| RC-03 | Scoped lists of a very large tenant are slow (L / M) | open |
-| RC-04 | The fake tenant encodes a wrong reading of Learn (M / M) | open |
-| RC-05 | Restricted rows or the cursor store leak information (L / H) | open |
-| RC-06 | CSS growth from two new pages exceeds the budget (M / L) | open |
+| AC-01 | The tenant is a workforce tenant (not B2C): `$count` and `$search` exist | recorded (a B2C tenant is not supported; not verifiable here) |
+| AC-02 | A scan of 5 Graph pages per request is acceptable for scoped lists | recorded; the tenant size is unknown, OV-C3 measures the paging |
+| AC-03 | Names and addresses are personal data: no logs, no disk cache | recorded; `no-pii-in-logs.test.ts` guards the log half |
+| AC-04 | Only direct group members in the first version | recorded; the page says that only direct members are listed |
+| AC-05 | The role templates of Phase B already grant `users:read` and `groups:read` as needed | recorded, but only partly true: the Phase B templates grant `users:read` full, but no role that can be assigned holds the qualifier `basic` before Phase D (spec FR-C-602, amended) |
+| PC-01 | `GraphHttp.requestPage` is added instead of changing `requestAll` | recorded, built |
+| PC-02 | The cursor store is in memory, not a signed token | recorded, built; a restart ends all cursors (documented in the owner sheet) |
+| PC-03 | Prefix search over `$search` (ODC-03) | recorded, built |
+| PC-04 | One pure query-builder module | recorded, built (`directory-query.ts`, a test forbids other builders) |
+| PC-05 | Restricted rows for members and owners; omission for a user's groups | recorded, built (`restricted-rows.ts`) |
+| PC-06 | Ids in paths are GUIDs only (no UPN lookups) | recorded, built (non-GUID is 422) |
+| RC-01 | `GroupMember.Read.All` alone returns too few group properties (U36): kinds show as `unknown` (M / M) | open: depends on U36/U69, OV-C1 |
+| RC-02 | The manager call is refused for applications (U66) (H / L) | open: degraded state built and tested; waits for OV-C2 |
+| RC-03 | Scoped lists of a very large tenant are slow (L / M) | open: five pages per request (`scanPagesMax`); real timing is OV-C3 |
+| RC-04 | The fake tenant encodes a wrong reading of Learn (M / M) | open: strictness self-test with 14 rules and the contract suite on both implementations; the reading itself is checked only by OV-C1 to OV-C6 |
+| RC-05 | Restricted rows or the cursor store leak information (L / H) | open, mitigated: one restricted-row function with negatives, cursors bound to actor, route and parameters; one wasted groups request and one denial audit row per `basic` detail view are known (finding FC-10) |
+| RC-06 | CSS growth from two new pages exceeds the budget (M / L) | open, at its limit: entry CSS unchanged but only 18 B of headroom, initial JavaScript only 52 B; any later change in the entry or a shared component needs `pnpm build && pnpm bundle:check`; a card layout for narrow screens needs an approved growth |
+
+### Findings at the closing of Phase C (2026-10-13)
+
+Gaps and inconsistencies found while consolidating `GC0` to `GC3` and the code. Ids `FC-nn` are new. "Amended" means the spec or task text was changed to follow the code, which is right; each place says it was amended at the closing of Phase C.
+
+| ID | Finding | Status |
+|---|---|---|
+| FC-01 | FR-C-306 said four properties in the members `$select`; the code selects six (`department`, `mailNickname` added so a department- or alias-scoped actor does not see every member as restricted; GC1 deviation 2). U71 covers it | amended; OV-C4 must confirm Graph returns them |
+| FC-02 | FR-C-204 said only-`basic` actors may not filter on state or type; the code refuses `enabled`, `type` and the principal-name search with 422 `filter_not_allowed` whenever any row could be shown as `basic` and the actor does not see all users in full (GC1 deviation 4). A mixed actor (`basic` plus a department-scoped full grant) cannot filter on state or type at all | amended; revisit after OV-C6 |
+| FC-03 | FR-C-101 and tasks name `contract.test.ts`; the file is `graph-client.contract.test.ts` (Phase B name); `manager.test.ts` was added | amended |
+| FC-04 | The e2e fixtures self-test is a Playwright spec (`e2e/tests/directory-fixtures.spec.ts`), not `e2e/fixtures.unit.test.ts` | amended |
+| FC-05 | A `basic` actor cannot be created through the RBAC API before Phase D: no assignable role holds `users:read` basic. The e2e fixture writes a custom role into the database. US-C5, FR-C-602 and OV-C6 say so; the `basic` half of OV-C6 is not possible for the owner and is covered by tests only. Phase D (RBAC admin UI, role editor) closes it | amended; open for Phase D |
+| FC-06 | SC-C4 `server/directory/perf.test.ts` was not built (informational, in no task); no timing is measured automatically | amended; OV-C3 is the only measurement |
+| FC-07 | `docs/operations.md` (Dutch) said "alle 25 grenzen"; the table has 79 rows (checked 2026-10-13; `limits-doc.test.ts` does not check the sentence) | amended |
+| FC-08 | The web tests use a `fetch` stand-in, not MSW (not a dependency, install protocol); the own `DirectoryTable` replaces the `DataTable` (page-and-total based); filters are native radio buttons (Radix controls raised the initial JavaScript by 1.8 to 4.2 KB gzip); the cursor is component state, not URL (FR-C-501 read as "filters") | recorded (GC2); spec and tasks amended |
+| FC-09 | Bundle headroom after Phase C: 52 B of initial JavaScript gzip, 18 B of entry CSS (RC-06) | open (risk) |
+| FC-10 | A `basic` actor: the loader of `/users/$id` asks for the memberships before the detail says the actor is basic. The request is answered 403 and is audited as one denial row (`permission_missing`) per detail view; the page never shows the answer | open; fix needs the grants before the loader (Phase D or a small patch) |
+| FC-11 | The router writes `enabled` and `type` in the URL as a quoted string (`enabled=%22false%22`); the e2e specs accept both forms. Cosmetic | recorded |
+| FC-12 | `seedDirectory` runs on demand in the fake tenant (the seed is built when an e2e fixture asks, 1,200 users and 150 groups), not at start | recorded |
+| FC-13 | The `/design` showcase validator `validateShowcaseSearch` has the raw-key merge behaviour that the directory validators avoid (a dropped key keeps its raw invalid value); not touched | open, low |
+| FC-14 | Six server tasks (T-C-010, 011, 012, 018, 019, 020) were written with their test in one step and not seen red first; their negatives are the evidence (GC1). The "seen red once more" reruns of all negative controls were not repeated | recorded |
+| FC-15 | Not done by the stream: T-C-064 visual baselines (from the CI artefact only), T-C-069 full run and T-C-070 (GC3) are the orchestrator's or CI's | open, see `GC3.md` |
+| FC-16 | Focus moves to the page heading on navigation through `usePageHeadingFocus` (FR-C-506), only after navigating, not after a filter change | recorded |
+| FC-17 | `GroupMember.ReadWrite.All` is granted and unused in Phase C; docs list it as "granted, unused in Phase C" | recorded (ODB-02) |
+
+For Phase D the owner will be asked for ODB-01 (the Exchange write path), ODB-03 (Exchange role and second app role) and ODB-08 (certificate renewal) before building starts; their rows above stay `owner`.
 
 ## Nederlands
 
@@ -779,4 +809,4 @@ zoals `s1c-9`), plus de bekende beperkingen van de repository-bewakers (GR-1 tot
   PB-28, de eigenaarsbeslissingen ODB-01 tot en met ODB-18 en de risico's RB-01 tot en met RB-18 en PBR-01 tot en met
   PBR-14. Belangrijkste beslissingen voor de eigenaar: ODB-01 (het Exchange-schrijfpad, vastgelegd in ADR-0102),
   ODB-02 (de vier Graph-rechten) en ODB-17 (break-glass zonder tweede factor). Het ontbrekende auditscherm is Fase D.
-- **Fase C (2026-10-12):** de onverifieerde claims U66 tot en met U74 (de rij U51 tot en met U65 stond er al; er is niets hernummerd), de eigenaarsbeslissingen D-C1 tot en met D-C3 (2026-10-13: alleen lezen, 403 voor losse objecten buiten het zicht, geen licentiekolom) en ODC-01 tot en met ODC-05, de aannames AC-01 tot en met AC-05, de plan-beslissingen PC-01 tot en met PC-06 en de risico's RC-01 tot en met RC-06. `GroupMember.ReadWrite.All` is verleend maar ongebruikt in fase C.
+- **Fase C (2026-10-12):** de onverifieerde claims U66 tot en met U74 (de rij U51 tot en met U65 stond er al; er is niets hernummerd), de eigenaarsbeslissingen D-C1 tot en met D-C3 (2026-10-13: alleen lezen, 403 voor losse objecten buiten het zicht, geen licentiekolom) en ODC-01 tot en met ODC-05, de aannames AC-01 tot en met AC-05, de plan-beslissingen PC-01 tot en met PC-06 en de risico's RC-01 tot en met RC-06. `GroupMember.ReadWrite.All` is verleend maar ongebruikt in fase C. **Afsluiting fase C (2026-10-13):** U66 tot en met U74 zijn nog open (alleen een echte tenant sluit ze, test OV-C1 tot en met OV-C5); U17 en U48 zijn uitgesteld (licenties niet gebouwd); ODC-01 tot en met ODC-05 zijn standaard ingevoerd en op 2026-10-13 door de eigenaar akkoord bevonden; ODB-11 is gesloten (403). Nieuw: bevindingen FC-01 tot en met FC-17, onder andere dat een `basic`-gebruiker voor fase D niet via de RBAC-API kan worden aangemaakt (daarom kan de eigenaar dat deel van OV-C6 niet doen) en dat de bundel nog maar 52 B (JavaScript) en 18 B (CSS) ruimte heeft.

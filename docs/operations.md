@@ -581,7 +581,7 @@ toe). De variabele `NODE_USE_ENV_PROXY` voor een uitgaande proxy is ONGEVERIFIEE
 De repository levert zelf geen reverse proxy, CDN of ingress en heeft dus buiten de applicatie geen eigen
 grenzen. Alles wat ervoor staat moet verzoeken met een body van minimaal 9437184 bytes (9 MiB, de
 branding-import, het grootste verzoek) doorlaten, mag HTML niet cachen en moet de `Host`-header behouden.
-De tabel hierboven noemt alle 25 grenzen als getal, met wat ze afdwingt en wat ze begrenst; de bron van elk
+De tabel hierboven telt 79 rijen; elke rij noemt een of meer grenzen als getal, met wat ze afdwingt en wat ze begrenst (aangepast bij het sluiten van fase C: er stond 'alle 25 grenzen', een aantal dat al sinds fase B niet meer klopte); de bron van elk
 getal is `packages/shared/src/limits.ts`. Belangrijk voor wat ervoor staat: de keep-alive van het paneel is
 65 seconden (de idle-timeout van de proxy richting het paneel moet korter zijn, bijvoorbeeld 60 seconden),
 het ontvangen van een verzoek mag tot 60 seconden duren, en `docker stop` moet minstens 10 seconden wachten.
