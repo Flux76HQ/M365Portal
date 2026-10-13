@@ -8,6 +8,7 @@
 // directory's own counters). A failing test prints `SEED_NOTE`-style text from `describeSeed`, so the
 // run can be repeated. Generated data comes from the index of a row; the seed picks departments,
 // managers and memberships.
+import { fakeGuid } from './ids.js';
 import type { FakeDirectory, GroupRecord, UserRecord } from './directory.js';
 
 export const DEFAULT_SEED = 20_261_012;
@@ -188,6 +189,9 @@ export function seedDirectory(
     const guest = index % 40 === 7;
     users.push(
       directory.addUser({
+        // Ids of their own, so the order of equal display names does not depend on how many users
+        // a test added to the same fake tenant before the seed ran.
+        id: fakeGuid('seed-user', index + 1),
         userPrincipalName: guest
           ? `${local}_partner.example#EXT#@contoso-fake.onmicrosoft.com`
           : `${local}@${SEED_DOMAIN}`,
@@ -265,7 +269,11 @@ export function seedDirectory(
     const topic = GROUP_TOPICS[index % GROUP_TOPICS.length] as string;
     const tag = String(index + 1).padStart(3, '0');
     const slot = index % 10;
-    const base = { displayName: `${topic} ${tag}`, mailNickname: `${ascii(topic)}${tag}` };
+    const base = {
+      id: fakeGuid('seed-group', index + 1),
+      displayName: `${topic} ${tag}`,
+      mailNickname: `${ascii(topic)}${tag}`,
+    };
     let group: GroupRecord;
     if (slot < 3) {
       // Microsoft 365 group.
