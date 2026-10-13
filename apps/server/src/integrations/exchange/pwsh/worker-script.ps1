@@ -85,11 +85,27 @@ function Send-Ok {
 }
 
 function Send-Failure {
-    param([string] $Id, [string] $Code, [int] $RetryAfterMs = -1, [int] $Aadsts = 0)
+    param([string] $Id, [string] $Code, [int] $RetryAfterMs = -1, [int] $Aadsts = 0, $Record = $null)
     $failure = [ordered]@{ code = $Code }
     if ($RetryAfterMs -ge 0) { $failure['retryAfterMs'] = $RetryAfterMs }
     # GD1-0 Amendment 2: the NUMBER of an Entra AADSTS code (digits only), never the text around it.
     if ($Aadsts -gt 0) { $failure['aadsts'] = $Aadsts }
+    # GD1-0 Amendment 3: type name and error id only, filtered to [A-Za-z0-9_.]; never message text.
+    if ($null -ne $Record) {
+        $detail = [ordered]@{}
+        try {
+            $inner = $Record.Exception
+            $depth = 0
+            while ($null -ne $inner -and $null -ne $inner.InnerException -and $depth -lt 6) { $inner = $inner.InnerException; $depth++ }
+            if ($null -ne $inner) {
+                $type = [string] $inner.GetType().FullName
+                if ($type -match '^[A-Za-z0-9_.]{1,120}$') { $detail['type'] = $type }
+            }
+            $errorId = ([string] $Record.FullyQualifiedErrorId).Split(',')[0]
+            if ($errorId -match '^[A-Za-z0-9_.]{1,120}$') { $detail['errorId'] = $errorId }
+        } catch { $null = $_ }
+        if ($detail.Count -gt 0) { $failure['detail'] = $detail }
+    }
     Send-Line ([ordered]@{ v = $script:ProtocolVersion; id = $Id; ok = $false; error = $failure })
 }
 
@@ -164,12 +180,12 @@ function Get-AadstsNumber {
 function Send-ConnectFailure {
     param([string] $Id, [System.Management.Automation.ErrorRecord] $Record)
     $aadsts = Get-AadstsNumber (Get-ExceptionText $Record)
-    if ($aadsts -gt 0) { Send-Failure -Id $Id -Code 'permission_denied' -Aadsts $aadsts; return }
+    if ($aadsts -gt 0) { Send-Failure -Id $Id -Code 'permission_denied' -Aadsts $aadsts -Record $Record; return }
     $code = Get-ErrorCode $Record
     if (@('throttled', 'timeout', 'role_pending', 'permission_denied', 'invalid_argument') -notcontains $code) { $code = 'internal' }
     $retry = -1
     if ($code -eq 'throttled' -and $null -ne $Record.Exception) { $retry = Get-RetryAfterMs ([string] $Record.Exception.Message) }
-    Send-Failure -Id $Id -Code $code -RetryAfterMs $retry
+    Send-Failure -Id $Id -Code $code -RetryAfterMs $retry -Record $Record
 }
 
 function Send-ErrorRecord {
@@ -177,7 +193,7 @@ function Send-ErrorRecord {
     $code = Get-ErrorCode $Record
     $retry = -1
     if ($code -eq 'throttled' -and $null -ne $Record.Exception) { $retry = Get-RetryAfterMs ([string] $Record.Exception.Message) }
-    Send-Failure -Id $Id -Code $code -RetryAfterMs $retry
+    Send-Failure -Id $Id -Code $code -RetryAfterMs $retry -Record $Record
 }
 
 # ------------------------------------------------------------------------------------------------

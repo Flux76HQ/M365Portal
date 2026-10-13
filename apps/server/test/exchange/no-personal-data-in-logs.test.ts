@@ -29,6 +29,9 @@ const ALLOWED_KEYS = new Set([
   'signal',
   'stderrClass',
   'aadsts',
+  'result',
+  'errorType',
+  'errorId',
 ]);
 const OUTCOMES = new Set([
   'ok',
