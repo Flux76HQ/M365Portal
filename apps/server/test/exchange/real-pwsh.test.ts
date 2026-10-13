@@ -523,6 +523,27 @@ describe.skipIf(!hasPwsh)(
     }, 60_000);
 
     describe('a worker never dies of a cmdlet failure (0.3.63 diagnosis)', () => {
+      it('turns an error text into words of a closed list and HTTP numbers, and none of the text (Amendment 4)', () => {
+        const source = readFileSync(
+          join(
+            dirname(fileURLToPath(import.meta.url)),
+            '../../src/integrations/exchange/pwsh/worker-script.ps1',
+          ),
+          'utf8',
+        );
+        const from = source.indexOf('function Get-ExceptionText');
+        const to = source.indexOf('# The AADSTS number');
+        expect(from).toBeGreaterThan(0);
+        const script = `${source.slice(from, to)}
+try { Write-Error 'The role assigned to application CANARYNAME is not supported (HTTP 403) for canary.address@canary-zone.example' -ErrorAction Stop } catch { (Get-ErrorHints $_) -join ',' }`;
+        const run = spawnSync(PWSH, ['-NoProfile', '-NonInteractive', '-Command', script], {
+          encoding: 'utf8',
+          env: { PATH: process.env.PATH ?? '', HOME: tmpdir() },
+        });
+        expect(run.stdout.trim()).toBe('role,assigned,application,supported,http_403');
+        expect(run.stdout).not.toMatch(/CANARY|canary/i);
+      }, 60_000);
+
       /** The worker script driven by hand: lines in, lines out, the exit record, stderr kept for the assertions only. */
       async function drive(
         lines: readonly string[],

@@ -104,6 +104,8 @@ function Send-Failure {
             $errorId = ([string] $Record.FullyQualifiedErrorId).Split(',')[0]
             if ($errorId -match '^[A-Za-z0-9_.]{1,120}$') { $detail['errorId'] = $errorId }
         } catch { $null = $_ }
+        $hintList = @(Get-ErrorHints $Record)
+        if ($hintList.Count -gt 0) { $detail['hints'] = $hintList }
         if ($detail.Count -gt 0) { $failure['detail'] = $detail }
     }
     Send-Line ([ordered]@{ v = $script:ProtocolVersion; id = $Id; ok = $false; error = $failure })
@@ -164,6 +166,27 @@ function Get-ExceptionText {
     }
     $parts.Add([string] $Record.FullyQualifiedErrorId)
     return ($parts -join ' ')
+}
+
+
+# GD1-0 Amendment 4: which words of a CLOSED list the error text contains, plus HTTP status numbers (400 to 599).
+# The words come from this list, never from the text, so no free text leaves the worker (FR-D-107).
+$script:HintWords = @('role', 'roles', 'assigned', 'permission', 'unauthorized', 'forbidden', 'denied', 'consent', 'application', 'scenario', 'supported', 'tenant', 'organization', 'domain', 'token', 'expired', 'certificate', 'parameter', 'null', 'proxy', 'module', 'session', 'connection', 'throttled', 'timeout', 'license', 'mailbox', 'scope', 'rbac', 'management', 'administrator', 'version', 'rest', 'request', 'invalid', 'authentication', 'authorization', 'resultsize', 'filter', 'cmdlet', 'serialization', 'json')
+function Get-ErrorHints {
+    param([System.Management.Automation.ErrorRecord] $Record)
+    $hints = [System.Collections.Generic.List[string]]::new()
+    try {
+        $text = Get-ExceptionText $Record
+        foreach ($word in $script:HintWords) {
+            if ($hints.Count -ge 12) { break }
+            if ($text -match ('(?i)\b' + $word + '\b')) { $hints.Add($word) }
+        }
+        foreach ($match in [regex]::Matches($text, '(?<![0-9])([45][0-9]{2})(?![0-9])')) {
+            if ($hints.Count -ge 16) { break }
+            $hints.Add('http_' + $match.Groups[1].Value)
+        }
+    } catch { $null = $_ }
+    return $hints.ToArray()
 }
 
 # The AADSTS number of a refusal by the sign-in service, or 0. The module's own message starts with a fixed

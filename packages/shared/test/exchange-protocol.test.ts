@@ -183,6 +183,8 @@ describe('responses', () => {
     ).toBe(true);
     expect(answer({ code: 'internal', detail: { type: 'has a space' } })).toBe(false);
     expect(answer({ code: 'internal', detail: { message: 'text' } })).toBe(false);
+    expect(answer({ code: 'internal', detail: { hints: ['role', 'http_403'] } })).toBe(true);
+    expect(answer({ code: 'internal', detail: { hints: ['Has Space'] } })).toBe(false);
   });
 
   it('refuses free-text error messages, unknown codes and a mix of data and error (FR-D-107)', () => {
