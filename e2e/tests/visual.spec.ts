@@ -13,9 +13,15 @@
 // than the box of "Version 0.2.37", so a VERSION bump used to move the edge of the mask and fail
 // every desktop baseline by one pixel column (gate note G4, OP-2).
 import type { Page, TestInfo } from '@playwright/test';
-import { expect, test } from '../fixtures.js';
+import { expect, fakeOf, test } from '../fixtures.js';
 import { restoreDefaults } from '../branding-helpers.js';
-import { NO_ACCESS_STATES, SIGNIN_ERROR_STATES, WIZARD_STATES } from '../routes.js';
+import { pathOfState, seedDirectoryOnly } from '../fixtures/directory.js';
+import {
+  DIRECTORY_STATES,
+  NO_ACCESS_STATES,
+  SIGNIN_ERROR_STATES,
+  WIZARD_STATES,
+} from '../routes.js';
 import { allowStaleCsrfAfterUnlock } from '../support/wizard-page.js';
 import { reachWizardState } from '../support/wizard-states.js';
 
@@ -255,6 +261,49 @@ test.describe('Phase B: /setup (empty instance B)', () => {
       // content change touches). The per-pixel threshold stays 0, and 120 stays below the 132 pixels of the
       // real change that the Phase A rule was made for. Every other screenshot keeps `maxDiffPixels: 0`.
       await shoot(page, `setup-${state}`, testInfo, { fullPage: false, maxDiffPixels: 120 });
+    });
+  }
+});
+
+// ---- Phase C (T-C-064, FR-C-507): users and groups ---------------------------------------------------------------
+// `/users` (loaded, empty), `/users/$id`, `/groups` (loaded) and `/groups/$id` with a hidden membership, light
+// and dark, desktop and mobile (the states with `visual: true` in `DIRECTORY_STATES`). The same rules as above.
+// What keeps the pictures the same from run to run: the directory is the seeded one (`seedDirectory` is
+// deterministic, the same names, departments and memberships in every run); the shots are of the viewport
+// from the top of the page (a list of 1,200 users is not a page of a fixed length, and the browser may
+// scroll the page by a pixel when the focus moves); the version is pinned and masked, as are the times. The
+// baselines are NOT made here: they are taken from the artefact of the first CI run, as for Phase B, so each of
+// these tests fails with "A snapshot doesn't exist" until then.
+
+test.describe('Phase C: users and groups (owner, seeded directory)', () => {
+  let seeded: Awaited<ReturnType<typeof seedDirectoryOnly>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedDirectoryOnly();
+  });
+
+  test.afterAll(async () => {
+    await seeded.destroy();
+  });
+
+  for (const state of DIRECTORY_STATES.filter((entry) => entry.visual === true)) {
+    test(state.slug, async ({ page, app }, testInfo) => {
+      test.skip(testInfo.project.name === 'ultrawide', 'one ultrawide screenshot: the Dashboard');
+      try {
+        // U66: the manager of the user is shown (the default of the fake tenant refuses the call).
+        if (state.managerForApps !== undefined) await fakeOf().managerForApps(state.managerForApps);
+        await prepare(page, pathOfState(seeded.facts, state), app);
+        await page.waitForLoadState('networkidle');
+        await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+        await page.evaluate(() => {
+          for (const element of [document.scrollingElement, ...document.querySelectorAll('*')]) {
+            if (element !== null && element.scrollTop !== 0) element.scrollTop = 0;
+          }
+        });
+        await shoot(page, state.slug, testInfo, { fullPage: false });
+      } finally {
+        await fakeOf().managerForApps('refused');
+      }
     });
   }
 });

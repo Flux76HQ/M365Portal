@@ -35,7 +35,10 @@ import {
 import { exchangeModule } from '../../apps/server/test/fakes/fake-tenant/exchange/module.js';
 import {
   createFakeGraph,
+  describeSeed,
+  seedDirectory,
   type FakeGraph,
+  type SeededDirectory,
 } from '../../apps/server/test/fakes/fake-tenant/graph/index.js';
 import {
   createFakeTenant,
@@ -87,6 +90,80 @@ function createScene(): Scene {
 }
 
 const scenes: Record<TenantKey, Scene> = { a: createScene(), b: createScene() };
+
+// ---- the seeded directory (T-C-060) ---------------------------------------------------------------
+
+interface SeedHold {
+  readonly seeded: SeededDirectory;
+  /** The ids that existed before the seed, so that `directory.unseed` removes only what it added. */
+  readonly before: {
+    readonly users: ReadonlySet<string>;
+    readonly groups: ReadonlySet<string>;
+    readonly others: ReadonlySet<string>;
+  };
+}
+
+const seededDirectories = new WeakMap<Scene, SeedHold>();
+
+/** What a spec needs to know about the seeded directory; computed here, from the rows themselves. */
+function seedSummary(scene: Scene) {
+  const { directory } = scene.graph;
+  let held = seededDirectories.get(scene);
+  if (held === undefined) {
+    const before = {
+      users: new Set(directory.users.keys()),
+      groups: new Set(directory.groups.keys()),
+      others: new Set(directory.otherObjects.keys()),
+    };
+    held = { seeded: seedDirectory(directory), before };
+    seededDirectories.set(scene, held);
+  }
+  const { seeded } = held;
+  const users = [...directory.users.values()];
+  const named = (id: string) => {
+    const user = directory.users.get(id);
+    const group = directory.groups.get(id);
+    return {
+      id,
+      displayName: user?.displayName ?? group?.displayName ?? null,
+      mail: user?.mail ?? group?.mail ?? null,
+    };
+  };
+  const inFinance = (id: string | null | undefined): boolean =>
+    id !== null && id !== undefined && directory.users.get(id)?.department === 'Finance';
+  const finance = users.filter((user) => user.department === 'Finance');
+  const withOutsideManager = finance.find(
+    (user) => user.managerId !== null && !inFinance(user.managerId),
+  );
+  const outside = users.find(
+    (user) => user.department === 'Sales' && user.id !== seeded.ids.noManagerUser,
+  );
+  return {
+    note: describeSeed(seeded),
+    ids: seeded.ids,
+    named: Object.fromEntries(Object.entries(seeded.ids).map(([key, id]) => [key, named(id)])),
+    counts: {
+      users: users.length,
+      groups: directory.groups.size,
+      finance: finance.length,
+      disabled: users.filter((user) => user.accountEnabled === false).length,
+      enabled: users.filter((user) => user.accountEnabled !== false).length,
+      guests: users.filter((user) => user.userType === 'Guest').length,
+      members: users.filter((user) => user.userType === 'Member').length,
+      m365: seeded.kinds.m365.length,
+      security: seeded.kinds.security.length,
+      mailsecurity: seeded.kinds.mailsecurity.length,
+      distribution: seeded.kinds.distribution.length,
+    },
+    /** A Finance user whose manager is outside Finance: a restricted manager for a Finance-scoped actor. */
+    financeUserWithOutsideManager:
+      withOutsideManager === undefined ? null : named(withOutsideManager.id),
+    /** A user outside Finance (Sales): the scoped actor gets a 403 on its id. */
+    outsideUser: outside === undefined ? null : named(outside.id),
+    /** A user of Finance. */
+    financeUser: finance[0] === undefined ? null : named(finance[0].id),
+  };
+}
 
 // ---- the control surface ------------------------------------------------------------------------
 
@@ -158,7 +235,38 @@ export const FAKE_OPERATIONS: Readonly<Record<string, Operation>> = {
   /** Back to the initial tenant: the people of `principals.ts`, nothing else. */
   reset(scene) {
     scene.tenant.reset();
+    seededDirectories.delete(scene);
     seed(scene);
+    return null;
+  },
+  // ---- the seeded directory of Phase C (FR-C-601, T-C-060) ---------------------------------------
+  /** Adds the 1,200 users and 150 groups of `seedDirectory`; a second call returns the first answer. */
+  'directory.seed': (scene) => seedSummary(scene),
+  /** Takes the seeded rows out again, so that the shared tenant is what it was (other specs rely on it). */
+  'directory.unseed': (scene) => {
+    const held = seededDirectories.get(scene);
+    if (held === undefined) return null;
+    const { directory } = scene.graph;
+    for (const id of [...directory.users.keys()])
+      if (!held.before.users.has(id)) directory.users.delete(id);
+    for (const id of [...directory.groups.keys()])
+      if (!held.before.groups.has(id)) directory.groups.delete(id);
+    for (const id of [...directory.otherObjects.keys()])
+      if (!held.before.others.has(id)) directory.otherObjects.delete(id);
+    seededDirectories.delete(scene);
+    return null;
+  },
+  // U66, U67, U36: the switches of the fake Graph that the directory specs turn.
+  'graph.managerForApps': (scene, args) => {
+    scene.graph.control.managerForApps(args.mode === 'allowed' ? 'allowed' : 'refused');
+    return null;
+  },
+  'graph.hiddenMembersRefused': (scene, args) => {
+    scene.graph.control.hiddenMembersRefused(args.on !== false);
+    return null;
+  },
+  'graph.omitGroupProperties': (scene, args) => {
+    scene.graph.control.omitGroupProperties(args.on === true);
     return null;
   },
   // ---- sign-in -----------------------------------------------------------------------------------

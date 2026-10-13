@@ -78,3 +78,55 @@ export function expireAssignmentsOf(dataDir: string, oid: string): number {
     database.close();
   }
 }
+
+export interface DirectGrant {
+  readonly permission: string;
+  /** `basic` exists on `users:read` only; none is the full form. */
+  readonly qualifier?: 'basic';
+}
+
+/**
+ * Adds an assignable custom role with the given grants, bypassing the API. The API cannot make a role with
+ * the qualifier `basic` in Phase C (the template "board" is not assignable until Phase D), and the e2e
+ * specs of the directory need an actor who sees users as name and address only (US-C5).
+ */
+export function insertCustomRole(
+  dataDir: string,
+  key: string,
+  grants: readonly DirectGrant[],
+): void {
+  const database = open(dataDir);
+  try {
+    database.exec('BEGIN IMMEDIATE');
+    const created = database
+      .prepare(
+        'INSERT INTO rbac_role (key, builtin, assignable, created_at) VALUES (?, 0, 1, ?) RETURNING id',
+      )
+      .get(key, new Date().toISOString()) as { id: number };
+    const insert = database.prepare(
+      'INSERT INTO rbac_role_permission (role_id, permission, qualifier) VALUES (?, ?, ?)',
+    );
+    for (const grant of grants) insert.run(created.id, grant.permission, grant.qualifier ?? '');
+    database.exec('COMMIT');
+  } catch (failure) {
+    database.exec('ROLLBACK');
+    throw failure;
+  } finally {
+    database.close();
+  }
+}
+
+/** Removes the assignments of a role and then the role itself (a custom role made by `insertCustomRole`). */
+export function deleteCustomRole(dataDir: string, key: string): void {
+  const database = open(dataDir);
+  try {
+    const role = database
+      .prepare('SELECT id FROM rbac_role WHERE key = ? AND builtin = 0')
+      .get(key) as { id: number } | undefined;
+    if (role === undefined) return;
+    database.prepare('DELETE FROM rbac_assignment WHERE role_id = ?').run(role.id);
+    database.prepare('DELETE FROM rbac_role WHERE id = ?').run(role.id);
+  } finally {
+    database.close();
+  }
+}

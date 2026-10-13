@@ -5,6 +5,7 @@
 // line only, never to a file or a log.
 import { readFileSync } from 'node:fs';
 import globalTeardown from '../global-teardown.js';
+import { fakeControl } from '../support/fake-control.js';
 import globalSetup, { storageStateFile } from '../support/global-setup.js';
 import { originOf } from '../support/ports.js';
 import { statesDir } from '../servers.js';
@@ -20,8 +21,15 @@ async function main(): Promise<void> {
     cookies: StoredCookie[];
   };
   const cookie = stored.cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+  // Phase C (FR-C-508): the seeded directory, so that /users and /groups are measured with a full page of
+  // rows, and one user and one group (with owners and members) give the detail pages their addresses.
+  const seeded = await fakeControl('a').seedDirectory();
+  const directory = {
+    user: seeded.ids.userWithManager ?? null,
+    group: seeded.ids.m365Group ?? null,
+  };
   process.stdout.write(
-    `${JSON.stringify({ a: originOf('a'), b: originOf('b'), ownerCookie: cookie })}\n`,
+    `${JSON.stringify({ a: originOf('a'), b: originOf('b'), ownerCookie: cookie, directory })}\n`,
   );
   let stopping = false;
   const stop = (): void => {

@@ -10,7 +10,10 @@ import { AxeBuilder } from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { isWaived, loadWaivers, readWaiverFile, todayUtc } from '../axe-waivers.js';
+import { createDirectoryWorld, type DirectoryWorld } from '../fixtures/directory.js';
+import { resetDirectorySwitches, visitState } from '../fixtures/directory-page.js';
 import {
+  DIRECTORY_STATES,
   NO_ACCESS_STATES,
   ROUTES,
   SETTINGS_STATES,
@@ -185,6 +188,42 @@ test.describe('axe on the new routes and states', () => {
       expect(await scan(page, '/settings/restore-access')).toEqual([]);
     });
   });
+});
+
+// ---- Phase C (T-C-063, FR-C-506): users and groups, every state, light and dark, desktop and phone ------------
+// The seeded directory and the three actors of `fixtures/directory.ts`; the states are the data of
+// `DIRECTORY_STATES` (loaded, empty, filtered, error, restricted rows, hidden membership, a basic actor, a
+// manager that is not available, an object outside the scope or that does not exist).
+
+test.describe('axe on the users and groups pages and states', () => {
+  let world: DirectoryWorld;
+
+  test.beforeAll(async ({ browser }) => {
+    test.setTimeout(120_000);
+    world = await createDirectoryWorld(browser);
+  });
+
+  test.afterAll(async () => {
+    await world.destroy();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+  });
+
+  test.afterEach(async () => {
+    await resetDirectorySwitches();
+  });
+
+  for (const state of DIRECTORY_STATES) {
+    test(`${state.slug} has no violations`, async ({ page, app, guard }) => {
+      test.setTimeout(90_000);
+      await visitState({ page, app, guard }, world, state);
+      const route = state.route ?? (state.path ?? '/users').split('?')[0] ?? '/users';
+      await settle(page, route);
+      expect(await scan(page, route)).toEqual([]);
+    });
+  }
 });
 
 test.describe('axe on open overlays', () => {

@@ -306,25 +306,25 @@ XC1 `apps/server/src/modules.ts` append factory (T-C-024). XC2 `ports/graph.ts` 
 
 ## 5. S-C4 e2e, docs, verification (T-C-060 to T-C-071, T-C-999)
 
-- [ ] **T-C-060** e2e fixtures: actors and the seeded directory (FR-C-602)
+- [x] **T-C-060** e2e fixtures: actors and the seeded directory (FR-C-602)
   - Files: `e2e/fixtures/directory.ts`
   - Needs: GC1, GC2
   - Test first: `e2e/fixtures.unit.test.ts` (an actor with a department scope and one with `basic` are created through the real RBAC API)
   - Done when: three actors available (full, department-scoped, basic)
 
-- [ ] **T-C-061** Users e2e (FR-C-602, US-C1, US-C2, US-C4, US-C5)
+- [x] **T-C-061** Users e2e (FR-C-602, US-C1, US-C2, US-C4, US-C5)
   - Files: `e2e/tests/users.spec.ts`
   - Needs: T-C-060
   - Test first: the spec (search, filter, paging to the end of 1,200, detail, manager unavailable, outside user 403 page, `basic` view)
   - Done when: green on the three-process topology
 
-- [ ] **T-C-062** Groups e2e (FR-C-602, US-C3, US-C6)
+- [x] **T-C-062** Groups e2e (FR-C-602, US-C3, US-C6)
   - Files: `e2e/tests/groups.spec.ts`
   - Needs: T-C-060
   - Test first: the spec (four kinds, 250 members paged, hidden membership, restricted rows for a scoped actor)
   - Done when: green
 
-- [ ] **T-C-063** [P] a11y and keyboard route lists (FR-C-506)
+- [x] **T-C-063** [P] a11y and keyboard route lists (FR-C-506)
   - Files: `e2e/tests/a11y.spec.ts`, `e2e/tests/keyboard.spec.ts` (list extensions)
   - Needs: T-C-061, T-C-062
   - Test first: the specs with the four routes and the states
@@ -336,25 +336,25 @@ XC1 `apps/server/src/modules.ts` append factory (T-C-024). XC2 `ports/graph.ts` 
   - Test first: the spec; **baselines are taken from the CI runner artefact only, never in the sandbox**
   - Done when: spec committed; baselines added from the CI artefact by the orchestrator
 
-- [ ] **T-C-065** [P] Lighthouse route list, reported not gated (FR-C-508)
+- [x] **T-C-065** [P] Lighthouse route list, reported not gated (FR-C-508)
   - Files: `e2e/lighthouse/run.mjs` (route list only)
   - Needs: T-C-061
   - Test first: the Lighthouse step runs and reports; no threshold gate is added
   - Done when: the report lists `/users` and `/groups`; the owner group is informed in the gate note
 
-- [ ] **T-C-066** [P] `docs/permissions.md` and the Connection text (FR-C-105, FR-C-603) (XC9)
+- [x] **T-C-066** [P] `docs/permissions.md` and the Connection text (FR-C-105, FR-C-603) (XC9)
   - Files: `docs/permissions.md`
   - Needs: GC0
   - Test first: `server/docs-contract.test.ts`
   - Done when: Phase C reads listed per route; `GroupMember.ReadWrite.All` marked "granted, unused in Phase C"; deferred list stated; Dutch and English
 
-- [ ] **T-C-067** [P] API, limits, README, ADR (FR-C-603, FR-C-604) (XC9)
+- [x] **T-C-067** [P] API, limits, README, ADR (FR-C-603, FR-C-604) (XC9)
   - Files: `docs/operations.md` (limits table rows), `docs/api.md` or the OpenAPI section, `README.md` (feature list, both languages), `docs/adr/0179-directory-cursor-store-and-restricted-rows.md`
   - Needs: GC1
   - Test first: `server/limits-doc.test.ts`, `server/docs-contract.test.ts`
   - Done when: limits table matches `LIMITS.directory`; the PR note "no deployment-file changes" is prepared
 
-- [ ] **T-C-068** [P] Owner test sheet (spec 8.4)
+- [x] **T-C-068** [P] Owner test sheet (spec 8.4)
   - Files: `docs/owner-test-phase-c.md`
   - Needs: GC2
   - Test first: `server/docs-contract.test.ts` (file exists, lists OV-C1 to OV-C6)

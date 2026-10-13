@@ -11,6 +11,9 @@
 //             Practices >= 95, LCP < 2.0 s, CLS <= 0.01).
 //   a-owner   A with the Owner's session cookie (sent as a header): every signed-in page. REPORTED,
 //             not gated: the numbers are printed and kept, a miss is a note and never a failure.
+//             Phase C (FR-C-508): the directory is seeded (1,200 users, 150 groups), so /users and /groups
+//             show a full page, and the pages of one user and of one Microsoft 365 group are in the list
+//             (/users/<id>, /groups/<id>). All four are REPORTED, none is gated.
 // A cell is measured once; ONLY a timing miss is measured again (at most three runs in all), every
 // measurement is kept as an artefact, and judge.mjs decides (first run for status, payload and the
 // category scores, the cleanest run for LCP and CLS). Exit code 1 when a gated cell fails.
@@ -191,6 +194,11 @@ function groupsOf(topology, routesOf) {
   const signedIn = routesOf.filter(
     (route) => !['/signin', '/setup', '/break-glass', '/no-access'].includes(route),
   );
+  // The detail pages of Phase C have the address of a seeded row; the topology tells which (FR-C-508).
+  const directoryPages = [
+    topology.directory?.user ? [`/users/${topology.directory.user}`, ''] : null,
+    topology.directory?.group ? [`/groups/${topology.directory.group}`, ''] : null,
+  ].filter((page) => page !== null);
   return {
     'a-public': {
       origin: topology.a,
@@ -206,7 +214,7 @@ function groupsOf(topology, routesOf) {
       origin: topology.a,
       gated: false,
       headers: { Cookie: topology.ownerCookie },
-      pages: signedIn.map((route) => [route, '']),
+      pages: [...signedIn.map((route) => [route, '']), ...directoryPages],
     },
   };
 }
