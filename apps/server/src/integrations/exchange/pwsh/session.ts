@@ -115,6 +115,8 @@ interface Worker {
   readonly scratchDir: string | undefined;
   calls: number;
   alive: boolean;
+  /** Set when the session itself asked the worker to leave (`shutdown`): its exit is not a crash. */
+  stopping: boolean;
   pending: Pending | undefined;
 }
 
@@ -315,6 +317,7 @@ export class ExchangeWorkerSession implements ExchangeSession {
       scratchDir,
       calls: 0,
       alive: true,
+      stopping: false,
       pending: undefined,
     };
     this.#worker = worker;
@@ -333,6 +336,17 @@ export class ExchangeWorkerSession implements ExchangeSession {
     }
     if (!hello.ok) {
       this.#kill(worker);
+      // A code of the closed list and, for a refusal of the sign-in service, the number of its AADSTS code
+      // (digits only): enough to tell a missing consent or role from another fault, and no text (FR-D-107).
+      this.#deps.log?.warn(
+        {
+          event: 'exchange_worker',
+          reason: 'connect_refused',
+          code: hello.error.code,
+          aadsts: hello.error.aadsts ?? null,
+        },
+        'exchange worker connect refused',
+      );
       throw connectError(hello.error.code, hello.error.retryAfterMs);
     }
     const data = hello.data;
@@ -378,8 +392,34 @@ export class ExchangeWorkerSession implements ExchangeSession {
     worker.process.onData((chunk) => {
       onItems(decoder.push(chunk));
     });
-    worker.process.onExit(() => {
+    worker.process.onExit((exit) => {
       onItems(decoder.flush());
+      // Once per worker: how the process ended, as numbers and a word of a closed list, never its text.
+      // A crash (nobody asked it to end) is a warning; a stop or a kill by this session is a debug line.
+      const expected = !worker.alive || worker.stopping;
+      if (expected) {
+        this.#deps.log?.debug(
+          {
+            event: 'exchange_worker',
+            reason: 'exited',
+            exitCode: exit.exitCode,
+            signal: exit.signal,
+            stderrClass: exit.stderrClass,
+          },
+          'exchange worker exited',
+        );
+      } else {
+        this.#deps.log?.warn(
+          {
+            event: 'exchange_worker',
+            reason: 'exited',
+            exitCode: exit.exitCode,
+            signal: exit.signal,
+            stderrClass: exit.stderrClass,
+          },
+          'exchange worker crashed',
+        );
+      }
       worker.alive = false;
       if (worker.scratchDir !== undefined) this.#scratch?.remove(worker.scratchDir);
       const pending = worker.pending;
@@ -440,8 +480,11 @@ export class ExchangeWorkerSession implements ExchangeSession {
   /** `shutdown`, close stdin, wait for the exit; kill after the grace period. */
   async #stop(worker: Worker, reason: 'recycled' | 'closed'): Promise<void> {
     if (worker.alive) {
+      worker.stopping = true;
       const exited = new Promise<void>((resolve) => {
-        worker.process.onExit(resolve);
+        worker.process.onExit(() => {
+          resolve();
+        });
       });
       const grace = new Promise<void>((resolve) => {
         const timer = this.#deps.scheduler.setTimeout(() => {

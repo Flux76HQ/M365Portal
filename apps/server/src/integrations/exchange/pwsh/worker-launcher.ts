@@ -11,11 +11,22 @@
 //   - the command line holds the script path, the certificate mode and, for the fallback, the scratch
 //     directory: never the certificate, a password or a tenant name;
 //   - stdout is read as UTF-8 (a multi-byte character may arrive in two chunks), stdin is written
-//     line by line, and STDERR IS THROWN AWAY: a PowerShell error text can hold a name or an address.
+//     line by line, and STDERR NEVER LEAVES THIS FILE: a PowerShell error text can hold a name or an
+//     address. The last 2 KB are read once, when the process has ended, into ONE word of a closed list
+//     (exit-classification.ts) that the session may log; the text itself is dropped.
 import { mkdirSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { posix } from 'node:path';
+import {
+  STDERR_TAIL_CHARS,
+  classifySpawnError,
+  classifyStderr,
+  safeSignal,
+  type WorkerExit,
+} from './exit-classification.js';
 import type { CertificateMode } from './key-handover.js';
+
+export type { WorkerExit } from './exit-classification.js';
 
 export interface WorkerLaunchOptions {
   readonly certificateMode: CertificateMode;
@@ -29,8 +40,8 @@ export interface WorkerProcess {
   write(line: string): void;
   /** Called with each chunk of stdout, as text. */
   onData(listener: (chunk: string) => void): void;
-  /** Called once when the process has ended, however it ended (also at once if it already had). */
-  onExit(listener: () => void): void;
+  /** Called once when the process has ended, however it ended (also at once if it already had), with how it ended. */
+  onExit(listener: (exit: WorkerExit) => void): void;
   /** Closes stdin: the worker finishes what it reads and leaves. */
   end(): void;
   /** Ends the process at once and for good. Idempotent. */
@@ -157,7 +168,7 @@ export function createNodeWorkerLauncher(options: NodeWorkerLauncherOptions): Wo
         });
       const child = spawn(options.command, args, {
         shell: false,
-        stdio: ['pipe', 'pipe', 'ignore'],
+        stdio: ['pipe', 'pipe', 'pipe'],
         env: {
           ...buildWorkerEnvironment(options.parentEnv, { homeDir: options.homeDir }),
           ...options.extraEnv,
@@ -170,16 +181,47 @@ export function createNodeWorkerLauncher(options: NodeWorkerLauncherOptions): Wo
       child.stdin.on('error', () => undefined);
       child.stdout.on('error', () => undefined);
 
+      // stderr is drained (a full pipe would stop the worker) but only its tail is kept, and only to be classified.
+      let stderrTail = '';
+      child.stderr.setEncoding('utf8');
+      child.stderr.on('data', (chunk: string) => {
+        stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_CHARS);
+      });
+      child.stderr.on('error', () => undefined);
+
       let exited = false;
-      const exitListeners: (() => void)[] = [];
-      const finish = (): void => {
-        if (exited) return;
-        exited = true;
-        for (const listener of exitListeners.splice(0)) listener();
+      let ended = false;
+      let result: WorkerExit | undefined;
+      const exitListeners: ((exit: WorkerExit) => void)[] = [];
+      const finish = (exit: WorkerExit): void => {
+        if (ended) return;
+        ended = true;
+        result = exit;
+        stderrTail = '';
+        for (const listener of exitListeners.splice(0)) listener(exit);
       };
-      child.on('exit', finish);
-      child.on('close', finish);
-      child.on('error', finish);
+      let exitCode: number | null = null;
+      let signal: string | null = null;
+      // 'exit' comes before the pipes are drained: the record is made at 'close', when all of stderr is read.
+      // (A call that waits for a worker that never closes its pipes is still ended by its own deadline.)
+      const done = (): void => {
+        finish({ exitCode, signal, stderrClass: classifyStderr(stderrTail) });
+      };
+      child.on('exit', (code, sig) => {
+        exited = true;
+        exitCode = code;
+        signal = safeSignal(sig);
+      });
+      child.on('close', (code, sig) => {
+        exited = true;
+        exitCode ??= code;
+        signal ??= safeSignal(sig);
+        done();
+      });
+      child.on('error', (error: NodeJS.ErrnoException) => {
+        exited = true;
+        finish({ exitCode: null, signal: null, stderrClass: classifySpawnError(error.code) });
+      });
 
       return {
         write(line) {
@@ -191,7 +233,7 @@ export function createNodeWorkerLauncher(options: NodeWorkerLauncherOptions): Wo
           });
         },
         onExit(listener) {
-          if (exited) listener();
+          if (result !== undefined) listener(result);
           else exitListeners.push(listener);
         },
         end() {

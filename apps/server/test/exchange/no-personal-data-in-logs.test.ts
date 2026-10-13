@@ -25,6 +25,10 @@ const ALLOWED_KEYS = new Set([
   'waitMs',
   'code',
   'launches',
+  'exitCode',
+  'signal',
+  'stderrClass',
+  'aadsts',
 ]);
 const OUTCOMES = new Set([
   'ok',

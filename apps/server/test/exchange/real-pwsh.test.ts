@@ -11,7 +11,7 @@
 //
 // It runs where `pwsh` is installed (GitHub-hosted Ubuntu runners have it; the image does) and is
 // skipped elsewhere; `PWSH_PATH` names another binary. It talks to no tenant.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import {
   mkdirSync,
   mkdtempSync,
@@ -22,11 +22,12 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ExchangeCommandError, ExchangeUnavailableError } from '../../src/ports/errors.js';
 import type { ExchangeCredentialSource } from '../../src/integrations/exchange/pwsh/key-handover.js';
+import { resolveCommand } from '../../src/integrations/exchange/runtime.js';
 import { PwshExchangeClient } from '../../src/integrations/exchange/pwsh/pwsh-client.js';
 import { ExchangeWorkerSession } from '../../src/integrations/exchange/pwsh/session.js';
 import {
@@ -78,6 +79,12 @@ function Connect-ExchangeOnline {
     }
     if ($env:FAKE_EXO_LOG) { ConvertTo-Json -InputObject $record -Compress -Depth 6 | Out-File -LiteralPath $env:FAKE_EXO_LOG -Append }
     if ($env:FAKE_EXO_FAIL) { throw 'forced failure for the test' }
+    # The text the real module gives for a wrong application (measured with module 3.10.1): a fixed first
+    # sentence that names AADSTS70011, then the real code, and the English "was not found".
+    if ($env:FAKE_EXO_AADSTS) {
+        throw ('Case when Message contains:AADSTS70011 Invalid scope. The scope has to be of the form "https://resourceUrl/.default"Mitigation: change the scope to be as expectedAADSTS' + $env:FAKE_EXO_AADSTS + ": Application with identifier '" + $AppId + "' was not found in the directory 'Zoe Canary'.")
+    }
+    if ($env:FAKE_EXO_NOTFOUND) { throw "The object 'Zoe Canary' couldn't be found on 'EURPR01A001.prod.outlook.com'." }
 }
 function Disconnect-ExchangeOnline { [CmdletBinding()] param([bool]$Confirm = $true) }
 function Get-OrganizationConfig { [CmdletBinding()] param() [pscustomobject]@{ Name = 'contoso-fake'; Guid = [guid]'11111111-2222-4333-8444-555555555556'; MailTipsLargeAudienceThreshold = 25 } }
@@ -514,5 +521,142 @@ describe.skipIf(!hasPwsh)(
         await session.close();
       }
     }, 60_000);
+
+    describe('a worker never dies of a cmdlet failure (0.3.63 diagnosis)', () => {
+      /** The worker script driven by hand: lines in, lines out, the exit record, stderr kept for the assertions only. */
+      async function drive(
+        lines: readonly string[],
+        extraEnv: Record<string, string> = {},
+        mode: 'memory' | 'tmpfs' = 'memory',
+      ): Promise<{ out: string[]; code: number | null; signal: string | null; err: string }> {
+        const home = join(workdir, `drive-${String(Math.random()).slice(2, 8)}`);
+        mkdirSync(home, { recursive: true });
+        const args = buildWorkerArguments({
+          scriptPath: SCRIPT,
+          certificateMode: mode,
+          ...(mode === 'tmpfs' ? { scratchDir: home } : {}),
+        });
+        const env = {
+          ...buildWorkerEnvironment({}, { homeDir: home }),
+          PSModulePath: modules,
+          ...extraEnv,
+        };
+        const child = spawn(PWSH, args, { env, cwd: home, stdio: ['pipe', 'pipe', 'pipe'] });
+        let out = '';
+        let err = '';
+        child.stdout.setEncoding('utf8');
+        child.stderr.setEncoding('utf8');
+        child.stdout.on('data', (chunk: string) => (out += chunk));
+        child.stderr.on('data', (chunk: string) => (err += chunk));
+        const done = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+          child.on('close', (code, signal) => {
+            resolve({ code, signal });
+          });
+        });
+        for (const line of lines) child.stdin.write(`${line}\n`);
+        child.stdin.end();
+        const { code, signal } = await done;
+        return { out: out.split('\n').filter((l) => l !== ''), code, signal, err };
+      }
+      const ping = (id: string): string => JSON.stringify({ v: 1, type: 'ping', id });
+      const call = (id: string): string =>
+        JSON.stringify({
+          v: 1,
+          type: 'call',
+          id,
+          cmdlet: 'Get-MailContact',
+          args: { ResultSize: 5 },
+          deadlineMs: 30000,
+        });
+
+      it('answers a connect refused by the sign-in service as permission_denied with the AADSTS number, and keeps serving', async () => {
+        const run = await drive([connectLine(), call('call-00001'), ping('ping-0001')], {
+          FAKE_EXO_AADSTS: '700016',
+        });
+        const answers = run.out.map((line) => JSON.parse(line) as Record<string, unknown>);
+        expect(answers[0]).toEqual({
+          v: 1,
+          id: 'connect-0001',
+          ok: false,
+          error: { code: 'permission_denied', aadsts: 700016 },
+        });
+        expect(answers[1]).toMatchObject({
+          id: 'call-00001',
+          ok: false,
+          error: { code: 'not_connected' },
+        });
+        expect(answers[2]).toMatchObject({ id: 'ping-0001', ok: true });
+        // The worker left because stdin ended, not because it crashed.
+        expect(run.code).toBe(0);
+        expect(run.out.join('\n')).not.toMatch(/Canary|was not found|Invalid scope/);
+        expect(run.err).toBe('');
+      }, 60_000);
+
+      it('does not read "was not found" in a sign-in error as a missing object (not_found)', async () => {
+        const run = await drive([connectLine()], { FAKE_EXO_NOTFOUND: '1' });
+        expect(JSON.parse(run.out[0]!)).toMatchObject({ ok: false, error: { code: 'internal' } });
+        expect(run.code).toBe(0);
+      }, 60_000);
+
+      it('answers a failed connect in the tmpfs fallback too, and leaves no file behind', async () => {
+        const run = await drive(
+          [connectLine(), ping('ping-0002')],
+          { FAKE_EXO_AADSTS: '65001' },
+          'tmpfs',
+        );
+        expect(JSON.parse(run.out[0]!)).toMatchObject({
+          error: { code: 'permission_denied', aadsts: 65001 },
+        });
+        expect(JSON.parse(run.out[1]!)).toMatchObject({ ok: true });
+        expect(run.code).toBe(0);
+      }, 60_000);
+
+      it('answers a connect that breaks the shape, a bad json line and an unknown type, and still ends only at the end of stdin', async () => {
+        const run = await drive([
+          '{"v":1,"type":"connect","id":"connect-0002","certificate":"nope"}',
+          'not json at all',
+          JSON.stringify({ v: 1, type: 'launch-missiles', id: 'weird-0001' }),
+          ping('ping-0003'),
+        ]);
+        const answers = run.out.map((line) => JSON.parse(line) as Record<string, unknown>);
+        expect(answers.map((a) => a.ok)).toEqual([false, false, false, true]);
+        expect(run.code).toBe(0);
+      }, 60_000);
+
+      it('is found by the product lookup through the install directory, with no PATH, as in the image', async () => {
+        const bare = mkdtempSync(join(tmpdir(), 'exo-path-'));
+        try {
+          const resolved = resolveCommand('pwsh', bare, [dirname(PWSH)]);
+          // Only meaningful when PWSH is a path of a binary called pwsh.
+          if (basename(PWSH) !== 'pwsh') return;
+          expect(resolved).toBe(PWSH);
+          const { session } = (() => {
+            const launcher = createNodeWorkerLauncher({
+              command: resolved,
+              scriptPath: SCRIPT,
+              homeDir: join(workdir, 'home-lookup'),
+              parentEnv: {},
+              extraEnv: { PSModulePath: modules },
+            });
+            return {
+              session: new ExchangeWorkerSession({
+                launcher,
+                credentials: credentials(),
+                clock: { now: () => Date.now() },
+                scheduler: realScheduler,
+                random: sequenceRandom([0]),
+              }),
+            };
+          })();
+          try {
+            expect(await session.ping()).toBe(true);
+          } finally {
+            await session.close();
+          }
+        } finally {
+          rmSync(bare, { recursive: true, force: true });
+        }
+      }, 60_000);
+    });
   },
 );

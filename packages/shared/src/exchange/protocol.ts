@@ -123,6 +123,9 @@ export const ExchangeResponseSchema = z.discriminatedUnion('ok', [
     error: z.strictObject({
       code: z.enum(EXCHANGE_ERROR_CODES),
       retryAfterMs: z.number().int().min(0).max(3_600_000).optional(),
+      // GD1-0 Amendment 2: the number of an Entra `AADSTS<n>` code when a connect was refused by the
+      // sign-in service. Digits only, never text: it tells a missing consent or role from other faults.
+      aadsts: z.number().int().min(1).max(9_999_999).optional(),
     }),
   }),
 ]);

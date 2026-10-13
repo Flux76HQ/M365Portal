@@ -26,6 +26,7 @@ import {
 } from '../../../../src/integrations/exchange/pwsh/generated-allow-list.js';
 import type {
   WorkerLauncher,
+  WorkerExit,
   WorkerLaunchOptions,
   WorkerProcess,
 } from '../../../../src/integrations/exchange/pwsh/worker-launcher.js';
@@ -59,7 +60,11 @@ export type StandInConnect =
   | 'exit'
   | 'exit-with-file'
   | 'hang-with-file'
-  | { readonly error: ExchangeErrorCode; readonly retryAfterMs?: number }
+  | {
+      readonly error: ExchangeErrorCode;
+      readonly retryAfterMs?: number;
+      readonly aadsts?: number;
+    }
   | { readonly wrongHashes: true };
 
 /** Where the stand-in plays the script's file in the fallback mode. */
@@ -76,8 +81,8 @@ export interface StandInProcess extends WorkerProcess {
   /** What the connect carried, as received (test canaries only; a real log never holds it). */
   certificateSeen: { format: string; certificate: string; privateKey: string } | undefined;
   filesWritten: number;
-  /** The process dies by itself. */
-  crash(): void;
+  /** The process dies by itself (with this exit record; default code 1 and an unknown stderr class). */
+  crash(exit?: Partial<WorkerExit>): void;
 }
 
 export interface StandInLauncher extends WorkerLauncher {
@@ -146,7 +151,8 @@ export function createStandInLauncher(
 
   function createProcess(launchOptions: WorkerLaunchOptions): StandInProcess {
     const dataListeners: ((chunk: string) => void)[] = [];
-    const exitListeners: (() => void)[] = [];
+    const exitListeners: ((exit: WorkerExit) => void)[] = [];
+    let exitRecord: WorkerExit | undefined;
     let connected = false;
     let ignoreShutdown = false;
     let keyPaths: string[] = [];
@@ -167,7 +173,7 @@ export function createStandInLauncher(
         dataListeners.push(listener);
       },
       onExit(listener) {
-        if (process.exited) listener();
+        if (exitRecord !== undefined) listener(exitRecord);
         else exitListeners.push(listener);
       },
       end() {
@@ -179,15 +185,20 @@ export function createStandInLauncher(
         process.killed = true;
         exit();
       },
-      crash() {
-        exit();
+      crash(record) {
+        exit({ exitCode: 1, signal: null, stderrClass: 'unknown', ...record });
       },
     };
 
-    function exit(): void {
+    function exit(
+      record: WorkerExit = process.killed
+        ? { exitCode: null, signal: 'SIGKILL', stderrClass: 'none' }
+        : { exitCode: 0, signal: null, stderrClass: 'none' },
+    ): void {
       if (process.exited) return;
       process.exited = true;
-      for (const listener of exitListeners.splice(0)) listener();
+      exitRecord = record;
+      for (const listener of exitListeners.splice(0)) listener(record);
     }
 
     /** Output reaches the reader a moment later, as a pipe does. */
@@ -216,13 +227,22 @@ export function createStandInLauncher(
     const ok = (id: string, data: unknown, chunk?: number): void => {
       emit(encodeLine({ v: 1, id, ok: true, data }), chunk);
     };
-    const fail = (id: string, code: ExchangeErrorCode, retryAfterMs?: number): void => {
+    const fail = (
+      id: string,
+      code: ExchangeErrorCode,
+      retryAfterMs?: number,
+      aadsts?: number,
+    ): void => {
       emit(
         encodeLine({
           v: 1,
           id,
           ok: false,
-          error: { code, ...(retryAfterMs === undefined ? {} : { retryAfterMs }) },
+          error: {
+            code,
+            ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+            ...(aadsts === undefined ? {} : { aadsts }),
+          },
         }),
       );
     };
@@ -290,7 +310,7 @@ export function createStandInLauncher(
       }
       clean();
       if (typeof mode === 'object' && 'error' in mode) {
-        fail(id, mode.error, mode.retryAfterMs);
+        fail(id, mode.error, mode.retryAfterMs, mode.aadsts);
         return;
       }
       connected = true;

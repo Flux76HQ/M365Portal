@@ -85,9 +85,11 @@ function Send-Ok {
 }
 
 function Send-Failure {
-    param([string] $Id, [string] $Code, [int] $RetryAfterMs = -1)
+    param([string] $Id, [string] $Code, [int] $RetryAfterMs = -1, [int] $Aadsts = 0)
     $failure = [ordered]@{ code = $Code }
     if ($RetryAfterMs -ge 0) { $failure['retryAfterMs'] = $RetryAfterMs }
+    # GD1-0 Amendment 2: the NUMBER of an Entra AADSTS code (digits only), never the text around it.
+    if ($Aadsts -gt 0) { $failure['aadsts'] = $Aadsts }
     Send-Line ([ordered]@{ v = $script:ProtocolVersion; id = $Id; ok = $false; error = $failure })
 }
 
@@ -130,6 +132,44 @@ function Get-ErrorCode {
     if ($all -match '(?i)access is denied|insufficient (access|permission|privilege)|not (assigned|authorized)|unauthorized|forbidden|AADSTS|authentication failed|isn.t assigned to any management roles') { return 'permission_denied' }
     if ($all -match '(?i)ParameterBindingException|ValidationMetadataException|cannot validate argument|parameter cannot be found|cannot bind') { return 'invalid_argument' }
     return 'internal'
+}
+
+# The text of an error and of everything inside it, for matching only (never sent).
+function Get-ExceptionText {
+    param([System.Management.Automation.ErrorRecord] $Record)
+    $parts = [System.Collections.Generic.List[string]]::new()
+    $exception = $Record.Exception
+    $depth = 0
+    while ($null -ne $exception -and $depth -lt 6) {
+        $parts.Add($exception.GetType().FullName)
+        $parts.Add([string] $exception.Message)
+        $exception = $exception.InnerException
+        $depth++
+    }
+    $parts.Add([string] $Record.FullyQualifiedErrorId)
+    return ($parts -join ' ')
+}
+
+# The AADSTS number of a refusal by the sign-in service, or 0. The module's own message starts with a fixed
+# sentence that names AADSTS70011 whatever went wrong ("Case when Message contains:AADSTS70011 ..."): skipped.
+function Get-AadstsNumber {
+    param([string] $Text)
+    $match = [regex]::Match($Text, '(?<!contains:)AADSTS(\d{1,7})(?!\d)')
+    if (-not $match.Success) { return 0 }
+    return [int] $match.Groups[1].Value
+}
+
+# A connect that fails. Narrower than Get-ErrorCode on purpose: the English text of a sign-in refusal
+# ("Application ... was not found in the directory") must not read as a missing mailbox or contact.
+function Send-ConnectFailure {
+    param([string] $Id, [System.Management.Automation.ErrorRecord] $Record)
+    $aadsts = Get-AadstsNumber (Get-ExceptionText $Record)
+    if ($aadsts -gt 0) { Send-Failure -Id $Id -Code 'permission_denied' -Aadsts $aadsts; return }
+    $code = Get-ErrorCode $Record
+    if (@('throttled', 'timeout', 'role_pending', 'permission_denied', 'invalid_argument') -notcontains $code) { $code = 'internal' }
+    $retry = -1
+    if ($code -eq 'throttled' -and $null -ne $Record.Exception) { $retry = Get-RetryAfterMs ([string] $Record.Exception.Message) }
+    Send-Failure -Id $Id -Code $code -RetryAfterMs $retry
 }
 
 function Send-ErrorRecord {
@@ -362,7 +402,7 @@ function Invoke-Connect {
         Send-Ok $Id (Get-Hello)
     } catch {
         $script:Connected = $false
-        Send-ErrorRecord $Id $_
+        Send-ConnectFailure $Id $_
     } finally {
         $certificatePem = $null
         $privateKeyPem = $null
@@ -442,18 +482,24 @@ while ($true) {
     else { Send-Failure $id 'invalid_argument'; continue }
     if ($request['v'] -ne $script:ProtocolVersion) { Send-Failure $id 'invalid_argument'; continue }
 
-    switch ([string] $request['type']) {
-        'ping' {
-            if ($null -eq $script:ModuleVersion) { try { Import-ExchangeModule } catch { $script:ModuleVersion = $null } }
-            Send-Ok $id (Get-Hello)
+    # Whatever happens while a request is served is an answer with a code, never the end of the process:
+    # only `shutdown` (and the end of stdin) leaves the loop.
+    try {
+        switch ([string] $request['type']) {
+            'ping' {
+                if ($null -eq $script:ModuleVersion) { try { Import-ExchangeModule } catch { $script:ModuleVersion = $null } }
+                Send-Ok $id (Get-Hello)
+            }
+            'connect' { Invoke-Connect $id $request }
+            'call' { Invoke-Call $id $request }
+            'shutdown' {
+                Send-Ok $id ([ordered]@{ done = $true })
+                if ($script:Connected) { try { Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch { $null = $_ } }
+                exit 0
+            }
+            default { Send-Failure $id 'invalid_argument' }
         }
-        'connect' { Invoke-Connect $id $request }
-        'call' { Invoke-Call $id $request }
-        'shutdown' {
-            Send-Ok $id ([ordered]@{ done = $true })
-            if ($script:Connected) { try { Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch { $null = $_ } }
-            exit 0
-        }
-        default { Send-Failure $id 'invalid_argument' }
+    } catch {
+        try { Send-Failure $id 'internal' } catch { $null = $_ }
     }
 }
