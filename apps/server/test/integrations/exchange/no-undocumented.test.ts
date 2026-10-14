@@ -57,7 +57,7 @@ const POWERSHELL = /\bpwsh\b|power\s*shell/i;
 /**
  * The files (or folders, with a trailing slash) that may name `pwsh` or PowerShell in code (Phase D):
  * the worker and everything that starts it, the image that holds it, the smoke test that pings it and
- * the two checks that read the image. Each entry must really need it (the test below says so).
+ * the two checks that read the image, and the script that replaces two .NET libraries in the image (FD-26). Each entry must really need it (the test below says so).
  */
 export const POWERSHELL_ALLOWED: readonly string[] = [
   'apps/server/src/integrations/exchange/pwsh/',
@@ -67,6 +67,7 @@ export const POWERSHELL_ALLOWED: readonly string[] = [
   'scripts/image-smoke.ts',
   'scripts/check_image_contents.py',
   'scripts/check_dockerfile_pins.py',
+  'scripts/patch-dotnet-libraries.sh',
   'scripts/test_check_image_contents.py',
   'scripts/test_check_dockerfile_pins.py',
 ];
