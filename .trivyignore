@@ -10,5 +10,3 @@ CVE-2026-28389 exp:2026-10-25
 CVE-2026-28390 exp:2026-10-25
 # libssl3 in the distroless base: Debian has the fix, the digest-pinned base is not rebuilt yet (2026-10-11); remove when the digest is bumped.
 CVE-2026-45447 exp:2026-10-25
-# System.Security.Cryptography.Pkcs 10.0.0 inside the Microsoft ExchangeOnlineManagement module 3.10.1 (netCore/): a .NET denial of service when parsing hostile PKCS#7/CMS data. Microsoft ships no fixed module (3.10.1.1 is the same package); the worker only reads answers of Microsoft's own endpoints and has no CMS input of its own. Owner accepted 2026-10-14; remove when a module with Pkcs 10.0.13 or later is published.
-CVE-2026-84008 exp:2026-10-25

@@ -112,11 +112,18 @@ ARG TARGETARCH
 ARG POWERSHELL_VERSION=7.6.6
 ARG POWERSHELL_SHA256_AMD64=ddbc4a2d113bbd46d283cfedcbcd117a70caefd7673f41f2b4e0000badf103bc
 ARG POWERSHELL_SHA256_ARM64=924829e54c983648f6f1419a2dc7f9433c861b2fb5bd57736ff096c24f133729
+# Two .NET libraries that PowerShell 7.6.6 and the module 3.10.1 ship in an affected version (CVE-2026-84008 for
+# Pkcs; CVE-2026-96958, -96959 and -96960 for Xml; fixed in 10.0.13). They are replaced by the 10.0.13 builds from
+# nuget.org, pinned by SHA-512 (the hashes equal the packageHash of the nuget.org catalog). Remove the block that
+# uses them, and these three ARGs, when a PowerShell and a module with 10.0.13 or later are pinned.
+ARG DOTNET_FIX_VERSION=10.0.13
+ARG PKCS_SHA512=287ebdda7d50947e352c62c28add71012c60f50124cbd558f0d383bfa83357f7941c55d54ef4432c9cacb0c19a3314bd59f217c899d22e0c5e23c3fcf9d74b8a
+ARG XML_SHA512=11bc9f42b385c9f35366412d912283fbe6c5eb02f0a0a4f8906aeb5d5f250876aa2d0af03eec66f5c18e9d7cd7c42039cfb9990fa0b9c2661224ffd67735e1e5
 ARG EXO_VERSION=3.10.1
 ARG EXO_SHA512=68f973f2dfc629df7a7910fa63c7ae4d01708cab7376b688df6df1d18d68a39c456bc09041ec6eefabd527d516ec5c41c67cd5479601c084ff2b38f63e75a8eb
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+ && apt-get install -y --no-install-recommends ca-certificates curl openssl unzip \
  && rm -rf /var/lib/apt/lists/*
 
 # Behind a TLS-inspecting proxy the same optional BuildKit secret as above is the CA bundle for curl.
@@ -152,6 +159,25 @@ RUN --mount=type=secret,id=extra_ca \
     rm -rf "${module:?}/_rels" "${module:?}/package" "${module:?}/netFramework" "${module:?}/[Content_Types].xml" "${module:?}"/*.nuspec; \
     test -f "${module}/ExchangeOnlineManagement.psd1"; \
     rm /tmp/exo.nupkg
+
+# Fixed System.Security.Cryptography.Pkcs and .Xml (10.0.13). PowerShell loads ITS OWN copies of both, and the module
+# carries a Pkcs copy as well: scripts/patch-dotnet-libraries.sh replaces them and keeps the deps.json files truthful.
+# The build fails when PowerShell or the module no longer ships the versions the script expects.
+COPY --chmod=0755 scripts/patch-dotnet-libraries.sh /tmp/patch-dotnet-libraries.sh
+RUN --mount=type=secret,id=extra_ca \
+    set -eu; \
+    if [ -s /run/secrets/extra_ca ]; then export CURL_CA_BUNDLE=/run/secrets/extra_ca; fi; \
+    for package in pkcs xml; do \
+      case "${package}" in pkcs) sha="${PKCS_SHA512}" ;; xml) sha="${XML_SHA512}" ;; esac; \
+      curl --fail --silent --show-error --location --retry 3 \
+        --output "/tmp/${package}.nupkg" \
+        "https://api.nuget.org/v3-flatcontainer/system.security.cryptography.${package}/${DOTNET_FIX_VERSION}/system.security.cryptography.${package}.${DOTNET_FIX_VERSION}.nupkg"; \
+      echo "${sha}  /tmp/${package}.nupkg" | sha512sum --check --strict -; \
+    done; \
+    /tmp/patch-dotnet-libraries.sh "${DOTNET_FIX_VERSION}" /tmp/pkcs.nupkg /tmp/xml.nupkg \
+      /opt/microsoft/powershell/7 \
+      "/usr/local/share/powershell/Modules/ExchangeOnlineManagement/${EXO_VERSION}/netCore"; \
+    rm /tmp/pkcs.nupkg /tmp/xml.nupkg /tmp/patch-dotnet-libraries.sh
 
 # ---------------------------------------------------------------------------------------------
 # Runtime stage: Ubuntu 24.04 LTS, glibc, non-root. Node comes from the build stage's image, at the
