@@ -24,7 +24,7 @@ describe('roleToWire and templateToWire', () => {
       ),
     };
     expect(RoleListResponseSchema.parse(body)).toEqual(body);
-    expect(body.roles.map((role) => role.permissions.length)).toEqual([15, 13, 9, 6, 4]);
+    expect(body.roles.map((role) => role.permissions.length)).toEqual([15, 13, 9, 6, 4, 7]);
   });
 
   it('copies the entries: changing the result never changes the constant', () => {

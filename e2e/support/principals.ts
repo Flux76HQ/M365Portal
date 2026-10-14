@@ -24,6 +24,7 @@ export const PRINCIPAL_NAMES = [
   'operator',
   'helpdesk',
   'reader',
+  'dl-editor',
   'norole',
   'expired-assignment',
   'group-member',
@@ -45,7 +46,7 @@ export const STORED_PRINCIPAL_NAMES: readonly StoredPrincipalName[] = PRINCIPAL_
 );
 
 /** The built-in role keys of the panel. */
-export type RoleKey = 'owner' | 'admin' | 'operator' | 'helpdesk' | 'reader';
+export type RoleKey = 'owner' | 'admin' | 'operator' | 'helpdesk' | 'reader' | 'dl_editor';
 
 export interface Principal {
   readonly name: PrincipalName;
@@ -101,6 +102,13 @@ export const PRINCIPALS: Readonly<Record<PrincipalName, Principal>> = {
     upn: 'rita.reader@contoso-fake.example',
     displayName: 'Rita Reader',
     role: 'reader',
+  },
+  'dl-editor': {
+    name: 'dl-editor',
+    oid: guid(113),
+    upn: 'dora.editor@contoso-fake.example',
+    displayName: 'Dora Editor',
+    role: 'dl_editor',
   },
   norole: {
     name: 'norole',

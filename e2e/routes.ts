@@ -17,6 +17,7 @@ export const CLIENT_ROUTES = [
   '/settings/appearance',
   '/settings/connection',
   '/settings/access',
+  '/settings/roles',
   '/settings/restore-access',
   '/no-access',
   '/signin',
@@ -78,6 +79,7 @@ export type WizardState = (typeof WIZARD_STATES)[number];
 export const SETTINGS_STATES = [
   '/settings/connection',
   '/settings/access',
+  '/settings/roles',
   '/settings/restore-access',
 ] as const;
 

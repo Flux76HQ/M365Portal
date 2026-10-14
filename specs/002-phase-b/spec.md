@@ -657,25 +657,25 @@ All three cookies are `HttpOnly`, `Path=/`, have no `Domain` attribute and carry
 
 #### 6.9.4 Built-in role matrix (normative; identical in `docs/permissions.md`)
 
-`x` means the role holds the permission. The five built-in roles are unscoped definitions; a scope belongs to an assignment (6.5.1). The template *Bestuur* is data, not a role (FR-B-503); `basic` is the qualifier of 6.5.1. Totals: *Eigenaar* 15, *Beheerder* 13, *Operator* 9, *Helpdesk* 6, *Lezer* 4, *Bestuur* 5.
+`x` means the role holds the permission. The six built-in roles (the sixth, *Distribution List Editor*, was added by migration `0002`, ADR-0183) are unscoped definitions; a scope belongs to an assignment (6.5.1). The template *Bestuur* is data, not a role (FR-B-503); `basic` is the qualifier of 6.5.1. Totals: *Eigenaar* 15, *Beheerder* 13, *Operator* 9, *Helpdesk* 6, *Lezer* 4, *Bestuur* 5, *Distribution List Editor* 7.
 
-| Permission | Resource type | Eigenaar (`owner`) | Beheerder (`admin`) | Operator (`operator`) | Helpdesk (`helpdesk`) | Lezer (`reader`) | Bestuur (template) |
-|---|---|---|---|---|---|---|---|
-| `users:read` | `user` | x | x | x | x | x | basic |
-| `groups:read` | `group` | x | x | x | x | x | |
-| `groups:members:write` | `group` | x | x | x | x | | |
-| `distributionlists:read` | `distributionList` | x | x | x | x | x | x |
-| `distributionlists:members:write` | `distributionList` | x | x | x | x | | x |
-| `distributionlists:export` | `distributionList` | x | x | | | | |
-| `contacts:read` | `contact` | x | x | x | x | x | x |
-| `contacts:create` | `contact` | x | x | x | | | x |
-| `contacts:update` | `contact` | x | x | x | | | |
-| `contacts:delete` | `contact` | x | x | x | | | |
-| `audit:read` | none (global-only) | x | x | | | | |
-| `audit:export` | none (global-only) | x | x | | | | |
-| `settings:branding` | none (global-only) | x | x | | | | |
-| `settings:connection` | none (global-only) | x | | | | | |
-| `rbac:manage` | none (global-only) | x | | | | | |
+| Permission | Resource type | Eigenaar (`owner`) | Beheerder (`admin`) | Operator (`operator`) | Helpdesk (`helpdesk`) | Lezer (`reader`) | Bestuur (template) | Distribution List Editor (`dl_editor`) |
+|---|---|---|---|---|---|---|---|---|
+| `users:read` | `user` | x | x | x | x | x | basic | x |
+| `groups:read` | `group` | x | x | x | x | x | |  |
+| `groups:members:write` | `group` | x | x | x | x | | |  |
+| `distributionlists:read` | `distributionList` | x | x | x | x | x | x | x |
+| `distributionlists:members:write` | `distributionList` | x | x | x | x | | x | x |
+| `distributionlists:export` | `distributionList` | x | x | | | | |  |
+| `contacts:read` | `contact` | x | x | x | x | x | x | x |
+| `contacts:create` | `contact` | x | x | x | | | x | x |
+| `contacts:update` | `contact` | x | x | x | | | | x |
+| `contacts:delete` | `contact` | x | x | x | | | | x |
+| `audit:read` | none (global-only) | x | x | | | | |  |
+| `audit:export` | none (global-only) | x | x | | | | |  |
+| `settings:branding` | none (global-only) | x | x | | | | |  |
+| `settings:connection` | none (global-only) | x | | | | | |  |
+| `rbac:manage` | none (global-only) | x | | | | | |  |
 
 #### 6.9.5 Codes
 

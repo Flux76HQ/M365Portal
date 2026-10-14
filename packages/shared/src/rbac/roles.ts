@@ -1,11 +1,11 @@
-// The five built-in roles and the template *Bestuur*, as ONE constant each (T-B-231, FR-B-501 constant,
+// The six built-in roles and the template *Bestuur*, as ONE constant each (T-B-231, FR-B-501 constant,
 // FR-B-502, FR-B-503, I-B1, CB8). The matrix of spec 6.9.4 is normative; `docs/permissions.md` repeats
 // it and is compared with this file by `server/docs-contract.test.ts`, and the database rows seeded by
 // migration `0001` are compared with it by `server/rbac/builtin-roles.test.ts`. A change here needs a
 // new migration and an ADR (FR-B-501).
 //
 // Role keys are English identifiers. Display names (nl: Eigenaar, Beheerder, Operator, Helpdesk, Lezer,
-// Bestuur) come from the catalogue by key, never from this file (FR-B-716).
+// Distribution List Editor, Bestuur) come from the catalogue by key, never from this file (FR-B-716).
 //
 // Pure and platform-neutral: no clock, no I/O, no randomness, no work at import beyond freezing.
 import type { Permission } from '../permissions.js';
@@ -17,16 +17,17 @@ export interface RolePermission {
   readonly qualifier: Qualifier;
 }
 
-/** The keys of the five built-in roles, in the order of the spec table. */
+/** The keys of the six built-in roles, in the order of the spec table. */
 export const BUILTIN_ROLE_KEYS = Object.freeze([
   'owner',
   'admin',
   'operator',
   'helpdesk',
   'reader',
+  'dl_editor',
 ] as const);
 
-/** `owner`, `admin`, `operator`, `helpdesk` or `reader`. */
+/** `owner`, `admin`, `operator`, `helpdesk`, `reader` or `dl_editor`. */
 export type BuiltinRoleKey = (typeof BUILTIN_ROLE_KEYS)[number];
 
 /** A built-in role: unscoped, immutable, assignable (a scope belongs to an assignment, spec 6.5.1). */
@@ -60,7 +61,8 @@ function role(key: BuiltinRoleKey, permissions: readonly Permission[]): RoleDefi
 /**
  * The built-in roles (spec 6.9.4): *Eigenaar* 15 permissions, *Beheerder* 13 (all but `rbac:manage` and
  * `settings:connection`), *Operator* 9 (no settings, audit, `rbac:manage` or export), *Helpdesk* 6 (the
- * reader's four plus the two member-write permissions), *Lezer* 4 (read only). 47 rows in all. Every
+ * reader's four plus the two member-write permissions), *Lezer* 4 (read only), *Distribution List Editor* 7
+ * (contacts in full, lists read and member write, users read; migration `0002`, ADR-0183). 54 rows in all. Every
  * qualifier is `full`; each role lists its permissions in catalogue order.
  */
 export const BUILTIN_ROLES: readonly RoleDefinition[] = Object.freeze([
@@ -116,6 +118,15 @@ export const BUILTIN_ROLES: readonly RoleDefinition[] = Object.freeze([
     'contacts:read',
   ]),
   role('reader', ['users:read', 'groups:read', 'distributionlists:read', 'contacts:read']),
+  role('dl_editor', [
+    'users:read',
+    'distributionlists:read',
+    'distributionlists:members:write',
+    'contacts:read',
+    'contacts:create',
+    'contacts:update',
+    'contacts:delete',
+  ]),
 ]);
 
 /**

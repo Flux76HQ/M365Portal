@@ -31,6 +31,7 @@ import {
   ShieldCheckIcon,
   SunIcon,
   UnplugIcon,
+  UserRoundCogIcon,
   UsersIcon,
   type LucideIcon,
 } from 'lucide-react';
@@ -182,6 +183,17 @@ export const COMMANDS: readonly Command[] = Object.freeze([
     run: { kind: 'navigate', to: ROUTES.access },
     group: 'navigate',
     actorKinds: SIGNED_IN,
+  },
+  {
+    id: 'settings-roles',
+    labelKey: 'palette.command.settingsRoles',
+    keywordKeys: ['palette.keywords.roles'],
+    icon: UserRoundCogIcon,
+    run: { kind: 'navigate', to: ROUTES.roles },
+    group: 'navigate',
+    anyOf: ['rbac:manage'],
+    // The break-glass session holds this permission too, but it can only restore an Owner (its own page).
+    actorKinds: ['user'],
   },
   {
     id: 'settings-restore-access',

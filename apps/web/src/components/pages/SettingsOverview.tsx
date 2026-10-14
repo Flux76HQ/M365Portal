@@ -33,6 +33,11 @@ const CARDS: readonly {
     descriptionKey: 'pages.settings.access.description',
   },
   {
+    commandId: 'settings-roles',
+    titleKey: 'nav.roles',
+    descriptionKey: 'pages.settings.roles.description',
+  },
+  {
     commandId: 'settings-restore-access',
     titleKey: 'nav.restoreAccess',
     descriptionKey: 'pages.settings.restoreAccess.description',

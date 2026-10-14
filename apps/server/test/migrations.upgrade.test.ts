@@ -89,6 +89,11 @@ interface Fixture {
   readonly snapshotsFolder: string;
   /** Rows for a database AT that schema version, by version. */
   readonly seeds: Readonly<Record<number, Seed>>;
+  /**
+   * Tables a migration INTO a version seeds with new rows (by target version): the rows that were there stay
+   * as they were and the new ones come after them. Every other table must be unchanged.
+   */
+  readonly appends?: Readonly<Record<number, readonly string[]>>;
 }
 
 type Runner = (db: SqliteConnection, options: MigrateOptions) => Promise<unknown>;
@@ -192,14 +197,117 @@ function seedRealVersion0(db: SqliteConnection): void {
   });
 }
 
+const SEED_NOW = '2026-10-11T09:00:00.000Z';
+const seedGuid = (n: number): string =>
+  `00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`;
+
+/**
+ * The rows of schema version 1 (migration 0001_phase_b): everything of version 0, and a row in every table of
+ * Phase B, the seeded roles included (a snapshot holds the DDL only, so the seeds of 0001 are run here, with
+ * the two triggers that protect the built-in roles taken out for the moment and put back as they were).
+ */
+function seedRealVersion1(db: SqliteConnection): void {
+  seedRealVersion0(db);
+
+  const guarded = db
+    .prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name IN ('rbac_role_builtin_no_insert_flag', 'rbac_role_permission_builtin_no_insert')",
+    )
+    .all() as { sql: string }[];
+  db.exec(
+    'DROP TRIGGER `rbac_role_builtin_no_insert_flag`; DROP TRIGGER `rbac_role_permission_builtin_no_insert`;',
+  );
+  const migration = readFileSync(join(REAL.migrationsFolder, '0001_phase_b.sql'), 'utf8');
+  for (const statement of migration.split('--> statement-breakpoint')) {
+    const text = statement
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('--'))
+      .join('\n')
+      .trim();
+    if (/^INSERT INTO `rbac_(epoch|role|role_permission|role_template)`/.test(text)) db.exec(text);
+  }
+  for (const trigger of guarded) db.exec(trigger.sql);
+
+  db.prepare(
+    'INSERT INTO secret (id, purpose, key_id, blob, created_at) VALUES (?, ?, ?, ?, ?)',
+  ).run(
+    seedGuid(20),
+    'certificate_key',
+    'c743d54d05bd4d72',
+    Buffer.concat([Buffer.from([1]), Buffer.alloc(40, 7)]),
+    SEED_NOW,
+  );
+  db.prepare(
+    `INSERT INTO certificate (id, secret_id, thumbprint_sha1, thumbprint_sha256, subject, not_before, not_after, public_der, state, created_at)
+     VALUES (?, ?, ?, ?, 'CN=M365Portal 00000000', ?, '2027-10-10T12:00:00.000Z', ?, 'active', ?)`,
+  ).run(
+    seedGuid(21),
+    seedGuid(20),
+    'a'.repeat(40),
+    'b'.repeat(64),
+    SEED_NOW,
+    Buffer.alloc(300, 9),
+    SEED_NOW,
+  );
+  db.prepare(
+    `INSERT INTO tenant_connection (id, tenant_id, tenant_name, certificate_id, updated_at) VALUES (1, ?, 'Contoso', ?, ?)`,
+  ).run(seedGuid(1), seedGuid(21), SEED_NOW);
+  db.prepare(
+    "INSERT INTO setup_state (id, state, mode, install_id, updated_at) VALUES (1, 'unconfigured', 'automatic', ?, ?)",
+  ).run('a'.repeat(32), SEED_NOW);
+  db.prepare(
+    "INSERT INTO setup_step (step, sub_action, status, updated_at) VALUES ('connect', 'device_code', 'succeeded', ?)",
+  ).run(SEED_NOW);
+  db.prepare(
+    "INSERT INTO setup_log (seq, ts, step, level, message_key, params) VALUES (1, ?, 'connect', 'info', 'setup.log.x', '{\"n\":1}')",
+  ).run(SEED_NOW);
+  db.prepare(
+    "INSERT INTO setup_object (kind, tenant_object_id, name, origin, created_at) VALUES ('application', ?, 'M365Portal', 'created', ?)",
+  ).run(seedGuid(22), SEED_NOW);
+  db.prepare(
+    'INSERT INTO runner_lease (id, holder, heartbeat_at, expires_at) VALUES (1, ?, ?, ?)',
+  ).run('holder-1', SEED_NOW, '2026-10-11T09:01:00.000Z');
+  db.prepare(
+    'INSERT INTO app_user (tid, oid, upn_label, name_label, first_seen_at, last_signin_at, groups_resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  ).run(
+    seedGuid(1),
+    seedGuid(30),
+    'olivia@contoso.test',
+    'Olivia Owner',
+    SEED_NOW,
+    SEED_NOW,
+    SEED_NOW,
+  );
+  db.prepare(
+    `INSERT INTO session (id_hash, kind, tid, oid, created_at, last_seen_at, absolute_expires_at, authenticated_at)
+     VALUES (?, 'user', ?, ?, ?, ?, '2026-10-11T17:00:00.000Z', ?)`,
+  ).run('a'.repeat(64), seedGuid(1), seedGuid(30), SEED_NOW, SEED_NOW, SEED_NOW);
+  const assignment = db.prepare(
+    `INSERT INTO rbac_assignment (id, principal_type, principal_id, role_id, scope_hash, expires_at, source, created_at, created_by)
+     VALUES (?, ?, ?, (SELECT id FROM rbac_role WHERE key = ?), ?, NULL, ?, ?, 'setup')`,
+  );
+  assignment.run(seedGuid(40), 'user', seedGuid(30), 'owner', '0'.repeat(64), 'wizard', SEED_NOW);
+  assignment.run(seedGuid(41), 'group', seedGuid(31), 'helpdesk', '1'.repeat(64), 'api', SEED_NOW);
+  db.prepare(
+    "INSERT INTO rbac_assignment_scope (assignment_id, position, target, match_by, attr, value) VALUES (?, 0, 'group', 'id', '', ?)",
+  ).run(seedGuid(41), seedGuid(32));
+  db.prepare(
+    'INSERT INTO rbac_group_member_cache (user_oid, group_id, resolved_at) VALUES (?, ?, ?)',
+  ).run(seedGuid(30), seedGuid(31), SEED_NOW);
+  // The seeds above ran through the epoch triggers; 0001 itself left the epoch at 0.
+  db.exec('UPDATE `rbac_epoch` SET `epoch` = 0 WHERE `id` = 1');
+}
+
 /** Seeds for the real schema, by the version they populate. A new real version needs the one before it. */
-const REAL_SEEDS: Readonly<Record<number, Seed>> = { 0: seedRealVersion0 };
+const REAL_SEEDS: Readonly<Record<number, Seed>> = { 0: seedRealVersion0, 1: seedRealVersion1 };
 
 const REAL_FIXTURE: Fixture = {
   name: 'real',
   migrationsFolder: REAL.migrationsFolder,
   snapshotsFolder: REAL.snapshotsFolder,
   seeds: REAL_SEEDS,
+  // Migration 0002 adds the sixth built-in role and its permissions (ADR-0183).
+  appends: { 2: ['rbac_role', 'rbac_role_permission'] },
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -365,6 +473,15 @@ async function assertUpgradeWorks(input: UpgradeInput): Promise<void> {
     for (const table of Object.keys(shape)) {
       const was = rowsBefore[table] ?? [];
       const is = rowsAfter[table] ?? [];
+      if (fixture.appends?.[to]?.includes(table) === true) {
+        const kept = is.slice(0, was.length);
+        if (JSON.stringify(was) !== JSON.stringify(kept) || is.length <= was.length) {
+          throw new UpgradeFailure(
+            `rows of ${table} were not kept and extended in the upgrade: ${String(was.length)} before, ${String(is.length)} after`,
+          );
+        }
+        continue;
+      }
       if (JSON.stringify(was) !== JSON.stringify(is)) {
         throw new UpgradeFailure(
           `rows of ${table} changed in the upgrade: ${String(was.length)} before, ${String(is.length)} after`,
@@ -913,7 +1030,8 @@ describe('the real upgrade 0000 to 0001_phase_b (FR-B-701, SC-B-012, EB-29)', ()
 
   beforeAll(async () => {
     work = mkdtempSync(join(tmpdir(), 'm365portal-upgrade-0001-'));
-    migrationsFolder = REAL.migrationsFolder;
+    // Exactly the pair this block is about: migrations 0000 and 0001, whatever has been added since.
+    migrationsFolder = copyMigrationsUpTo(REAL.migrationsFolder, 1);
     backupsDir = join(work, 'backups');
 
     // The files of an installed Phase A: logos named by the hash of their content.
@@ -996,6 +1114,7 @@ describe('the real upgrade 0000 to 0001_phase_b (FR-B-701, SC-B-012, EB-29)', ()
   afterAll(() => {
     if (db.open) db.close();
     rmSync(work, { recursive: true, force: true });
+    rmSync(migrationsFolder, { recursive: true, force: true });
   });
 
   function seedAuditChain(target: SqliteConnection): void {
@@ -1177,7 +1296,8 @@ describe('the real upgrade 0000 to 0001_phase_b (FR-B-701, SC-B-012, EB-29)', ()
 
   it('seeds the built-in roles equal to BUILTIN_ROLES, the template board, and rbac_epoch (1, 0)', () => {
     expect(() => {
-      assertBuiltinRolesMatch(builtinRowsOf(db), BUILTIN_ROLES);
+      // Migration 0001 seeded the first five; the sixth comes with 0002 (tested below).
+      assertBuiltinRolesMatch(builtinRowsOf(db), BUILTIN_ROLES.slice(0, 5));
     }).not.toThrow();
     const template = db
       .prepare("SELECT permissions, scope_target FROM rbac_role_template WHERE key = 'board'")
@@ -1253,7 +1373,7 @@ describe('the real upgrade 0000 to 0001_phase_b (FR-B-701, SC-B-012, EB-29)', ()
       };
       expectGuardFails(
         () => {
-          assertBuiltinRolesMatch(changed, BUILTIN_ROLES);
+          assertBuiltinRolesMatch(changed, BUILTIN_ROLES.slice(0, 5));
         },
         undefined,
         { name: 'built-in roles', reason: /reader/ },
@@ -1272,5 +1392,125 @@ describe('the real upgrade 0000 to 0001_phase_b (FR-B-701, SC-B-012, EB-29)', ()
         copy.close();
       }
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The real upgrade 0001 to 0002_dl_editor_role (FR-B-501, ADR-0183)
+// ---------------------------------------------------------------------------------------------
+
+describe('the real upgrade 0001 to 0002_dl_editor_role (FR-B-501, ADR-0183)', () => {
+  let work = '';
+  let db: SqliteConnection;
+  let folder = '';
+  let rowsBefore: Record<string, string[]> = {};
+  let firstResult: { readonly applied: readonly string[] } | undefined;
+  let secondResult: { readonly applied: readonly string[] } | undefined;
+
+  const ASSIGNMENT_SHAPE = {
+    rbac_assignment: ['id', 'principal_type', 'principal_id', 'role_id', 'scope_hash', 'source'],
+    rbac_assignment_scope: ['assignment_id', 'position', 'target', 'match_by', 'value'],
+    rbac_epoch: ['id', 'epoch'],
+    rbac_role_template: ['key', 'permissions', 'scope_target'],
+    app_user: ['tid', 'oid', 'upn_label'],
+    session: ['id_hash', 'kind', 'oid'],
+  } as const;
+
+  beforeAll(async () => {
+    work = mkdtempSync(join(tmpdir(), 'm365portal-upgrade-0002-'));
+    folder = copyMigrationsUpTo(REAL.migrationsFolder, 2);
+    db = new Database(join(work, 'm365portal.sqlite'));
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    db.exec(snapshotText(REAL_FIXTURE, 1));
+    createBookkeeping(db, shippedMigrations(copyMigrationsUpTo(REAL.migrationsFolder, 1)));
+    seedRealVersion1(db);
+    rowsBefore = dumpRows(db, ASSIGNMENT_SHAPE);
+    firstResult = await runMigrations(db, {
+      migrationsFolder: folder,
+      backupsDir: join(work, 'backups'),
+    });
+    secondResult = await runMigrations(db, {
+      migrationsFolder: folder,
+      backupsDir: join(work, 'backups'),
+    });
+  }, 60_000);
+
+  afterAll(() => {
+    if (db.open) db.close();
+    rmSync(work, { recursive: true, force: true });
+    rmSync(folder, { recursive: true, force: true });
+  });
+
+  it('applies exactly 0002_dl_editor_role, takes a backup first and applies nothing on a second start', () => {
+    expect(firstResult?.applied).toEqual(['0002_dl_editor_role']);
+    expect(secondResult?.applied).toEqual([]);
+    expect(appliedMigrations(db)).toHaveLength(3);
+    expect(existsSync(join(work, 'backups', backupFileName(1, 2)))).toBe(true);
+  });
+
+  it('has the schema of a database built from snapshot 2 and an empty foreign_key_check', () => {
+    const expected = new Database(':memory:');
+    try {
+      expected.exec(snapshotText(REAL_FIXTURE, 2));
+      expect(() => {
+        assertSchemasAgree(db, expected, { triggers: true });
+      }).not.toThrow();
+    } finally {
+      expected.close();
+    }
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+  });
+
+  it('seeds six built-in roles equal to BUILTIN_ROLES, the sixth being dl_editor with its seven permissions', () => {
+    assertBuiltinRolesMatch(builtinRowsOf(db), BUILTIN_ROLES);
+    const sixth = builtinRowsOf(db).permissions.dl_editor ?? [];
+    expect([...sixth].sort()).toEqual(
+      [
+        'contacts:create',
+        'contacts:delete',
+        'contacts:read',
+        'contacts:update',
+        'distributionlists:members:write',
+        'distributionlists:read',
+        'users:read',
+      ].sort(),
+    );
+    expect(
+      db
+        .prepare("SELECT builtin, assignable, created_at FROM rbac_role WHERE key = 'dl_editor'")
+        .get(),
+    ).toEqual({ builtin: 1, assignable: 1, created_at: '2026-01-01T00:00:00.000Z' });
+  });
+
+  it('keeps the assignments, the template, the epoch (0), the users and the sessions as they were', () => {
+    expect(dumpRows(db, ASSIGNMENT_SHAPE)).toEqual(rowsBefore);
+    expect(db.prepare('SELECT epoch FROM rbac_epoch').get()).toEqual({ epoch: 0 });
+  });
+
+  it('keeps the protection of the built-in roles, now at six: a seventh cannot be added, a permission cannot be added to dl_editor', () => {
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO rbac_role (key, builtin, assignable, created_at) VALUES ('seventh', 1, 1, '2026-01-01T00:00:00.000Z')",
+        )
+        .run(),
+    ).toThrow(/built-in roles are immutable/);
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO rbac_role_permission (role_id, permission, qualifier) VALUES ((SELECT id FROM rbac_role WHERE key = 'dl_editor'), 'audit:read', '')",
+        )
+        .run(),
+    ).toThrow(/permissions of built-in roles are immutable/);
+    expect(() => db.prepare("DELETE FROM rbac_role WHERE key = 'dl_editor'").run()).toThrow(
+      /built-in roles are immutable/,
+    );
+  });
+
+  it('has the same 32 triggers as before: two were dropped and recreated, none added or lost', () => {
+    expect(
+      db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'").get(),
+    ).toEqual({ n: 32 });
   });
 });

@@ -138,16 +138,16 @@ const GROUP_NEVER: readonly string[] = ['rbac:manage', 'settings:connection'];
 // ---------------------------------------------------------------------------------------------
 
 describe(`the independent matrix, parsed from ${MATRIX.source} (FR-B-502)`, () => {
-  it('has the five built-in roles in the order of the spec and the 15 permissions of the catalogue', () => {
-    expect(ROLES).toEqual(['owner', 'admin', 'operator', 'helpdesk', 'reader']);
+  it('has the six built-in roles in the order of the spec and the 15 permissions of the catalogue', () => {
+    expect(ROLES).toEqual(['owner', 'admin', 'operator', 'helpdesk', 'reader', 'dl_editor']);
     expect(MATRIX.rows.map((row) => row.permission)).toEqual([...PERMISSIONS]);
   });
 
-  it('counts 15, 13, 9, 6 and 4 permissions (the totals of the spec)', () => {
+  it('counts 15, 13, 9, 6, 4 and 7 permissions (the totals of the spec)', () => {
     const totals = ROLES.map(
       (role) => MATRIX.rows.filter((row) => row.cells[role] !== null).length,
     );
-    expect(totals).toEqual([15, 13, 9, 6, 4]);
+    expect(totals).toEqual([15, 13, 9, 6, 4, 7]);
   });
 
   it('names the resource type of every permission as the catalogue does (or none for the global-only five)', () => {

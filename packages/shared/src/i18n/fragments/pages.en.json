@@ -12,5 +12,6 @@
   "pages.settings.lead": "The settings of this panel.",
   "pages.settings.list": "Available settings",
   "pages.settings.restoreAccess.description": "Give the Owner role back to a person. Only for the break-glass session.",
+  "pages.settings.roles.description": "Give existing users and groups a role, and see who holds which role.",
   "pages.settings.title": "Settings"
 }

@@ -181,6 +181,7 @@ test.describe('the principals (CB17)', () => {
     operator: ['operator', 'reader'],
     helpdesk: ['helpdesk'],
     reader: ['reader'],
+    'dl-editor': ['dl_editor'],
     norole: [],
     // The assignment was moved into the past in the database after the sign-in: the API refuses a
     // past expiry, so global-setup creates it with a future one and updates the row. The session

@@ -65,6 +65,15 @@ const ROLE_HOLDS: Readonly<Record<BuiltinRoleKey, readonly Permission[]>> = {
     'contacts:read',
   ],
   reader: ['users:read', 'groups:read', 'distributionlists:read', 'contacts:read'],
+  dl_editor: [
+    'users:read',
+    'distributionlists:read',
+    'distributionlists:members:write',
+    'contacts:read',
+    'contacts:create',
+    'contacts:update',
+    'contacts:delete',
+  ],
 };
 const ROLE_KEYS = Object.keys(ROLE_HOLDS) as BuiltinRoleKey[];
 const GROUP_FORBIDDEN: readonly Permission[] = ['rbac:manage', 'settings:connection'];

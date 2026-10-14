@@ -32,6 +32,7 @@ import { Route as SettingsAccessRouteImport } from './routes/settings.access'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as SettingsConnectionRouteImport } from './routes/settings.connection'
 import { Route as SettingsRestoreAccessRouteImport } from './routes/settings.restore-access'
+import { Route as SettingsRolesRouteImport } from './routes/settings.roles'
 import { Route as UsersIndexRouteImport } from './routes/users.index'
 import { Route as UsersIdRouteImport } from './routes/users.$id'
 
@@ -150,6 +151,11 @@ const SettingsRestoreAccessRoute = SettingsRestoreAccessRouteImport.update({
   path: '/restore-access',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsRolesRoute = SettingsRolesRouteImport.update({
+  id: '/roles',
+  path: '/roles',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const UsersIndexRoute = UsersIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -181,6 +187,7 @@ export interface FileRoutesByFullPath {
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/connection': typeof SettingsConnectionRoute
   '/settings/restore-access': typeof SettingsRestoreAccessRoute
+  '/settings/roles': typeof SettingsRolesRoute
   '/users/$id': typeof UsersIdRoute
   '/contacts/': typeof ContactsIndexRoute
   '/distribution-lists/': typeof DistributionListsIndexRoute
@@ -203,6 +210,7 @@ export interface FileRoutesByTo {
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/connection': typeof SettingsConnectionRoute
   '/settings/restore-access': typeof SettingsRestoreAccessRoute
+  '/settings/roles': typeof SettingsRolesRoute
   '/users/$id': typeof UsersIdRoute
   '/contacts': typeof ContactsIndexRoute
   '/distribution-lists': typeof DistributionListsIndexRoute
@@ -231,6 +239,7 @@ export interface FileRoutesById {
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/connection': typeof SettingsConnectionRoute
   '/settings/restore-access': typeof SettingsRestoreAccessRoute
+  '/settings/roles': typeof SettingsRolesRoute
   '/users/$id': typeof UsersIdRoute
   '/contacts/': typeof ContactsIndexRoute
   '/distribution-lists/': typeof DistributionListsIndexRoute
@@ -260,6 +269,7 @@ export interface FileRouteTypes {
     | '/settings/appearance'
     | '/settings/connection'
     | '/settings/restore-access'
+    | '/settings/roles'
     | '/users/$id'
     | '/contacts/'
     | '/distribution-lists/'
@@ -282,6 +292,7 @@ export interface FileRouteTypes {
     | '/settings/appearance'
     | '/settings/connection'
     | '/settings/restore-access'
+    | '/settings/roles'
     | '/users/$id'
     | '/contacts'
     | '/distribution-lists'
@@ -309,6 +320,7 @@ export interface FileRouteTypes {
     | '/settings/appearance'
     | '/settings/connection'
     | '/settings/restore-access'
+    | '/settings/roles'
     | '/users/$id'
     | '/contacts/'
     | '/distribution-lists/'
@@ -495,6 +507,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRestoreAccessRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/roles': {
+      id: '/settings/roles'
+      path: '/roles'
+      fullPath: '/settings/roles'
+      preLoaderRoute: typeof SettingsRolesRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/users/': {
       id: '/users/'
       path: '/'
@@ -557,6 +576,7 @@ interface SettingsRouteChildren {
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsConnectionRoute: typeof SettingsConnectionRoute
   SettingsRestoreAccessRoute: typeof SettingsRestoreAccessRoute
+  SettingsRolesRoute: typeof SettingsRolesRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
 }
 
@@ -565,6 +585,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsConnectionRoute: SettingsConnectionRoute,
   SettingsRestoreAccessRoute: SettingsRestoreAccessRoute,
+  SettingsRolesRoute: SettingsRolesRoute,
   SettingsIndexRoute: SettingsIndexRoute,
 }
 
