@@ -184,6 +184,17 @@ export const COMMANDS: readonly Command[] = Object.freeze([
     actorKinds: SIGNED_IN,
   },
   {
+    id: 'settings-roles',
+    labelKey: 'palette.command.settingsRoles',
+    keywordKeys: ['palette.keywords.roles'],
+    icon: UsersIcon,
+    run: { kind: 'navigate', to: ROUTES.roles },
+    group: 'navigate',
+    anyOf: ['rbac:manage'],
+    // The break-glass session holds this permission too, but it can only restore an Owner (its own page).
+    actorKinds: ['user'],
+  },
+  {
     id: 'settings-restore-access',
     labelKey: 'palette.command.settingsRestoreAccess',
     keywordKeys: ['palette.keywords.restoreAccess'],

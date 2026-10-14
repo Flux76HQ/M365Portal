@@ -340,6 +340,27 @@ herstellen"); it bypasses Conditional Access and MFA by design, so treat its pas
 The failure bounds of break-glass and of the setup unlock are global (20 and 30 per hour), so an attacker can
 lock them for an hour; a container restart resets the in-memory lock counters. Prefer the proxy restriction.
 
+## Giving existing users a role
+
+Nobody can do anything in the panel without a role. The Owner chosen in the setup wizard is the first; the
+optional *Beheerder* group of the wizard is the second. Everyone else is given a role by an Owner:
+
+1. Sign in as an Owner and open **Settings, Roles and access** (`/settings/roles`).
+2. Choose **Assign role**, pick **User** or **Group**, search by name or e-mail address, pick the person or the
+   group, choose the role and, if you want, the last day. Confirm with a new sign-in when the panel asks for it
+   (a step-up, the same window of 10 minutes as other sensitive actions).
+3. To take a role away, choose **Remove** on its row and confirm. A person who holds the role through another
+   assignment, or through a group, keeps it.
+
+The six built-in roles (the full matrix is in [permissions.md](permissions.md)): *Eigenaar* (Owner, everything),
+*Beheerder* (Administrator, everything except roles and the connection), *Operator* (users, groups, lists and
+contacts), *Helpdesk* (read, and change members of groups and lists), *Lezer* (Reader, read only) and
+*Distribution List Editor* (create, edit and delete mail contacts, add them to or remove them from existing
+distribution lists, and read users to find them; nothing else). The role *Eigenaar* and any other role that manages
+access or the connection cannot be given to a group, and an Owner assignment never expires. Prefer one Entra group per
+role over many individual assignments; a group change reaches the panel within the group cache time
+(`GROUP_CACHE_TTL_SECONDS`, 300 seconds). Every assignment and removal is written to the audit log.
+
 ## Sessions and timeouts
 
 Sessions are server-side. The defaults are 30 minutes idle (`SESSION_IDLE_TIMEOUT_MINUTES`) and 8 hours
@@ -636,6 +657,20 @@ Docker-secret (`secrets/app_key`) of platformgeheim en **maak een back-up los va
 nieuwe sleutel als `APP_KEY`, de oude als `APP_KEY_PREVIOUS`, daarna `rotate-app-key`; roteren vernieuwt het
 certificaat niet. **Gelekte sleutel:** roteer, verwijder de oude sleutel en alle `pre-rotate-*`-kopieën die u niet
 nodig hebt, vernieuw het certificaat via de herstelstap van de wizard en controleer het aanmeldlogboek in Entra.
+
+### Bestaande gebruikers een rol geven
+
+Zonder rol kan niemand iets in het paneel. De Eigenaar uit de installatiewizard is de eerste, de optionele
+*Beheerder*-groep van de wizard de tweede. Alle anderen krijgen hun rol van een Eigenaar: meld u aan als Eigenaar,
+open **Instellingen, Rollen en toegang** (`/settings/roles`), kies **Rol toekennen**, kies **Gebruiker** of
+**Groep**, zoek op naam of e-mailadres, kies de persoon of groep en de rol en eventueel de laatste dag, en bevestig
+met een nieuwe aanmelding wanneer het paneel daarom vraagt (step-up, hetzelfde venster van 10 minuten). Een rol
+weghalen kan met **Verwijderen** op de rij; wie de rol via een andere toewijzing of een groep heeft, houdt hem. De
+zes vaste rollen: *Eigenaar*, *Beheerder*, *Operator*, *Helpdesk*, *Lezer* en *Distribution List Editor* (mailcontacten
+aanmaken, bewerken en verwijderen, ze toevoegen aan of weghalen uit bestaande distributielijsten en gebruikers lezen
+om ze te vinden; verder niets). De rol *Eigenaar* en andere rollen die toegang of de verbinding beheren kunnen niet
+aan een groep worden gegeven. Gebruik liever één Entra-groep per rol dan veel losse toewijzingen. Elke toewijzing
+en verwijdering staat in het auditlogboek.
 
 ### Certificaat, break-glass en sessies
 

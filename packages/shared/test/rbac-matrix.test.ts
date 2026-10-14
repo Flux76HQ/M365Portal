@@ -1,4 +1,4 @@
-// T-B-231, FR-B-501 (constant), FR-B-502, FR-B-503, I-B1, CB8: the five built-in roles and the
+// T-B-231, FR-B-501 (constant), FR-B-502, FR-B-503, I-B1, CB8: the six built-in roles and the
 // template *Bestuur* are ONE constant, and that constant equals the matrix of spec 6.9.4.
 // The matrix is written out again below as the second, independent statement (it is not derived from
 // the constant), in the notation of the spec table: `x` = held, `basic` = the qualifier, empty = not held.
@@ -17,26 +17,26 @@ import type { Qualifier } from '../src/rbac/resources.js';
 import { expectGuardFails } from '../src/testing/index.js';
 
 type Cell = '' | 'x' | 'basic';
-// permission, owner, admin, operator, helpdesk, reader, board (template)
-const MATRIX: readonly (readonly [Permission, Cell, Cell, Cell, Cell, Cell, Cell])[] = [
-  ['users:read', 'x', 'x', 'x', 'x', 'x', 'basic'],
-  ['groups:read', 'x', 'x', 'x', 'x', 'x', ''],
-  ['groups:members:write', 'x', 'x', 'x', 'x', '', ''],
-  ['distributionlists:read', 'x', 'x', 'x', 'x', 'x', 'x'],
-  ['distributionlists:members:write', 'x', 'x', 'x', 'x', '', 'x'],
-  ['distributionlists:export', 'x', 'x', '', '', '', ''],
-  ['contacts:read', 'x', 'x', 'x', 'x', 'x', 'x'],
-  ['contacts:create', 'x', 'x', 'x', '', '', 'x'],
-  ['contacts:update', 'x', 'x', 'x', '', '', ''],
-  ['contacts:delete', 'x', 'x', 'x', '', '', ''],
-  ['audit:read', 'x', 'x', '', '', '', ''],
-  ['audit:export', 'x', 'x', '', '', '', ''],
-  ['settings:branding', 'x', 'x', '', '', '', ''],
-  ['settings:connection', 'x', '', '', '', '', ''],
-  ['rbac:manage', 'x', '', '', '', '', ''],
+// permission, owner, admin, operator, helpdesk, reader, dl_editor, board (template)
+const MATRIX: readonly (readonly [Permission, Cell, Cell, Cell, Cell, Cell, Cell, Cell])[] = [
+  ['users:read', 'x', 'x', 'x', 'x', 'x', 'x', 'basic'],
+  ['groups:read', 'x', 'x', 'x', 'x', 'x', '', ''],
+  ['groups:members:write', 'x', 'x', 'x', 'x', '', '', ''],
+  ['distributionlists:read', 'x', 'x', 'x', 'x', 'x', 'x', 'x'],
+  ['distributionlists:members:write', 'x', 'x', 'x', 'x', '', 'x', 'x'],
+  ['distributionlists:export', 'x', 'x', '', '', '', '', ''],
+  ['contacts:read', 'x', 'x', 'x', 'x', 'x', 'x', 'x'],
+  ['contacts:create', 'x', 'x', 'x', '', '', 'x', 'x'],
+  ['contacts:update', 'x', 'x', 'x', '', '', 'x', ''],
+  ['contacts:delete', 'x', 'x', 'x', '', '', 'x', ''],
+  ['audit:read', 'x', 'x', '', '', '', '', ''],
+  ['audit:export', 'x', 'x', '', '', '', '', ''],
+  ['settings:branding', 'x', 'x', '', '', '', '', ''],
+  ['settings:connection', 'x', '', '', '', '', '', ''],
+  ['rbac:manage', 'x', '', '', '', '', '', ''],
 ];
-const ROLE_COLUMNS = ['owner', 'admin', 'operator', 'helpdesk', 'reader'] as const;
-const COUNTS = { owner: 15, admin: 13, operator: 9, helpdesk: 6, reader: 4 } as const;
+const ROLE_COLUMNS = ['owner', 'admin', 'operator', 'helpdesk', 'reader', 'dl_editor'] as const;
+const COUNTS = { owner: 15, admin: 13, operator: 9, helpdesk: 6, reader: 4, dl_editor: 7 } as const;
 
 interface RoleLike {
   readonly key: string;
@@ -85,7 +85,7 @@ describe('BUILTIN_ROLES equals the matrix of spec 6.9.4', () => {
     }).not.toThrow();
   });
 
-  it('holds the five roles in the order of the spec, with English keys', () => {
+  it('holds the six roles in the order of the spec, with English keys', () => {
     expect(BUILTIN_ROLES.map((r) => r.key)).toEqual([...ROLE_COLUMNS]);
     expect([...BUILTIN_ROLE_KEYS]).toEqual([...ROLE_COLUMNS]);
     for (const role of BUILTIN_ROLES) {
@@ -103,8 +103,8 @@ describe('BUILTIN_ROLES equals the matrix of spec 6.9.4', () => {
     for (const { qualifier } of roleOf(key).permissions) expect(qualifier).toBe('full');
   });
 
-  it('has 47 role-permission rows in total and no permission twice in a role', () => {
-    expect(BUILTIN_ROLES.reduce((sum, r) => sum + r.permissions.length, 0)).toBe(47);
+  it('has 54 role-permission rows in total and no permission twice in a role', () => {
+    expect(BUILTIN_ROLES.reduce((sum, r) => sum + r.permissions.length, 0)).toBe(54);
     for (const role of BUILTIN_ROLES)
       expect(new Set(held(role.key)).size, role.key).toBe(role.permissions.length);
   });
@@ -186,9 +186,9 @@ describe('the template Bestuur (board)', () => {
   });
 
   it('holds the five permissions of the board column, users:read with the qualifier basic', () => {
-    const expected = MATRIX.filter((row) => row[6] !== '').map((row) => ({
+    const expected = MATRIX.filter((row) => row[7] !== '').map((row) => ({
       permission: row[0],
-      qualifier: row[6] === 'basic' ? 'basic' : 'full',
+      qualifier: row[7] === 'basic' ? 'basic' : 'full',
     }));
     expect(expected).toHaveLength(5);
     expect(board?.permissions).toHaveLength(5);
@@ -237,7 +237,7 @@ describe('the constants are frozen all the way down', () => {
 describe('types', () => {
   it('has the shapes the server and the web rely on', () => {
     expectTypeOf<BuiltinRoleKey>().toEqualTypeOf<
-      'owner' | 'admin' | 'operator' | 'helpdesk' | 'reader'
+      'owner' | 'admin' | 'operator' | 'helpdesk' | 'reader' | 'dl_editor'
     >();
     expectTypeOf<RoleDefinition['permissions'][number]>().toEqualTypeOf<{
       readonly permission: Permission;

@@ -143,30 +143,30 @@ same container on an Ubuntu 24.04 base, built in Phase D step D1 (Part 5, ADR-01
 
 ### Built-in roles
 
-The panel ships five immutable roles and one template. A role is a set of the 15 permissions of Part 1;
+The panel ships six immutable roles and one template (the sixth, *Distribution List Editor*, `dl_editor`, comes with migration `0002`, ADR-0183: contacts in full, distribution lists read and member write, and `users:read` so that the member search works). A role is a set of the 15 permissions of Part 1;
 an assignment binds a role to a user or an Entra group, optionally with a scope (FR-B-501 to FR-B-513).
 `x` means the role holds the permission. *Bestuur* is a template, not a role: assigning it creates an
 assignment of the read roles with the qualifier `basic` for `users:read`. The matrix is identical to
 the table in section 6.9.4 of the Phase B spec and `docs-contract.test.ts` compares the two cell by cell.
-Totals: *Eigenaar* 15, *Beheerder* 13, *Operator* 9, *Helpdesk* 6, *Lezer* 4, *Bestuur* 5.
+Totals: *Eigenaar* 15, *Beheerder* 13, *Operator* 9, *Helpdesk* 6, *Lezer* 4, *Bestuur* 5, *Distribution List Editor* 7.
 
-| Permission | Resource type | Eigenaar (`owner`) | Beheerder (`admin`) | Operator (`operator`) | Helpdesk (`helpdesk`) | Lezer (`reader`) | Bestuur (template) |
-|---|---|---|---|---|---|---|---|
-| `users:read` | `user` | x | x | x | x | x | basic |
-| `groups:read` | `group` | x | x | x | x | x | |
-| `groups:members:write` | `group` | x | x | x | x | | |
-| `distributionlists:read` | `distributionList` | x | x | x | x | x | x |
-| `distributionlists:members:write` | `distributionList` | x | x | x | x | | x |
-| `distributionlists:export` | `distributionList` | x | x | | | | |
-| `contacts:read` | `contact` | x | x | x | x | x | x |
-| `contacts:create` | `contact` | x | x | x | | | x |
-| `contacts:update` | `contact` | x | x | x | | | |
-| `contacts:delete` | `contact` | x | x | x | | | |
-| `audit:read` | none (global-only) | x | x | | | | |
-| `audit:export` | none (global-only) | x | x | | | | |
-| `settings:branding` | none (global-only) | x | x | | | | |
-| `settings:connection` | none (global-only) | x | | | | | |
-| `rbac:manage` | none (global-only) | x | | | | | |
+| Permission | Resource type | Eigenaar (`owner`) | Beheerder (`admin`) | Operator (`operator`) | Helpdesk (`helpdesk`) | Lezer (`reader`) | Bestuur (template) | Distribution List Editor (`dl_editor`) |
+|---|---|---|---|---|---|---|---|---|
+| `users:read` | `user` | x | x | x | x | x | basic | x |
+| `groups:read` | `group` | x | x | x | x | x | |  |
+| `groups:members:write` | `group` | x | x | x | x | | |  |
+| `distributionlists:read` | `distributionList` | x | x | x | x | x | x | x |
+| `distributionlists:members:write` | `distributionList` | x | x | x | x | | x | x |
+| `distributionlists:export` | `distributionList` | x | x | | | | |  |
+| `contacts:read` | `contact` | x | x | x | x | x | x | x |
+| `contacts:create` | `contact` | x | x | x | | | x | x |
+| `contacts:update` | `contact` | x | x | x | | | | x |
+| `contacts:delete` | `contact` | x | x | x | | | | x |
+| `audit:read` | none (global-only) | x | x | | | | |  |
+| `audit:export` | none (global-only) | x | x | | | | |  |
+| `settings:branding` | none (global-only) | x | x | | | | |  |
+| `settings:connection` | none (global-only) | x | | | | | |  |
+| `rbac:manage` | none (global-only) | x | | | | | |  |
 
 How a scope works. The "Resource type" column is the permission-to-resource-type map. A scope restricts
 an assignment per resource type: a scoped assignment of a role applies only to objects of the scope for
@@ -496,8 +496,8 @@ Alles in dit deel komt uit `research-microsoft.md` (Microsoft Learn, 2026-10-10)
 ### Deel 3: de rollenmatrix van Fase B en de draaiende applicatie
 
 De rollenmatrix hierboven (Deel 3, Built-in roles) is normatief en gelijk aan sectie 6.9.4 van de spec van
-Fase B: vijf vaste rollen (Eigenaar, Beheerder, Operator, Helpdesk, Lezer) en het sjabloon Bestuur, dat data is
-en geen rol. Totalen: Eigenaar 15, Beheerder 13, Operator 9, Helpdesk 6, Lezer 4, Bestuur 5. Een scope beperkt een
+Fase B: zes vaste rollen (Eigenaar, Beheerder, Operator, Helpdesk, Lezer, Distribution List Editor) en het sjabloon Bestuur, dat data is
+en geen rol. Totalen: Eigenaar 15, Beheerder 13, Operator 9, Helpdesk 6, Lezer 4, Bestuur 5, Distribution List Editor 7 (contacten volledig beheren, distributielijsten lezen en leden wijzigen, gebruikers lezen om leden te zoeken). Een scope beperkt een
 toewijzing per resourcetype; rechten zonder resourcetype (audit, instellingen, RBAC) komen alleen uit
 toewijzingen zonder scope. Rollen met `rbac:manage` of `settings:connection` kunnen niet aan een Entra-groep
 worden gekoppeld.

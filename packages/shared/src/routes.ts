@@ -19,6 +19,8 @@ export const ROUTES = Object.freeze({
   connection: '/settings/connection',
   /** "Mijn toegang": the signed-in user's roles and effective permissions (FR-B-514). */
   access: '/settings/access',
+  /** "Rollen en toegang": give existing users and groups a role (needs `rbac:manage`, Owner only). */
+  roles: '/settings/roles',
   /** The break-glass recovery page: restore the Owner (FR-B-523). Break-glass sessions only. */
   restoreAccess: '/settings/restore-access',
   noAccess: '/no-access',

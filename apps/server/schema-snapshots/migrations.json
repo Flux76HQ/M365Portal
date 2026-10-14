@@ -9,6 +9,11 @@
       "tag": "0001_phase_b",
       "sha256": "3b40a6f18bc39054378112652ef07dd42c5333bf0ad0c0b7a0dfb1f3fcbe66e7",
       "schemaVersion": 1
+    },
+    {
+      "tag": "0002_dl_editor_role",
+      "sha256": "89305bb80e9ea789db1398373095f0e4b46a8dc923ad0bd8882f221f3379d5dc",
+      "schemaVersion": 2
     }
   ]
 }

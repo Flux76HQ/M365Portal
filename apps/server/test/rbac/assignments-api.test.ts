@@ -47,6 +47,7 @@ describe('GET /api/v1/rbac/roles (P27)', () => {
       'operator',
       'helpdesk',
       'reader',
+      'dl_editor',
     ]);
     expect(parsed.roles.every((role) => role.builtin && role.assignable)).toBe(true);
     expect(parsed.roles[0]?.permissions).toHaveLength(15);

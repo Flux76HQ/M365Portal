@@ -49,6 +49,26 @@ const EXPECTED: Readonly<Record<Exclude<StoredPrincipalName, 'norole'>, Expected
     permissions: READ,
     missing: ['Change the members of groups', 'Create contacts'],
   },
+  'dl-editor': {
+    roles: ['Distribution List Editor'],
+    permissions: [
+      'See users',
+      'See distribution lists',
+      'See contacts',
+      'Create contacts',
+      'Edit contacts',
+      'Delete contacts',
+      'Change the members of distribution lists',
+    ],
+    missing: [
+      'See groups',
+      'Change the members of groups',
+      'Export distribution lists',
+      'Read the audit log',
+      'Change the appearance',
+      'Manage roles and access',
+    ],
+  },
   'expired-assignment': { roles: [], permissions: [], missing: READ },
   'group-member': {
     roles: ['Helpdesk'],

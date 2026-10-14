@@ -33,6 +33,12 @@ const CARDS: readonly {
     descriptionKey: 'pages.settings.access.description',
   },
   {
+    commandId: 'settings-roles',
+    // The text of this card is in the lazy `access` catalogue (the Settings route loads it): the entry stays small.
+    titleKey: 'access.admin.title',
+    descriptionKey: 'access.admin.card',
+  },
+  {
     commandId: 'settings-restore-access',
     titleKey: 'nav.restoreAccess',
     descriptionKey: 'pages.settings.restoreAccess.description',

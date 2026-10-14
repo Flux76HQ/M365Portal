@@ -73,9 +73,9 @@ describe('the limits of the assignment service', () => {
     const f = await serviceFixture();
     const count = (): number =>
       (f.db.sqlite.prepare('SELECT count(*) AS n FROM rbac_role').get() as { n: number }).n;
-    expect(count()).toBe(5);
+    expect(count()).toBe(6);
     withTransaction(f.db, (tx) => {
-      for (let index = 0; index < LIMITS.rbac.rolesMax - 5 - 1; index += 1) {
+      for (let index = 0; index < LIMITS.rbac.rolesMax - 6 - 1; index += 1) {
         insertRole(tx, {
           key: `custom${String(index)}`,
           createdAt: f.clock.iso(),

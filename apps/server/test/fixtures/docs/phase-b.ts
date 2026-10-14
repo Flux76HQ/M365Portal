@@ -338,6 +338,7 @@ export interface MatrixRow {
   readonly resource: string;
   readonly roles: readonly string[];
   readonly bestuur: string;
+  readonly editor: string;
 }
 
 /** The matrix of spec 6.9.4, read from the spec file. */
@@ -350,6 +351,7 @@ export function specRoleMatrix(specText: string): MatrixRow[] {
     resource: stripMarkup(row[1] ?? ''),
     roles: [2, 3, 4, 5, 6].map((index) => stripMarkup(row[index] ?? '')),
     bestuur: stripMarkup(row[7] ?? ''),
+    editor: stripMarkup(row[8] ?? ''),
   }));
 }
 
@@ -372,7 +374,15 @@ export function assertPermissionsPhaseB(markdown: string, specText: string): voi
   );
   if (table === undefined)
     throw new Error('permissions.md: no role matrix (a table with the column Eigenaar)');
-  const columns = ['Eigenaar', 'Beheerder', 'Operator', 'Helpdesk', 'Lezer', 'Bestuur'];
+  const columns = [
+    'Eigenaar',
+    'Beheerder',
+    'Operator',
+    'Helpdesk',
+    'Lezer',
+    'Bestuur',
+    'Distribution List Editor',
+  ];
   const index = columns.map((name) => table.header.findIndex((cell) => cell.includes(name)));
   if (index.some((position) => position < 0))
     throw new Error('permissions.md: the role matrix lacks a role column');
@@ -395,13 +405,22 @@ export function assertPermissionsPhaseB(markdown: string, specText: string): voi
         `permissions.md: ${row.permission} for Bestuur is "${cell(5)}", the spec has "${row.bestuur}"`,
       );
     }
+    if (cell(6) !== row.editor.toLowerCase()) {
+      throw new Error(
+        `permissions.md: ${row.permission} for Distribution List Editor is "${cell(6)}", the spec has "${row.editor}"`,
+      );
+    }
   }
   if (rows.length !== 15)
     throw new Error(`permissions.md: the role matrix has ${String(rows.length)} rows, not 15`);
-  const totals = [15, 13, 9, 6, 4, 5];
+  const totals = [15, 13, 9, 6, 4, 5, 7];
   totals.forEach((total, role) => {
     const count = expected.filter((row) =>
-      role < 5 ? row.roles[role]?.toLowerCase() === 'x' : row.bestuur !== '',
+      role < 5
+        ? row.roles[role]?.toLowerCase() === 'x'
+        : role === 5
+          ? row.bestuur !== ''
+          : row.editor.toLowerCase() === 'x',
     ).length;
     if (count !== total)
       throw new Error(

@@ -21,12 +21,12 @@ import { createMigratedDatabase } from '../helpers/rbac-db.js';
 const NOW = '2026-10-11T12:00:00.000Z';
 
 describe('the seeded roles are BUILTIN_ROLES (I-B1)', () => {
-  it('has the five roles, in order, with the 47 permission rows of the matrix', async () => {
+  it('has the six roles, in order, with the 54 permission rows of the matrix', async () => {
     const db = await createMigratedDatabase();
     const roles = listRoles(db).filter((role) => role.builtin);
     expect(roles.map((role) => role.key)).toEqual(BUILTIN_ROLES.map((role) => role.key));
-    expect(roles.map((role) => role.grants.length)).toEqual([15, 13, 9, 6, 4]);
-    expect(roles.reduce((sum, role) => sum + role.grants.length, 0)).toBe(47);
+    expect(roles.map((role) => role.grants.length)).toEqual([15, 13, 9, 6, 4, 7]);
+    expect(roles.reduce((sum, role) => sum + role.grants.length, 0)).toBe(54);
     for (const [index, definition] of BUILTIN_ROLES.entries()) {
       const stored = roles[index];
       expect(stored?.assignable).toBe(true);
@@ -50,8 +50,8 @@ const FORBIDDEN: readonly { readonly name: string; readonly sql: string }[] = [
   { name: 'rename a built-in role', sql: "UPDATE rbac_role SET key = 'boss' WHERE key = 'owner'" },
   { name: 'delete a built-in role', sql: "DELETE FROM rbac_role WHERE key = 'reader'" },
   {
-    name: 'insert a sixth built-in role',
-    sql: "INSERT INTO rbac_role (key, builtin, assignable, created_at) VALUES ('sixth', 1, 1, '2026-10-11T12:00:00.000Z')",
+    name: 'insert a seventh built-in role',
+    sql: "INSERT INTO rbac_role (key, builtin, assignable, created_at) VALUES ('seventh', 1, 1, '2026-10-11T12:00:00.000Z')",
   },
   {
     name: 'insert a permission into a built-in role',

@@ -154,9 +154,14 @@ interface Expectation {
 const MATRIX: Readonly<Record<Exclude<StoredPrincipalName, 'norole'>, Expectation>> = {
   owner: {
     sidebar: OWNER_ENTRIES,
-    settings: ['Appearance', 'Connection', 'My access'],
+    settings: ['Appearance', 'Connection', 'My access', 'Roles and access'],
     palette: {
-      offered: ['Settings, Appearance', 'Settings, Connection', 'Settings, My access'],
+      offered: [
+        'Settings, Appearance',
+        'Settings, Connection',
+        'Settings, My access',
+        'Settings, Roles and access',
+      ],
       absent: ['Settings, Restore access'],
     },
   },
@@ -166,7 +171,7 @@ const MATRIX: Readonly<Record<Exclude<StoredPrincipalName, 'norole'>, Expectatio
     settings: ['Appearance', 'My access'],
     palette: {
       offered: ['Settings, Appearance', 'Settings, My access'],
-      absent: ['Settings, Connection', 'Settings, Restore access'],
+      absent: ['Settings, Connection', 'Settings, Roles and access', 'Settings, Restore access'],
     },
   },
   operator: {
@@ -193,6 +198,22 @@ const MATRIX: Readonly<Record<Exclude<StoredPrincipalName, 'norole'>, Expectatio
     palette: {
       offered: ['Settings, My access'],
       absent: ['Settings, Appearance', 'Settings, Connection'],
+    },
+  },
+  'dl-editor': {
+    // The Distribution List Editor reads users, lists and contacts, but has no Groups page (no groups:read).
+    sidebar: [
+      'Dashboard',
+      'Users',
+      'Distribution lists',
+      'Contacts',
+      'Settings',
+      'Component showcase',
+    ],
+    settings: ['My access'],
+    palette: {
+      offered: ['Settings, My access'],
+      absent: ['Settings, Appearance', 'Settings, Connection', 'Settings, Roles and access'],
     },
   },
   'expired-assignment': {
@@ -232,7 +253,13 @@ test.describe('the role matrix', () => {
         await app.goto('/settings');
         const cards = page.getByRole('list', { name: 'Available settings' });
         await expect(cards).toBeVisible();
-        for (const title of ['Appearance', 'Connection', 'My access', 'Restore access']) {
+        for (const title of [
+          'Appearance',
+          'Connection',
+          'My access',
+          'Roles and access',
+          'Restore access',
+        ]) {
           const count = await cards.getByText(title, { exact: true }).count();
           expect(count, `the card "${title}" for ${name}`).toBe(
             expected.settings.includes(title) ? 1 : 0,
@@ -295,6 +322,7 @@ test.describe('the pages of step D1 follow the role', () => {
     ['operator', { newContact: true, editContact: true, members: true }],
     ['helpdesk', { newContact: false, editContact: false, members: true }],
     ['reader', { newContact: false, editContact: false, members: false }],
+    ['dl-editor', { newContact: true, editContact: true, members: true }],
   ];
 
   for (const [name, can] of CONTROLS) {

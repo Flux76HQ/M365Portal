@@ -18,8 +18,9 @@ This is **Phase D step D1, distribution lists, contacts and group members**, on 
   device code flow, a **manual mode** with a checklist,
 - **sign-in with Microsoft Entra** (authorization code flow with PKCE, a certificate instead of a client secret,
   multi-factor required by default) and server-side sessions with timeouts and a step-up for sensitive actions,
-- **roles on the server**: five built-in roles (Eigenaar, Beheerder, Operator, Helpdesk, Lezer) and the Bestuur
-  template, bound to users or Entra groups, with scopes, enforced on every route and audited,
+- **roles on the server**: six built-in roles (Eigenaar, Beheerder, Operator, Helpdesk, Lezer, Distribution List Editor)
+  and the Bestuur template, bound to users or Entra groups, with scopes, enforced on every route and audited; an Owner
+  gives and removes them on *Settings, Roles and access*,
 - a **break-glass** account (optional) that can only restore an Owner, and the command-line tools for the key,
   the setup token and the audit chain,
 - **Users and Groups, read only** (Phase C): a paged list with prefix search and filters (users: enabled or
@@ -54,7 +55,7 @@ What does **not** exist yet:
 - Some Microsoft behaviour could only be read, not tried (for example the manager of a user for an
   application, and groups with hidden membership); the open claims U66 to U74 are closed by a test against a
   real tenant, step by step in [docs/owner-test-phase-c.md](docs/owner-test-phase-c.md).
-- There is no screen for the audit log, no CSV export and no role administration yet (Phase D steps D2 and D3); the CLI and the API cover the audit chain.
+- There is no screen for the audit log, no CSV export and no custom roles, scope editing or "view as" yet (Phase D steps D2 and D3); the CLI and the API cover the audit chain.
 - **Preview mode is gone.** Without a configured tenant the panel answers only the setup gate; nobody acts as
   administrator without signing in.
 
@@ -253,8 +254,9 @@ Dit is **Fase D stap D1, distributielijsten, contacten en groepsleden**, bovenop
 - **aanmelden met Microsoft Entra** (autorisatiecodestroom met PKCE, een certificaat in plaats van een
   clientgeheim, standaard meervoudige verificatie) en sessies op de server met time-outs en een extra
   verificatie voor gevoelige handelingen,
-- **rollen op de server**: vijf vaste rollen (Eigenaar, Beheerder, Operator, Helpdesk, Lezer) en het sjabloon
-  Bestuur, gekoppeld aan gebruikers of Entra-groepen, met scopes, op elke route afgedwongen en gecontroleerd,
+- **rollen op de server**: zes vaste rollen (Eigenaar, Beheerder, Operator, Helpdesk, Lezer, Distribution List
+  Editor) en het sjabloon Bestuur, gekoppeld aan gebruikers of Entra-groepen, met scopes, op elke route afgedwongen
+  en gecontroleerd; een Eigenaar kent ze toe en neemt ze weg onder *Instellingen, Rollen en toegang*,
 - een optioneel **break-glass**-account dat alleen een Eigenaar kan herstellen, en opdrachtregelhulpmiddelen voor
   de sleutel, het setup-token en de auditketen,
 - **Gebruikers en Groepen, alleen lezen** (Fase C): een lijst met paginering, zoeken op het begin van een naam

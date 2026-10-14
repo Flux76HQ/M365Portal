@@ -1,6 +1,7 @@
 {
   "role.admin": "Beheerder",
   "role.board": "Bestuur",
+  "role.dl_editor": "Distribution List Editor",
   "role.helpdesk": "Helpdesk",
   "role.operator": "Operator",
   "role.owner": "Eigenaar",

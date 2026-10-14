@@ -1,0 +1,1930 @@
+{
+  "id": "2935c7d7-7f9a-4b34-b358-4239f9aca932",
+  "prevId": "ec95b2f8-bf74-490b-941f-d63d5a6c3dfb",
+  "version": "6",
+  "dialect": "sqlite",
+  "tables": {
+    "audit_log": {
+      "name": "audit_log",
+      "columns": {
+        "seq": {
+          "name": "seq",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ts": {
+          "name": "ts",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_kind": {
+          "name": "actor_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target_type": {
+          "name": "target_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "target_id": {
+          "name": "target_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reason_code": {
+          "name": "reason_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "client_ip": {
+          "name": "client_ip",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "detail": {
+          "name": "detail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "prev_hash": {
+          "name": "prev_hash",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "hash": {
+          "name": "hash",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "audit_log_hash_uq": {
+          "name": "audit_log_hash_uq",
+          "columns": ["hash"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "audit_log_ts_shape": {
+          "name": "audit_log_ts_shape",
+          "value": "ts GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        },
+        "audit_log_outcome_set": {
+          "name": "audit_log_outcome_set",
+          "value": "outcome IN ('success', 'denied', 'rejected', 'error')"
+        },
+        "audit_log_detail_json": {
+          "name": "audit_log_detail_json",
+          "value": "json_valid(detail) = 1 AND length(CAST(detail AS BLOB)) <= 4096"
+        },
+        "audit_log_hash_sizes": {
+          "name": "audit_log_hash_sizes",
+          "value": "length(prev_hash) = 32 AND length(hash) = 32"
+        }
+      }
+    },
+    "branding": {
+      "name": "branding",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "org_name": {
+          "name": "org_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "accent": {
+          "name": "accent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "logo_light": {
+          "name": "logo_light",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_dark": {
+          "name": "logo_dark",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_compact": {
+          "name": "logo_compact",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_compact_derived": {
+          "name": "logo_compact_derived",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "icon_favicon32": {
+          "name": "icon_favicon32",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "icon_apple180": {
+          "name": "icon_apple180",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "icon_pwa192": {
+          "name": "icon_pwa192",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "icon_pwa512": {
+          "name": "icon_pwa512",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "icon_maskable512": {
+          "name": "icon_maskable512",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_by_kind": {
+          "name": "updated_by_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_by_id": {
+          "name": "updated_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "branding_logo_light_branding_asset_sha256_fk": {
+          "name": "branding_logo_light_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "columnsFrom": ["logo_light"],
+          "tableTo": "branding_asset",
+          "columnsTo": ["sha256"],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        },
+        "branding_logo_dark_branding_asset_sha256_fk": {
+          "name": "branding_logo_dark_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "columnsFrom": ["logo_dark"],
+          "tableTo": "branding_asset",
+          "columnsTo": ["sha256"],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        },
+        "branding_logo_compact_branding_asset_sha256_fk": {
+          "name": "branding_logo_compact_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "columnsFrom": ["logo_compact"],
+          "tableTo": "branding_asset",
+          "columnsTo": ["sha256"],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        },
+        "branding_icon_favicon32_branding_asset_sha256_fk": {
+          "name": "branding_icon_favicon32_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "columnsFrom": ["icon_favicon32"],
+          "tableTo": "branding_asset",
+          "columnsTo": ["sha256"],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        },
+        "branding_icon_apple180_branding_asset_sha256_fk": {
+          "name": "branding_icon_apple180_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "columnsFrom": ["icon_apple180"],
+          "tableTo": "branding_asset",
+          "columnsTo": ["sha256"],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        },
+        "branding_icon_pwa192_branding_asset_sha256_fk": {
+          "name": "branding_icon_pwa192_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "columnsFrom": ["icon_pwa192"],
+          "tableTo": "branding_asset",
+          "columnsTo": ["sha256"],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        },
+        "branding_icon_pwa512_branding_asset_sha256_fk": {
+          "name": "branding_icon_pwa512_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "columnsFrom": ["icon_pwa512"],
+          "tableTo": "branding_asset",
+          "columnsTo": ["sha256"],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        },
+        "branding_icon_maskable512_branding_asset_sha256_fk": {
+          "name": "branding_icon_maskable512_branding_asset_sha256_fk",
+          "tableFrom": "branding",
+          "columnsFrom": ["icon_maskable512"],
+          "tableTo": "branding_asset",
+          "columnsTo": ["sha256"],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "branding_single_row": {
+          "name": "branding_single_row",
+          "value": "id = 1"
+        },
+        "branding_revision_positive": {
+          "name": "branding_revision_positive",
+          "value": "revision >= 1"
+        },
+        "branding_org_name_bytes": {
+          "name": "branding_org_name_bytes",
+          "value": "length(CAST(org_name AS BLOB)) BETWEEN 1 AND 256"
+        },
+        "branding_accent_shape": {
+          "name": "branding_accent_shape",
+          "value": "accent GLOB '#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'"
+        },
+        "branding_logo_compact_derived_flag": {
+          "name": "branding_logo_compact_derived_flag",
+          "value": "logo_compact_derived IN (0, 1)"
+        },
+        "branding_logo_compact_derived_needs_logo": {
+          "name": "branding_logo_compact_derived_needs_logo",
+          "value": "logo_compact_derived = 0 OR logo_compact IS NOT NULL"
+        },
+        "branding_updated_at_shape": {
+          "name": "branding_updated_at_shape",
+          "value": "updated_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        }
+      }
+    },
+    "branding_asset": {
+      "name": "branding_asset",
+      "columns": {
+        "sha256": {
+          "name": "sha256",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "bytes": {
+          "name": "bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "width": {
+          "name": "width",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "height": {
+          "name": "height",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "luminance": {
+          "name": "luminance",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "unreferenced_at": {
+          "name": "unreferenced_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "branding_asset_unreferenced_idx": {
+          "name": "branding_asset_unreferenced_idx",
+          "columns": ["unreferenced_at"],
+          "where": "unreferenced_at IS NOT NULL",
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "branding_asset_sha256_shape": {
+          "name": "branding_asset_sha256_shape",
+          "value": "length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'"
+        },
+        "branding_asset_bytes_range": {
+          "name": "branding_asset_bytes_range",
+          "value": "bytes BETWEEN 1 AND 2097152"
+        },
+        "branding_asset_width_range": {
+          "name": "branding_asset_width_range",
+          "value": "width BETWEEN 1 AND 1024"
+        },
+        "branding_asset_height_range": {
+          "name": "branding_asset_height_range",
+          "value": "height BETWEEN 1 AND 1024"
+        },
+        "branding_asset_luminance_range": {
+          "name": "branding_asset_luminance_range",
+          "value": "luminance IS NULL OR luminance BETWEEN 0 AND 1"
+        },
+        "branding_asset_created_at_shape": {
+          "name": "branding_asset_created_at_shape",
+          "value": "created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        },
+        "branding_asset_unreferenced_at_shape": {
+          "name": "branding_asset_unreferenced_at_shape",
+          "value": "unreferenced_at IS NULL OR unreferenced_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        }
+      }
+    },
+    "app_user": {
+      "name": "app_user",
+      "columns": {
+        "tid": {
+          "name": "tid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "oid": {
+          "name": "oid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "upn_label": {
+          "name": "upn_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name_label": {
+          "name": "name_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_signin_at": {
+          "name": "last_signin_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "groups_resolved_at": {
+          "name": "groups_resolved_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "app_user_tid_oid_pk": {
+          "columns": ["tid", "oid"],
+          "name": "app_user_tid_oid_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "app_user_ids": {
+          "name": "app_user_ids",
+          "value": "(length(`tid`) = 36 AND `tid` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]') AND (length(`oid`) = 36 AND `oid` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')"
+        },
+        "app_user_labels": {
+          "name": "app_user_labels",
+          "value": "(`upn_label` IS NULL OR length(CAST(`upn_label` AS BLOB)) <= 256) AND (`name_label` IS NULL OR length(CAST(`name_label` AS BLOB)) <= 256)"
+        },
+        "app_user_times": {
+          "name": "app_user_times",
+          "value": "`first_seen_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z' AND `last_signin_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z' AND (`groups_resolved_at` IS NULL OR `groups_resolved_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z')"
+        }
+      }
+    },
+    "certificate": {
+      "name": "certificate",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "secret_id": {
+          "name": "secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "thumbprint_sha1": {
+          "name": "thumbprint_sha1",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "thumbprint_sha256": {
+          "name": "thumbprint_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "subject": {
+          "name": "subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "not_before": {
+          "name": "not_before",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "not_after": {
+          "name": "not_after",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "public_der": {
+          "name": "public_der",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "certificate_one_active": {
+          "name": "certificate_one_active",
+          "columns": ["state"],
+          "where": "`state` = 'active'",
+          "isUnique": true
+        },
+        "certificate_one_pending": {
+          "name": "certificate_one_pending",
+          "columns": ["state"],
+          "where": "`state` = 'pending'",
+          "isUnique": true
+        },
+        "certificate_sha1_uq": {
+          "name": "certificate_sha1_uq",
+          "columns": ["thumbprint_sha1"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "certificate_secret_id_secret_id_fk": {
+          "name": "certificate_secret_id_secret_id_fk",
+          "tableFrom": "certificate",
+          "columnsFrom": ["secret_id"],
+          "tableTo": "secret",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "certificate_id": {
+          "name": "certificate_id",
+          "value": "(length(`id`) = 36 AND `id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')"
+        },
+        "certificate_sha1": {
+          "name": "certificate_sha1",
+          "value": "(length(`thumbprint_sha1`) = 40 AND `thumbprint_sha1` NOT GLOB '*[^0-9a-f]*')"
+        },
+        "certificate_sha256": {
+          "name": "certificate_sha256",
+          "value": "(length(`thumbprint_sha256`) = 64 AND `thumbprint_sha256` NOT GLOB '*[^0-9a-f]*')"
+        },
+        "certificate_subject": {
+          "name": "certificate_subject",
+          "value": "length(CAST(`subject` AS BLOB)) BETWEEN 1 AND 256"
+        },
+        "certificate_validity": {
+          "name": "certificate_validity",
+          "value": "`not_before` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z' AND `not_after` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z' AND `not_before` < `not_after`"
+        },
+        "certificate_der": {
+          "name": "certificate_der",
+          "value": "typeof(`public_der`) = 'blob' AND length(`public_der`) BETWEEN 256 AND 4096"
+        },
+        "certificate_state": {
+          "name": "certificate_state",
+          "value": "`state` IN ('pending', 'active', 'retired')"
+        },
+        "certificate_created_at": {
+          "name": "certificate_created_at",
+          "value": "`created_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        }
+      }
+    },
+    "rbac_assignment": {
+      "name": "rbac_assignment",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "principal_type": {
+          "name": "principal_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "principal_id": {
+          "name": "principal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role_id": {
+          "name": "role_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_hash": {
+          "name": "scope_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "rbac_assignment_unique": {
+          "name": "rbac_assignment_unique",
+          "columns": ["principal_type", "principal_id", "role_id", "scope_hash"],
+          "isUnique": true
+        },
+        "rbac_assignment_principal_idx": {
+          "name": "rbac_assignment_principal_idx",
+          "columns": ["principal_type", "principal_id"],
+          "isUnique": false
+        },
+        "rbac_assignment_role_idx": {
+          "name": "rbac_assignment_role_idx",
+          "columns": ["role_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "rbac_assignment_role_id_rbac_role_id_fk": {
+          "name": "rbac_assignment_role_id_rbac_role_id_fk",
+          "tableFrom": "rbac_assignment",
+          "columnsFrom": ["role_id"],
+          "tableTo": "rbac_role",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "rbac_assignment_id": {
+          "name": "rbac_assignment_id",
+          "value": "(length(`id`) = 36 AND `id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')"
+        },
+        "rbac_assignment_principal": {
+          "name": "rbac_assignment_principal",
+          "value": "`principal_type` IN ('user', 'group') AND (length(`principal_id`) = 36 AND `principal_id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')"
+        },
+        "rbac_assignment_scope_hash": {
+          "name": "rbac_assignment_scope_hash",
+          "value": "(length(`scope_hash`) = 64 AND `scope_hash` NOT GLOB '*[^0-9a-f]*')"
+        },
+        "rbac_assignment_source": {
+          "name": "rbac_assignment_source",
+          "value": "`source` IN ('wizard', 'api', 'break_glass')"
+        },
+        "rbac_assignment_created_by": {
+          "name": "rbac_assignment_created_by",
+          "value": "length(CAST(`created_by` AS BLOB)) BETWEEN 1 AND 64"
+        },
+        "rbac_assignment_times": {
+          "name": "rbac_assignment_times",
+          "value": "`created_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z' AND (`expires_at` IS NULL OR `expires_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z')"
+        }
+      }
+    },
+    "rbac_assignment_scope": {
+      "name": "rbac_assignment_scope",
+      "columns": {
+        "assignment_id": {
+          "name": "assignment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target": {
+          "name": "target",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "match_by": {
+          "name": "match_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "attr": {
+          "name": "attr",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rbac_assignment_scope_assignment_id_rbac_assignment_id_fk": {
+          "name": "rbac_assignment_scope_assignment_id_rbac_assignment_id_fk",
+          "tableFrom": "rbac_assignment_scope",
+          "columnsFrom": ["assignment_id"],
+          "tableTo": "rbac_assignment",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {
+        "rbac_assignment_scope_assignment_id_position_pk": {
+          "columns": ["assignment_id", "position"],
+          "name": "rbac_assignment_scope_assignment_id_position_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "rbac_assignment_scope_position": {
+          "name": "rbac_assignment_scope_position",
+          "value": "`position` BETWEEN 0 AND 49"
+        },
+        "rbac_assignment_scope_target": {
+          "name": "rbac_assignment_scope_target",
+          "value": "`target` IN ('user', 'group', 'distributionList', 'contact')"
+        },
+        "rbac_assignment_scope_match": {
+          "name": "rbac_assignment_scope_match",
+          "value": "\n\t\t(`match_by` = 'id' AND `attr` = '' AND (length(`value`) = 36 AND `value` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]') AND `target` <> 'user')\n\t\tOR (`match_by` = 'prefix' AND (`attr` IN ('displayName', 'mail') OR (`attr` = 'alias' AND `target` <> 'user')) AND length(CAST(`value` AS BLOB)) BETWEEN 1 AND 256 AND length(`value`) <= 64)\n\t\tOR (`match_by` = 'department' AND `attr` = '' AND length(CAST(`value` AS BLOB)) BETWEEN 1 AND 256 AND length(`value`) <= 64 AND `target` IN ('user', 'contact'))\n\t"
+        }
+      }
+    },
+    "rbac_epoch": {
+      "name": "rbac_epoch",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "epoch": {
+          "name": "epoch",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "rbac_epoch_singleton": {
+          "name": "rbac_epoch_singleton",
+          "value": "`id` = 1"
+        },
+        "rbac_epoch_value": {
+          "name": "rbac_epoch_value",
+          "value": "`epoch` >= 0"
+        }
+      }
+    },
+    "rbac_group_member_cache": {
+      "name": "rbac_group_member_cache",
+      "columns": {
+        "user_oid": {
+          "name": "user_oid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "rbac_group_member_cache_user_oid_group_id_pk": {
+          "columns": ["user_oid", "group_id"],
+          "name": "rbac_group_member_cache_user_oid_group_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "rbac_group_member_cache_ids": {
+          "name": "rbac_group_member_cache_ids",
+          "value": "(length(`user_oid`) = 36 AND `user_oid` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]') AND (length(`group_id`) = 36 AND `group_id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')"
+        },
+        "rbac_group_member_cache_time": {
+          "name": "rbac_group_member_cache_time",
+          "value": "`resolved_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        }
+      }
+    },
+    "rbac_role": {
+      "name": "rbac_role",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "builtin": {
+          "name": "builtin",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "assignable": {
+          "name": "assignable",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "rbac_role_key_uq": {
+          "name": "rbac_role_key_uq",
+          "columns": ["key"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "rbac_role_key": {
+          "name": "rbac_role_key",
+          "value": "length(`key`) BETWEEN 2 AND 32 AND `key` GLOB '[a-z]*' AND `key` NOT GLOB '*[^a-z0-9_]*'"
+        },
+        "rbac_role_flags": {
+          "name": "rbac_role_flags",
+          "value": "`builtin` IN (0, 1) AND `assignable` IN (0, 1)"
+        },
+        "rbac_role_created_at": {
+          "name": "rbac_role_created_at",
+          "value": "`created_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        }
+      }
+    },
+    "rbac_role_permission": {
+      "name": "rbac_role_permission",
+      "columns": {
+        "role_id": {
+          "name": "role_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "permission": {
+          "name": "permission",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "qualifier": {
+          "name": "qualifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rbac_role_permission_role_id_rbac_role_id_fk": {
+          "name": "rbac_role_permission_role_id_rbac_role_id_fk",
+          "tableFrom": "rbac_role_permission",
+          "columnsFrom": ["role_id"],
+          "tableTo": "rbac_role",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {
+        "rbac_role_permission_role_id_permission_pk": {
+          "columns": ["role_id", "permission"],
+          "name": "rbac_role_permission_role_id_permission_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "rbac_role_permission_shape": {
+          "name": "rbac_role_permission_shape",
+          "value": "length(`permission`) BETWEEN 3 AND 64 AND `permission` NOT GLOB '*[^a-z:]*'"
+        },
+        "rbac_role_permission_qualifier": {
+          "name": "rbac_role_permission_qualifier",
+          "value": "`qualifier` IN ('', 'basic') AND (`qualifier` = '' OR `permission` = 'users:read')"
+        }
+      }
+    },
+    "rbac_role_template": {
+      "name": "rbac_role_template",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "permissions": {
+          "name": "permissions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_target": {
+          "name": "scope_target",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "rbac_role_template_key": {
+          "name": "rbac_role_template_key",
+          "value": "length(`key`) BETWEEN 2 AND 32 AND `key` GLOB '[a-z]*' AND `key` NOT GLOB '*[^a-z0-9_]*'"
+        },
+        "rbac_role_template_permissions": {
+          "name": "rbac_role_template_permissions",
+          "value": "json_valid(`permissions`) = 1 AND json_type(`permissions`) = 'array' AND length(CAST(`permissions` AS BLOB)) <= 2048"
+        },
+        "rbac_role_template_target": {
+          "name": "rbac_role_template_target",
+          "value": "`scope_target` IS NULL OR `scope_target` IN ('user', 'group', 'distributionList', 'contact')"
+        }
+      }
+    },
+    "runner_lease": {
+      "name": "runner_lease",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "holder": {
+          "name": "holder",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "heartbeat_at": {
+          "name": "heartbeat_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "runner_lease_singleton": {
+          "name": "runner_lease_singleton",
+          "value": "`id` = 1"
+        },
+        "runner_lease_times": {
+          "name": "runner_lease_times",
+          "value": "`heartbeat_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z' AND `expires_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        }
+      }
+    },
+    "secret": {
+      "name": "secret",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "key_id": {
+          "name": "key_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "blob": {
+          "name": "blob",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "retired_at": {
+          "name": "retired_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "secret_id": {
+          "name": "secret_id",
+          "value": "(length(`id`) = 36 AND `id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')"
+        },
+        "secret_purpose": {
+          "name": "secret_purpose",
+          "value": "length(`purpose`) BETWEEN 1 AND 64 AND `purpose` NOT GLOB '*[^a-z_]*'"
+        },
+        "secret_key_id": {
+          "name": "secret_key_id",
+          "value": "(length(`key_id`) = 16 AND `key_id` NOT GLOB '*[^0-9a-f]*')"
+        },
+        "secret_blob": {
+          "name": "secret_blob",
+          "value": "typeof(`blob`) = 'blob' AND length(`blob`) >= 41 AND length(`blob`) <= 16384 AND hex(substr(`blob`, 1, 1)) = '01'"
+        },
+        "secret_times": {
+          "name": "secret_times",
+          "value": "`created_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z' AND (`retired_at` IS NULL OR `retired_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z')"
+        }
+      }
+    },
+    "session": {
+      "name": "session",
+      "columns": {
+        "id_hash": {
+          "name": "id_hash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tid": {
+          "name": "tid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "oid": {
+          "name": "oid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "absolute_expires_at": {
+          "name": "absolute_expires_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mfa": {
+          "name": "mfa",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "amr": {
+          "name": "amr",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "authenticated_at": {
+          "name": "authenticated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "step_up_at": {
+          "name": "step_up_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "groups_stale": {
+          "name": "groups_stale",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "session_principal_idx": {
+          "name": "session_principal_idx",
+          "columns": ["tid", "oid"],
+          "isUnique": false
+        },
+        "session_expiry_idx": {
+          "name": "session_expiry_idx",
+          "columns": ["absolute_expires_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "session_id_hash": {
+          "name": "session_id_hash",
+          "value": "(length(`id_hash`) = 64 AND `id_hash` NOT GLOB '*[^0-9a-f]*')"
+        },
+        "session_kind": {
+          "name": "session_kind",
+          "value": "`kind` IN ('user', 'break_glass')"
+        },
+        "session_principal": {
+          "name": "session_principal",
+          "value": "(length(`tid`) = 36 AND `tid` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]') AND ((`kind` = 'user' AND (length(`oid`) = 36 AND `oid` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')) OR (`kind` = 'break_glass' AND `oid` = ''))"
+        },
+        "session_flags": {
+          "name": "session_flags",
+          "value": "`mfa` IN (0, 1) AND `groups_stale` IN (0, 1)"
+        },
+        "session_amr": {
+          "name": "session_amr",
+          "value": "json_valid(`amr`) = 1 AND json_type(`amr`) = 'array' AND length(CAST(`amr` AS BLOB)) <= 256"
+        },
+        "session_times": {
+          "name": "session_times",
+          "value": "`created_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z' AND `last_seen_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z' AND `absolute_expires_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z' AND `authenticated_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z' AND (`step_up_at` IS NULL OR `step_up_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z')"
+        }
+      }
+    },
+    "setup_log": {
+      "name": "setup_log",
+      "columns": {
+        "seq": {
+          "name": "seq",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ts": {
+          "name": "ts",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "step": {
+          "name": "step",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "level": {
+          "name": "level",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "message_key": {
+          "name": "message_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "params": {
+          "name": "params",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "setup_log_level": {
+          "name": "setup_log_level",
+          "value": "`level` IN ('info', 'warn', 'error')"
+        },
+        "setup_log_params": {
+          "name": "setup_log_params",
+          "value": "(json_valid(`params`) = 1 AND json_type(`params`) = 'object' AND length(CAST(`params` AS BLOB)) <= 1024)"
+        },
+        "setup_log_ts": {
+          "name": "setup_log_ts",
+          "value": "`ts` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        }
+      }
+    },
+    "setup_object": {
+      "name": "setup_object",
+      "columns": {
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tenant_object_id": {
+          "name": "tenant_object_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "app_id": {
+          "name": "app_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "setup_object_kind_tenant_object_id_pk": {
+          "columns": ["kind", "tenant_object_id"],
+          "name": "setup_object_kind_tenant_object_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "setup_object_id": {
+          "name": "setup_object_id",
+          "value": "length(`tenant_object_id`) BETWEEN 1 AND 128"
+        },
+        "setup_object_app_id": {
+          "name": "setup_object_app_id",
+          "value": "`app_id` IS NULL OR (length(`app_id`) = 36 AND `app_id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')"
+        },
+        "setup_object_name": {
+          "name": "setup_object_name",
+          "value": "length(CAST(`name` AS BLOB)) BETWEEN 1 AND 256"
+        },
+        "setup_object_origin": {
+          "name": "setup_object_origin",
+          "value": "`origin` IN ('created', 'adopted')"
+        },
+        "setup_object_created_at": {
+          "name": "setup_object_created_at",
+          "value": "`created_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        }
+      }
+    },
+    "setup_state": {
+      "name": "setup_state",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'unconfigured'"
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'automatic'"
+        },
+        "install_id": {
+          "name": "install_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "designated_owner_oid": {
+          "name": "designated_owner_oid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "proposed_tenant_id": {
+          "name": "proposed_tenant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "default_language": {
+          "name": "default_language",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "setup_state_singleton": {
+          "name": "setup_state_singleton",
+          "value": "`id` = 1"
+        },
+        "setup_state_state": {
+          "name": "setup_state_state",
+          "value": "`state` IN ('unconfigured', 'in_progress', 'awaiting_first_signin', 'completed')"
+        },
+        "setup_state_mode": {
+          "name": "setup_state_mode",
+          "value": "`mode` IN ('automatic', 'manual')"
+        },
+        "setup_state_install_id": {
+          "name": "setup_state_install_id",
+          "value": "(length(`install_id`) = 32 AND `install_id` NOT GLOB '*[^0-9a-f]*')"
+        },
+        "setup_state_owner_oid": {
+          "name": "setup_state_owner_oid",
+          "value": "`designated_owner_oid` IS NULL OR (length(`designated_owner_oid`) = 36 AND `designated_owner_oid` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')"
+        },
+        "setup_state_tenant": {
+          "name": "setup_state_tenant",
+          "value": "`proposed_tenant_id` IS NULL OR (length(`proposed_tenant_id`) = 36 AND `proposed_tenant_id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')"
+        },
+        "setup_state_language": {
+          "name": "setup_state_language",
+          "value": "`default_language` IS NULL OR `default_language` IN ('nl', 'en')"
+        },
+        "setup_state_completed_at": {
+          "name": "setup_state_completed_at",
+          "value": "(`state` = 'completed') = (`completed_at` IS NOT NULL)"
+        },
+        "setup_state_updated_at": {
+          "name": "setup_state_updated_at",
+          "value": "`updated_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        }
+      }
+    },
+    "setup_step": {
+      "name": "setup_step",
+      "columns": {
+        "step": {
+          "name": "step",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sub_action": {
+          "name": "sub_action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rollback_hint_key": {
+          "name": "rollback_hint_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "detail": {
+          "name": "detail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "setup_step_step_sub_action_pk": {
+          "columns": ["step", "sub_action"],
+          "name": "setup_step_step_sub_action_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "setup_step_status": {
+          "name": "setup_step_status",
+          "value": "`status` IN ('pending', 'running', 'waiting', 'succeeded', 'warning', 'failed', 'skipped')"
+        },
+        "setup_step_attempt": {
+          "name": "setup_step_attempt",
+          "value": "`attempt` >= 0"
+        },
+        "setup_step_detail": {
+          "name": "setup_step_detail",
+          "value": "(json_valid(`detail`) = 1 AND json_type(`detail`) = 'object' AND length(CAST(`detail` AS BLOB)) <= 4096)"
+        },
+        "setup_step_times": {
+          "name": "setup_step_times",
+          "value": "(`started_at` IS NULL OR `started_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z') AND (`finished_at` IS NULL OR `finished_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z') AND `updated_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        }
+      }
+    },
+    "tenant_connection": {
+      "name": "tenant_connection",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "tenant_name": {
+          "name": "tenant_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "initial_domain": {
+          "name": "initial_domain",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "app_object_id": {
+          "name": "app_object_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "app_id": {
+          "name": "app_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sp_object_id": {
+          "name": "sp_object_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "graph_sp_id": {
+          "name": "graph_sp_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "exchange_sp_id": {
+          "name": "exchange_sp_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "exchange_enabled": {
+          "name": "exchange_enabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "exchange_role_template_id": {
+          "name": "exchange_role_template_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "permission_set_version": {
+          "name": "permission_set_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "redirect_uris": {
+          "name": "redirect_uris",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "certificate_id": {
+          "name": "certificate_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "proof": {
+          "name": "proof",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "verified_at": {
+          "name": "verified_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "tenant_connection_certificate_id_certificate_id_fk": {
+          "name": "tenant_connection_certificate_id_certificate_id_fk",
+          "tableFrom": "tenant_connection",
+          "columnsFrom": ["certificate_id"],
+          "tableTo": "certificate",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "tenant_connection_singleton": {
+          "name": "tenant_connection_singleton",
+          "value": "`id` = 1"
+        },
+        "tenant_connection_ids": {
+          "name": "tenant_connection_ids",
+          "value": "(`tenant_id` IS NULL OR (length(`tenant_id`) = 36 AND `tenant_id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')) AND (`app_object_id` IS NULL OR (length(`app_object_id`) = 36 AND `app_object_id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')) AND (`app_id` IS NULL OR (length(`app_id`) = 36 AND `app_id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')) AND (`sp_object_id` IS NULL OR (length(`sp_object_id`) = 36 AND `sp_object_id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')) AND (`graph_sp_id` IS NULL OR (length(`graph_sp_id`) = 36 AND `graph_sp_id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')) AND (`exchange_sp_id` IS NULL OR (length(`exchange_sp_id`) = 36 AND `exchange_sp_id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')) AND (`exchange_role_template_id` IS NULL OR (length(`exchange_role_template_id`) = 36 AND `exchange_role_template_id` GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'))"
+        },
+        "tenant_connection_strings": {
+          "name": "tenant_connection_strings",
+          "value": "(`tenant_name` IS NULL OR length(CAST(`tenant_name` AS BLOB)) <= 256) AND (`initial_domain` IS NULL OR length(CAST(`initial_domain` AS BLOB)) <= 256)"
+        },
+        "tenant_connection_exchange": {
+          "name": "tenant_connection_exchange",
+          "value": "`exchange_enabled` IN (0, 1)"
+        },
+        "tenant_connection_version": {
+          "name": "tenant_connection_version",
+          "value": "`permission_set_version` >= 1"
+        },
+        "tenant_connection_redirects": {
+          "name": "tenant_connection_redirects",
+          "value": "json_valid(`redirect_uris`) = 1 AND json_type(`redirect_uris`) = 'array' AND length(CAST(`redirect_uris` AS BLOB)) <= 1024"
+        },
+        "tenant_connection_proof": {
+          "name": "tenant_connection_proof",
+          "value": "(json_valid(`proof`) = 1 AND json_type(`proof`) = 'object' AND length(CAST(`proof` AS BLOB)) <= 51200)"
+        },
+        "tenant_connection_times": {
+          "name": "tenant_connection_times",
+          "value": "(`verified_at` IS NULL OR `verified_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z') AND `updated_at` GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

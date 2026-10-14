@@ -1098,7 +1098,7 @@ describe('logPosture (FR-A-015, E-15)', () => {
     const capture = createLogCapture();
     logPosture(createLogger({ level: 'info', destination: capture }), loadConfigOrThrow({}), {
       storageWritable: true,
-      schemaVersion: 1,
+      schemaVersion: 2,
       setupState: 'awaiting_first_signin',
       sealedStorage: 'key_missing',
     });
@@ -1226,7 +1226,7 @@ describe('the posture line of the built server (FR-A-015)', () => {
       setupState: 'unconfigured',
       sealedStorage: 'key_missing',
       storageWritable: true,
-      schemaVersion: 1,
+      schemaVersion: 2,
     });
     const text = JSON.stringify(postures[0]);
     for (const value of [dir, String(server.port), '10.1.2.3', '127.0.0.1', 'localhost']) {
