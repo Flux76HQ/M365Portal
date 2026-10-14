@@ -99,7 +99,13 @@ function Invoke-Probes {
         @{ Word = 'recip'; Cmdlet = 'Get-Recipient'; Args = @{ ResultSize = 1 } },
         @{ Word = 'group'; Cmdlet = 'Get-DistributionGroup'; Args = @{ ResultSize = 1 } },
         @{ Word = 'contact1'; Cmdlet = 'Get-MailContact'; Args = @{ ResultSize = 1 } },
-        @{ Word = 'contactall'; Cmdlet = 'Get-MailContact'; Args = @{} }
+        @{ Word = 'contactall'; Cmdlet = 'Get-MailContact'; Args = @{} },
+        # The shapes of the real calls (0.3.69: the five reads above all succeeded and the real calls did not).
+        @{ Word = 'rs201'; Cmdlet = 'Get-MailContact'; Args = @{ ResultSize = 201 } },
+        @{ Word = 'rs1001'; Cmdlet = 'Get-MailContact'; Args = @{ ResultSize = 1001 } },
+        @{ Word = 'rs10001'; Cmdlet = 'Get-MailContact'; Args = @{ ResultSize = 10001 } },
+        @{ Word = 'rsunl'; Cmdlet = 'Get-MailContact'; Args = @{ ResultSize = 'Unlimited' } },
+        @{ Word = 'quiet'; Cmdlet = 'Get-MailContact'; Args = @{ ResultSize = 1 }; Extra = @{ WarningAction = 'SilentlyContinue'; InformationAction = 'SilentlyContinue' } }
     )
     foreach ($probe in $probes) {
         $state = 'fail'
@@ -109,6 +115,7 @@ function Invoke-Probes {
             if ($null -eq $command) { $state = 'missing' }
             else {
                 $arguments = @{} + $probe.Args
+                if ($probe.ContainsKey('Extra')) { foreach ($key in $probe.Extra.Keys) { $arguments[$key] = $probe.Extra[$key] } }
                 $arguments['ErrorAction'] = 'Stop'
                 $null = & $command @arguments 6>$null 5>$null 4>$null 3>$null
                 $state = 'ok'
@@ -565,8 +572,8 @@ function ConvertTo-Parameters {
     }
     if ($spec.confirmFalse -eq $true) { $parameters['Confirm'] = $false }
     $parameters['ErrorAction'] = 'Stop'
-    $parameters['WarningAction'] = 'SilentlyContinue'
-    $parameters['InformationAction'] = 'SilentlyContinue'
+    # No -WarningAction or -InformationAction: Invoke-Call redirects both streams (3>$null 6>$null) already, and a
+    # module proxy may forward every bound parameter to the service (0.3.69: the probes without them succeeded).
     return $parameters
 }
 

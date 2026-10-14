@@ -541,7 +541,7 @@ function Assert-AllowedCall { param($Name, $Arguments) }
 function Get-OrganizationConfig { param($ErrorAction) 'CANARYNAME' }
 function Get-Recipient { param($ResultSize, $ErrorAction) throw 'A server side error CANARYNAME canary.address@canary-zone.example' }
 function Get-DistributionGroup { param($ResultSize, $ErrorAction) 'x' }
-function Get-MailContact { param($ResultSize, $ErrorAction) if ($PSBoundParameters.ContainsKey('ResultSize')) { throw 'nope' } else { 'x' } }
+function Get-MailContact { param($ResultSize, $ErrorAction, $WarningAction, $InformationAction) if ($PSBoundParameters.ContainsKey('WarningAction')) { throw 'quiet' } elseif ($ResultSize -is [string]) { 'x' } elseif ($ResultSize -gt 1000) { throw 'big' } elseif ($PSBoundParameters.ContainsKey('ResultSize') -and $ResultSize -eq 1) { throw 'nope' } else { 'x' } }
 $script:OrgKind = 'org_onms'
 (Invoke-Probes) -join ','`;
         const run = spawnSync(PWSH, ['-NoProfile', '-NonInteractive', '-Command', script], {
@@ -549,7 +549,7 @@ $script:OrgKind = 'org_onms'
           env: { PATH: process.env.PATH ?? '', HOME: tmpdir() },
         });
         expect(run.stdout.trim()).toBe(
-          'org_onms,orgcfg_ok,recip_fail,group_ok,contact1_fail,contactall_ok',
+          'org_onms,orgcfg_ok,recip_fail,group_ok,contact1_fail,contactall_ok,rs201_ok,rs1001_fail,rs10001_fail,rsunl_ok,quiet_fail',
         );
         expect(run.stdout).not.toMatch(/CANARY|canary/i);
       }, 60_000);
