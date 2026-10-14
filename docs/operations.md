@@ -506,7 +506,10 @@ For that case there is one **temporary, opt-in exception**, recorded as GD1-0 am
   and `Get-MailContact` without parameters) and the `exchange_fault` entry carries `errorProbes`: fixed words such
   as `org_onms` (the organization ends in `.onmicrosoft.com`) or `org_other`, then `orgcfg_ok`, `recip_fail`,
   `contact1_fail`, `contactall_ok` (`_missing` when the cmdlet is not loaded). All `fail` points at the tenant,
-  the token or the role; one `fail` among `ok` points at a call shape such as a parameter.
+  the token or the role; one `fail` among `ok` points at a call shape such as a parameter. Five more probes copy the
+  shapes of the real calls (`rs201`, `rs1001`, `rs10001`, `rsunl` for `-ResultSize` 201, 1001, 10001 and Unlimited, and
+  `quiet` with `-WarningAction` and `-InformationAction`): on 0.3.69 the first five all succeeded and the real calls
+  (`-ResultSize` 10001) did not.
 - **Read it before you share it.** The masking is a pattern, not a proof: a display name, a tenant name or a
   cmdlet parameter in the message is **not** masked. Read the log lines yourself before you paste them anywhere.
   Nothing else carries the text: no page, API answer, audit entry or error page.
