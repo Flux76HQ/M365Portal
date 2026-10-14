@@ -2,14 +2,14 @@
 // 8.7; a service test uses this and never MSW). It answers from a `FakeExchangeState`, the data the
 // fake Admin API serves over HTTP and the worker stand-in works on, so one contract suite
 // (test/exchange/exchange-client-contract.test.ts) runs against this class, against
-// `AdminApiExchangeClient` on MSW (Phase B reads) and against `PwshExchangeClient` over the worker
+// `AdminApiExchangeClient` on MSW (Phase B reads) and against `InvokeExchangeClient` over the worker
 // stand-in (the Phase D surface), and must see the same answers.
 //
 // It follows the real clients where a service can notice: `capabilities()` is the Phase D set, a
 // property outside the documented list or a `ResultSize` outside 1 to 1,000 is
 // `ExchangeUnsupportedError`, a group that does not exist is `ExchangeUnavailableError` (status 404),
 // pages are `resultSize` long and must be read within 5 minutes of the first, `null` stands for a
-// property the data lacks. The Phase D methods build the same cmdlet calls as `PwshExchangeClient`
+// property the data lacks. The Phase D methods build the same cmdlet calls as `InvokeExchangeClient`
 // (arguments.ts) and refuse what the allow-list refuses; the rules of Exchange itself (member types,
 // duplicates, the manager check, synced objects, the read-back delay) are those of the write module
 // (fake-tenant/exchange/writes.ts), the same ones the worker stand-in applies. `probe()` answers `ok`
@@ -50,12 +50,12 @@ import {
   limitOf,
   memberWriteCall,
   membershipsCall,
-} from '../../src/integrations/exchange/pwsh/arguments.js';
+} from '../../src/integrations/exchange/arguments.js';
 import {
   toDistributionGroup,
   toMailContact,
   toMember,
-} from '../../src/integrations/exchange/pwsh/rows.js';
+} from '../../src/integrations/exchange/rows.js';
 import type { Clock } from '../../src/ports/clock.js';
 import {
   DEFAULT_ORGANIZATION_SELECT,
@@ -445,7 +445,7 @@ function byDisplayName<T extends { displayName: string | null; guid: string }>(a
   return a.guid < b.guid ? -1 : a.guid > b.guid ? 1 : 0;
 }
 
-/** The typed error for a refusal of the write module, as `PwshExchangeClient` would throw it. */
+/** The typed error for a refusal of the write module, as `InvokeExchangeClient` would throw it. */
 function errorFor(outcome: Refusal): Error {
   switch (outcome.error) {
     case 'invalid_argument':

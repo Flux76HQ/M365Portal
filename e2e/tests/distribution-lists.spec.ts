@@ -1,5 +1,5 @@
 // Distribution lists, end to end (T-D-180; US-D1, EC-D1 to EC-D8, FR-D-201 to FR-D-207, SC-D-001): the production
-// build, the fake tenant and, behind the `pwsh` shim of the topology, the fake Exchange worker with real data
+// build, the fake tenant and, the fake Exchange (InvokeCommand on the fake tenant) with real data
 // (`support/exchange-seed.ts`). The credential hand-over is the product's own: the stand-in refuses a key that does
 // not belong to the certificate the wizard made, so every Exchange answer here proves that path too.
 //
@@ -36,12 +36,12 @@ import { PRINCIPALS } from '../support/principals.js';
 
 test.describe.configure({ mode: 'serial' });
 
-test.beforeEach(() => {
-  seedExchange();
+test.beforeEach(async () => {
+  await seedExchange();
 });
 
-test.afterAll(() => {
-  clearExchangeSeed();
+test.afterAll(async () => {
+  await clearExchangeSeed();
 });
 
 const LIST_TABLE = 'Distribution lists';
@@ -98,7 +98,7 @@ test.describe('the Owner: the lists (US-D1, FR-D-202)', () => {
   });
 
   test('a list with no lists at all says so', async ({ page, app }) => {
-    seedExchange({ recipients: [], contacts: [], groups: [] });
+    await seedExchange({ recipients: [], contacts: [], groups: [] });
     await app.goto('/distribution-lists');
     await expect(
       page.getByRole('heading', { level: 2, name: 'No distribution lists to show' }),
@@ -112,14 +112,14 @@ test.describe('the Owner: the lists (US-D1, FR-D-202)', () => {
   }) => {
     test.slow();
     guard.allowResponse({ status: 422, url: '/api/v1/distribution-lists' });
-    seedExchange({ ...standardSeed(), bulk: { groups: 4000 } });
+    await seedExchange({ ...standardSeed(), bulk: { groups: 10_001 } });
     await app.goto('/distribution-lists');
     await expect(
       page.getByText(
         'The result is too large to show. Type more of the name or the address to narrow the search.',
       ),
     ).toBeVisible({ timeout: 30_000 });
-    // A narrower search is the way out: the prefix names ten of the four thousand.
+    // A narrower search is the way out: the prefix names ten of the ten thousand and one.
     await app.goto('/distribution-lists?q=Bulk%20group%200001');
     const table = tableNamed(page, LIST_TABLE);
     await expect(table.getByRole('link')).toHaveCount(10, { timeout: 30_000 });
@@ -134,14 +134,14 @@ test.describe('the Owner: the lists (US-D1, FR-D-202)', () => {
     guard.allowResponse({ status: 503, url: '/api/v1/distribution-lists' });
     // The worker connects once, when it starts: a worker that is already up keeps its connection, so the server
     // starts again (same data directory) with the fake refusing the connect, as before the role has propagated.
-    seedExchange({ ...standardSeed(), connect: { error: 'role_pending' } });
+    await seedExchange({ ...standardSeed(), connect: { error: 'role_pending' } });
     await app.servers.restart('a');
     await app.goto('/distribution-lists');
     await expect(page.getByText(/The Exchange role of the panel is not active yet/)).toBeVisible({
       timeout: 30_000,
     });
     // The worker works as soon as the role does: the retry reads the lists.
-    seedExchange();
+    await seedExchange();
     await page.getByRole('button', { name: 'Try again' }).click();
     await expect(tableNamed(page, LIST_TABLE).getByRole('link')).toHaveCount(5, {
       timeout: 30_000,
@@ -450,7 +450,7 @@ test.describe('more than 20 members at once need a fresh sign-in (FR-D-204, step
       people.length,
       'the directory seed has 21 or more users starting with Pim',
     ).toBeGreaterThan(21);
-    seedExchange({
+    await seedExchange({
       ...standardSeed(),
       recipients: [
         ...Object.values(PEOPLE),

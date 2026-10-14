@@ -50,7 +50,7 @@ test.beforeAll(async ({ browser }) => {
     })),
   );
   // The lists have the ids of the seed (a counter, not a random value): the owner reads the id of "Sales" once.
-  seedExchange();
+  await seedExchange();
   const owner = await ownerWithStepUp(browser);
   try {
     const found = await owner.api.get('/api/v1/distribution-lists?q=Sales');
@@ -77,13 +77,13 @@ test.beforeAll(async ({ browser }) => {
   }
 });
 
-test.afterAll(() => {
+test.afterAll(async () => {
   deleteCustomRole(dataDirOfA(), ROLE_KEY);
-  clearExchangeSeed();
+  await clearExchangeSeed();
 });
 
-test.beforeEach(() => {
-  seedExchange();
+test.beforeEach(async () => {
+  await seedExchange();
 });
 
 async function signIn(page: Page, app: App, returnTo = '/') {

@@ -332,7 +332,7 @@ test.describe('users and groups, every state', () => {
 });
 
 // ---- Phase D, step D1 (T-D-181, FR-D-902): lists, contacts and group members in every state ------------------------------
-// The fake Exchange behind the `pwsh` shim and the seeded directory, at 320 px (no sideways scroll, with the add
+// The fake Exchange (InvokeCommand on the fake tenant) and the seeded directory, at 320 px (no sideways scroll, with the add
 // dialog, the result, the confirmations and the contact form open) and on the phone (390 px: every target at least
 // 24 by 24 px). The same list as the axe and the visual specs (`MEMBER_STATES`).
 
@@ -346,7 +346,7 @@ test.describe('distribution lists, contacts and group members, every state', () 
 
   test.afterAll(async () => {
     await seeded.destroy();
-    clearExchangeSeed();
+    await clearExchangeSeed();
   });
 
   for (const state of MEMBER_STATES) {

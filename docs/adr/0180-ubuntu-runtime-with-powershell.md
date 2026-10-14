@@ -4,7 +4,7 @@ Samenvatting (NL): De runtime-image verlaat distroless en wordt Ubuntu 24.04 (op
 
 ## Status
 
-Accepted. Built in step D1 (T-D-117, spec FR-D-106, risk RD-02, option ODB-01 A). **Measured by CI and the size ceiling decided.** CI measured the image at 538.2 MB (amd64, run 38394173673) and on 2026-10-13 the owner decided that the ceiling becomes 600 MB (was 400 MB; ODD-10). The builder had no Docker daemon, so the figures that the first revision of this ADR gave as estimates are replaced below by the measured ones. arm64 and the memory of a long-running worker are not measured.
+Accepted. **Superseded by ADR-0182 (2026-10-14): PowerShell, the module and the Ubuntu image were removed; the runtime is distroless again.** Built in step D1 (T-D-117, spec FR-D-106, risk RD-02, option ODB-01 A). **Measured by CI and the size ceiling decided.** CI measured the image at 538.2 MB (amd64, run 38394173673) and on 2026-10-13 the owner decided that the ceiling becomes 600 MB (was 400 MB; ODD-10). The builder had no Docker daemon, so the figures that the first revision of this ADR gave as estimates are replaced below by the measured ones. arm64 and the memory of a long-running worker are not measured.
 
 Source: `specs/004-phase-d/spec.md` FR-D-106, option ODB-01 A and risk RD-02, `specs/004-phase-d/research-microsoft-d.md` R-D-03, ADR-0018 (the decision this one replaces for the runtime stage).
 

@@ -142,7 +142,7 @@ export async function createApiFixture(options: ApiFixtureOptions = {}): Promise
     sweepers: createSweeperRegistry({ log }),
     isShuttingDown: () => false,
     ...extras,
-    clients: { ...extras.clients, graph: () => graph, exchangeWorker: () => exchangeClient },
+    clients: { ...extras.clients, graph: () => graph, exchangeCommands: () => exchangeClient },
   };
   const modules = appModules.map((factory) => factory(moduleDeps));
   onTestFinished(async () => {

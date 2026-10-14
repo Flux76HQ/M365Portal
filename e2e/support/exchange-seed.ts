@@ -1,15 +1,12 @@
-// The data of the fake Exchange behind the `pwsh` shim (Phase D, T-D-180). The server under test finds
-// `e2e/support/pwsh-shim/pwsh` on its PATH (`servers.ts`, `makePwshShimDirectory`), which starts the fake
-// worker; that worker reads `seed.json` from the shim directory of the run on EVERY request, so writing a
-// seed here replaces the data at once and drops the journal of earlier writes: that is the reseed between
-// tests, no restart. The format is `StandInSeed` (`apps/server/test/fakes/fake-tenant/exchange/standin-seed.ts`).
+// The data of the fake Exchange (Phase D, T-D-180; ADR 0182). The server under test calls `InvokeCommand` on the
+// fake tenant, which holds the Exchange state in memory; seeding is a control operation (`exchange.seed`) that
+// replaces that state at once and forgets every write made since: the reseed between tests, no restart. The
+// format is `StandInSeed` (`apps/server/test/fakes/fake-tenant/exchange/standin-seed.ts`).
 //
-// The people of the lists are the principals of the fake directory: the stand-in matches a list member to a
+// The people of the lists are the principals of the fake directory: the fake matches a list member to a
 // user of the panel by `externalDirectoryObjectId`, and a user is added by the mail address Graph reports
 // (the user principal name, `directory.ts` of the fake Graph).
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { pwshShimDirectory, readState } from '../servers.js';
+import { FakeControl } from './fake-control.js';
 import { PRINCIPALS, type PrincipalName } from './principals.js';
 
 export interface SeedRecipient {
@@ -145,45 +142,15 @@ export function standardSeed(): ExchangeSeed {
   };
 }
 
-function seedFile(): string {
-  return join(pwshShimDirectory(readState().runDir), 'seed.json');
-}
-
-// The worker tells a changed seed by the hash of the file text. Writing the same seed again would keep the
-// journal of the earlier writes, so every write ends with a different amount of trailing white space (JSON
-// does not mind): a reseed is always a reseed. The count lives in a file next to the seed, NOT in a variable of
-// this module: Playwright starts a new worker process after every failed test, and a counter that began at 1
-// again would make the next seed byte for byte the one the fake already holds (no reseed, the writes of the
-// test before stay). That is what happened to the first visual run, where every test fails for want of a baseline.
-function nextGeneration(): number {
-  const file = join(pwshShimDirectory(readState().runDir), 'seed.generation');
-  let current = 0;
-  try {
-    current = Number(readFileSync(file, 'utf8')) || 0;
-  } catch {
-    // the first seed of the run
-  }
-  const next = current + 1;
-  writeFileSync(file, String(next));
-  return next;
-}
-
 /** Replaces the data of the fake Exchange (and forgets every write made since the last seed). */
-export function seedExchange(seed: ExchangeSeed = standardSeed()): void {
-  writeFileSync(seedFile(), `${JSON.stringify(seed)}${'\n'.repeat(nextGeneration())}`);
+export async function seedExchange(seed: ExchangeSeed = standardSeed()): Promise<void> {
+  await new FakeControl('a').call('exchange.seed', { seed });
 }
 
 /**
- * The shim goes back to its own default seed. The next request replaces the state, so this also forgets
- * the writes. Removing the file is how a spec ends: the run directory is removed with the run anyway.
+ * The fake goes back to the default seed of the stand-in (`DEFAULT_SEED`): the next test starts from known data
+ * and the writes of the last one are gone.
  */
-export function clearExchangeSeed(): void {
-  rmSync(seedFile(), { force: true });
-}
-
-/** The seed on disk, or `undefined` (a spec that edits the seed it started from). */
-export function currentExchangeSeed(): ExchangeSeed | undefined {
-  return existsSync(seedFile())
-    ? (JSON.parse(readFileSync(seedFile(), 'utf8')) as ExchangeSeed)
-    : undefined;
+export async function clearExchangeSeed(): Promise<void> {
+  await new FakeControl('a').call('exchange.seed', { seed: null });
 }

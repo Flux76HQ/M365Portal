@@ -26,13 +26,11 @@ import {
   removedVariablesIn,
   CROSS_MESSAGES,
   ENV_MESSAGES,
-  EXCHANGE_KEY_HANDOVER_VALUES,
   REMOVED_VARIABLE_NAMES,
   SecretText,
   type AppConfig,
   type ConfigIssue,
 } from '../src/config/index.js';
-import { CERTIFICATE_MODES } from '../src/integrations/exchange/pwsh/key-handover.js';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -118,13 +116,9 @@ describe('the variable list (FR-A-010, spec 6.9.1)', () => {
     expect(fromSpec).toHaveLength(14);
     const phaseB = ENV_VARIABLES.slice(10, 24);
     expect(phaseB.map(({ name, defaultText }) => ({ name, defaultText }))).toEqual(fromSpec);
-    expect(ENV_VARIABLES).toHaveLength(26);
-    // Phase D adds two: the way the Exchange certificate reaches the worker (T-D-114) and the temporary,
-    // opt-in diagnostic error text (GD1-0 amendment 5).
-    expect(ENV_VARIABLES.slice(24)).toEqual([
-      { name: 'EXCHANGE_KEY_HANDOVER', defaultText: 'memory' },
-      { name: 'EXCHANGE_DEBUG_ERRORTEXT', defaultText: 'unset' },
-    ]);
+    // Phase D added two for the PowerShell worker (EXCHANGE_KEY_HANDOVER, EXCHANGE_DEBUG_ERRORTEXT); ADR 0182
+    // removed them with the worker, so the list ends where table 6.9.1 ends.
+    expect(ENV_VARIABLES).toHaveLength(24);
   });
 
   it('marks the secret variables, and only those', () => {
@@ -190,8 +184,6 @@ describe('defaults', () => {
       rbac: { groupCacheTtlMs: 300_000 },
       auth: { requireMfa: true, mfaAmrValues: ['mfa', 'multipleauthn'] },
       breakGlass: undefined,
-      exchangeKeyHandover: 'memory',
-      exchangeDebugErrorText: false,
     } satisfies AppConfig);
     expect(config.hsts.maxAgeSeconds).toBe(LIMITS.hstsMaxAgeSeconds);
   });
@@ -1443,59 +1435,5 @@ describe('readPosture', () => {
     ]) {
       expect(text).not.toContain(forbidden);
     }
-  });
-});
-
-describe('EXCHANGE_KEY_HANDOVER (T-D-114, FR-D-103)', () => {
-  it('is memory when unset and accepts memory and tmpfs', () => {
-    expect(configOf({}).exchangeKeyHandover).toBe('memory');
-    expect(configOf({ EXCHANGE_KEY_HANDOVER: 'memory' }).exchangeKeyHandover).toBe('memory');
-    expect(configOf({ EXCHANGE_KEY_HANDOVER: 'tmpfs' }).exchangeKeyHandover).toBe('tmpfs');
-  });
-
-  it('refuses anything else with the fixed message and no value in it', () => {
-    for (const bad of ['file', 'TMPFS', 'Memory', ' tmpfs', 'disk', 'true']) {
-      const issues = issuesOf({ EXCHANGE_KEY_HANDOVER: bad });
-      expect(
-        issues.map((issue) => issue.variable),
-        bad,
-      ).toEqual(['EXCHANGE_KEY_HANDOVER']);
-      expect(formatConfigIssues(issues), bad).toContain(ENV_MESSAGES.EXCHANGE_KEY_HANDOVER);
-      expect(formatConfigIssues(issues), bad).not.toContain(`'${bad}'`);
-      expect(ENV_MESSAGES.EXCHANGE_KEY_HANDOVER).toBe(
-        'EXCHANGE_KEY_HANDOVER must be memory or tmpfs',
-      );
-    }
-  });
-
-  it('lists the same two values as the key hand-over of the worker', () => {
-    expect([...EXCHANGE_KEY_HANDOVER_VALUES]).toEqual([...CERTIFICATE_MODES]);
-  });
-});
-
-describe('EXCHANGE_DEBUG_ERRORTEXT (GD1-0 amendment 5, an opt-in exception to FR-D-107)', () => {
-  it('is off when unset and on only for the literal 1; 0 is the explicit off', () => {
-    expect(configOf({}).exchangeDebugErrorText).toBe(false);
-    expect(configOf({ EXCHANGE_DEBUG_ERRORTEXT: '1' }).exchangeDebugErrorText).toBe(true);
-    expect(configOf({ EXCHANGE_DEBUG_ERRORTEXT: '0' }).exchangeDebugErrorText).toBe(false);
-  });
-
-  it('refuses anything else, an empty value included, with the fixed message and no value in it', () => {
-    for (const bad of ['', 'true', 'false', 'yes', 'on', '2', '01', ' 1', '1 ', 'TRUE']) {
-      const issues = issuesOf({ EXCHANGE_DEBUG_ERRORTEXT: bad });
-      expect(
-        issues.map((issue) => issue.variable),
-        bad,
-      ).toEqual(['EXCHANGE_DEBUG_ERRORTEXT']);
-      expect(formatConfigIssues(issues), bad).toContain(ENV_MESSAGES.EXCHANGE_DEBUG_ERRORTEXT);
-    }
-    expect(ENV_MESSAGES.EXCHANGE_DEBUG_ERRORTEXT).toBe(
-      'EXCHANGE_DEBUG_ERRORTEXT must be 1 (on) or 0 (off)',
-    );
-  });
-
-  it('is not a secret variable', () => {
-    const entry = ENV_VARIABLES.find((variable) => variable.name === 'EXCHANGE_DEBUG_ERRORTEXT');
-    expect(entry?.secret).not.toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 // T-D-113, FR-D-107 (+ negative): nothing a person's name, address or alias could be reaches a log.
-// The worker's input and output are never logged; the only fields are the request id, the cmdlet
+// The request and the answer of Exchange are never logged; the only fields are the request id, the cmdlet
 // name, the outcome, the duration and the retry facts. Two halves: a run with canary values through
-// every client method (success, command error, throttling, crash), and a scan of the source that
+// every client method (success, command error, throttling, a lost call), and a scan of the source that
 // reads the keys of every log call.
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -36,6 +36,12 @@ const ALLOWED_KEYS = new Set([
   'errorProbes',
   'errorText',
   'errorTextLength',
+  // The call engine (integrations/http/call-engine.ts): HTTP verb, the fixed route name, the status, the hint.
+  'method',
+  'route',
+  'status',
+  'retryAfterMs',
+  'retryInMs',
 ]);
 const OUTCOMES = new Set([
   'ok',
@@ -110,80 +116,31 @@ describe('a run with canary values through every method', () => {
     await rejectionOf(
       h.drive(h.client.addDistributionGroupMember(group.guid, 'unknown.person@elsewhere.example')),
     );
-    h.launcher.script((call) =>
-      call.index === h.launcher.calls() ? { error: 'throttled', retryAfterMs: 1_000 } : undefined,
-    );
+    h.exchange.control.fault({ times: 1, status: 429, retryAfterSeconds: 1 });
     await h.drive(h.client.listMailContacts({ prefix: CANARIES[0] }));
-    h.launcher.script((call) => (call.index === h.launcher.calls() ? 'exit' : undefined));
+    h.exchange.control.fault({ times: 1, status: 503 });
     await h.drive(h.client.listMailContacts({ prefix: CANARIES[0] }));
     expect(h.log.entries.length).toBeGreaterThan(8);
     expect(() => {
       checkEntries(h.log.entries);
     }).not.toThrow();
-    const calls = h.log.entries.filter((entry) => entry.fields.event === 'exchange_call');
+    const calls = h.log.entries.filter((entry) => entry.message === 'exchange_call');
     expect(calls.length).toBeGreaterThan(5);
     for (const call of calls) {
-      expect(call.fields.requestId).toMatch(/^[A-Za-z0-9-]{8,64}$/);
+      expect(call.fields.route).toBe('invoke_command');
       expect(typeof call.fields.durationMs).toBe('number');
     }
   });
 
-  it('logs no error text in the default mode, whatever a worker sends (GD1-0 amendment 5)', async () => {
+  it('logs no text of Exchange: a command error with canaries in its message reaches no log field', async () => {
     const h = clientHarness();
-    const detail = {
-      type: 'Microsoft.PowerShell.Commands.WriteErrorException',
-      errorId: 'Microsoft.PowerShell.Commands.WriteErrorException',
-      hints: [],
-      text: `${CANARIES[0]} ${CANARIES[1]} not found`,
-      textLength: 99,
-    };
-    h.launcher.script((call) => (call.index === 0 ? { error: 'internal', detail } : undefined));
+    h.exchange.control.commandFault('internal');
     await rejectionOf(h.drive(h.client.listMailContacts({ prefix: CANARIES[0] })));
-    const refusing = clientHarness();
-    refusing.launcher.connect({ error: 'internal', detail });
-    await rejectionOf(
-      refusing.drive(refusing.session.request({ cmdlet: 'Get-OrganizationConfig', args: {} })),
-    );
-    const entries = [...h.log.entries, ...refusing.log.entries];
-    const faults = entries.filter((entry) => 'errorText' in entry.fields);
-    expect(faults.map((entry) => entry.fields.reason ?? entry.fields.event).sort()).toEqual([
-      'connect_refused',
-      'exchange_fault',
-    ]);
-    for (const entry of faults) {
-      expect(entry.fields.errorText).toBeNull();
-      expect(entry.fields.errorTextLength).toBeNull();
-      expect(entry.fields.errorType).toBe(detail.type);
-    }
-    expect(JSON.stringify(entries)).not.toContain('not found');
+    const faults = h.log.entries.filter((entry) => entry.fields.event === 'exchange_fault');
+    expect(faults.length).toBeGreaterThan(0);
+    for (const entry of faults) expect(Object.keys(entry.fields)).not.toContain('errorText');
     expect(() => {
-      checkEntries(entries);
-    }).not.toThrow();
-  });
-
-  it('logs the masked text of the opt-in diagnostic mode, and only that, for a call and a refused connect', async () => {
-    const h = clientHarness({ debugErrorText: true });
-    const masked = 'The role X is not assigned to application X | Cannot find X for X';
-    const detail = { type: 'System.Exception', hints: ['role'], text: masked, textLength: 4321 };
-    h.launcher.script((call) => (call.index === 0 ? { error: 'internal', detail } : undefined));
-    await rejectionOf(h.drive(h.client.listMailContacts({ prefix: CANARIES[0] })));
-    const refusing = clientHarness({ debugErrorText: true });
-    refusing.launcher.connect({
-      error: 'internal',
-      detail: { ...detail, textLength: 0, text: '' },
-    });
-    await rejectionOf(
-      refusing.drive(refusing.session.request({ cmdlet: 'Get-OrganizationConfig', args: {} })),
-    );
-    const fault = h.log.entries.find((entry) => entry.fields.event === 'exchange_fault');
-    expect(fault?.fields.errorText).toBe(masked);
-    expect(fault?.fields.errorTextLength).toBe(4321);
-    const refused = refusing.log.entries.find((entry) => entry.fields.reason === 'connect_refused');
-    expect(refused?.fields.errorText).toBe('');
-    expect(refused?.fields.errorTextLength).toBe(0);
-    // Nothing else of the request reaches the log, and the canary scan still holds.
-    expect(() => {
-      checkEntries([...h.log.entries, ...refusing.log.entries]);
+      checkEntries(h.log.entries);
     }).not.toThrow();
   });
 
@@ -215,7 +172,7 @@ describe('a run with canary values through every method', () => {
   });
 });
 
-const PWSH_DIR = fileURLToPath(new URL('../../src/integrations/exchange/pwsh/', import.meta.url));
+const SOURCE_DIR = fileURLToPath(new URL('../../src/integrations/exchange/', import.meta.url));
 
 /** Every `log.debug/info/warn({...})` call of a source: the keys of its first argument. */
 function logKeys(text: string): { keys: string[]; computed: boolean }[] {
@@ -255,20 +212,20 @@ function checkSourceLogs(files: Readonly<Record<string, string>>): void {
   }
 }
 
-describe('the source of the worker code', () => {
+describe('the source of the Exchange client', () => {
   const files = Object.fromEntries(
-    readdirSync(PWSH_DIR)
+    readdirSync(SOURCE_DIR)
       .filter((name) => name.endsWith('.ts'))
-      .map((name) => [name, readFileSync(join(PWSH_DIR, name), 'utf8')]),
+      .map((name) => [name, readFileSync(join(SOURCE_DIR, name), 'utf8')]),
   );
 
   it('has log calls with allowed keys only', () => {
-    expect(Object.keys(files)).toContain('pwsh-client.ts');
+    expect(Object.keys(files)).toContain('invoke-client.ts');
     expect(() => {
       checkSourceLogs(files);
     }).not.toThrow();
     const total = Object.values(files).reduce((n, text) => n + logKeys(text).length, 0);
-    expect(total).toBeGreaterThan(2);
+    expect(total).toBeGreaterThan(1);
   });
 
   it('has no console call and no direct stderr or stdout write', () => {

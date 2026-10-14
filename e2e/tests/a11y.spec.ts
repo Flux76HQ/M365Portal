@@ -250,7 +250,7 @@ test.describe('axe on the distribution list, contact and group member states', (
 
   test.afterAll(async () => {
     await seeded.destroy();
-    clearExchangeSeed();
+    await clearExchangeSeed();
   });
 
   test.beforeEach(async ({ page }) => {

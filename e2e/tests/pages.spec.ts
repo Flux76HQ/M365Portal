@@ -45,11 +45,11 @@ test.describe('placeholder pages', () => {
   // Step D1: the two pages are real. Not a word of the placeholder is left, the pages have their controls, and
   // they speak Dutch in Dutch (the Exchange worker behind them is the fake of the topology).
   test.describe('the pages of step D1 are real pages, not placeholders', () => {
-    test.beforeEach(() => {
-      seedExchange();
+    test.beforeEach(async () => {
+      await seedExchange();
     });
-    test.afterAll(() => {
-      clearExchangeSeed();
+    test.afterAll(async () => {
+      await clearExchangeSeed();
     });
 
     for (const [path, title, region, control] of [

@@ -13,15 +13,7 @@
 // state file (path in E2E_STATE_FILE); the helpers below run in the test workers and keep it current.
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes, scryptSync } from 'node:crypto';
-import {
-  mkdirSync,
-  mkdtempSync,
-  openSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,26 +32,6 @@ export type { InstanceName };
 export const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const PRELOAD = join(repoRoot, 'e2e/support/server-preload.mjs');
 const FAKE_SERVER = join(repoRoot, 'e2e/support/fake-tenant-server.ts');
-const PWSH_SHIM = join(repoRoot, 'e2e/support/pwsh-shim/pwsh');
-
-/**
- * The directory that is FIRST on the PATH of instance A: a link `pwsh` to the shim of
- * `e2e/support/pwsh-shim` (the fake Exchange worker), a link `node` to the Node that runs the server
- * (the product starts the worker WITHOUT a PATH, so the shim cannot look `node` up) and, once a spec
- * has chosen data, `seed.json` (`support/exchange-seed.ts`). One per run, inside the run directory.
- */
-export function pwshShimDirectory(runDir: string): string {
-  return join(runDir, 'pwsh');
-}
-
-/** Makes the shim directory of a run (global-setup, before the servers start). */
-export function makePwshShimDirectory(runDir: string): string {
-  const directory = pwshShimDirectory(runDir);
-  mkdirSync(directory, { recursive: true });
-  symlinkSync(PWSH_SHIM, join(directory, 'pwsh'));
-  symlinkSync(process.execPath, join(directory, 'node'));
-  return directory;
-}
 
 export interface InstanceState {
   readonly port: number;
@@ -302,15 +274,9 @@ export async function spawnInstance(
   const entry = join(repoRoot, 'apps/server/dist/index.js');
   mkdirSync(logDir, { recursive: true });
   const log = openSync(join(logDir, `server-${name}.log`), 'a');
-  // Instance A finds the fake `pwsh` first (the Exchange worker of lists and contacts); the product has
-  // no hook for it, it is only a file on a PATH. B talks to Exchange only through the wizard's REST probe.
-  const shim: Record<string, string> =
-    name === 'a'
-      ? { PATH: `${pwshShimDirectory(dirname(dataDir))}:${process.env.PATH ?? ''}` }
-      : {};
   const child = spawn(process.execPath, ['--import', PRELOAD, entry], {
     cwd: repoRoot,
-    env: childEnvironment({ ...shim, ...instanceEnv(name, dataDir, secrets, extra) }),
+    env: childEnvironment(instanceEnv(name, dataDir, secrets, extra)),
     stdio: ['ignore', log, log],
   });
   const pid = child.pid;

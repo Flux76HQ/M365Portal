@@ -9,14 +9,14 @@ import type {
   ExchangeOrganizationConfig,
   ExchangeRecipient,
   ExchangeScalar,
-} from '../../../ports/exchange.js';
-import { capBytes } from '../../graph/schemas.js';
+} from '../../ports/exchange.js';
+import { capBytes } from '../graph/schemas.js';
 import {
   ORGANIZATION_CONFIG_PROPERTIES,
   RECIPIENT_PROPERTIES,
   scalar,
   type OrganizationConfigProperty,
-} from '../schemas.js';
+} from './schemas.js';
 
 export type Row = Readonly<Record<string, unknown>>;
 

@@ -23,7 +23,7 @@ export type {
   FakeReadView,
   FakeRecipient,
 } from './state.js';
-// Phase D (T-D-115): the write rules, the cmdlet interpreter and the worker stand-in.
+// Phase D (T-D-115): the write rules, the cmdlet interpreter (served over `InvokeCommand` by module.ts).
 export {
   MEMBER_TYPES,
   addMember,
@@ -37,15 +37,6 @@ export {
 export type { Outcome, Refusal } from './writes.js';
 export { groupRow, parseOpath, recipientRow, runCmdlet } from './cmdlets.js';
 export type { CmdletOutcome } from './cmdlets.js';
-export { createStandInLauncher } from './worker-standin.js';
-export type {
-  StandInAction,
-  StandInCall,
-  StandInConnect,
-  StandInFiles,
-  StandInLauncher,
-  StandInProcess,
-} from './worker-standin.js';
 
 export function installFakeExchange(
   tenant: FakeTenant,

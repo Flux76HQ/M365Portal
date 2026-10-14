@@ -476,6 +476,13 @@ the file walker ignores symlinks.
 > none of it has run against a real tenant or in a built image (the owner tests OV-D1 to OV-D5 do that, see
 > [owner-test-phase-d1.md](owner-test-phase-d1.md)). Decisions: ADR-0180 (image), ADR-0181 (worker protocol and
 > allow-list). Phase A to C material above stays valid.
+>
+> **Superseded in part by ADR-0182 (2026-10-14).** The `pwsh` worker, the key hand-over to it and the Ubuntu image
+> described in this section no longer exist. Exchange is called over REST (`InvokeCommand`) in the Node process on the
+> same certificate-based application token as Graph: no second process, no key outside the secrets module, no shell
+> in the image. What still holds: the closed allow-list of ten cmdlets (checked by the server before a request is
+> sent), the logs without personal data, the audit rows and the step-up. New risk: the endpoint is not documented by
+> Microsoft (U101); Exchange features fail closed with 503 if it changes.
 
 ### The worker is a process boundary, not a sandbox
 
@@ -683,6 +690,13 @@ Stap D1 (2026-10-13) is de eerste stap waarin het paneel de tenant **wijzigt**: 
 groepen, en mailcontacten. Alles hieronder is een eigenschap van de code en de tests; niets is tegen een echte
 tenant of in een gebouwde image gedraaid (dat doen de eigenaarstests OV-D1 tot en met OV-D5). Besluiten: ADR-0180
 en ADR-0181.
+
+> **Deels vervangen door ADR-0182 (14-10-2026).** De `pwsh`-worker, de sleuteloverdracht eraan en de Ubuntu-image uit
+> dit hoofdstuk bestaan niet meer. Exchange wordt via REST (`InvokeCommand`) aangeroepen in het Node-proces, met
+> hetzelfde certificaatgebonden applicatietoken als Graph: geen tweede proces, geen sleutel buiten de
+> geheimenmodule, geen shell in de image. Wat blijft gelden: de gesloten lijst van tien cmdlets, logs zonder
+> persoonsgegevens, auditregels en step-up. Nieuw risico: het endpoint is niet door Microsoft gedocumenteerd (U101);
+> de Exchange-functies falen dicht met 503 als het verandert.
 
 - **De worker is een procesgrens, geen sandbox.** Exchange Online is alleen via PowerShell te wijzigen, dus een
   `pwsh`-kindproces draait in de container. Het wordt gestart met `spawn` en een argumentenlijst (geen shell), een

@@ -10,7 +10,7 @@ export const CONTACTS_MODULE_ID = 'contacts';
 
 export function contactsModule(deps: ModuleDeps): AppModule {
   const contacts = createContactsService({
-    exchange: () => deps.clients.exchangeWorker(),
+    exchange: () => deps.clients.exchangeCommands(),
     buffers: createListBufferStore({ clock: { now: deps.now }, random: deps.random }),
     database: () => deps.requireDatabase(),
     now: deps.now,

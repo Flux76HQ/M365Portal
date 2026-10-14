@@ -1,5 +1,5 @@
 // Drivers and readers for the distribution list, contact and group member specs of Phase D step D1
-// (T-D-180, T-D-181). The fake Exchange behind the `pwsh` shim is seeded by `support/exchange-seed.ts`; what
+// (T-D-180, T-D-181). The fake Exchange (InvokeCommand on the fake tenant) is seeded by `support/exchange-seed.ts`; what
 // the panel did is read through its own API (as the person in the page) and through the audit log in the
 // database (the audit screen arrives in step D2).
 //

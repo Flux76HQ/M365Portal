@@ -4,7 +4,7 @@ Samenvatting (NL): De server praat met één langlevende `pwsh`-worker via regel
 
 ## Status
 
-Plan. Decided in the Phase D spec (FR-D-101 to FR-D-105, FR-D-107) and the plan (sections 4.1 and 5.1), frozen at gate GD1-0 (T-D-105) and adjusted while building (gate notes GD1-server-a and GD1-server-b; the rows below are what the code does). One part is **not finished**: the shape of the `connect` certificate (decision 7). Nothing here has run against a real Microsoft 365 tenant.
+Plan. **Superseded in part by ADR-0182 (2026-10-14): the line protocol and the `pwsh` worker are gone; the closed allow-list of ten cmdlets (decision 2 onward) is still in force and is what `InvokeExchangeClient` sends.** Decided in the Phase D spec (FR-D-101 to FR-D-105, FR-D-107) and the plan (sections 4.1 and 5.1), frozen at gate GD1-0 (T-D-105) and adjusted while building (gate notes GD1-server-a and GD1-server-b; the rows below are what the code does). One part is **not finished**: the shape of the `connect` certificate (decision 7). Nothing here has run against a real Microsoft 365 tenant.
 
 Source: `specs/004-phase-d/spec.md` FR-D-102, FR-D-103, FR-D-104, FR-D-105, FR-D-107, `research-microsoft-d.md` R-D-01 to R-D-03 and R-D-09, ADR-0180 (the image that holds the worker), ADR-0102 (the Exchange port is an interface; the owner chose the worker, ODB-01 A).
 

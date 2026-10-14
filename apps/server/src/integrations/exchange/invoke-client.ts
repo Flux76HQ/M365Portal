@@ -1,29 +1,34 @@
-// `PwshExchangeClient`: the Phase D implementation of the `ExchangeClient` port over the `pwsh` worker
-// (T-D-113, FR-D-101, FR-D-105, FR-D-107). It builds the cmdlet calls (arguments.ts, all validated by
-// the allow-list), sends them through the session (session.ts), reads the rows (rows.ts) and decides
-// what a failure means:
+// `InvokeExchangeClient`: the Phase D implementation of the `ExchangeClient` port over the Exchange Online
+// `InvokeCommand` REST endpoint (ADR 0182, which replaces the `pwsh` worker of ADR 0180/0181).
 //
-//   throttled          wait `Retry-After` (0 to 20 per cent jitter, at most a minute: longer fails at
-//                      once) or back off 1 s doubling to 15 s with full jitter, at most `retryMax`
-//                      repeats, then `ExchangeThrottledError` with the hint. Every call is repeated:
-//                      a throttled call did not run.
-//   worker lost        the worker timed out or crashed (or Exchange reported a timeout): restart and
-//                      repeat ONCE, and only when repeating is safe: reads and idempotent writes
-//                      (add and remove of a member, set and remove of a contact). `New-MailContact`
-//                      is never repeated: the contact may exist already (EC-D1).
-//   not_connected      the worker lost its connection: reset it and repeat once.
-//   anything else      a typed error with a fixed code (errors.ts); no text of Exchange, no argument.
+//   POST https://outlook.office365.com/adminapi/beta/<tid>/InvokeCommand
+//   {"CmdletInput":{"CmdletName":"Get-MailContact","Parameters":{"Identity":"..."}}}
 //
-// What is logged is the request id, the cmdlet, the outcome and the duration (session.ts), and for a
-// repeat the attempt, the reason and the wait: never a name, an address or a member list.
+// It is the call the `ExchangeOnlineManagement` module makes under the hood, so the same ten cmdlets of the
+// closed allow-list run without PowerShell, without Linux packages and without a worker process. It is NOT a
+// documented endpoint (U101, docs/open-points.md): that is the deliberate, recorded exception of ADR 0182.
+// Everything that keeps the exception small stays in force:
+//
+//   - the cmdlet and its parameters pass the allow-list (arguments.ts `checkedCall`) before a byte is sent;
+//   - the token is the application token for `https://outlook.office365.com/.default` that the certificate
+//     already gets for the Admin API probe (`appTokens.get('exchange')`); nothing new is stored;
+//   - the URL is fixed to the origin and `/adminapi/beta/<tid>/`; a `@odata.nextLink` is followed only under it;
+//   - what comes back is read defensively (rows.ts); an error is reduced to a closed code (error-class.ts) and
+//     the text of Exchange never reaches a log or a response (FR-D-107).
+//
+// Retries: 429 honours `Retry-After`; 503/504 back off, for reads and idempotent writes only. `New-MailContact`
+// is never repeated (EC-D1): the contact may exist already.
 import { LIMITS } from '@m365portal/shared/limits';
-import type { RandomSource, Scheduler } from '../../../ports/clock.js';
+import type { Clock, RandomSource, Scheduler } from '../../ports/clock.js';
 import {
   ExchangeCommandError,
+  ExchangeNetworkError,
   ExchangeThrottledError,
+  ExchangeTransientError,
   ExchangeUnavailableError,
   ExchangeUnsupportedError,
-} from '../../../ports/errors.js';
+  type ExchangeError,
+} from '../../ports/errors.js';
 import type {
   ExchangeCapabilities,
   ExchangeClient,
@@ -38,13 +43,15 @@ import type {
   ExchangeOrganizationConfig,
   ExchangeProbeResult,
   ExchangeRecipient,
-} from '../../../ports/exchange.js';
-import { retryAfterWaitMs } from '../../http/retry.js';
+} from '../../ports/exchange.js';
+import type { AppTokenProvider } from '../../ports/identity.js';
+import { createCallEngine, type CallEngine, type ErrorMeta } from '../http/call-engine.js';
 import {
-  DEFAULT_ORGANIZATION_SELECT,
-  ORGANIZATION_CONFIG_PROPERTIES,
-  type OrganizationConfigProperty,
-} from '../schemas.js';
+  MICROSOFT_ORIGINS,
+  UrlRefusedError,
+  guidSegment,
+  resolveUnder,
+} from '../http/url-guard.js';
 import {
   contactCreateCall,
   contactGetCall,
@@ -61,6 +68,7 @@ import {
   organizationConfigCall,
   type CmdletCall,
 } from './arguments.js';
+import { classifyCommandError, errorTextOf } from './error-class.js';
 import {
   toDistributionGroup,
   toMailContact,
@@ -68,34 +76,66 @@ import {
   toOrganizationConfig,
   type Row,
 } from './rows.js';
-import type { ExchangeLog, ExchangeSession } from './session.js';
+import {
+  DEFAULT_ORGANIZATION_SELECT,
+  ORGANIZATION_CONFIG_PROPERTIES,
+  readEnvelope,
+  type OrganizationConfigProperty,
+} from './schemas.js';
 
-export interface PwshExchangeClientDeps {
-  readonly session: ExchangeSession;
-  readonly random: RandomSource;
-  readonly scheduler: Scheduler;
-  readonly log?: ExchangeLog;
-  /** `EXCHANGE_DEBUG_ERRORTEXT=1`: log the masked error text a worker sends. Default off: a text is then never logged, whatever arrives. */
-  readonly debugErrorText?: boolean;
-}
+export const INVOKE_ORIGIN = MICROSOFT_ORIGINS.exchange;
+/** The routing hint of an application caller; the GUID is the same in every organization (Learn). */
+const SYSTEM_MAILBOX = 'bb558c35-97f1-4cb9-8ff7-d53741dc928c';
+/** Answers are JSON of at most this size: a full list read (`listBufferMax` + 1 rows, about 700 bytes each) fits. */
+const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const MAX_PAGES = 50;
 
-/** How a call may be repeated after the worker was lost. */
+/** How a call may be repeated after a 5xx answer. */
 type Repeat = 'read' | 'idempotent' | 'never';
 
 interface Data {
   readonly rows: readonly Row[];
-  /** The script cut the rows to fit one protocol line. */
+  /** More rows exist than were read (the page limit was reached). */
   readonly cut: boolean;
 }
 
 const RESULT_SIZE_MAX = LIMITS.microsoft.exchangeResultSizeMax;
-const BACKOFF = LIMITS.exchange.retryBackoff;
-const RETRY_MAX = LIMITS.exchange.retryMax;
 
-/** Full jitter: `[0, min(maxMs, initialMs * 2^n))`, the n-th repeat (0-based). */
-function backoffMs(attempt: number, random01: number): number {
-  const cap = Math.min(BACKOFF.maxMs, BACKOFF.initialMs * 2 ** Math.min(Math.max(0, attempt), 30));
-  return Math.floor(Math.min(Math.max(random01, 0), 0.999_999_999) * cap);
+export interface InvokeExchangeClientDeps {
+  /** The tenant id (lower-case GUID): the path and the routing hint carry it. */
+  readonly tenantId: string;
+  readonly appTokens: AppTokenProvider;
+  readonly clock: Clock;
+  readonly random: RandomSource;
+  readonly scheduler: Scheduler;
+  readonly log?: {
+    debug(fields: Readonly<Record<string, unknown>>, message: string): void;
+    warn(fields: Readonly<Record<string, unknown>>, message: string): void;
+  };
+}
+
+/** The typed error for a non-2xx answer: a closed code, never the text of Exchange. */
+function errorFor(status: number, body: unknown, meta: ErrorMeta): ExchangeError {
+  const details = {
+    ...(meta.retryAfterMs === null ? {} : { retryAfterMs: meta.retryAfterMs }),
+    ...(meta.requestId === null ? {} : { requestId: meta.requestId }),
+    ...(meta.clientRequestId === null ? {} : { clientRequestId: meta.clientRequestId }),
+  };
+  if (status === 429) return new ExchangeThrottledError(details);
+  const code = classifyCommandError(status, errorTextOf(body));
+  if (code === 'throttled') return new ExchangeThrottledError(details);
+  if (code === 'role_pending') {
+    return new ExchangeUnavailableError({ ...details, status, reason: 'role_pending' });
+  }
+  if (code === 'invalid_argument')
+    return new ExchangeUnsupportedError({ reason: 'invalid_parameter' });
+  if (status >= 500) return new ExchangeTransientError({ ...details, status });
+  if (code === 'internal')
+    return new ExchangeUnavailableError({ ...details, status, reason: 'internal' });
+  return new ExchangeCommandError(
+    code,
+    meta.retryAfterMs === null ? undefined : { retryAfterMs: meta.retryAfterMs },
+  );
 }
 
 function byDisplayName<T extends { displayName: string | null; guid: string }>(a: T, b: T): number {
@@ -118,11 +158,56 @@ function matchesGroup(group: ExchangeDistributionGroup, identity: string): boole
   ].some((value) => value !== null && value.toLowerCase() === wanted);
 }
 
-export class PwshExchangeClient implements ExchangeClient {
-  readonly #deps: PwshExchangeClientDeps;
+/** The one word a log line says about a failure; `null` for a failure that is not an answer of Exchange. */
+function resultOf(failure: unknown): string | null {
+  if (failure instanceof ExchangeCommandError) return failure.commandCode;
+  if (failure instanceof ExchangeUnavailableError) return failure.reason;
+  return null;
+}
 
-  constructor(deps: PwshExchangeClientDeps) {
-    this.#deps = deps;
+export class InvokeExchangeClient implements ExchangeClient {
+  readonly #engine: CallEngine;
+  readonly #tenant: string;
+  readonly #prefix: string;
+  readonly #log: InvokeExchangeClientDeps['log'];
+
+  constructor(deps: InvokeExchangeClientDeps) {
+    try {
+      this.#tenant = guidSegment(deps.tenantId);
+    } catch (failure) {
+      if (failure instanceof UrlRefusedError)
+        throw new TypeError('the tenant id is a GUID', { cause: failure });
+      throw failure;
+    }
+    this.#log = deps.log;
+    this.#prefix = `/adminapi/beta/${this.#tenant}/`;
+    this.#engine = createCallEngine({
+      origin: INVOKE_ORIGIN,
+      pathPrefix: this.#prefix,
+      maxResponseBytes: MAX_RESPONSE_BYTES,
+      token: async (options) => (await deps.appTokens.get('exchange', options)).reveal(),
+      clock: deps.clock,
+      random: deps.random,
+      scheduler: deps.scheduler,
+      errors: {
+        network: (clientRequestId) =>
+          new ExchangeNetworkError(clientRequestId === undefined ? undefined : { clientRequestId }),
+        refused: () => new ExchangeUnsupportedError({ reason: 'request_refused' }),
+        queueFull: () => new ExchangeTransientError({ status: 503 }),
+        answer: errorFor,
+      },
+      aborted: () => new ExchangeNetworkError(),
+      // Only a call that certainly did not run is repeated here (429, a 401 that says when to come back).
+      // A 5xx or a lost connection may have run: `#run` decides.
+      retryPolicy: (answer) => {
+        if (answer.status === 429) return 'retry_after';
+        if (answer.status === 401 && answer.retryAfterMs !== null) return 'retry_after';
+        return null;
+      },
+      sendClientRequestId: false,
+      logMessage: 'exchange_call',
+      ...(deps.log === undefined ? {} : { log: deps.log }),
+    });
   }
 
   capabilities(): ExchangeCapabilities {
@@ -363,7 +448,7 @@ export class PwshExchangeClient implements ExchangeClient {
     await this.#run(contactRemoveCall(guid), 'idempotent', { notFoundAfterLossIsDone: true });
   }
 
-  // ---- the call loop -------------------------------------------------------------------------
+  // ---- the call -------------------------------------------------------------------------------
 
   /** `null` when the cmdlet answered `not_found` (a miss of a lone identity), the rows otherwise. */
   async #orNotFound(call: CmdletCall): Promise<Data | null> {
@@ -381,142 +466,82 @@ export class PwshExchangeClient implements ExchangeClient {
     repeat: Repeat,
     options: { notFoundAfterLossIsDone?: boolean } = {},
   ): Promise<Data> {
-    let throttles = 0;
     let lost = false;
-    let reset = false;
     for (;;) {
       try {
-        const answer = await this.#deps.session.request({ cmdlet: call.cmdlet, args: call.args });
-        const { response } = answer;
-        if (response.ok) return dataOf(response.data);
-        const { code, retryAfterMs } = response.error;
-        // Codes and .NET type names only (FR-D-107): enough to tell the faults of a real tenant apart.
-        this.#deps.log?.warn(
-          {
-            event: 'exchange_fault',
-            cmdlet: call.cmdlet,
-            result: code,
-            errorType: response.error.detail?.type ?? null,
-            errorId: response.error.detail?.errorId ?? null,
-            errorHints: response.error.detail?.hints ?? null,
-            errorProbes: response.error.detail?.probes ?? null,
-            // Present only in the opt-in diagnostic mode (EXCHANGE_DEBUG_ERRORTEXT=1): masked and cut by the worker.
-            errorText:
-              this.#deps.debugErrorText === true ? (response.error.detail?.text ?? null) : null,
-            errorTextLength:
-              this.#deps.debugErrorText === true
-                ? (response.error.detail?.textLength ?? null)
-                : null,
-          },
-          'exchange call failed',
-        );
-        if (code === 'throttled') {
-          const wait = this.#throttleWait(throttles, retryAfterMs);
-          if (throttles >= RETRY_MAX || wait === null) {
-            throw new ExchangeThrottledError(
-              retryAfterMs === undefined ? undefined : { retryAfterMs },
-            );
-          }
-          throttles += 1;
-          await this.#sleep(call, throttles, 'throttled', wait);
-          continue;
-        }
-        if (code === 'timeout') {
-          if (repeat !== 'never' && !lost) {
-            lost = true;
-            this.#note(call, 1, 'timeout', 0);
-            continue;
-          }
-          throw new ExchangeUnavailableError({ reason: 'timeout', clientRequestId: answer.id });
-        }
-        if (code === 'not_connected') {
-          if (!reset) {
-            reset = true;
-            await this.#deps.session.reset();
-            this.#note(call, 1, 'not_connected', 0);
-            continue;
-          }
-          throw new ExchangeUnavailableError({
-            reason: 'not_connected',
-            clientRequestId: answer.id,
-          });
-        }
-        if (code === 'not_found' && lost && options.notFoundAfterLossIsDone === true) {
-          // The attempt that was lost had removed it: the repeat finds nothing, and that is the result wanted.
-          return { rows: [], cut: false };
-        }
-        throw errorFor(code, retryAfterMs, answer.id);
+        return await this.#send(call);
       } catch (failure) {
-        if (failure instanceof ExchangeUnavailableError) {
-          this.#deps.log?.warn(
-            { event: 'exchange_fault', cmdlet: call.cmdlet, result: failure.reason },
-            'exchange call unavailable',
-          );
-        }
+        // A 5xx or a dropped connection: the call may or may not have run. Reads and idempotent writes are
+        // repeated ONCE; `New-MailContact` never is (the contact may exist already, EC-D1).
         if (
-          failure instanceof ExchangeUnavailableError &&
-          (failure.reason === 'worker_timeout' || failure.reason === 'worker_crashed') &&
+          (failure instanceof ExchangeTransientError || failure instanceof ExchangeNetworkError) &&
           repeat !== 'never' &&
           !lost
         ) {
           lost = true;
-          this.#note(call, 1, failure.reason, 0);
+          this.#log?.warn(
+            { event: 'exchange_retry', cmdlet: call.cmdlet, attempt: 1, reason: 'lost', waitMs: 0 },
+            'exchange call repeated',
+          );
           continue;
+        }
+        if (
+          lost &&
+          options.notFoundAfterLossIsDone === true &&
+          failure instanceof ExchangeCommandError &&
+          failure.commandCode === 'not_found'
+        ) {
+          // The attempt that was lost had removed it: the repeat finds nothing, and that is the result wanted.
+          return { rows: [], cut: false };
+        }
+        // Exchange could not be reached or answered with a 5xx twice: the services know ONE word for that.
+        if (failure instanceof ExchangeTransientError || failure instanceof ExchangeNetworkError) {
+          this.#log?.warn(
+            { event: 'exchange_fault', cmdlet: call.cmdlet, result: 'transient' },
+            'exchange call failed',
+          );
+          throw new ExchangeUnavailableError({
+            reason: failure instanceof ExchangeNetworkError ? 'network' : 'upstream_error',
+          });
+        }
+        const result = resultOf(failure);
+        if (result !== null) {
+          this.#log?.warn(
+            { event: 'exchange_fault', cmdlet: call.cmdlet, result },
+            'exchange call failed',
+          );
         }
         throw failure;
       }
     }
   }
 
-  #throttleWait(attempt: number, retryAfterMs: number | undefined): number | null {
-    const jitter = this.#deps.random.float();
-    return retryAfterMs === undefined
-      ? backoffMs(attempt, jitter)
-      : retryAfterWaitMs(retryAfterMs, jitter);
-  }
-
-  async #sleep(call: CmdletCall, attempt: number, reason: string, waitMs: number): Promise<void> {
-    this.#note(call, attempt, reason, waitMs);
-    await new Promise<void>((resolve) => {
-      this.#deps.scheduler.setTimeout(resolve, waitMs);
-    });
-  }
-
-  #note(call: CmdletCall, attempt: number, reason: string, waitMs: number): void {
-    this.#deps.log?.warn(
-      { event: 'exchange_retry', cmdlet: call.cmdlet, attempt, reason, waitMs },
-      'exchange call repeated',
-    );
-  }
-}
-
-function dataOf(data: unknown): Data {
-  if (typeof data !== 'object' || data === null || Array.isArray(data))
-    return { rows: [], cut: false };
-  const { rows, truncated } = data as { rows?: unknown; truncated?: unknown };
-  return {
-    rows: Array.isArray(rows)
-      ? rows.filter(
-          (row): row is Row => typeof row === 'object' && row !== null && !Array.isArray(row),
-        )
-      : [],
-    cut: truncated === true,
-  };
-}
-
-/** The typed error for a code of the closed list that is not handled by the loop. */
-function errorFor(code: string, retryAfterMs: number | undefined, requestId: string): Error {
-  switch (code) {
-    case 'role_pending':
-      return new ExchangeUnavailableError({ reason: 'role_pending', clientRequestId: requestId });
-    case 'internal':
-      return new ExchangeUnavailableError({ reason: 'internal', clientRequestId: requestId });
-    case 'invalid_argument':
-      return new ExchangeUnsupportedError({ reason: 'invalid_parameter' });
-    default:
-      return new ExchangeCommandError(
-        code as ConstructorParameters<typeof ExchangeCommandError>[0],
-        retryAfterMs === undefined ? undefined : { retryAfterMs },
-      );
+  async #send(call: CmdletCall): Promise<Data> {
+    const body = { CmdletInput: { CmdletName: call.cmdlet, Parameters: call.args } };
+    const rows: Row[] = [];
+    let href = `${INVOKE_ORIGIN}${this.#prefix}InvokeCommand`;
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const { body: answer } = await this.#engine.send({
+        method: 'POST',
+        route: 'invoke_command',
+        href,
+        json: body,
+        headers: { 'x-anchormailbox': `APP:SystemMailbox{${SYSTEM_MAILBOX}}@${this.#tenant}` },
+        // Repeats after a 5xx are decided by `#run`, which knows whether the call may run twice.
+        idempotent: false,
+      });
+      const parsed = readEnvelope(answer);
+      if (parsed === null) throw new ExchangeUnavailableError({ reason: 'unexpected_shape' });
+      rows.push(...parsed.rows.filter((row): row is Row => typeof row === 'object'));
+      if (parsed.nextLink === null) return { rows, cut: false };
+      try {
+        href = resolveUnder(INVOKE_ORIGIN, this.#prefix, parsed.nextLink).href;
+      } catch (failure) {
+        if (failure instanceof UrlRefusedError)
+          throw new ExchangeUnavailableError({ reason: 'invalid_next_link' });
+        throw failure;
+      }
+    }
+    return { rows, cut: true };
   }
 }

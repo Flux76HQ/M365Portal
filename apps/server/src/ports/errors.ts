@@ -362,9 +362,8 @@ export class ExchangeUnsupportedError extends ExchangeError {
 }
 
 /**
- * The closed list of reasons a cmdlet call fails, as the worker protocol states them
- * (`EXCHANGE_ERROR_CODES` in `@m365portal/shared/exchange/protocol`; a test pins that the two lists
- * are equal). The ports import nothing, so the list is written out here too.
+ * The closed list of reasons a cmdlet call fails. `integrations/exchange/error-class.ts` reduces the answer of
+ * Exchange to one of these words; the text of the answer never travels (FR-D-107).
  */
 export const EXCHANGE_COMMAND_CODES = [
   'not_found',

@@ -34,12 +34,6 @@
 // (409 `setup_required` before), so the verification cannot run in an unconfigured image: the memory
 // is measured on the same parameters through the `hash-password` command in a memory-limited container.
 //
-// Both modes also ping the Exchange worker of the image (T-D-117, FR-D-104): the same restricted
-// `docker run` shape, `--entrypoint` the pwsh of the image running the worker script, a `ping` and a
-// `shutdown` line on stdin. The answer must name the module version pinned in the Dockerfile, a
-// PowerShell 7.6 and the two manifest hashes of apps/server/src/integrations/exchange/pwsh/
-// generated-allow-list.ts; the time of the ping is recorded in the figures (`workerPingMs`).
-//
 // Environment: SMOKE_IMAGE, SMOKE_MODE (full|skeleton), SMOKE_NETWORK (host|bridge), SMOKE_EXPECT_USER
 // (default 65532; a wrong value must make the run fail), SMOKE_PREFIX (name prefix of every container
 // and volume this script creates, default m365portal-smoke), SMOKE_ALT_PORT, SMOKE_REPORT (a file to
@@ -54,10 +48,6 @@ import { dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { crc32, deflateSync, inflateSync } from 'node:zlib';
-import {
-  ALLOW_LIST_MANIFEST_SHA256,
-  PROJECTION_MANIFEST_SHA256,
-} from '../apps/server/src/integrations/exchange/pwsh/generated-allow-list.js';
 import { DEFAULT_PORT, LIMITS } from '../packages/shared/src/limits.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -846,74 +836,6 @@ async function main(): Promise<void> {
     const uid = (lines[0] ?? '').trim().split(/\s+/)[0];
     expect(uid === expectUser, `docker top shows uid ${uid ?? '?'}, expected ${expectUser}`);
     return `uid ${uid}`;
-  });
-
-  await check('the Exchange worker answers a ping inside the restricted container', () => {
-    const dockerfile = readFileSync(join(root, 'Dockerfile'), 'utf8');
-    const pinned = /^ARG EXO_VERSION=(\S+)$/m.exec(dockerfile)?.[1];
-    expect(pinned !== undefined, 'the Dockerfile has no ARG EXO_VERSION');
-    const lines = [
-      { v: 1, type: 'ping', id: 'a1b2c3d4-00000001' },
-      { v: 1, type: 'shutdown', id: 'a1b2c3d4-00000002' },
-    ]
-      .map((request) => JSON.stringify(request))
-      .join('\n');
-    const started = Date.now();
-    const done = docker(
-      [
-        'run',
-        '--rm',
-        '-i',
-        '--read-only',
-        '--tmpfs',
-        '/tmp',
-        '--cap-drop',
-        'ALL',
-        '--security-opt',
-        'no-new-privileges',
-        '--network',
-        'none',
-        '-e',
-        'HOME=/tmp',
-        '--entrypoint',
-        '/opt/microsoft/powershell/7/pwsh',
-        image,
-        '-NoLogo',
-        '-NoProfile',
-        '-NonInteractive',
-        '-File',
-        '/app/dist/exchange/worker-script.ps1',
-      ],
-      `${lines}\n`,
-    );
-    const elapsed = Date.now() - started;
-    expect(
-      done.status === 0,
-      `the worker exited ${String(done.status)}: ${done.stderr.trim().slice(0, 200)}`,
-    );
-    const answers = done.stdout
-      .split('\n')
-      .filter((line) => line.startsWith('{'))
-      .map((line) => JSON.parse(line) as { ok?: boolean; data?: Record<string, unknown> });
-    const hello = answers[0];
-    expect(
-      hello?.ok === true && hello.data !== undefined,
-      `no ping answer in: ${done.stdout.slice(0, 200)}`,
-    );
-    const data = hello.data;
-    expect(data.moduleVersion === pinned, `module ${String(data.moduleVersion)}, pinned ${pinned}`);
-    expect(/^7\.6\.\d+/.test(String(data.psVersion)), `PowerShell ${String(data.psVersion)}`);
-    expect(
-      data.allowListSha256 === ALLOW_LIST_MANIFEST_SHA256,
-      'the allow-list hash differs from the generated one',
-    );
-    expect(
-      data.projectionSha256 === PROJECTION_MANIFEST_SHA256,
-      'the projection hash differs from the generated one',
-    );
-    expect(answers.length === 2 && answers[1]?.ok === true, 'no clean shutdown answer');
-    figures.workerPingMs = elapsed;
-    return `module ${pinned}, PowerShell ${String(data.psVersion)}, ${String(elapsed)} ms`;
   });
 
   if (mode === 'skeleton') {
