@@ -1,6 +1,7 @@
 {
   "access.admin.assign": "Rol toekennen",
   "access.admin.assigned": "De rol is toegekend.",
+  "access.admin.card": "Geef bestaande gebruikers en groepen een rol en zie wie welke rol heeft.",
   "access.admin.column.actions": "Acties",
   "access.admin.column.expires": "Verloopt",
   "access.admin.column.principal": "Persoon of groep",

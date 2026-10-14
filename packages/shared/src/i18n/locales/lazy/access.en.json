@@ -1,6 +1,7 @@
 {
   "access.admin.assign": "Assign role",
   "access.admin.assigned": "The role was assigned.",
+  "access.admin.card": "Give existing users and groups a role, and see who holds which role.",
   "access.admin.column.actions": "Actions",
   "access.admin.column.expires": "Expires",
   "access.admin.column.principal": "Person or group",

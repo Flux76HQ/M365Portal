@@ -11,8 +11,6 @@ import { Button } from '../../components/ui/button';
 import { Dialog } from '../../components/ui/dialog';
 import { FormField } from '../../components/ui/form-field';
 import { Input } from '../../components/ui/input';
-import { RadioGroup, RadioOption } from '../../components/ui/radio-group';
-import { Select } from '../../components/ui/select';
 import { useToast } from '../../components/ui/toast';
 import { useTranslator } from '../../lib/locale';
 import { messageForError } from '../../lib/problem';
@@ -185,24 +183,29 @@ export function AssignRoleDialog({ open, onOpenChange, roles }: AssignRoleDialog
             {problem}
           </p>
         )}
-        <FormField label={t('access.admin.dialog.principalType')}>
-          {(control) => (
-            <RadioGroup
-              id={control.id}
-              aria-labelledby={control['aria-labelledby']}
-              value={type}
-              onValueChange={(value) => {
-                setType(value === 'group' ? 'group' : 'user');
-                setChosen(null);
-                setRoleKey('');
-              }}
-              className="flex gap-6"
-            >
-              <RadioOption value="user" label={t('access.admin.principal.user')} />
-              <RadioOption value="group" label={t('access.admin.principal.group')} />
-            </RadioGroup>
-          )}
-        </FormField>
+        <fieldset className="flex flex-col gap-1">
+          <legend className="text-body font-medium text-fg">
+            {t('access.admin.dialog.principalType')}
+          </legend>
+          <div className="flex gap-6">
+            {(['user', 'group'] as const).map((kind) => (
+              <label key={kind} className="flex min-h-control items-center gap-2 text-body text-fg">
+                <input
+                  type="radio"
+                  name="principal-type"
+                  value={kind}
+                  checked={type === kind}
+                  onChange={() => {
+                    setType(kind);
+                    setChosen(null);
+                    setRoleKey('');
+                  }}
+                />
+                {t(`access.admin.principal.${kind}`)}
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
         <FormField
           label={t('access.admin.dialog.search')}
@@ -239,7 +242,7 @@ export function AssignRoleDialog({ open, onOpenChange, roles }: AssignRoleDialog
             ) : (
               <ul
                 aria-label={t('access.admin.dialog.results')}
-                className="flex max-h-48 flex-col overflow-y-auto rounded-md border border-line-subtle"
+                className="flex flex-col overflow-y-auto rounded-md border border-line-subtle"
               >
                 {(results.data ?? []).map((candidate) => (
                   <li key={candidate.id} className="border-b border-line-subtle last:border-b-0">
@@ -250,7 +253,7 @@ export function AssignRoleDialog({ open, onOpenChange, roles }: AssignRoleDialog
                         setChosen(candidate);
                         setRoleKey('');
                       }}
-                      className="flex min-h-control w-full flex-col items-start px-3 py-1 text-start hover:bg-accent-subtle aria-pressed:bg-accent-subtle"
+                      className={`flex min-h-control w-full flex-col items-start px-3 py-1 text-start hover:bg-accent-subtle ${chosen?.id === candidate.id ? 'bg-accent-subtle' : ''}`}
                     >
                       <span className="text-body text-fg">{nameOf(candidate)}</span>
                       {candidate.mail === null || candidate.mail === nameOf(candidate) ? null : (
@@ -272,16 +275,21 @@ export function AssignRoleDialog({ open, onOpenChange, roles }: AssignRoleDialog
           }
         >
           {(control) => (
-            <Select
+            <select
               {...control}
-              options={assignable.map((candidate) => ({
-                value: candidate.key,
-                label: roleLabel(candidate),
-              }))}
-              placeholder={t('access.admin.dialog.rolePlaceholder')}
+              className="h-control rounded-md border border-line-control bg-surface-raised px-3 text-body text-fg"
               value={roleKey}
-              onValueChange={setRoleKey}
-            />
+              onChange={(event) => {
+                setRoleKey(event.target.value);
+              }}
+            >
+              <option value="">{t('access.admin.dialog.rolePlaceholder')}</option>
+              {assignable.map((candidate) => (
+                <option key={candidate.key} value={candidate.key}>
+                  {roleLabel(candidate)}
+                </option>
+              ))}
+            </select>
           )}
         </FormField>
 

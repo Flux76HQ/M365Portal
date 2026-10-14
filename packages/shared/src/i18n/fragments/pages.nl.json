@@ -12,6 +12,5 @@
   "pages.settings.lead": "De instellingen van dit paneel.",
   "pages.settings.list": "Beschikbare instellingen",
   "pages.settings.restoreAccess.description": "Geef de rol Eigenaar terug aan iemand. Alleen voor de break-glass-sessie.",
-  "pages.settings.roles.description": "Geef bestaande gebruikers en groepen een rol en zie wie welke rol heeft.",
   "pages.settings.title": "Instellingen"
 }

@@ -190,8 +190,10 @@ describe('giving a role', () => {
     expect(
       within(dialog).getByText(t('access.admin.dialog.chosen', { name: 'Bob Example' })),
     ).toBeVisible();
-    await user.click(within(dialog).getByRole('combobox', { name: t('access.admin.dialog.role') }));
-    await user.click(await screen.findByRole('option', { name: t('role.dl_editor') }));
+    await user.selectOptions(
+      within(dialog).getByRole('combobox', { name: t('access.admin.dialog.role') }),
+      t('role.dl_editor'),
+    );
     await user.click(within(dialog).getByRole('button', { name: t('access.admin.dialog.submit') }));
     await waitFor(() => {
       expect(mock.callsTo('POST /api/v1/rbac/assignments')).toHaveLength(1);
@@ -225,8 +227,10 @@ describe('giving a role', () => {
     await user.click(
       within(dialog).getByRole('radio', { name: t('access.admin.principal.group') }),
     );
-    await user.click(within(dialog).getByRole('combobox', { name: t('access.admin.dialog.role') }));
-    const names = (await screen.findAllByRole('option')).map((option) => option.textContent);
+    const select = within(dialog).getByRole('combobox', { name: t('access.admin.dialog.role') });
+    const names = within(select)
+      .getAllByRole('option')
+      .map((option) => option.textContent);
     expect(names).toContain(t('role.admin'));
     expect(names).toContain(t('role.dl_editor'));
     expect(names).not.toContain(t('role.owner'));
@@ -241,8 +245,10 @@ describe('giving a role', () => {
     const dialog = await screen.findByRole('dialog', { name: t('access.admin.dialog.title') });
     await user.type(within(dialog).getByLabelText(t('access.admin.dialog.search')), 'Bob');
     await user.click(await within(dialog).findByRole('button', { name: /Bob Example/ }));
-    await user.click(within(dialog).getByRole('combobox', { name: t('access.admin.dialog.role') }));
-    await user.click(await screen.findByRole('option', { name: t('role.reader') }));
+    await user.selectOptions(
+      within(dialog).getByRole('combobox', { name: t('access.admin.dialog.role') }),
+      t('role.reader'),
+    );
     await user.click(within(dialog).getByRole('button', { name: t('access.admin.dialog.submit') }));
     await waitFor(() => {
       expect(within(dialog).getByRole('alert')).toHaveTextContent(t('problem.assignment_exists'));

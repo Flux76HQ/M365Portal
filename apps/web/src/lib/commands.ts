@@ -31,7 +31,6 @@ import {
   ShieldCheckIcon,
   SunIcon,
   UnplugIcon,
-  UserRoundCogIcon,
   UsersIcon,
   type LucideIcon,
 } from 'lucide-react';
@@ -188,7 +187,7 @@ export const COMMANDS: readonly Command[] = Object.freeze([
     id: 'settings-roles',
     labelKey: 'palette.command.settingsRoles',
     keywordKeys: ['palette.keywords.roles'],
-    icon: UserRoundCogIcon,
+    icon: UsersIcon,
     run: { kind: 'navigate', to: ROUTES.roles },
     group: 'navigate',
     anyOf: ['rbac:manage'],

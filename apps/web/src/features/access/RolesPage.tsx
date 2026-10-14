@@ -1,7 +1,6 @@
 import type { MessageKey } from '@m365portal/shared/i18n';
 import type { Assignment } from '@m365portal/shared/schemas/rbac';
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
-import { PlusIcon } from 'lucide-react';
 import { useState } from 'react';
 import { PageHeader } from '../../components/pages/PageHeader';
 import { Banner } from '../../components/ui/banner';
@@ -95,7 +94,7 @@ export function RolesPage() {
             <div className="overflow-x-auto rounded-lg border border-line-subtle">
               <table
                 aria-label={t('access.admin.table')}
-                className="w-full min-w-160 border-collapse text-start text-body"
+                className="w-full min-w-120 border-collapse text-start text-body"
               >
                 <thead>
                   <tr className="border-b border-line-subtle bg-surface-page">
@@ -161,7 +160,7 @@ export function RolesPage() {
   return (
     <>
       <PageHeader title={t('access.admin.title')} description={t('access.admin.description')}>
-        <div className="mt-3">
+        <div className="mt-4">
           <Button
             variant="primary"
             disabled={roles.data === undefined}
@@ -169,7 +168,6 @@ export function RolesPage() {
               setAssigning(true);
             }}
           >
-            <PlusIcon aria-hidden="true" />
             {t('access.admin.assign')}
           </Button>
         </div>

@@ -35,8 +35,9 @@ test.describe('an Owner gives and takes a role', () => {
       await dialog.getByLabel('Search by name or e-mail address').fill(person.split(' ')[0] ?? '');
       await dialog.getByRole('button', { name: new RegExp(person) }).click();
       await expect(dialog.getByText(`Chosen: ${person}`)).toBeVisible();
-      await dialog.getByRole('combobox', { name: 'Role' }).click();
-      await page.getByRole('option', { name: 'Distribution List Editor' }).click();
+      await dialog
+        .getByRole('combobox', { name: 'Role' })
+        .selectOption({ label: 'Distribution List Editor' });
       await dialog.getByRole('button', { name: 'Assign role' }).click();
     }
 
