@@ -1,18 +1,15 @@
 // T-D-115, FR-D-102, FR-D-103, plan 6 (+ negative): the strictness of the fake tenant's Exchange
-// WRITE module and of the worker stand-in. A lenient fake gives false greens (baseline section 2),
+// WRITE module. A lenient fake gives false greens (baseline section 2),
 // so each rule below is a Microsoft Learn statement (research R-D-02, R-D-09) or a documented choice
 // where Learn is silent (U78, U80, U94, U95), and a test that the fake still refuses what Exchange
 // refuses. `STRICT_EXCHANGE_RULES` lists them for the gate note and the owner's ledger.
 //
 // The simulation encodes OUR reading of Learn; it cannot prove what Exchange does. What a real tenant
 // must confirm is the owner-verified ledger (OV-D1, OV-D2, OV-D5), not this file.
-import { encodeLine, parseResponseLine } from '@m365portal/shared/exchange/protocol';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { describe, expect, it } from 'vitest';
-import { CANARY_CERTIFICATE_PEM, CANARY_PRIVATE_KEY_PEM } from '../exchange/support.js';
-import { PROJECTIONS } from '../../src/integrations/exchange/pwsh/projections.js';
+import { PROJECTIONS } from './fake-tenant/exchange/projections.js';
 import { FakeExchangeState, runCmdlet, type CmdletOutcome } from './fake-tenant/exchange/index.js';
-import { createStandInLauncher } from './fake-tenant/exchange/worker-standin.js';
 
 /** The statements the Exchange write module encodes. */
 export const STRICT_EXCHANGE_RULES: readonly { rule: string; learn: string }[] = [
@@ -519,95 +516,6 @@ describe('what a read gives (the trap and the defaults)', () => {
     const count = (): number =>
       rows(call(w.state, 'Get-DistributionGroupMember', { Identity: w.managed.guid })).length;
     expect([count(), count(), count()]).toEqual([0, 0, 1]);
-  });
-});
-
-describe('the worker stand-in speaks the protocol strictly', () => {
-  const connect = {
-    v: 1,
-    type: 'connect',
-    id: 'connect-0001',
-    appId: '11111111-2222-4333-8444-555555555555',
-    organization: 'contoso-fake.onmicrosoft.com',
-    certificate: {
-      format: 'pem',
-      certificate: CANARY_CERTIFICATE_PEM,
-      privateKey: CANARY_PRIVATE_KEY_PEM,
-    },
-  };
-
-  function open() {
-    const w = world();
-    const launcher = createStandInLauncher(w.state);
-    const process = launcher.launch({ certificateMode: 'memory' });
-    const answers: string[] = [];
-    process.onData((chunk) => answers.push(chunk));
-    const send = async (message: unknown): Promise<ReturnType<typeof parseResponseLine>[]> => {
-      answers.length = 0;
-      process.write(typeof message === 'string' ? message : encodeLine(message));
-      await new Promise((resolve) => setImmediate(resolve));
-      return answers
-        .join('')
-        .split('\n')
-        .filter((line) => line.length > 0)
-        .map(parseResponseLine);
-    };
-    return { w, process, send };
-  }
-
-  it('answers not_connected to a call before the connect message', async () => {
-    const { send } = open();
-    const [answer] = await send({
-      v: 1,
-      type: 'call',
-      id: 'call-00001',
-      cmdlet: 'Get-OrganizationConfig',
-      args: {},
-      deadlineMs: 5000,
-    });
-    expect(answer).toMatchObject({
-      ok: true,
-      value: { ok: false, error: { code: 'not_connected' } },
-    });
-  });
-
-  it('answers a ping at any time, and a connect once; a second connect is not needed', async () => {
-    const { send } = open();
-    const [pong] = await send({ v: 1, type: 'ping', id: 'ping-00001' });
-    expect(pong).toMatchObject({ ok: true, value: { ok: true } });
-    const [connected] = await send(connect);
-    expect(connected).toMatchObject({ ok: true, value: { ok: true } });
-  });
-
-  it('refuses a call outside the allow-list with invalid_argument, and a line that is not the protocol with nothing but a closed code', async () => {
-    const { send } = open();
-    await send(connect);
-    const [refused] = await send(
-      `${JSON.stringify({ v: 1, type: 'call', id: 'call-00002', cmdlet: 'Get-Mailbox', args: {}, deadlineMs: 5000 })}\n`,
-    );
-    expect(refused).toMatchObject({
-      ok: true,
-      value: { ok: false, error: { code: 'invalid_argument' } },
-    });
-    const [junk] = await send('this is not json\n');
-    expect(junk).toMatchObject({
-      ok: true,
-      value: { ok: false, error: { code: 'invalid_argument' } },
-    });
-  });
-
-  it('never puts text from the request into an answer', async () => {
-    const { send } = open();
-    await send(connect);
-    const [answer] = await send({
-      v: 1,
-      type: 'call',
-      id: 'call-00003',
-      cmdlet: 'Remove-MailContact',
-      args: { Identity: 'Zoë Canary' },
-      deadlineMs: 5000,
-    });
-    expect(JSON.stringify(answer)).not.toContain('Canary');
   });
 });
 

@@ -964,11 +964,11 @@ test.describe('Phase D: distribution lists, contacts and group members by keyboa
 
   test.afterAll(async () => {
     await seeded.destroy();
-    clearExchangeSeed();
+    await clearExchangeSeed();
   });
 
-  test.beforeEach(() => {
-    seedExchange();
+  test.beforeEach(async () => {
+    await seedExchange();
   });
 
   test('US-D1: search and filter the lists, open one and come back, without a mouse', async ({

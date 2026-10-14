@@ -180,13 +180,13 @@ export const DIRECTORY_STATES: readonly DirectoryState[] = [
 // ---- Phase D, step D1 (T-D-181): distribution lists, contacts and group members ------------------------------------
 // The states that axe, the keyboard specs, the responsive specs and the visual specs walk over on
 // `/distribution-lists`, `/distribution-lists/$id`, `/contacts`, `/contacts/$id` and `/groups/$id` (member editing),
-// as data. The fake Exchange behind the `pwsh` shim is seeded per state (`support/exchange-seed.ts`); a path names
+// as data. The fake Exchange (InvokeCommand on the fake tenant) is seeded per state (`support/exchange-seed.ts`); a path names
 // its object by NAME so the ids (which the seed makes, not the spec) are resolved when the state is visited
 // (`fixtures/member-states.ts`): `{list:Marketing}`, `{contact:Carol Bakker}`, `{group:m365Group}` (a key of the
 // seeded Graph directory). `/distribution-lists/$id` and `/contacts/$id` are known to the route-tree comparison by
 // name (`apps/web/test/routes-coverage.test.ts`), so they need no entry in `CLIENT_ROUTES`.
 
-/** What the fake Exchange holds in a state: the standard seed, nothing at all, or 4,000 lists (`narrow_search`). */
+/** What the fake Exchange holds in a state: the standard seed, nothing at all, or 10,001 lists (`narrow_search`). */
 export type ExchangeData = 'standard' | 'empty' | 'narrow';
 
 /**

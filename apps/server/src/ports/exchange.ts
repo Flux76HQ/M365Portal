@@ -5,7 +5,7 @@
 //     the members of a group, over the Exchange Online Admin API (`AdminApiExchangeClient`). It has no
 //     write method and says so in `capabilities().write`.
 //   - `ExchangeClient` is the Phase D surface (a superset): lists and contacts, the five writes, and
-//     the same reads, over the `pwsh` worker (`PwshExchangeClient`, integrations/exchange/pwsh) or in
+//     the same reads, over the `InvokeCommand` endpoint (`InvokeExchangeClient`, integrations/exchange) or in
 //     memory (`FakeExchangeClient`, test/fakes). One contract suite runs against both.
 //
 // `capabilities().write` is the closed union of the write methods that are built, so that a write

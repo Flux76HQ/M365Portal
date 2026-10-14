@@ -22,10 +22,12 @@
 // Not documented, so a switch instead of a rule (spec 8.8, U25 and U45): the envelope of the answer
 // (`envelope`: a `value` object, a top-level array, a single object), and what the service says when
 // the Preview is not available in the organization (`previewAvailable(false)`, 404 by default).
+import type { ExchangeCommandCode } from '../../../../src/ports/errors.js';
 import { EXCHANGE_ROLES } from '@m365portal/shared/setup/graph-roles';
 import { jsonResponse } from '../index.js';
 import type { FakeTenantModule, RouteContext } from '../types.js';
 import type { FakeWorld, IssuedToken } from '../graph/tokens.js';
+import { runCmdlet } from './cmdlets.js';
 import {
   FakeExchangeState,
   renderOrganizationConfig,
@@ -69,6 +71,8 @@ export interface FakeExchangeControl {
   /** The first `calls` otherwise valid calls answer 403, as RBAC does before it has propagated. */
   propagation(calls: number): void;
   fault(spec: ExchangeFaultSpec): void;
+  /** Every `InvokeCommand` call fails with this code (`null`: back to normal). The e2e `connect.error` of a seed. */
+  commandFault(code: ExchangeCommandCode | null): void;
   /** U45: the shape of the answer. `value` (default) is an object with a `value` list. */
   envelope(shape: { organizationConfig?: Envelope; recipients?: Envelope }): void;
   /** U25: when `false` every call is answered as an organization without the Preview would (status 404 or 400). */
@@ -85,6 +89,7 @@ interface Settings {
   preview: { available: boolean; status: 400 | 404 };
   nextLinkLifetimeMs: number;
   rewrite: ((link: string) => string) | null;
+  commandFault: ExchangeCommandCode | null;
 }
 
 export interface FakeExchange {
@@ -100,6 +105,7 @@ function defaults(): Settings {
     preview: { available: true, status: 404 },
     nextLinkLifetimeMs: 300_000,
     rewrite: null,
+    commandFault: null,
   };
 }
 
@@ -144,6 +150,9 @@ export function exchangeModule(
     rewriteNextLink(rewrite) {
       settings.rewrite = rewrite;
     },
+    commandFault(code) {
+      settings.commandFault = code;
+    },
   };
 
   function error(
@@ -156,6 +165,36 @@ export function exchangeModule(
       status,
       { error: { code, message } },
       { 'request-id': directory.newId('exchange-request'), ...headers },
+    );
+  }
+
+  /** A failed cmdlet as the REST layer words it: HTTP status, a code and a message with the usual sentence. */
+  function commandError(code: ExchangeCommandCode, retryAfterMs?: number): Response {
+    const text: Record<ExchangeCommandCode, readonly [number, string]> = {
+      not_found: [400, "The object couldn't be found on the server."],
+      already_exists: [400, 'The proxy address already exists.'],
+      already_member: [400, 'The recipient is already a member of the group.'],
+      not_a_member: [400, "The recipient isn't a member of the group."],
+      member_type_not_allowed: [400, "The recipient isn't a supported member of this group."],
+      permission_denied: [403, 'Access is denied for this caller.'],
+      manager_check: [400, 'This change can only be performed by a manager of the group.'],
+      read_only_object: [
+        400,
+        'The object is being synchronized from your on-premises organization.',
+      ],
+      throttled: [429, 'Too many requests.'],
+      timeout: [504, 'The operation timed out.'],
+      invalid_argument: [400, 'ParameterBindingException: cannot bind the parameter.'],
+      not_connected: [503, 'The session is not connected.'],
+      role_pending: [400, 'The term is not recognized as the name of a cmdlet.'],
+      internal: [500, 'An internal error occurred.'],
+    };
+    const [status, message] = text[code];
+    return error(
+      status,
+      'CommandError',
+      message,
+      retryAfterMs === undefined ? {} : { 'retry-after': String(Math.ceil(retryAfterMs / 1000)) },
     );
   }
 
@@ -345,6 +384,58 @@ export function exchangeModule(
     return envelope(ctx, settings.envelope.recipients, rows, nextLink);
   }
 
+  /** The checks both routes share: token, injected faults, tenant, headers, role, RBAC, propagation, preview. */
+  function guard(ctx: RouteContext, roles: readonly string[]): Response | null {
+    const token = authenticate(ctx);
+    if (token instanceof Response) return token;
+    const fault = takeFault(ctx);
+    if (fault !== null) return fault;
+
+    const tenant = (ctx.params.tid ?? '').toLowerCase();
+    if (tenant !== directory.tenantId)
+      return error(403, 'Forbidden', 'The tenant in the URL is not the tenant of the token.');
+    const type = ctx.request.headers.get('content-type');
+    if (type === null || !/^application\/json\s*(;|$)/i.test(type)) {
+      return error(415, 'UnsupportedMediaType', 'The content type must be application/json.');
+    }
+    const anchor = ctx.request.headers.get('x-anchormailbox');
+    const anchorPattern = new RegExp(`^APP:SystemMailbox\\{${SYSTEM_MAILBOX}\\}@(.+)$`, 'i');
+    const anchorMatch = anchor === null ? null : anchorPattern.exec(anchor);
+    if (anchorMatch === null) {
+      return error(
+        400,
+        'BadRequest',
+        'The header X-AnchorMailbox is required: APP:SystemMailbox{...}@<tenant>.',
+      );
+    }
+
+    // Roles. No ManageAsAppV2 role: the consent is missing, 401. The role without an Exchange
+    // role assignment (or one that has not propagated): 403.
+    if (!roles.some((role) => token.roles.includes(role))) {
+      return error(
+        401,
+        'Unauthorized',
+        'The token does not carry an Exchange.ManageAsApp application role.',
+        { 'www-authenticate': 'Bearer' },
+      );
+    }
+    const rbac = token.entraRoleTemplateIds.some((id) => EXCHANGE_ROLE_TEMPLATES.includes(id));
+    if (!rbac)
+      return error(403, 'Forbidden', 'The caller has no role assignment that allows this call.');
+    if (settings.propagationLeft > 0) {
+      settings.propagationLeft -= 1;
+      return error(403, 'Forbidden', 'The caller has no role assignment that allows this call.');
+    }
+    if (!settings.preview.available) {
+      return error(
+        settings.preview.status,
+        'NotFound',
+        'The Admin API is not available for this organization.',
+      );
+    }
+    return null;
+  }
+
   const module: FakeTenantModule = (core) => {
     core.onReset(() => {
       settings = defaults();
@@ -360,61 +451,8 @@ export function exchangeModule(
       // Every call reads; none changes the directory (the Phase B adapter is read-only).
       mutating: false,
       handler: async (ctx) => {
-        const token = authenticate(ctx);
-        if (token instanceof Response) return token;
-        const fault = takeFault(ctx);
-        if (fault !== null) return fault;
-
-        const tenant = (ctx.params.tid ?? '').toLowerCase();
-        if (tenant !== directory.tenantId)
-          return error(403, 'Forbidden', 'The tenant in the URL is not the tenant of the token.');
-        const type = ctx.request.headers.get('content-type');
-        if (type === null || !/^application\/json\s*(;|$)/i.test(type)) {
-          return error(415, 'UnsupportedMediaType', 'The content type must be application/json.');
-        }
-        const anchor = ctx.request.headers.get('x-anchormailbox');
-        const anchorPattern = new RegExp(`^APP:SystemMailbox\\{${SYSTEM_MAILBOX}\\}@(.+)$`, 'i');
-        const anchorMatch = anchor === null ? null : anchorPattern.exec(anchor);
-        if (anchorMatch === null) {
-          return error(
-            400,
-            'BadRequest',
-            'The header X-AnchorMailbox is required: APP:SystemMailbox{...}@<tenant>.',
-          );
-        }
-
-        // Roles. No ManageAsAppV2 role: the consent is missing, 401. The role without an Exchange
-        // role assignment (or one that has not propagated): 403.
-        if (!token.roles.includes('Exchange.ManageAsAppV2')) {
-          return error(
-            401,
-            'Unauthorized',
-            'The token does not carry the Exchange.ManageAsAppV2 application role.',
-            { 'www-authenticate': 'Bearer' },
-          );
-        }
-        const rbac = token.entraRoleTemplateIds.some((id) => EXCHANGE_ROLE_TEMPLATES.includes(id));
-        if (!rbac)
-          return error(
-            403,
-            'Forbidden',
-            'The caller has no role assignment that allows this call.',
-          );
-        if (settings.propagationLeft > 0) {
-          settings.propagationLeft -= 1;
-          return error(
-            403,
-            'Forbidden',
-            'The caller has no role assignment that allows this call.',
-          );
-        }
-        if (!settings.preview.available) {
-          return error(
-            settings.preview.status,
-            'NotFound',
-            'The Admin API is not available for this organization.',
-          );
-        }
+        const refused = guard(ctx, ['Exchange.ManageAsAppV2']);
+        if (refused !== null) return refused;
 
         const endpoint = ctx.params.endpoint ?? '';
         const cmdlets = ENDPOINTS[endpoint];
@@ -446,6 +484,43 @@ export function exchangeModule(
           return groupMembers(ctx, cmdlet, parameters, bodyText);
         // Documented by Learn, not implemented by the fake: the product does not call it.
         return error(400, 'BadRequest', `The fake does not implement the ${endpoint} endpoint.`);
+      },
+    });
+
+    // The undocumented `InvokeCommand` endpoint (ADR 0182): any cmdlet of the allow-list, run over the fake
+    // state by `runCmdlet`. Errors are answered the way the REST layer words them, so the product's
+    // classifier (error-class.ts) is tested against text and not against a mirror of its own code.
+    core.router.add({
+      host: HOST,
+      method: 'POST',
+      path: '/adminapi/beta/:tid/InvokeCommand',
+      // Reads and writes share the route; the call log's `mutating` count is for the directory (Graph).
+      mutating: false,
+      handler: async (ctx) => {
+        const refused = guard(ctx, ['Exchange.ManageAsApp', 'Exchange.ManageAsAppV2']);
+        if (refused !== null) return refused;
+        const body = asRecord(await ctx.json());
+        const input = body === null ? null : asRecord(body.CmdletInput);
+        if (input === null || Object.keys(body ?? {}).some((name) => name !== 'CmdletInput')) {
+          return error(400, 'BadRequest', 'The body must be {"CmdletInput": {...}}.');
+        }
+        const cmdlet = input.CmdletName;
+        const parameters = input.Parameters === undefined ? {} : asRecord(input.Parameters);
+        if (typeof cmdlet !== 'string' || parameters === null) {
+          return error(400, 'BadRequest', 'CmdletName and Parameters are required.');
+        }
+        if (settings.commandFault !== null) return commandError(settings.commandFault);
+        const outcome = runCmdlet(state, cmdlet, parameters);
+        if (!outcome.ok) return commandError(outcome.error, outcome.retryAfterMs);
+        const rows = (outcome.data as { rows?: unknown }).rows;
+        return jsonResponse(
+          200,
+          {
+            '@odata.context': `${ORIGIN}/adminapi/beta/${ctx.params.tid ?? ''}/$metadata#Collection(Microsoft.Exchange.Management.RestApiClient.Output)`,
+            value: Array.isArray(rows) ? rows : [],
+          },
+          { 'request-id': directory.newId('exchange-request') },
+        );
       },
     });
   };

@@ -2,8 +2,8 @@
 // directory module (seam XD1). It holds no state on disk: the list buffer is process memory and is lost on
 // restart (PD-03); the member writes keep their audit entries in the database next to the change.
 //
-// The clients are taken per call from the registry: `deps.clients.exchangeWorker()` (the `pwsh` worker, built
-// on first use so that a process without `pwsh` starts) and `deps.clients.graph()`. Both throw while the
+// The clients are taken per call from the registry: `deps.clients.exchangeCommands()` (the `InvokeCommand` client, built
+// with the other clients) and `deps.clients.graph()`. Both throw while the
 // secrets are unusable or no tenant is pinned; the route answers 503 then (`errors.ts`).
 import type { AppModule, ModuleDeps } from '../module.js';
 import type { DistributionListsContext } from './context.js';
@@ -16,7 +16,7 @@ export const DISTRIBUTION_LISTS_MODULE_ID = 'distributionlists';
 
 export function distributionListsModule(deps: ModuleDeps): AppModule {
   const serviceDeps = {
-    exchange: () => deps.clients.exchangeWorker(),
+    exchange: () => deps.clients.exchangeCommands(),
     graph: () => deps.clients.graph(),
     buffers: createListBufferStore({ clock: { now: deps.now }, random: deps.random }),
   };

@@ -14,7 +14,7 @@
 //             Phase C (FR-C-508): the directory is seeded (1,200 users, 150 groups), so /users and /groups
 //             show a full page, and the pages of one user and of one Microsoft 365 group are in the list
 //             (/users/<id>, /groups/<id>). All four are REPORTED, none is gated.
-//             Phase D (FR-D-904): the fake Exchange behind the `pwsh` shim holds its standard seed, so
+//             Phase D (FR-D-904): the fake Exchange (InvokeCommand on the fake tenant) holds its standard seed, so
 //             /distribution-lists and /contacts show rows, and /distribution-lists/<id> and /contacts/<id>
 //             are measured ONCE each (reported). Four more cells in a pass, about a minute.
 // A cell is measured once; ONLY a timing miss is measured again (at most three runs in all), every

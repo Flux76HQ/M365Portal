@@ -1,4 +1,4 @@
-// The seed of the process-level worker stand-in (standin-semantic.ts): the data a fake Exchange starts with,
+// The seed of the fake Exchange: the data it starts with (the e2e control surface loads it, `exchange.seed`),
 // as a small JSON document, so that the e2e topology can exercise lists and contacts end to end with
 // data it chooses. Test support only; nothing in `src/` reads it.
 //
@@ -16,7 +16,7 @@
 //
 // A member names a recipient by its `key` or by its primary address. The same seed always builds the same
 // state (GUIDs come from a counter), which is what lets the journal of writes be replayed after a restart.
-import { EXCHANGE_ERROR_CODES } from '@m365portal/shared/exchange/protocol';
+import { EXCHANGE_COMMAND_CODES } from '../../../../src/ports/errors.js';
 import { z } from 'zod';
 import { FakeExchangeState, type FakeRecipient } from './state.js';
 
@@ -70,7 +70,7 @@ const SeedSchema = z.strictObject({
     })
     .optional(),
   connect: z
-    .union([z.literal('ok'), z.strictObject({ error: z.enum(EXCHANGE_ERROR_CODES) })])
+    .union([z.literal('ok'), z.strictObject({ error: z.enum(EXCHANGE_COMMAND_CODES) })])
     .default('ok'),
   appHoldsOrganizationManagement: z.boolean().optional(),
   defaultResultSize: z.number().int().min(1).max(10_000_000).optional(),
@@ -142,7 +142,11 @@ export const DEFAULT_SEED: StandInSeed = parseSeed({
 
 /** The state a seed describes. Deterministic. */
 export function buildState(seed: StandInSeed): FakeExchangeState {
-  const state = new FakeExchangeState();
+  return applySeed(new FakeExchangeState(), seed);
+}
+
+/** Loads a seed into a state that is empty (a new one, or one that was just reset). */
+export function applySeed(state: FakeExchangeState, seed: StandInSeed): FakeExchangeState {
   const byKey = new Map<string, FakeRecipient>();
   const byAddress = new Map<string, FakeRecipient>();
   for (const spec of seed.recipients) {

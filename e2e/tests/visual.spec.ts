@@ -342,7 +342,7 @@ test.describe('Phase D: lists, contacts and group members (owner, seeded Exchang
 
   test.afterAll(async () => {
     await seeded.destroy();
-    clearExchangeSeed();
+    await clearExchangeSeed();
   });
 
   for (const state of MEMBER_STATES.filter((entry) => entry.visual === true)) {

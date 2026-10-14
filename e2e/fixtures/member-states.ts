@@ -1,5 +1,5 @@
 // Puts the browser on a state of `MEMBER_STATES` (routes.ts, Phase D step D1) for the axe, keyboard, responsive and
-// visual specs: the fake Exchange behind the `pwsh` shim is seeded, the object the path names is looked up, the
+// visual specs: the fake Exchange (InvokeCommand on the fake tenant) is seeded, the object the path names is looked up, the
 // steps the person takes are taken, and the answers that are the point of the state are allowed for the `guard`.
 // The Owner is signed in at the start of every test (the default principal).
 import type { Locator, Page } from '@playwright/test';
@@ -13,7 +13,7 @@ import { contactId, listId } from './lists.js';
 
 function seedFor(data: MemberState['data']): ExchangeSeed {
   if (data === 'empty') return { recipients: [], contacts: [], groups: [] };
-  if (data === 'narrow') return { ...standardSeed(), bulk: { groups: 4000 } };
+  if (data === 'narrow') return { ...standardSeed(), bulk: { groups: 10_001 } };
   return standardSeed();
 }
 
@@ -62,7 +62,7 @@ export async function visitMemberState(
   state: MemberState,
 ): Promise<VisitedMemberState> {
   const { page, app, guard } = fixtures;
-  seedExchange(seedFor(state.data));
+  await seedExchange(seedFor(state.data));
   for (const allowed of state.expect ?? []) guard.allowResponse(allowed);
   // The ids come from the API of the signed-in person (the cookies of the context), before the page opens.
   const path = await resolvePath(page, groupIds, state.path);

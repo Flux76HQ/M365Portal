@@ -364,7 +364,7 @@ export const LIMITS = deepFreeze({
   // added: the largest bulk request is 200 GUIDs, well below `body.jsonBytes`.
   // ------------------------------------------------------------------------------------------
 
-  /** The Exchange `pwsh` worker (FR-D-102, FR-D-104, FR-D-105; plan 5.1 and 5.2). */
+  /** The Exchange client (FR-D-102, FR-D-104, FR-D-105; plan 5.1 and 5.2; the worker numbers date from ADR 0180). */
   exchange: {
     /** The worker is recycled after this many calls (R-D-03: connect and disconnect can leak memory). */
     workerMaxCalls: 500,

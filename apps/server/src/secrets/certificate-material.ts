@@ -1,6 +1,7 @@
 // The certificate material (Phase D step D1, GD1-0 amendment 1): the certificate and the private key
-// as PEM text, for the one consumer that cannot use a holder, the Exchange worker (the `pwsh` process
-// builds its own certificate object from them: `X509Certificate2.CreateFromPem`).
+// as PEM text, for a consumer that cannot use a holder. Since ADR 0182 there is none: Exchange is called over
+// REST on the same application tokens as Graph, and the `pwsh` worker that needed the PEM is gone. The
+// accessor stays, guarded (test/secrets/material-scope.test.ts), until the owner decides to remove it.
 //
 // It exists only inside `SecretsRuntime.withCertificateMaterial(purpose, fn)` (state.ts): the function
 // is given a `CertificateMaterial`, and when it returns or throws the material is revoked, so a copy

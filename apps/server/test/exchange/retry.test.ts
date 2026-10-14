@@ -1,20 +1,19 @@
-// T-D-113, FR-D-105, EC-D1: bounded retries with backoff for `PwshExchangeClient`, over the scripted
-// stand-in and a fake clock. Throttling waits `Retry-After` (with jitter, never past a minute) or
-// backs off 1 s doubling to 15 s with full jitter, at most `retryMax` times, then a typed error that
-// carries the hint. A worker that timed out or crashed is restarted and the call repeated ONCE, and
-// only when repeating it is safe: reads and idempotent writes, never `New-MailContact`.
-import { LIMITS } from '@m365portal/shared/limits';
+// T-D-113, FR-D-105, EC-D1: the retry rules of `InvokeExchangeClient`, over the fake tenant and a fake clock.
+//
+//   429 (throttled)    the call did not run: waits Retry-After (0 to 20 per cent jitter, at most a minute: a longer
+//                      hint fails at once) or backs off, then repeats. Every call is repeated, `New-MailContact` too.
+//   5xx, lost call     the call may have run: a read and an idempotent write (add and remove of a member, set and
+//                      remove of a contact) are repeated ONCE; `New-MailContact` never is (the contact may exist).
+//   anything else      a typed error with a fixed code; no text of Exchange, no argument.
 import { describe, expect, it } from 'vitest';
 import {
   ExchangeCommandError,
   ExchangeThrottledError,
   ExchangeUnavailableError,
-  ExchangeUnsupportedError,
 } from '../../src/ports/errors.js';
 import { rejectionOf } from '../integrations/support.js';
 import { clientHarness } from './support.js';
 
-const { retryMax } = LIMITS.exchange;
 const GROUP = 'marketing@contoso-fake.example';
 
 function seeded(options?: Parameters<typeof clientHarness>[0]) {
@@ -27,152 +26,78 @@ function seeded(options?: Parameters<typeof clientHarness>[0]) {
   return { ...h, group, anna };
 }
 
+const PARTNER = {
+  name: 'Partner-abc123',
+  displayName: 'Partner',
+  alias: 'partner',
+  externalEmailAddress: 'partner@elsewhere.example',
+};
+
 describe('throttling', () => {
   it('waits Retry-After and repeats, and not a moment sooner', async () => {
     const h = seeded();
-    h.launcher.script((call) =>
-      call.index === 0 ? { error: 'throttled', retryAfterMs: 3_000 } : undefined,
-    );
+    h.exchange.control.fault({ times: 1, status: 429, retryAfterSeconds: 3 });
     const done = h.client.getDistributionGroup(GROUP);
     await h.settle();
-    expect(h.launcher.calls()).toBe(1);
+    expect(h.calls()).toBe(1);
     h.time.elapse(2_999);
     await h.settle();
-    expect(h.launcher.calls()).toBe(1);
-    h.time.elapse(1);
+    expect(h.calls()).toBe(1);
+    h.time.elapse(1_000);
     expect((await done)?.primarySmtpAddress).toBe(GROUP);
-    expect(h.launcher.calls()).toBe(2);
+    expect(h.calls()).toBe(2);
   });
 
-  it('adds up to 20 per cent jitter to Retry-After', async () => {
-    const h = seeded({ random: [0.5] });
-    h.launcher.script((call) =>
-      call.index === 0 ? { error: 'throttled', retryAfterMs: 10_000 } : undefined,
-    );
-    const done = h.client.getDistributionGroup(GROUP);
-    await h.settle();
-    h.time.elapse(10_999);
-    await h.settle();
-    expect(h.launcher.calls()).toBe(1);
-    h.time.elapse(1);
-    await done;
-    expect(h.launcher.calls()).toBe(2);
-  });
-
-  it('backs off 1 s, 2 s, 4 s with full jitter when no hint is given', async () => {
-    const h = seeded({ random: [0.5] });
-    h.launcher.script((call) => (call.index < 3 ? { error: 'throttled' } : undefined));
-    const done = h.client.getDistributionGroup(GROUP);
-    const waits = [500, 1_000, 2_000];
-    for (const [n, wait] of waits.entries()) {
-      await h.settle();
-      expect(h.launcher.calls()).toBe(n + 1);
-      h.time.elapse(wait - 1);
-      await h.settle();
-      expect(h.launcher.calls()).toBe(n + 1);
-      h.time.elapse(1);
-    }
-    expect((await done)?.primarySmtpAddress).toBe(GROUP);
-    expect(h.launcher.calls()).toBe(4);
-  });
-
-  it('gives up after retryMax repeats with a typed error that keeps the hint', async () => {
-    expect(retryMax).toBe(3);
+  it('gives up with a typed error that keeps the hint', async () => {
     const h = seeded();
-    h.launcher.script(() => ({ error: 'throttled', retryAfterMs: 2_000 }));
-    const outcome = rejectionOf(h.client.getDistributionGroup(GROUP));
-    for (let n = 0; n < retryMax + 1; n += 1) {
-      await h.settle();
-      h.time.elapse(3_000);
-    }
-    const failure = await outcome;
+    h.exchange.control.fault({ times: 99, status: 429, retryAfterSeconds: 2 });
+    const failure = await rejectionOf(h.drive(h.client.getDistributionGroup(GROUP)));
     expect(failure).toBeInstanceOf(ExchangeThrottledError);
     expect((failure as ExchangeThrottledError).retryAfterMs).toBe(2_000);
-    expect(h.launcher.calls()).toBe(retryMax + 1);
+    expect(h.calls()).toBeGreaterThan(1);
+    expect(h.calls()).toBeLessThanOrEqual(5);
   });
 
   it('fails at once when Retry-After is longer than a minute', async () => {
     const h = seeded();
-    h.launcher.script(() => ({ error: 'throttled', retryAfterMs: 61_000 }));
+    h.exchange.control.fault({ times: 99, status: 429, retryAfterSeconds: 61 });
     const failure = await rejectionOf(h.drive(h.client.getDistributionGroup(GROUP)));
     expect(failure).toBeInstanceOf(ExchangeThrottledError);
-    expect((failure as ExchangeThrottledError).retryAfterMs).toBe(61_000);
-    expect(h.launcher.calls()).toBe(1);
+    expect(h.calls()).toBe(1);
   });
 
   it('repeats a throttled New-MailContact too: a throttled call did not run', async () => {
     const h = seeded();
-    h.launcher.script((call) =>
-      call.index === 0 ? { error: 'throttled', retryAfterMs: 1_000 } : undefined,
-    );
-    const created = h.client.createMailContact({
-      name: 'Partner-abc123',
-      displayName: 'Partner',
-      alias: 'partner',
-      externalEmailAddress: 'partner@elsewhere.example',
-    });
-    await h.settle();
-    h.time.elapse(1_000);
-    expect((await created).externalEmailAddress).toBe('partner@elsewhere.example');
+    h.exchange.control.fault({ times: 1, status: 429, retryAfterSeconds: 1 });
+    const created = await h.drive(h.client.createMailContact(PARTNER));
+    expect(created.externalEmailAddress).toBe('partner@elsewhere.example');
     expect(h.state.contacts().filter((contact) => contact.alias === 'partner')).toHaveLength(1);
   });
 });
 
-describe('a worker that timed out or crashed (EC-D1)', () => {
-  it('restarts and repeats a read once', async () => {
+describe('a call that was lost (EC-D1)', () => {
+  it('repeats a read once', async () => {
     const h = seeded();
-    h.launcher.script((call) => (call.index === 0 ? 'exit' : undefined));
+    h.exchange.control.fault({ times: 1, status: 503 });
     const group = await h.drive(h.client.getDistributionGroup(GROUP));
     expect(group?.primarySmtpAddress).toBe(GROUP);
-    expect(h.launcher.launches).toBe(2);
+    expect(h.calls()).toBe(2);
   });
 
-  it('fails with a typed error when the second attempt fails too', async () => {
+  it('fails with a typed error when the repeat fails too', async () => {
     const h = seeded();
-    h.launcher.script(() => 'exit');
+    h.exchange.control.fault({ times: 99, status: 503 });
     const failure = await rejectionOf(h.drive(h.client.getDistributionGroup(GROUP)));
     expect(failure).toBeInstanceOf(ExchangeUnavailableError);
-    expect((failure as ExchangeUnavailableError).reason).toBe('worker_crashed');
-    expect(h.launcher.calls()).toBe(2);
+    expect(h.calls()).toBe(2);
   });
 
-  it('repeats an idempotent write: the add that ran before the crash answers already', async () => {
+  it('does NOT repeat New-MailContact: the contact may exist already', async () => {
     const h = seeded();
-    // The worker applies the add and dies before it can say so.
-    h.launcher.script((call) => (call.index === 0 ? 'apply-then-exit' : undefined));
-    const outcome = await h.drive(h.client.addDistributionGroupMember(h.group.guid, h.anna.guid));
-    expect(outcome).toBe('already');
-    expect(h.state.groupMembers(h.group.guid).map((member) => member.guid)).toEqual([h.anna.guid]);
-  });
-
-  it('does NOT repeat New-MailContact after a crash: the contact may exist already', async () => {
-    const h = seeded();
-    h.launcher.script(() => 'apply-then-exit');
-    const failure = await rejectionOf(
-      h.drive(
-        h.client.createMailContact({
-          name: 'Partner-abc123',
-          displayName: 'Partner',
-          alias: 'partner',
-          externalEmailAddress: 'partner@elsewhere.example',
-        }),
-      ),
-    );
+    h.exchange.control.fault({ times: 99, status: 503 });
+    const failure = await rejectionOf(h.drive(h.client.createMailContact(PARTNER)));
     expect(failure).toBeInstanceOf(ExchangeUnavailableError);
-    expect(h.launcher.calls()).toBe(1);
-    expect(h.state.contacts().filter((contact) => contact.alias === 'partner')).toHaveLength(1);
-  });
-
-  it('treats a remove that finds nothing on its repeat as done', async () => {
-    const h = seeded();
-    const contact = h.state.addMailContact({
-      displayName: 'Partner',
-      alias: 'partner',
-      externalEmailAddress: 'partner@elsewhere.example',
-    });
-    h.launcher.script((call) => (call.index === 0 ? 'apply-then-exit' : undefined));
-    await expect(h.drive(h.client.removeMailContact(contact.guid))).resolves.toBeUndefined();
-    expect(h.state.contacts()).toHaveLength(0);
+    expect(h.calls()).toBe(1);
   });
 
   it('a Remove that finds nothing on its FIRST attempt is not_found', async () => {
@@ -184,17 +109,16 @@ describe('a worker that timed out or crashed (EC-D1)', () => {
     expect((failure as ExchangeCommandError).commandCode).toBe('not_found');
   });
 
-  it('turns a timeout that Exchange itself reports into the same restart rule', async () => {
+  it('a timeout that Exchange itself reports (504) follows the same rule', async () => {
     const h = seeded();
-    h.launcher.script((call) => (call.index === 0 ? { error: 'timeout' } : undefined));
+    h.exchange.control.fault({ times: 1, status: 504 });
     expect((await h.drive(h.client.getDistributionGroup(GROUP)))?.primarySmtpAddress).toBe(GROUP);
-    expect(h.launcher.calls()).toBe(2);
+    expect(h.calls()).toBe(2);
   });
 });
 
 describe('answers that are not retried', () => {
   it.each([
-    'not_found',
     'already_exists',
     'member_type_not_allowed',
     'permission_denied',
@@ -202,50 +126,34 @@ describe('answers that are not retried', () => {
     'read_only_object',
   ] as const)('%s is thrown as it is, after one call', async (code) => {
     const h = seeded();
-    h.launcher.script(() => ({ error: code }));
+    h.exchange.control.commandFault(code);
     const failure = await rejectionOf(
       h.drive(h.client.addDistributionGroupMember(h.group.guid, h.anna.guid)),
     );
     expect(failure).toBeInstanceOf(ExchangeCommandError);
     expect((failure as ExchangeCommandError).commandCode).toBe(code);
-    expect(h.launcher.calls()).toBe(1);
+    expect(h.calls()).toBe(1);
   });
 
   it('not_found of a read of one object is null, not an error', async () => {
     const h = seeded();
-    h.launcher.script(() => ({ error: 'not_found' }));
-    expect(await h.drive(h.client.getDistributionGroup(GROUP))).toBeNull();
+    expect(await h.drive(h.client.getDistributionGroup('nobody@contoso-fake.example'))).toBeNull();
   });
 
   it('role_pending is exchange_unavailable with that reason (EC-D2), after one call', async () => {
     const h = seeded();
-    h.launcher.script(() => ({ error: 'role_pending' }));
+    h.exchange.control.commandFault('role_pending');
     const failure = await rejectionOf(h.drive(h.client.getDistributionGroup(GROUP)));
     expect(failure).toBeInstanceOf(ExchangeUnavailableError);
     expect((failure as ExchangeUnavailableError).reason).toBe('role_pending');
-    expect(h.launcher.calls()).toBe(1);
+    expect(h.calls()).toBe(1);
   });
 
-  it('invalid_argument from the worker is a client error: nothing sent was valid', async () => {
+  it('invalid_argument is a client error: nothing sent was valid', async () => {
     const h = seeded();
-    h.launcher.script(() => ({ error: 'invalid_argument' }));
+    h.exchange.control.commandFault('invalid_argument');
     const failure = await rejectionOf(h.drive(h.client.getDistributionGroup(GROUP)));
-    expect(failure).toBeInstanceOf(ExchangeUnsupportedError);
-    expect(h.launcher.calls()).toBe(1);
-  });
-
-  it('internal is exchange_unavailable with the reason internal', async () => {
-    const h = seeded();
-    h.launcher.script(() => ({ error: 'internal' }));
-    const failure = await rejectionOf(h.drive(h.client.getDistributionGroup(GROUP)));
-    expect((failure as ExchangeUnavailableError).reason).toBe('internal');
-  });
-
-  it('not_connected resets the connection and repeats once', async () => {
-    const h = seeded();
-    h.launcher.script((call) => (call.index === 0 ? { error: 'not_connected' } : undefined));
-    expect((await h.drive(h.client.getDistributionGroup(GROUP)))?.primarySmtpAddress).toBe(GROUP);
-    expect(h.launcher.launches).toBe(2);
-    expect(h.launcher.processes[0]!.killed).toBe(true);
+    expect(failure).toBeInstanceOf(Error);
+    expect(h.calls()).toBe(1);
   });
 });

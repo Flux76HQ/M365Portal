@@ -10,16 +10,13 @@
 //   <name>       every `src/**/*-worker.ts` (the image worker of the branding upload runs in a child
 //                process under Node's permission model, so it cannot share a chunk with the server)
 // The workers are found by their file name, so a new worker needs no edit of this file.
-// The Exchange worker is not Node: `src/integrations/exchange/pwsh/worker-script.ps1` (Phase D) is a
-// PowerShell script with its allow-list generated into it, and is copied as it is to
-// `<outdir>/exchange/worker-script.ps1`, where the server finds it next to the bundle.
 // `--outdir <dir>` builds somewhere else (the lifecycle tests build into a scratch directory).
 //
 // The application version is read from the repository's VERSION file *here*, at build time, and
 // compiled into the bundle as __APP_VERSION__ (see src/version.ts). The runtime image therefore
 // needs no VERSION file. A Docker build stage must make VERSION available at the repository root.
 import { build } from 'esbuild';
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -90,11 +87,3 @@ if (inlined.length > 0) {
     `esbuild inlined code from node_modules that apps/server/package.json does not list under "dependencies":\n  ${inlined.join('\n  ')}\nDeclare the package as a dependency (it then stays external) or remove the import.`,
   );
 }
-
-// The Exchange worker script (T-D-112): a file of its own, never bundled, and never changed here.
-const exchangeDirectory = join(outdir, 'exchange');
-mkdirSync(exchangeDirectory, { recursive: true });
-copyFileSync(
-  join(packageDirectory, 'src/integrations/exchange/pwsh/worker-script.ps1'),
-  join(exchangeDirectory, 'worker-script.ps1'),
-);

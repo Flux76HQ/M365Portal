@@ -215,7 +215,6 @@ describe('exports map of @m365portal/shared', () => {
     const { types, target } = targetOf(exportsMap['./exchange/*']);
     expect(target).toBe('./src/exchange/*.ts');
     expect(types).toBe(target);
-    expect(sourceFiles).toContain('src/exchange/protocol.ts');
     expect(sourceFiles).toContain('src/exchange/allow-list.ts');
   });
 

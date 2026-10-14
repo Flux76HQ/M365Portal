@@ -1,7 +1,7 @@
 // From a call of the port to the cmdlet and parameters the worker is asked to run (Phase D, T-D-113,
 // FR-D-101, FR-D-102). One place builds them, and every one of them goes through the allow-list of
 // `@m365portal/shared/exchange/allow-list` before it can be sent: `checkedCall` refuses with
-// `ExchangeUnsupportedError` and nothing is sent. `PwshExchangeClient` sends what is built here,
+// `ExchangeUnsupportedError` and nothing is sent. `InvokeExchangeClient` sends what is built here,
 // `FakeExchangeClient` builds the same and checks it, so both refuse the same input for the same reason.
 //
 // The text that reaches an OPATH filter (a search prefix, a distinguished name) is placed in a
@@ -13,14 +13,14 @@
 // asks for one row more than the limit, to know whether the answer was cut.
 import { validateCall, type ExchangeCmdlet } from '@m365portal/shared/exchange/allow-list';
 import { LIMITS } from '@m365portal/shared/limits';
-import { ExchangeUnsupportedError } from '../../../ports/errors.js';
+import { ExchangeUnsupportedError } from '../../ports/errors.js';
 import type {
   ExchangeContactChanges,
   ExchangeContactCreate,
   ExchangeContactListQuery,
   ExchangeGroupListQuery,
   ExchangeMemberWriteOptions,
-} from '../../../ports/exchange.js';
+} from '../../ports/exchange.js';
 
 export interface CmdletCall {
   readonly cmdlet: ExchangeCmdlet;

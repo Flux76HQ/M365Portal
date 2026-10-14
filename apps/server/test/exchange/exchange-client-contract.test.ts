@@ -11,8 +11,8 @@
 // and not a request.
 //
 // Phase D (T-D-111, T-D-113): the second half of this file runs the whole Phase D surface (lists,
-// contacts, memberships, member and contact writes) against `PwshExchangeClient` over the scripted
-// worker stand-in AND against `FakeExchangeClient`. One suite, two implementations, one state.
+// contacts, memberships, member and contact writes) against `InvokeExchangeClient` over the fake
+// `InvokeCommand` endpoint AND against `FakeExchangeClient`. One suite, two implementations, one state.
 import { EXCHANGE_ROLES } from '@m365portal/shared/setup/graph-roles';
 import { describe, expect, it } from 'vitest';
 import { AdminApiExchangeClient } from '../../src/integrations/exchange/admin-api-client.js';
@@ -591,13 +591,13 @@ interface DSubject {
   breakWorker(): void;
   /** The next connection (probe, call) is refused because the role is not effective yet. */
   rolePending(): void;
-  /** Worker calls so far (Pwsh) or `null`. */
+  /** Requests sent to the InvokeCommand endpoint, or `null`. */
   workerCalls(): number | null;
 }
 
 type DFactory = () => DSubject;
 
-const pwsh: DFactory = () => {
+const invoke: DFactory = () => {
   const state = new FakeExchangeState();
   const ids = seedPhaseD(state);
   const h = clientHarness({ state });
@@ -607,16 +607,15 @@ const pwsh: DFactory = () => {
     ids,
     drive: h.drive,
     exhaustThrottling: () => {
-      h.launcher.script(() => ({ error: 'throttled', retryAfterMs: 2_000 }));
+      h.exchange.control.fault({ times: 99, status: 429, retryAfterSeconds: 2 });
     },
     breakWorker: () => {
-      h.launcher.script(() => 'exit');
+      h.exchange.control.fault({ times: 99, status: 503 });
     },
     rolePending: () => {
-      h.launcher.connect({ error: 'role_pending' });
-      h.launcher.killAll();
+      h.exchange.control.commandFault('role_pending');
     },
-    workerCalls: () => h.launcher.calls(),
+    workerCalls: () => h.calls(),
   };
 };
 
@@ -633,7 +632,7 @@ const inMemory: DFactory = () => {
       client.failNext(new ExchangeThrottledError({ retryAfterMs: 2_000 }), { times: 99 });
     },
     breakWorker: () => {
-      client.failNext(new ExchangeUnavailableError({ reason: 'worker_crashed' }), { times: 99 });
+      client.failNext(new ExchangeUnavailableError({ reason: 'upstream_error' }), { times: 99 });
     },
     rolePending: () => {
       client.scriptProbe({
@@ -661,7 +660,7 @@ async function commandCode(promise: Promise<unknown>): Promise<string> {
 }
 
 describe.each([
-  ['PwshExchangeClient over the scripted worker stand-in', pwsh],
+  ['InvokeExchangeClient over the fake InvokeCommand endpoint', invoke],
   ['FakeExchangeClient (Phase D)', inMemory],
 ] as const)('Phase D surface: %s', (_name, make: DFactory) => {
   describe('probe and organization', () => {
@@ -1212,7 +1211,7 @@ describe.each([
       expect((failure as ExchangeThrottledError).retryAfterMs).toBe(2_000);
     });
 
-    it('throws ExchangeUnavailableError when the worker is gone', async () => {
+    it('throws ExchangeUnavailableError when Exchange cannot be reached', async () => {
       const { client, drive, breakWorker } = make();
       breakWorker();
       expect(await rejectionOf(drive(client.listMailContacts()))).toBeInstanceOf(

@@ -33,10 +33,10 @@ async function main(): Promise<void> {
   // Phase C (FR-C-508): the seeded directory, so that /users and /groups are measured with a full page of
   // rows, and one user and one group (with owners and members) give the detail pages their addresses.
   const seeded = await fakeControl('a').seedDirectory();
-  // Phase D (FR-D-904): the fake Exchange behind the `pwsh` shim holds the standard seed (five lists of every
+  // Phase D (FR-D-904): the fake Exchange (InvokeCommand on the fake tenant) holds the standard seed (five lists of every
   // kind, three contacts), so /distribution-lists and /contacts are measured with rows, and one list and one
   // contact give the detail pages their addresses. The owner's own API tells the ids (the seed makes them).
-  seedExchange();
+  await seedExchange();
   const api = new ApiClient('a', { m365portal_session: sessionValue(cookie) });
   const firstId = async (path: string): Promise<string | null> => {
     const answer = await api.get(path);

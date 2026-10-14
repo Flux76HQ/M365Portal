@@ -279,11 +279,11 @@ test.describe('the role matrix', () => {
 // built-in roles per spec 6.9.4: the reader reads; the helpdesk also changes members; the operator also manages
 // contacts. Every entry that leads to these pages leads to the real page, never to the placeholder.
 test.describe('the pages of step D1 follow the role', () => {
-  test.beforeEach(() => {
-    seedExchange();
+  test.beforeEach(async () => {
+    await seedExchange();
   });
-  test.afterAll(() => {
-    clearExchangeSeed();
+  test.afterAll(async () => {
+    await clearExchangeSeed();
   });
 
   const CONTROLS: readonly (readonly [

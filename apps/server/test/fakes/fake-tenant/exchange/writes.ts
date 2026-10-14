@@ -8,7 +8,7 @@
 // An operation answers `{ ok: true, value }` or `{ ok: false, error }` with a code of the closed list
 // of the worker protocol. It changes the AUTHORITATIVE state at once and tells the state about the
 // change so that a read within the read-back delay does not see it (U82).
-import type { ExchangeErrorCode } from '@m365portal/shared/exchange/protocol';
+import type { ExchangeCommandCode as ExchangeErrorCode } from '../../../../src/ports/errors.js';
 import { type FakeDistributionGroup, type FakeExchangeState, type FakeRecipient } from './state.js';
 
 /** Exchange said no, with a code of the closed list of the worker protocol. */

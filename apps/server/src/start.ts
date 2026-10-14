@@ -23,7 +23,6 @@
 // debug level, which is how the order is proven from outside.
 import { existsSync } from 'node:fs';
 import type { Server } from 'node:http';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
@@ -57,8 +56,8 @@ import { appModules } from './modules.js';
 import type { RandomSource } from './ports/clock.js';
 import { SecretsRuntime } from './secrets/state.js';
 import { systemRandom } from './system-random.js';
-import { createClientsRegistry, createSecretsCredentialSource } from './integrations/registry.js';
-import { readInitialDomain, readTenantPin } from './integrations/tenant-pin.js';
+import { createClientsRegistry } from './integrations/registry.js';
+import { readTenantPin } from './integrations/tenant-pin.js';
 import { createActorResolver, createPolicyPorts } from './policy/index.js';
 import { readShellTemplate, ShellTemplateError } from './shell-port.js';
 import { APP_VERSION } from './version.js';
@@ -294,23 +293,6 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     random,
     scheduler: options.scheduler ?? systemScheduler,
     log: log.child({ module: 'integrations' }),
-    // The Phase D Exchange worker: started at the first Exchange call (never at start), with the key
-    // hand-over of EXCHANGE_KEY_HANDOVER (FR-D-103). The registry knows the command and the script.
-    exchangeWorker: {
-      homeDir: join(tmpdir(), 'm365portal-exchange'),
-      parentEnv: options.env,
-      handover: { mode: config.exchangeKeyHandover },
-      // Temporary, opt-in: the worker adds a masked error text that the server logs (GD1-0 amendment 5).
-      ...(config.exchangeDebugErrorText ? { debugErrorText: true } : {}),
-      // The certificate and its key reach the worker through the narrow accessor of the secrets module
-      // (GD1-0 amendment 1); a degraded secrets state or a missing certificate keeps the 503.
-      credentials: ({ clientId }) =>
-        createSecretsCredentialSource({
-          secrets,
-          appId: clientId,
-          organization: () => readInitialDomain(databaseOfMoment()),
-        }),
-    },
   });
   secrets.onChange(() => {
     clients.reload();
@@ -441,13 +423,6 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     setupState: setupStateName(database),
     sealedStorage: database === undefined ? 'unknown' : secrets.state().status,
   });
-  if (config.exchangeDebugErrorText) {
-    // GD1-0 amendment 5: a temporary, opt-in exception to FR-D-107. Visible in the log for as long as it is on.
-    log.warn(
-      { event: 'exchange_debug_errortext', enabled: true },
-      'Exchange error text diagnostics are ON (masked, truncated); remove EXCHANGE_DEBUG_ERRORTEXT after troubleshooting',
-    );
-  }
   log.info({ event: 'listening', version: APP_VERSION, port: config.port }, 'listening');
 
   // 10. The hourly sweepers.

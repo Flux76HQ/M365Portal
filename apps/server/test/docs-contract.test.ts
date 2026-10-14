@@ -980,7 +980,7 @@ describe('docs/architecture.md (FR-A-006, FR-A-185)', () => {
 // =============================================================================================
 
 const ADR_PHASE_A_COUNT = 56;
-/** ADR-0001 to 0056 (Phase A), 0101 to 0126 (assumptions B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (Phase C, PC-02), 0180 (Phase D, ODB-01, the runtime base) and 0181 (Phase D, FR-D-102, the worker protocol and allow-list). */
+/** ADR-0001 to 0056 (Phase A), 0101 to 0126 (assumptions B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (Phase C, PC-02), 0180 (Phase D, ODB-01, the runtime base) 0181 (Phase D, FR-D-102, the worker protocol and allow-list) and 0182 (Phase D, FR-D-102, Exchange over InvokeCommand without PowerShell). */
 const ADR_NUMBERS: readonly number[] = [
   ...Array.from({ length: ADR_PHASE_A_COUNT }, (_unused, index) => index + 1),
   ...Array.from({ length: 26 }, (_unused, index) => 101 + index),
@@ -988,6 +988,7 @@ const ADR_NUMBERS: readonly number[] = [
   179,
   180,
   181,
+  182,
 ];
 const ADR_COUNT = ADR_NUMBERS.length;
 const ADR_FIELDS = ['Status', 'Context', 'Decision', 'Consequences', 'Evidence'];
@@ -1133,7 +1134,7 @@ describe('docs/adr (FR-A-185)', () => {
       adrDirectory((files) => {
         files.delete('0030-decision.md');
       }),
-      { reason: /has 112 ADRs, expected 113/ },
+      { reason: /has 113 ADRs, expected 114/ },
     );
     expectGuardFails(
       assertAdrDirectory,
@@ -1235,11 +1236,11 @@ describe('docs/adr (FR-A-185)', () => {
       adrDirectory((files) => {
         files.delete('0126-decision.md');
       }),
-      { reason: /has 112 ADRs|ADR-0126: 0 files/ },
+      { reason: /has 113 ADRs|ADR-0126: 0 files/ },
     );
   });
 
-  it('has the template and ADR-0001 to ADR-0056, 0101 to 0126 (B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (PC-02), 0180 (ODB-01) and 0181 (FR-D-102) with their fields', () => {
+  it('has the template and ADR-0001 to ADR-0056, 0101 to 0126 (B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (PC-02), 0180 (ODB-01), 0181 (FR-D-102) and 0182 (FR-D-102) with their fields', () => {
     assertAdrDirectory(join(repositoryRoot, 'docs/adr'));
   });
 });
@@ -2127,15 +2128,15 @@ describe('Phase D step D1 documents (FR-D-807)', () => {
     });
   });
 
-  it('operations.md names the worker, the variable, the image size decision and the stack-manager note in both languages; the README names the new documents', () => {
+  it('operations.md names the InvokeCommand client, the image size decision and the stack-manager note in both languages; the README names the new documents', () => {
     const { english, dutch } = halves(readDocument('docs/operations.md', 'T-D-190'));
     for (const text of [english, dutch]) {
       for (const needle of [
-        'EXCHANGE_KEY_HANDOVER',
+        'InvokeCommand',
         'Image size budget',
         'Dockhand',
         '/run/secrets/app_key',
-        'ADR-0181',
+        'ADR-0182',
       ]) {
         expect(text).toContain(needle);
       }

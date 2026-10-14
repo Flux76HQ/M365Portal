@@ -1,6 +1,6 @@
 // Mail contacts, end to end (T-D-180; US-D2, EC-D9, EC-D10, FR-D-301 to FR-D-305, SC-D-002): create with every
 // validation message, edit, the lists a contact is in, and delete after a typed confirmation, against the fake
-// Exchange behind the `pwsh` shim (`support/exchange-seed.ts`). The audit log is read from the database: it holds
+// Exchange (InvokeCommand on the fake tenant) (`support/exchange-seed.ts`). The audit log is read from the database: it holds
 // the names of the changed fields and never a value (FR-D-304).
 import { expect, test } from '../fixtures.js';
 import { countStatus, heading, searchField, tableNamed } from '../fixtures/directory-page.js';
@@ -10,12 +10,12 @@ import { clearExchangeSeed, seedExchange, standardSeed } from '../support/exchan
 
 test.describe.configure({ mode: 'serial' });
 
-test.beforeEach(() => {
-  seedExchange();
+test.beforeEach(async () => {
+  await seedExchange();
 });
 
-test.afterAll(() => {
-  clearExchangeSeed();
+test.afterAll(async () => {
+  await clearExchangeSeed();
 });
 
 const field = (
@@ -49,7 +49,7 @@ test.describe('the Owner: the contacts (US-D2, FR-D-301)', () => {
   });
 
   test('says there are no contacts at all', async ({ page, app }) => {
-    seedExchange({ ...standardSeed(), contacts: [] });
+    await seedExchange({ ...standardSeed(), contacts: [] });
     await app.goto('/contacts');
     await expect(
       page.getByRole('heading', { level: 2, name: 'No contacts to show' }),

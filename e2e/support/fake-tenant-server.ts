@@ -34,6 +34,11 @@ import {
 } from '../../apps/server/test/fakes/fake-tenant/entra/index.js';
 import { exchangeModule } from '../../apps/server/test/fakes/fake-tenant/exchange/module.js';
 import {
+  DEFAULT_SEED,
+  applySeed,
+  parseSeed,
+} from '../../apps/server/test/fakes/fake-tenant/exchange/standin-seed.js';
+import {
   createFakeGraph,
   describeSeed,
   seedDirectory,
@@ -337,6 +342,15 @@ export const FAKE_OPERATIONS: Readonly<Record<string, Operation>> = {
   },
   'exchange.propagation': (scene, args) => {
     scene.exchange.control.propagation(num(args, 'calls'));
+    return null;
+  },
+  /** Replaces the data of the fake Exchange (and forgets every write made since): the reseed between tests. */
+  'exchange.seed': (scene, args) => {
+    const seed = args.seed == null ? DEFAULT_SEED : parseSeed(args.seed);
+    scene.exchange.state.reset();
+    applySeed(scene.exchange.state, seed);
+    const { connect } = seed;
+    scene.exchange.control.commandFault(connect === 'ok' ? null : connect.error);
     return null;
   },
   'exchange.previewAvailable': (scene, args) => {

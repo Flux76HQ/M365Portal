@@ -44,7 +44,7 @@ the five modules of Phase B, then the `directory` module of Phase C, then the `g
 | `distributionlists` | `src/distribution-lists/` | Phase D step D1: the six routes for distribution lists (list, detail, members, add and remove members, candidates), the list buffer behind the cursors (at most 10,000 rows), the member write service (membership read first, chunks, read-back) and the audit of member writes. It reaches Exchange only through the `ExchangeClient` port. |
 | `contacts` | `src/contacts/` | Phase D step D1: the six routes for mail contacts, the validation shared with the web form, the derived Exchange name and the duplicate check. |
 
-**The Exchange worker (Phase D step D1).** The `ExchangeClient` port has read and write methods (`capabilities().write` lists exactly the methods built). The adapter `PwshExchangeClient` (`src/integrations/exchange/pwsh/`) talks to one long-lived PowerShell 7 child process over a line-delimited JSON protocol; the wire protocol and the closed allow-list of ten cmdlets are in `packages/shared/src/exchange/` and the script is generated from that table ([ADR-0181](adr/0181-exchange-worker-protocol-and-allow-list.md)). The process lives in the same container, which is why the runtime image is Ubuntu 24.04 ([ADR-0180](adr/0180-ubuntu-runtime-with-powershell.md)). The Admin API adapter keeps only the setup probe. The tests run the real client over a stand-in process and over the strict fake tenant; the worker itself has run only against a simulated Exchange and has not run against a tenant (open points U75 to U100).
+**Exchange over REST (Phase D, ADR-0182).** The `ExchangeClient` port has read and write methods (`capabilities().write` lists exactly the methods built). The adapter `InvokeExchangeClient` (`src/integrations/exchange/invoke-client.ts`) posts each cmdlet to the `InvokeCommand` endpoint of Exchange Online on the same application token as Graph; the closed allow-list of ten cmdlets is in `packages/shared/src/exchange/` ([ADR-0181](adr/0181-exchange-worker-protocol-and-allow-list.md), ADR-0182 supersedes its worker protocol). There is no child process: the earlier PowerShell worker and the Ubuntu image ([ADR-0180](adr/0180-ubuntu-runtime-with-powershell.md)) are gone and the runtime image is distroless again. The Admin API adapter keeps only the setup probe. The tests run the real client over a stand-in process and over the strict fake tenant; the worker itself has run only against a simulated Exchange and has not run against a tenant (open points U75 to U100).
 
 ## Layering and the integrations boundary
 
@@ -344,10 +344,10 @@ gebouwde React-frontend, bewaart zijn staat in één SQLite-bestand plus een map
 
 De server kent één richting: pijplijn, routehandler (alleen via `defineRoute`, zonder `access` start de
 server niet), service, repository. Alleen de auditschrijver voegt regels toe aan `audit_log`.
-`GraphClient` en `ExchangeClient` staan achter interfaces. Sinds Fase D stap D1 heeft de `ExchangeClient` ook schrijfmethoden: de
-adapter `PwshExchangeClient` praat met één langlevend PowerShell 7-proces in dezelfde container over regelgebonden
-JSON, met een gesloten lijst van tien cmdlets ([ADR-0181](adr/0181-exchange-worker-protocol-and-allow-list.md)); daarom is
-de runtime-image Ubuntu 24.04 ([ADR-0180](adr/0180-ubuntu-runtime-with-powershell.md)). De modules `groups`,
+`GraphClient` en `ExchangeClient` staan achter interfaces. Sinds Fase D heeft de `ExchangeClient` ook schrijfmethoden: de
+adapter `InvokeExchangeClient` post elke cmdlet naar het `InvokeCommand`-endpoint van Exchange Online met hetzelfde
+applicatietoken als Graph, binnen een gesloten lijst van tien cmdlets ([ADR-0181](adr/0181-exchange-worker-protocol-and-allow-list.md),
+ADR-0182); er is geen kindproces meer en de runtime-image is weer distroless ([ADR-0180](adr/0180-ubuntu-runtime-with-powershell.md) is vervangen). De modules `groups`,
 `distributionlists` en `contacts` komen erbij; `GraphClient` heeft twee schrijfmethoden voor groepsleden.
 
 ### Gegevenslocaties

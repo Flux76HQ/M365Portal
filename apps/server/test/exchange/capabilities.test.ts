@@ -2,12 +2,11 @@
 // built, the type of the tuple is the closed union of their names (a method outside it is a type
 // error), and no client has a write-looking method that its capabilities do not list. The guard is
 // the half of "a write method cannot be added by accident elsewhere" that reads the classes.
-import { EXCHANGE_ERROR_CODES } from '@m365portal/shared/exchange/protocol';
 import { EXCHANGE_WRITE_CMDLETS } from '@m365portal/shared/exchange/allow-list';
 import { expectGuardFails } from '@m365portal/shared/testing';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { AdminApiExchangeClient } from '../../src/integrations/exchange/admin-api-client.js';
-import { PwshExchangeClient } from '../../src/integrations/exchange/pwsh/pwsh-client.js';
+import { InvokeExchangeClient } from '../../src/integrations/exchange/invoke-client.js';
 import {
   EXCHANGE_COMMAND_CODES,
   ExchangeCommandError,
@@ -89,9 +88,23 @@ describe('the types of the port', () => {
     >();
   });
 
-  it('lists the same command codes as the worker protocol, in the same order', () => {
-    expect([...EXCHANGE_COMMAND_CODES]).toEqual([...EXCHANGE_ERROR_CODES]);
-    expectTypeOf<ExchangeCommandCode>().toEqualTypeOf<(typeof EXCHANGE_ERROR_CODES)[number]>();
+  it('keeps the closed list of command codes the classifier (error-class.ts) can answer', () => {
+    expect([...EXCHANGE_COMMAND_CODES]).toEqual([
+      'not_found',
+      'already_exists',
+      'already_member',
+      'not_a_member',
+      'member_type_not_allowed',
+      'permission_denied',
+      'manager_check',
+      'read_only_object',
+      'throttled',
+      'timeout',
+      'invalid_argument',
+      'not_connected',
+      'role_pending',
+      'internal',
+    ]);
   });
 });
 
@@ -132,15 +145,15 @@ describe('capabilities() of each client', () => {
     }).not.toThrow();
   });
 
-  it('the Pwsh client lists exactly the five writes it has, and the allow-list has five write cmdlets', () => {
-    const capabilities = PwshExchangeClient.prototype.capabilities.call({});
+  it('the Invoke client lists exactly the five writes it has, and the allow-list has five write cmdlets', () => {
+    const capabilities = InvokeExchangeClient.prototype.capabilities.call({});
     expect(capabilities.write).toEqual(WRITE_CAPABILITIES);
     expect(capabilities.read).toEqual(READ_CAPABILITIES);
     // Five client methods, four cmdlets with side effects: add and remove member, new, set, remove contact.
     expect(EXCHANGE_WRITE_CMDLETS).toHaveLength(5);
     expect(() => {
       checkWriteSurface({
-        methods: methodsOf(PwshExchangeClient.prototype),
+        methods: methodsOf(InvokeExchangeClient.prototype),
         write: capabilities.write,
       });
     }).not.toThrow();

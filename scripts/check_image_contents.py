@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""Check what the built image holds and how it is configured (FR-A-164, FR-A-160 to FR-A-163, FR-A-165,
-FR-D-106).
+"""Check what the built image holds and how it is configured (FR-A-164, FR-A-160 to FR-A-163, FR-A-165).
 
 The image must hold no `.env` file, no `.git` data, no test files, no source maps, no lock files, no
 key material and no development dependencies, only the production build output and the production
-dependencies under /app, and an empty /data owned by 65532. Phase D adds the Exchange runtime: the
-PowerShell binary, the pinned version of the Exchange Online module and no other, the worker script
-next to the bundle. Its configuration must say: user
+dependencies under /app, and an empty /data owned by 65532. Its configuration must say: user
 65532:65532, the six OCI labels (and no `licenses` label until the owner names a licence), a health
 check that runs the Node script without a shell, one exposed TCP port equal to PORT, and no VOLUME.
 
@@ -53,34 +50,19 @@ DATA_ROOT = "data"
 # tree. A deliberate change to the image layout changes this constant in the same pull request.
 APP_ROOT_ENTRIES = frozenset({"node_modules", "package.json", "dist", "drizzle", "web"})
 
-# Phase D (FR-D-106, ADR 0180): the Exchange runtime. The versions are the ones of the Dockerfile
-# (`ARG POWERSHELL_VERSION`, `ARG EXO_VERSION`); `test_check_dockerfile_pins.py` fails when they differ.
-POWERSHELL_VERSION = "7.6.6"
-EXCHANGE_MODULE_VERSION = "3.10.1"
-POWERSHELL_BINARY = "opt/microsoft/powershell/7/pwsh"
-EXCHANGE_MODULE_ROOT = "usr/local/share/powershell/Modules/ExchangeOnlineManagement"
-EXCHANGE_MODULE_MANIFEST = f"{EXCHANGE_MODULE_ROOT}/{EXCHANGE_MODULE_VERSION}/ExchangeOnlineManagement.psd1"
-WORKER_SCRIPT = "app/dist/exchange/worker-script.ps1"
-
 # Files the image runs: the server bundle, the health check script, the manifest, the shell
-# template (a missing one is a broken build, plan 7.1 step 3), the migration journal, and the Exchange
-# runtime: the worker script, PowerShell and the manifest of the pinned module.
+# template (a missing one is a broken build, plan 7.1 step 3) and the migration journal.
 REQUIRED_FILES = (
     "app/package.json",
     "app/dist/index.js",
     "app/dist/healthcheck.js",
     "app/web/index.html",
     "app/drizzle/meta/_journal.json",
-    WORKER_SCRIPT,
-    POWERSHELL_BINARY,
-    EXCHANGE_MODULE_MANIFEST,
 )
 
 # Directories of the base image. They are not ours: the rules for our own tree skip them.
-# Phase D adds /opt (PowerShell lives in /opt/microsoft). /home and /root stay OURS on purpose: the
-# Ubuntu base leaves them empty, so a key or a token found there is ours to refuse.
 BASE_IMAGE_ROOTS = frozenset(
-    {"etc", "usr", "lib", "lib64", "var", "nodejs", "bin", "sbin", "sys", "proc", "dev", "run", "opt"}
+    {"etc", "usr", "lib", "lib64", "var", "nodejs", "bin", "sbin", "sys", "proc", "dev", "run"}
 )
 
 TEST_DIRECTORIES = frozenset(
@@ -153,7 +135,6 @@ REFERENCES = {
     "database-file": "FR-B-707",
     "dev-dependency": "FR-A-164",
     "workspace-package": "FR-A-164",
-    "exchange-runtime": "FR-D-106",
     "app-contents": "FR-A-160",
     "required-file": "FR-A-160",
     "data-dir": "FR-A-160",
@@ -313,19 +294,6 @@ def check_listing(entries: Iterable[Entry], dev_packages: set[str]) -> list[Find
         if required not in listing:
             report("required-file", required, "the image cannot run without this file")
 
-    # The Exchange runtime (FR-D-106): the module at the pinned version and no other, and none of the
-    # Windows PowerShell assemblies (`netFramework`), which pwsh never loads and which are ~25 MB.
-    module_prefix = EXCHANGE_MODULE_ROOT + "/"
-    versions = {path[len(module_prefix):].split("/")[0] for path in listing if path.startswith(module_prefix)}
-    for version in sorted(versions - {EXCHANGE_MODULE_VERSION}):
-        report(
-            "exchange-runtime", f"{module_prefix}{version}",
-            f"only version {EXCHANGE_MODULE_VERSION} of the Exchange Online module is installed (EXO_VERSION in the Dockerfile)",
-        )
-    for path in sorted(listing):
-        if path.startswith(module_prefix) and "/netFramework" in path:
-            report("exchange-runtime", path, "the Windows PowerShell assemblies of the module are not installed")
-
     # /data: present, a directory, owned by the runtime user, and empty.
     data = listing.get(DATA_ROOT)
     if data is None:
@@ -423,13 +391,7 @@ def check_inspect(document: object) -> list[Finding]:
         elif port_valid and declared != f"{port}/tcp":
             report("port", f"the exposed port {declared} does not match PORT={port}")
 
-    # Phase D: PowerShell and .NET send nothing to Microsoft unless asked to (FR-D-106, R-D-03).
-    for name, wanted in (
-        ("NODE_ENV", "production"),
-        ("DATA_DIR", "/data"),
-        ("POWERSHELL_TELEMETRY_OPTOUT", "1"),
-        ("DOTNET_CLI_TELEMETRY_OPTOUT", "1"),
-    ):
+    for name, wanted in (("NODE_ENV", "production"), ("DATA_DIR", "/data")):
         if environment.get(name) != wanted:
             report("environment", f"the image environment must set {name}={wanted}, found {environment.get(name)!r}")
 

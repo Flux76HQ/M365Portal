@@ -15,9 +15,9 @@ const RULES: readonly {
   readonly allowed: readonly string[];
 }[] = [
   {
-    name: 'the accessor is called only by the credential source (and defined in the runtime)',
+    name: 'the accessor is defined in the runtime and called by nothing else',
     pattern: /withCertificateMaterial\s*[(<]/,
-    allowed: ['secrets/state.ts', 'integrations/exchange/pwsh/credential-source.ts'],
+    allowed: ['secrets/state.ts'],
   },
   {
     name: 'the service-level reader is used only by the runtime accessor',
@@ -30,14 +30,9 @@ const RULES: readonly {
     allowed: ['secrets/pem.ts', 'secrets/certificate-service.ts'],
   },
   {
-    name: 'the key as text is named only where the material is made, carried and put in the protocol line',
+    name: 'the key as text is named only where the material is made and carried',
     pattern: /\bprivateKeyPem\b/,
-    allowed: [
-      'secrets/certificate-material.ts',
-      'secrets/certificate-service.ts',
-      'integrations/exchange/pwsh/credential-source.ts',
-      'integrations/exchange/pwsh/key-handover.ts',
-    ],
+    allowed: ['secrets/certificate-material.ts', 'secrets/certificate-service.ts'],
   },
   {
     name: 'the label of a private key PEM is named only by the PEM writer and its one caller',

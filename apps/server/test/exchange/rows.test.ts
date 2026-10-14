@@ -7,7 +7,7 @@ import {
   toMailContact,
   toMember,
   toOrganizationConfig,
-} from '../../src/integrations/exchange/pwsh/rows.js';
+} from '../../src/integrations/exchange/rows.js';
 
 const GUID = '5A6B7C8D-1111-4222-8333-944455556666';
 

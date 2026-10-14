@@ -1,5 +1,5 @@
 // The ten cmdlets of the allow-list, interpreted over the fake Exchange state (T-D-115, plan 6). The
-// worker stand-in (worker-standin.ts) calls `runCmdlet` for each `call` line, so `PwshExchangeClient`
+// fake `InvokeCommand` route (module.ts) calls `runCmdlet` for each request, so `InvokeExchangeClient`
 // is tested against Exchange's rules and not against a mirror of its own code.
 //
 // What is strict here (each is a statement of Learn or a documented choice; the self-test lists them):
@@ -16,13 +16,10 @@
 //   - `Get-DistributionGroup` and `Get-DistributionGroupMember` know no dynamic groups (Learn:
 //     `Get-DynamicDistributionGroup` is another cmdlet); `Get-Recipient` knows every recipient.
 //
-// Rows hold exactly the projected properties of `src/integrations/exchange/pwsh/projections.ts`.
+// Rows hold exactly the projected properties of `projections.ts` next to this file.
 import { validateCall, type ExchangeCmdlet } from '@m365portal/shared/exchange/allow-list';
-import type { ExchangeErrorCode } from '@m365portal/shared/exchange/protocol';
-import {
-  PROJECTIONS,
-  type ProjectedCmdlet,
-} from '../../../../src/integrations/exchange/pwsh/projections.js';
+import type { ExchangeCommandCode as ExchangeErrorCode } from '../../../../src/ports/errors.js';
+import { PROJECTIONS, type ProjectedCmdlet } from './projections.js';
 import { type FakeDistributionGroup, type FakeExchangeState, type FakeRecipient } from './state.js';
 import {
   addMember,

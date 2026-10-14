@@ -63,8 +63,6 @@ services:
       AUTH_MFA_AMR_VALUES:
       BREAK_GLASS_USERNAME:
       BREAK_GLASS_PASSWORD_HASH:
-      EXCHANGE_KEY_HANDOVER:
-      EXCHANGE_DEBUG_ERRORTEXT:
     # The sealing key as a file (FR-B-705), created as the header says.
     secrets:
       - app_key

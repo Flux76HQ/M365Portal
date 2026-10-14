@@ -32,21 +32,21 @@ This is **Phase D step D1, distribution lists, contacts and group members**, on 
   Distribution lists page (search, filter on standard, dynamic and synchronised lists, members, **add and remove
   members** with a result per member), the Contacts page (**create, edit, delete** a mail contact, with validation, a
   typed confirmation and the lists it is removed from), and **add and remove members of Microsoft 365 and
-  security groups** on the Groups page. Exchange is driven by a PowerShell worker in the same container, so the
-  **image is now Ubuntu 24.04 with PowerShell 7.6 and the Exchange Online module** instead of distroless (larger,
-  and with a shell; see [docs/operations.md](docs/operations.md#the-exchange-worker-phase-d-step-d1)). The panel asks
+  security groups** on the Groups page. Exchange is called over REST (`InvokeCommand`, on the same application token
+  as Graph), so **no PowerShell and no Ubuntu image are needed** and the image is distroless (see
+  [docs/operations.md](docs/operations.md#exchange-over-invokecommand-phase-d-adr-0182), ADR-0182). The panel asks
   Microsoft for no new permission; `GroupMember.ReadWrite.All` is now used ([docs/permissions.md](docs/permissions.md), Part 5),
 - a hardened server and container image (strict security headers, rate limits, read-only root file system, audit log with a hash chain).
 
 What does **not** exist yet:
 
-- **The Exchange features are not proven against a real tenant.** The worker's credential source is built (the
-  certificate reaches the worker as PEM); it has not been run against a real `pwsh` or a tenant (U75, OV-D1). If
-  Exchange cannot be reached, every Exchange page answers "Exchange is unavailable" while the rest of the panel,
+- **The Exchange features are not proven against a real tenant.** They use the `InvokeCommand` endpoint, which
+  Microsoft does not document (a recorded exception, ADR-0182); it has not been run against a real tenant (U101,
+  OV-D1). If Exchange cannot be reached, every Exchange page answers "Exchange is unavailable" while the rest of the panel,
   group member editing included, works ([docs/open-points.md](docs/open-points.md), FD-01).
-- **The image size ceiling is decided.** CI measured the new Ubuntu image at 538.2 MB (amd64, CI run 38394173673);
-  the owner set the ceiling to 600 MB on 2026-10-13 (it was 400 MB). arm64 and the memory of a long-running worker
-  are not measured ([docs/operations.md](docs/operations.md#the-exchange-worker-phase-d-step-d1)).
+- **The image size ceiling is still 600 MB.** It was set for the Ubuntu image of step D1 (538.2 MB); ADR-0182 returned
+  to the distroless image, which is far smaller, so the owner may lower it again
+  ([docs/operations.md](docs/operations.md#exchange-over-invokecommand-phase-d-adr-0182)).
 - Users and groups themselves are not created, changed or deleted, there is no password reset and no licence
   (U17, U48 deferred). Dynamic distribution lists are shown but their members are not listed and cannot be changed.
 - No Phase D feature has run against a real Microsoft 365 tenant yet; the claims U75 to U100 are closed by the
@@ -171,8 +171,6 @@ the rights listed in step 4.
 | `AUTH_REQUIRE_MFA` | `true` | Require a multi-factor sign-in from Entra |
 | `AUTH_MFA_AMR_VALUES` | `mfa,multipleauthn` | The `amr` values that count as multi-factor |
 | `BREAK_GLASS_USERNAME` / `BREAK_GLASS_PASSWORD_HASH` | unset | Optional emergency account that can only restore an Owner (both or neither) |
-| `EXCHANGE_KEY_HANDOVER` | `memory` | How the Exchange certificate reaches the PowerShell worker: `memory` or `tmpfs` (fallback) |
-| `EXCHANGE_DEBUG_ERRORTEXT` | unset (off) | Troubleshooting only: `1` puts a masked, truncated Exchange error text in the server log. Remove it afterwards; see [docs/operations.md](docs/operations.md#temporary-diagnostics-exchange_debug_errortext) |
 
 The full table with all rules is in [docs/operations.md](docs/operations.md#environment-variables). An invalid
 value stops the start and names the variable.
@@ -214,9 +212,9 @@ retention) are listed as numbers in [docs/operations.md](docs/operations.md#limi
 
 ### Security
 
-The container runs unprivileged (uid 65532), with a read-only root file system and all capabilities dropped. Since
-Phase D step D1 the image is Ubuntu 24.04 with PowerShell and has a shell, but no curl; the PowerShell worker
-may call ten fixed Exchange cmdlets and nothing else, and the certificate key is not written to disk by default. The panel sets a session cookie (`HttpOnly`, `SameSite=Strict`, `__Host-` over https) and sends a strict Content-Security-Policy with Trusted Types. Its secrets are sealed with the key you created in the first run. Uploaded
+The container runs unprivileged (uid 65532), with a read-only root file system and all capabilities dropped. The image
+is distroless (no shell, no curl); the Exchange client may call ten fixed cmdlets and nothing else, and uses the
+same certificate-based application token as Graph, so no key leaves the secrets module. The panel sets a session cookie (`HttpOnly`, `SameSite=Strict`, `__Host-` over https) and sends a strict Content-Security-Policy with Trusted Types. Its secrets are sealed with the key you created in the first run. Uploaded
 images are re-encoded; SVG is sanitised and rasterised. Read [docs/security.md](docs/security.md) before putting
 it anywhere but your own computer. Report vulnerabilities privately to the owner of the repository, not in a public issue.
 
@@ -271,21 +269,21 @@ Dit is **Fase D stap D1, distributielijsten, contacten en groepsleden**, bovenop
   en verwijderen** met een resultaat per lid), de pagina Contacten (een mailcontact **aanmaken, bewerken,
   verwijderen**, met validatie, een getypte bevestiging en de lijsten waaruit het wordt gehaald) en **leden van
   Microsoft 365- en beveiligingsgroepen toevoegen en verwijderen** op de pagina Groepen. Exchange wordt
-  aangestuurd door een PowerShell-worker in dezelfde container, dus de **image is nu Ubuntu 24.04 met PowerShell 7.6
-  en de Exchange Online-module** in plaats van distroless (groter en mét een shell; zie
-  [docs/operations.md](docs/operations.md#de-exchange-worker-fase-d-stap-d1)). Het paneel vraagt Microsoft om geen nieuw
+  via REST aangeroepen (`InvokeCommand`, met hetzelfde applicatietoken als Graph), dus **PowerShell en een
+  Ubuntu-image zijn niet nodig** en de image is distroless (zie
+  [docs/operations.md](docs/operations.md#exchange-via-invokecommand-fase-d-adr-0182), ADR-0182). Het paneel vraagt Microsoft om geen nieuw
   recht; `GroupMember.ReadWrite.All` wordt nu gebruikt ([docs/permissions.md](docs/permissions.md), Deel 5),
 - een geharde server en containerimage (strikte beveiligingskoppen, aanvraaglimieten, alleen-lezen rootbestandssysteem, auditlog met hashketen).
 
 Wat er **nog niet** is:
 
-- **De Exchange-functies zijn niet bewezen tegen een echte tenant.** De bron van de inloggegevens van de worker is
-  gebouwd (het certificaat komt als PEM bij de worker); ze is niet gedraaid tegen een echte `pwsh` of een tenant (U75,
-  OV-D1). Is Exchange niet te bereiken, dan antwoordt elke Exchange-pagina "Exchange is niet beschikbaar" terwijl de
+- **De Exchange-functies zijn niet bewezen tegen een echte tenant.** Ze gebruiken het endpoint `InvokeCommand`, dat
+  Microsoft niet documenteert (een vastgelegde uitzondering, ADR-0182); het is niet gedraaid tegen een echte tenant
+  (U101, OV-D1). Is Exchange niet te bereiken, dan antwoordt elke Exchange-pagina "Exchange is niet beschikbaar" terwijl de
   rest van het paneel, groepsledenbeheer inbegrepen, werkt ([docs/open-points.md](docs/open-points.md), FD-01).
-- **Het plafond voor de grootte van de image is besloten.** CI mat de nieuwe Ubuntu-image op 538,2 MB (amd64, CI-run
-  38394173673); de eigenaar zette het plafond op 13-10-2026 op 600 MB (het was 400 MB). arm64 en het geheugen van een
-  langlopende worker zijn niet gemeten ([docs/operations.md](docs/operations.md#de-exchange-worker-fase-d-stap-d1)).
+- **Het plafond voor de grootte van de image is nog 600 MB.** Het is gezet voor de Ubuntu-image van stap D1 (538,2 MB);
+  ADR-0182 ging terug naar de veel kleinere distroless-image, dus de eigenaar kan het weer verlagen
+  ([docs/operations.md](docs/operations.md#exchange-via-invokecommand-fase-d-adr-0182)).
 - Gebruikers en groepen zelf worden niet aangemaakt, gewijzigd of verwijderd, er is geen wachtwoordreset en geen
   licentie (U17, U48 uitgesteld). Dynamische distributielijsten worden getoond maar hun leden niet en ze zijn niet
   te wijzigen.
@@ -392,9 +390,7 @@ De eerste start heeft vijf stappen. U hebt een computer nodig die `https://login
 De tabel in het Engelse deel geeft alle variabelen met hun standaardwaarde (`HOST_PORT`, `PORT`, `HOST`, `DATA_DIR`,
 `PUBLIC_BASE_URL`, `TRUST_PROXY`, `SHOWCASE`, `LOG_LEVEL`, `HSTS_MAX_AGE`, `HSTS_INCLUDE_SUBDOMAINS`,
 `HSTS_PRELOAD`, `APP_KEY`, `APP_KEY_FILE`, `APP_KEY_PREVIOUS`, `SETUP_TOKEN`, `BOOTSTRAP_CLIENT_ID`, de sessie-, groeps-,
-MFA- en break-glass-variabelen en, nieuw in Fase D stap D1, `EXCHANGE_KEY_HANDOVER` met standaard `memory`: hoe het
-certificaat bij de PowerShell-worker komt, `memory` of `tmpfs` als terugval, en `EXCHANGE_DEBUG_ERRORTEXT`, standaard uit:
-alleen voor het opsporen van fouten, `1` zet een gemaskeerde, ingekorte Exchange-foutmelding in het serverlog, daarna weer weghalen); de volledige tabel met alle regels staat in
+MFA- en break-glass-variabelen; de volledige tabel met alle regels staat in
 [docs/operations.md](docs/operations.md#environment-variables). Een ongeldige waarde stopt de start en noemt de
 variabele.
 
@@ -432,7 +428,7 @@ zijn eenmalig vastgelegd in `packages/shared`.
 ### Beveiliging
 
 De container draait zonder rechten (uid 65532), met alleen-lezen rootbestandssysteem, alle capabilities weggehaald
-en alle capabilities weggehaald. Sinds Fase D stap D1 is de image Ubuntu 24.04 met PowerShell en heeft hij een shell, maar geen curl; de PowerShell-worker mag tien vaste Exchange-cmdlets aanroepen en niets anders, en de sleutel van het certificaat wordt standaard niet naar schijf geschreven. Het paneel zet een sessiecookie (`HttpOnly`, `SameSite=Strict`, `__Host-` via https) en stuurt een strikte
+en alle capabilities weggehaald. De image is distroless (geen shell, geen curl); de Exchange-client mag tien vaste cmdlets aanroepen en niets anders, en gebruikt hetzelfde certificaatgebonden applicatietoken als Graph, zodat er geen sleutel de geheimenmodule verlaat. Het paneel zet een sessiecookie (`HttpOnly`, `SameSite=Strict`, `__Host-` via https) en stuurt een strikte
 Content-Security-Policy met Trusted Types. De geheimen zijn versleuteld met de sleutel uit de eerste start. Geüploade afbeeldingen worden opnieuw gecodeerd; SVG wordt gezuiverd en gerasterd. Lees
 [docs/security.md](docs/security.md) voordat je het ergens anders dan op je eigen computer neerzet. Meld kwetsbaarheden
 privé bij de eigenaar van de repository, niet in een openbaar issue.
