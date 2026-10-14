@@ -253,16 +253,24 @@ test.describe('sign-in responses', () => {
     app,
   }) => {
     let callback: Response | undefined;
-    let callbackBody = '';
+    const callbackRead: { body: string | null } = { body: null };
     let login: Response | undefined;
+    // The interstitial navigates away at once (a meta refresh), so a body read after that can be gone
+    // ("No resource with given identifier"): then `callbackRead.body` stays null. The headers are known at once,
+    // and `test/auth/interstitial.test.ts` holds the body to the byte.
+    const bodyReads: Promise<void>[] = [];
     page.on('response', (response) => {
       const path = new URL(response.url()).pathname;
       if (path === '/auth/callback') {
         callback = response;
-        // The body is gone once the page has navigated on: read it now.
-        void response.text().then((text) => {
-          callbackBody = text;
-        });
+        bodyReads.push(
+          response.text().then(
+            (text) => {
+              callbackRead.body = text;
+            },
+            () => undefined,
+          ),
+        );
       }
       if (path === '/auth/login') login ??= response;
     });
@@ -279,9 +287,11 @@ test.describe('sign-in responses', () => {
     const csp = headers['content-security-policy'] ?? '';
     expect(csp).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]{22,}'/);
     expect(csp).toContain("require-trusted-types-for 'script'");
-    const body = callbackBody;
-    expect(body).not.toMatch(/<script|<style|\sstyle=|\sonclick=/i);
-    expect(body).toContain('http-equiv="refresh"');
+    await Promise.all(bodyReads);
+    if (callbackRead.body !== null) {
+      expect(callbackRead.body).not.toMatch(/<script|<style|\sstyle=|\sonclick=/i);
+      expect(callbackRead.body).toContain('http-equiv="refresh"');
+    }
     // The session cookie: HttpOnly, Strict, the whole site, no Domain, no Expires (a browser-session cookie).
     const cookies = (await callback!.headersArray())
       .filter((header) => header.name.toLowerCase() === 'set-cookie')
