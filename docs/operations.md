@@ -501,6 +501,12 @@ For that case there is one **temporary, opt-in exception**, recorded as GD1-0 am
   space, and the result is cut at 300 characters. `errorTextLength` is the length of the unmasked outer message,
   so `0` shows an empty message. Without the mode both fields are `null`, and the server logs no text even if a
   worker sent one.
+- **Probes.** In the same mode, after the first failed call of a worker process, the worker runs five small reads
+  (`Get-OrganizationConfig`, `Get-Recipient`, `Get-DistributionGroup` and `Get-MailContact` with `-ResultSize 1`,
+  and `Get-MailContact` without parameters) and the `exchange_fault` entry carries `errorProbes`: fixed words such
+  as `org_onms` (the organization ends in `.onmicrosoft.com`) or `org_other`, then `orgcfg_ok`, `recip_fail`,
+  `contact1_fail`, `contactall_ok` (`_missing` when the cmdlet is not loaded). All `fail` points at the tenant,
+  the token or the role; one `fail` among `ok` points at a call shape such as a parameter.
 - **Read it before you share it.** The masking is a pattern, not a proof: a display name, a tenant name or a
   cmdlet parameter in the message is **not** masked. Read the log lines yourself before you paste them anywhere.
   Nothing else carries the text: no page, API answer, audit entry or error page.
@@ -845,7 +851,10 @@ en, als die anders is, de binnenste uitzondering, gescheiden door ` | `, waarin 
 van 20 of meer tokentekens door `X` zijn vervangen, witruimte is samengevouwen en het geheel op 300 tekens is
 afgekapt; `errorTextLength` is de lengte van de ongemaskeerde buitenste melding (`0` toont een lege melding). Zonder
 de modus zijn beide velden `null`. **Lees het log zelf door voordat je het deelt**: het maskeren is een patroon, geen
-bewijs; een weergavenaam of tenantnaam in de melding wordt niet gemaskeerd. Halen: verwijder de variabele (of zet
+bewijs; een weergavenaam of tenantnaam in de melding wordt niet gemaskeerd. Na de eerste mislukte aanroep van een
+workerproces draait de worker in deze modus ook vijf kleine leesopdrachten; `exchange_fault` krijgt dan
+`errorProbes` met vaste woorden (`org_onms` of `org_other`, `orgcfg_ok`, `recip_fail`, `contact1_fail`,
+`contactall_ok`): alles `fail` wijst op tenant, token of rol, een enkele `fail` op de vorm van de aanroep. Halen: verwijder de variabele (of zet
 hem op `0`) en maak de container opnieuw. Laat hem niet staan; een lege waarde stopt de start, zoals bij elke
 variabele.
 

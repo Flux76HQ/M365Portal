@@ -185,6 +185,10 @@ describe('responses', () => {
     expect(answer({ code: 'internal', detail: { message: 'text' } })).toBe(false);
     expect(answer({ code: 'internal', detail: { hints: ['role', 'http_403'] } })).toBe(true);
     expect(answer({ code: 'internal', detail: { hints: ['Has Space'] } })).toBe(false);
+    expect(
+      answer({ code: 'internal', detail: { probes: ['org_onms', 'recip_ok', 'contact1_fail'] } }),
+    ).toBe(true);
+    expect(answer({ code: 'internal', detail: { probes: ['Has Space'] } })).toBe(false);
   });
 
   it('accepts the opt-in masked text and its length, and nothing longer or fractional (Amendment 5)', () => {

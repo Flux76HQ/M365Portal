@@ -524,6 +524,36 @@ describe.skipIf(!hasPwsh)(
     }, 60_000);
 
     describe('a worker never dies of a cmdlet failure (0.3.63 diagnosis)', () => {
+      it('runs the opt-in probes and reports fixed words only (Amendment 6)', () => {
+        const source = readFileSync(
+          join(
+            dirname(fileURLToPath(import.meta.url)),
+            '../../src/integrations/exchange/pwsh/worker-script.ps1',
+          ),
+          'utf8',
+        );
+        const from = source.indexOf('$script:Probed = $false');
+        const to = source.indexOf('function Send-Failure');
+        expect(from).toBeGreaterThan(0);
+        const script = `Set-StrictMode -Version 3.0
+${source.slice(from, to)}
+function Assert-AllowedCall { param($Name, $Arguments) }
+function Get-OrganizationConfig { param($ErrorAction) 'CANARYNAME' }
+function Get-Recipient { param($ResultSize, $ErrorAction) throw 'A server side error CANARYNAME canary.address@canary-zone.example' }
+function Get-DistributionGroup { param($ResultSize, $ErrorAction) 'x' }
+function Get-MailContact { param($ResultSize, $ErrorAction) if ($PSBoundParameters.ContainsKey('ResultSize')) { throw 'nope' } else { 'x' } }
+$script:OrgKind = 'org_onms'
+(Invoke-Probes) -join ','`;
+        const run = spawnSync(PWSH, ['-NoProfile', '-NonInteractive', '-Command', script], {
+          encoding: 'utf8',
+          env: { PATH: process.env.PATH ?? '', HOME: tmpdir() },
+        });
+        expect(run.stdout.trim()).toBe(
+          'org_onms,orgcfg_ok,recip_fail,group_ok,contact1_fail,contactall_ok',
+        );
+        expect(run.stdout).not.toMatch(/CANARY|canary/i);
+      }, 60_000);
+
       it('reads the message of ErrorDetails too, for hints and for the opt-in text (a Write-Error of a module keeps it there)', () => {
         const source = readFileSync(
           join(

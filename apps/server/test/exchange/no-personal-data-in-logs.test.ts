@@ -33,6 +33,7 @@ const ALLOWED_KEYS = new Set([
   'errorType',
   'errorId',
   'errorHints',
+  'errorProbes',
   'errorText',
   'errorTextLength',
 ]);
