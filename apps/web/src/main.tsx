@@ -62,25 +62,14 @@ async function start(): Promise<void> {
   registerServiceWorkerWhenLoaded();
 }
 
-// App-feel: no pinch or double-tap zoom, no rubber-band overscroll, no tap flash. This is set here and not in
-// app.css (the entry CSS has a byte budget) and not as `user-scalable=no` in the viewport meta: axe
-// (meta-viewport, WCAG 1.4.4) fails every page that carries it, and the e2e accessibility gate scans every route.
-const rootStyle = document.documentElement.style;
-rootStyle.setProperty('touch-action', 'pan-x pan-y');
-rootStyle.setProperty('overscroll-behavior', 'none');
-rootStyle.setProperty('-webkit-tap-highlight-color', 'transparent');
-// Block the pinch gesture itself (iOS Safari does not always honour touch-action) so the installed app never zooms.
-for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+// App-feel: no pinch or double-tap zoom, no rubber-band overscroll. Set here and not in app.css (the entry CSS
+// has a byte budget) and not as `user-scalable=no` in the viewport meta: axe (meta-viewport, WCAG 1.4.4) fails
+// every page that carries it. iOS Safari needs the gesture events stopped as well.
+document.documentElement.style.cssText += 'touch-action:pan-x pan-y;overscroll-behavior:none';
+for (const type of ['gesturestart', 'gesturechange']) {
   document.addEventListener(type, (event) => {
     event.preventDefault();
   });
 }
-document.addEventListener(
-  'touchmove',
-  (event) => {
-    if (event.touches.length > 1) event.preventDefault();
-  },
-  { passive: false },
-);
 
 void start();
