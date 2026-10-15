@@ -62,4 +62,16 @@ async function start(): Promise<void> {
   registerServiceWorkerWhenLoaded();
 }
 
+// iOS Safari ignores `user-scalable=no`: block the pinch gesture itself so the installed app never zooms.
+for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(type, (event) => event.preventDefault());
+}
+document.addEventListener(
+  'touchmove',
+  (event) => {
+    if (event.touches.length > 1) event.preventDefault();
+  },
+  { passive: false },
+);
+
 void start();

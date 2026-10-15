@@ -259,3 +259,11 @@
     display: none;
   }
 }
+
+/* App-feel: no pinch or double-tap zoom, no rubber-band overscroll, no tap flash. */
+html {
+  touch-action: manipulation;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
