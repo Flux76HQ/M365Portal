@@ -260,9 +260,11 @@
   }
 }
 
-/* App-feel: no pinch or double-tap zoom, no rubber-band overscroll, no tap flash. */
+/* App-feel: no pinch or double-tap zoom, no rubber-band overscroll, no tap flash. The zoom is stopped here
+   and in main.tsx, not with `user-scalable=no` in the viewport meta: axe (meta-viewport, WCAG 1.4.4) fails
+   every page that carries it, and the e2e accessibility gate scans every route. */
 html {
-  touch-action: manipulation;
+  touch-action: pan-x pan-y;
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
