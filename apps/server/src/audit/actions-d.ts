@@ -4,6 +4,7 @@
 //   dl.member.add, dl.member.remove          P43, P44: one entry per member plus one summary entry
 //   group.member.add, group.member.remove    P53, P54: the same
 //   contact.create, contact.update, contact.delete   P49, P50, P51: the names of the changed fields
+//   dl.export                                P55 (step D2): rows sent, members skipped, preset, column and option names
 //
 // The entries hold object ids and counts, never a display name, an address or the value of a field
 // (the detail allow-list of `canonical.ts` has no key for them). The success entry is written by the
@@ -41,7 +42,7 @@ const MEMBER_DETAIL = [
   'failed',
 ] as const;
 
-/** The seven actions of step D1, by name. */
+/** The seven actions of step D1 and the export of step D2, by name. */
 export const AUDIT_ACTIONS_D = Object.freeze({
   'dl.member.add': action({
     targetType: 'distribution_list',
@@ -84,6 +85,16 @@ export const AUDIT_ACTIONS_D = Object.freeze({
     outcomes: ['success', 'denied'],
     actorKinds: ['user'],
     detailKeys: ['removed'],
+  }),
+  // One entry per export, written when the stream ends: `success`, or `error` with the reason `cancelled`
+  // (the client stopped), `export_too_large` or the problem code of an Exchange failure mid-stream. The
+  // entry holds the rows actually sent (FR-D-405); a cancelled export has no `cancelled` outcome of its own
+  // because the table's CHECK allows four outcomes.
+  'dl.export': action({
+    targetType: 'distribution_list',
+    outcomes: ['success', 'error', 'denied'],
+    actorKinds: ['user'],
+    detailKeys: ['rows', 'skipped', 'preset', 'columns', 'options'],
   }),
 });
 

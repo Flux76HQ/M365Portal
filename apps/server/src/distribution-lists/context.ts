@@ -1,14 +1,16 @@
-// What the distribution list routes share (T-D-120): the two services in one object, the problem answers
+// What the distribution list routes share (T-D-120): the three services in one object, the problem answers
 // for the OpenAPI document, and the audit context of a request.
 import { ProblemSchema } from '@m365portal/shared/problem';
 import type { RouteContext } from '../http/route.js';
 import type { MemberAuditContext } from '../audit/member-writes.js';
+import type { DistributionListExports } from './export.js';
 import type { DistributionListMemberWrites } from './members-write.js';
 import type { DistributionListsService } from './service.js';
 
 export interface DistributionListsContext {
   readonly lists: DistributionListsService;
   readonly writes: DistributionListMemberWrites;
+  readonly exports: DistributionListExports;
 }
 
 const PROBLEM_CONTENT = { 'application/problem+json': { schema: ProblemSchema } } as const;

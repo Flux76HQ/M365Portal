@@ -378,6 +378,10 @@ const ROWS: readonly RowSpec[] = [
     ],
   },
   {
+    label: 'export.rowsMax, export.previewRows',
+    sources: ['export.rowsMax', 'export.previewRows'],
+  },
+  {
     label: 'groupMembers.bulkMax, groupMembers.bulkChunk, groupMembers.stepUpAbove',
     sources: ['groupMembers.bulkMax', 'groupMembers.bulkChunk', 'groupMembers.stepUpAbove'],
   },

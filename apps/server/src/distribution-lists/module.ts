@@ -1,4 +1,4 @@
-// The distribution lists module (T-D-120, S-D2, FR-D-201): P40 to P45. Appended to `appModules` after the
+// The distribution lists module (T-D-120, S-D2, FR-D-201): P40 to P45, and the export P46 and P55 (step D2). Appended to `appModules` after the
 // directory module (seam XD1). It holds no state on disk: the list buffer is process memory and is lost on
 // restart (PD-03); the member writes keep their audit entries in the database next to the change.
 //
@@ -7,6 +7,7 @@
 // secrets are unusable or no tenant is pinned; the route answers 503 then (`errors.ts`).
 import type { AppModule, ModuleDeps } from '../module.js';
 import type { DistributionListsContext } from './context.js';
+import { createDistributionListExports } from './export.js';
 import { createListBufferStore } from './list-buffer.js';
 import { createDistributionListMemberWrites } from './members-write.js';
 import { distributionListsRoutes } from './routes.js';
@@ -27,6 +28,11 @@ export function distributionListsModule(deps: ModuleDeps): AppModule {
       exchange: serviceDeps.exchange,
       graph: serviceDeps.graph,
       lists,
+      database: () => deps.requireDatabase(),
+      now: deps.now,
+    }),
+    exports: createDistributionListExports({
+      exchange: serviceDeps.exchange,
       database: () => deps.requireDatabase(),
       now: deps.now,
     }),

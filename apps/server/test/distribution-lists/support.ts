@@ -25,6 +25,11 @@ export const WRITE_MEMBERS: Grant = {
   qualifier: 'full',
   scope: 'all',
 };
+export const EXPORT_LISTS: Grant = {
+  permission: 'distributionlists:export',
+  qualifier: 'full',
+  scope: 'all',
+};
 export const READ_CONTACTS: Grant = {
   permission: 'contacts:read',
   qualifier: 'full',

@@ -16,6 +16,7 @@
 // strings are cut at 256 bytes on a code-point boundary, and a detail of more than 4,096 bytes is
 // replaced by the list of its keys.
 import { SIGNIN_CHECKS, STEPUP_CHECKS } from '@m365portal/shared/auth/signin-errors';
+import { EXPORT_PRESETS } from '@m365portal/shared/csv/presets';
 import { LIMITS } from '@m365portal/shared/limits';
 import { IsoTimestampSchema } from '@m365portal/shared/schemas/common';
 import { SETUP_MODES, SETUP_STATES, STEPS, STEP_KEYS } from '@m365portal/shared/setup/steps';
@@ -200,6 +201,10 @@ export const AUDIT_DETAIL_KEYS = {
  *   summary    true on the one summary entry of a request
  *   total, added, removed, already, failed   the counts of the summary entry
  *   fields     the NAMES of the fields a contact write changed (`CONTACT_AUDIT_FIELDS`)
+ *
+ * Step D2 adds the keys of a CSV export (`dl.export`, FR-D-405): `rows` (Phase A, the rows sent),
+ * `skipped` (members left out), `preset` (a closed registry), and the NAMES of the columns and options
+ * chosen (`columns`, `options`), never a value.
  */
 export const AUDIT_DETAIL_KEYS_D = {
   memberId: 'guid',
@@ -211,6 +216,10 @@ export const AUDIT_DETAIL_KEYS_D = {
   already: 'integer',
   failed: 'integer',
   fields: 'codes',
+  skipped: 'integer',
+  preset: 'enum',
+  columns: 'codes',
+  options: 'codes',
 } as const satisfies Readonly<Record<string, DetailKind>>;
 
 /** Every key of every phase, with its kind. */
@@ -270,6 +279,8 @@ export const ENUMERATIONS: Readonly<Partial<Record<AuditDetailKey, readonly stri
     source: ['wizard', 'api', 'break_glass'],
     // Phase D: what happened to one member of a list or group.
     result: ['added', 'removed', 'already', 'failed'],
+    // Phase D step D2: the preset of a CSV export.
+    preset: EXPORT_PRESETS,
   });
 
 /** A key named like a secret is refused even when someone adds it to the allow-list by mistake. */

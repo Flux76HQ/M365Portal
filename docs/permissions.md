@@ -27,7 +27,7 @@ navigation entry; the later letter is the phase with the real feature).
 | `groups:members:write` | Add and remove members of groups that Microsoft Graph can manage. | C (not built in the read-only first version; unused in Phase C, see Part 4); built in Phase D step D1 (P53 and P54, FR-D-352) |
 | `distributionlists:read` | See distribution lists and their members. | A (gates the page), D |
 | `distributionlists:members:write` | Add and remove members of distribution lists (through Exchange). | D |
-| `distributionlists:export` | Export a distribution list as CSV, inside the role's scope. | D |
+| `distributionlists:export` | Export a distribution list as CSV, inside the role's scope (P46 preview, P55 download with a fresh step-up). The file holds only the members the actor may also see through `users:read`, `contacts:read` and `groups:read`. | D |
 | `contacts:read` | See mail contacts. | A (gates the page), D |
 | `contacts:create` | Create mail contacts. | D |
 | `contacts:update` | Edit mail contacts. | D |
@@ -392,7 +392,7 @@ with a closed set of parameters (ADR-0181):
 |---|---|---|---|
 | `Get-DistributionGroup` | P40, P41, P51, P52 | `Identity`, `Filter` (`Name`, `DisplayName`, `Alias` and `PrimarySmtpAddress` with `-like 'prefix*'`; `Members -eq '<DN>'` for the lists of a contact), `ResultSize`; the allow-list also permits `SortBy`, `RecipientTypeDetails` and `IncludeManagedByWithDisplayNames` | verified (cmdlet page). The filter properties and the `Members` filter: UNVERIFIED (U97). `SortBy` and `RecipientTypeDetails` values: UNVERIFIED (U99) |
 | `Get-Recipient` | P40, P41 (dynamic lists) | `RecipientTypeDetails` (`DynamicDistributionGroup`), `Filter`, `Identity`, `ResultSize` | verified as a cmdlet; the value list: UNVERIFIED (U99). `Get-DistributionGroup` does not return dynamic lists |
-| `Get-DistributionGroupMember` | P41 (count), P42, P43, P44 (read first and read back), P45 (`alreadyMember`) | `Identity` (mandatory, never empty: a null identity returns everything), `ResultSize` (`Unlimited` or a number) | verified. Default `ResultSize` and paging: U79 |
+| `Get-DistributionGroupMember` | P41 (count), P42, P43, P44 (read first and read back), P45 (`alreadyMember`), P46 and P55 (the CSV export reads the members as it streams them) | `Identity` (mandatory, never empty: a null identity returns everything), `ResultSize` (`Unlimited` or a number) | verified. Default `ResultSize` and paging: U79 |
 | `Add-DistributionGroupMember` | P43 | `Identity`, `Member` (required by the panel although Learn calls it optional), `BypassSecurityGroupManagerCheck` (always) | verified. Behaviour for an existing member: U94 |
 | `Remove-DistributionGroupMember` | P44 | the same; the script appends `-Confirm:$false` | verified. Behaviour for a non-member: U94 |
 | `Get-MailContact` | P45, P47, P48, P49 (duplicate check and read-back), P50, P51 | `Identity` (a GUID, never empty: a null or unknown identity returns all contacts), `ANR` for the prefix search and for the duplicate check of a new address or alias, `ResultSize`; the allow-list also permits `Filter`, `SortBy` and `RecipientTypeDetails` | verified. Default result size: U79 (the page says 1,000 in the description and "None" in the table). That `-ANR` matches the external address, on which the duplicate check relies: UNVERIFIED (U97) |

@@ -28,7 +28,15 @@ export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 /** A rate class, or `exempt` for the probes, the worker and the build output. */
-export const RATE_SETTINGS = ['read', 'write', 'upload', 'auth', 'setup', 'exempt'] as const;
+export const RATE_SETTINGS = [
+  'read',
+  'write',
+  'upload',
+  'auth',
+  'setup',
+  'export',
+  'exempt',
+] as const;
 export type RateSetting = (typeof RATE_SETTINGS)[number];
 
 /** A fallback may also take the class of the request's method (a 404 is rated like any request). */
@@ -155,7 +163,7 @@ const PARAMETER = /^\{[A-Za-z][A-Za-z0-9]*\}$/;
 const API_PREFIX = '/api/v1/';
 
 const METHOD_SET: ReadonlySet<unknown> = new Set(HTTP_METHODS);
-const WRITE_CLASSES: ReadonlySet<unknown> = new Set(['write', 'upload', 'auth', 'setup']);
+const WRITE_CLASSES: ReadonlySet<unknown> = new Set(['write', 'upload', 'auth', 'setup', 'export']);
 const READ_CLASSES: ReadonlySet<unknown> = new Set(['read', 'exempt', 'auth', 'setup']);
 const AUTH_PATH = /^\/(?:api\/v1\/)?auth\//;
 const RATE_SET: ReadonlySet<unknown> = new Set([...RATE_SETTINGS, 'by-method']);
@@ -319,14 +327,14 @@ export function validateRouteTable(entries: readonly unknown[]): string[] {
 
     // `by-method` is for fallbacks only: a route names its class.
     if (!RATE_SET.has(candidate.rateLimit) || (isRoute && candidate.rateLimit === 'by-method')) {
-      complain('rate must be read, write, upload, auth, setup or exempt');
+      complain('rate must be read, write, upload, auth, setup, export or exempt');
     }
 
     const isWrite = methods.some((method) => method !== 'GET');
     if (isRoute && methods.length === 1 && METHOD_SET.has(methods[0])) {
       if (isWrite) {
         if (!WRITE_CLASSES.has(candidate.rateLimit)) {
-          complain('a write route is rated write, upload, auth or setup');
+          complain('a write route is rated write, upload, auth, setup or export');
         }
         const path = paths[0];
         if (typeof path === 'string' && !path.startsWith(API_PREFIX)) {
