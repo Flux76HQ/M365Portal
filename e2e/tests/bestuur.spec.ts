@@ -332,15 +332,22 @@ test.describe('what the server refuses, with 403 and a denial row (SC-D-003)', (
     expect(add.status).toBe(200);
   });
 
-  test('the export of a list is not a route of step D1: 404 until step D2 (then 403 with a denial row)', async ({
+  test('the export of a list is refused: 403 with a denial row (step D2)', async ({
     page,
     app,
+    guard,
   }) => {
+    guard.allowResponse({ status: 403, url: '/export' });
     await signIn(page, app);
     const api = await apiOf(page.context());
     const marketing = await listIdVia(api, 'Marketing');
-    const answer = await api.post(`/api/v1/distribution-lists/${marketing}/export`, {});
-    expect(answer.status).toBe(404);
+    const audit = auditMark();
+    const answer = await api.post(`/api/v1/distribution-lists/${marketing}/export`, {
+      preset: 'generic',
+    });
+    expect(answer.status).toBe(403);
+    const denied = audit.since().filter((row) => row.outcome === 'denied');
+    expect(denied.map((row) => row.action)).toEqual(['distributionlists.export']);
   });
 });
 

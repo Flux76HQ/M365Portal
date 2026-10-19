@@ -6,6 +6,7 @@ import {
   DistributionListListResponseSchema,
   DistributionListMembersResponseSchema,
 } from '@m365portal/shared/schemas/distribution-lists';
+import { ExportPreviewResponseSchema, type ExportOptions } from '@m365portal/shared/schemas/export';
 import {
   DistributionListMemberWriteResponseSchema,
   type DistributionListMemberWriteResponse,
@@ -101,6 +102,43 @@ export function removeListMembers(
     body: { members },
     schema: DistributionListMemberWriteResponseSchema,
   });
+}
+
+/** The first rows of the file the options would give (P46): what the dialog shows before the download. */
+export function exportPreviewOptions(api: ApiClient, id: string, options: ExportOptions) {
+  return queryOptions({
+    queryKey: directoryKey('distributionLists', 'exportPreview', id, options),
+    queryFn: ({ signal }) =>
+      api.post(`/api/v1/distribution-lists/${id}/export/preview`, {
+        body: options,
+        schema: ExportPreviewResponseSchema,
+        signal,
+      }),
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+/** The name the server gave the file (`Content-Disposition`), or a plain one. */
+export function downloadFileName(disposition: string | null): string {
+  const plain = disposition === null ? null : /filename="([^"\\/]+)"/.exec(disposition)?.[1];
+  return plain ?? 'distribution-list.csv';
+}
+
+/** The CSV of P55 as a file in memory, with the name the server gave it. Needs a fresh step-up. */
+export async function downloadExport(
+  api: ApiClient,
+  id: string,
+  options: ExportOptions,
+): Promise<{ readonly file: Blob; readonly fileName: string }> {
+  const answer = await api.request<Blob>('POST', `/api/v1/distribution-lists/${id}/export`, {
+    body: options,
+    headers: { Accept: 'text/csv' },
+  });
+  return {
+    file: answer.data,
+    fileName: downloadFileName(answer.headers.get('Content-Disposition')),
+  };
 }
 
 /** After a write: the members and the count in the properties are read again. */

@@ -7,7 +7,7 @@
 // A write is never repeated on its own. When the server asks for a fresh sign-in (`step_up_required`) the
 // session dialog opens and the person starts again; the add dialog stays open with its selection.
 import type { MemberWriteItem, MemberWriteSummary } from '@m365portal/shared/schemas/member-writes';
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useState, type ReactNode } from 'react';
 import { Button } from '../../components/ui/button';
 import { ErrorState } from '../../components/ui/error-state';
 import { ApiError } from '../../lib/api';
@@ -41,6 +41,8 @@ export interface MemberActionsProps {
   readonly selection: MemberSelection;
   /** The members were changed: read them again. */
   readonly onChanged: () => void;
+  /** Another button for the same row (the export of a list). */
+  readonly extra?: ReactNode;
 }
 
 type Outcome =
@@ -65,6 +67,7 @@ export function MemberActions({
   stepUpAbove,
   selection,
   onChanged,
+  extra,
 }: MemberActionsProps) {
   const translator = useTranslator();
   const { t } = translator;
@@ -142,6 +145,7 @@ export function MemberActions({
         >
           {t('distributionLists.remove.open')}
         </Button>
+        {extra}
         {selection.count > 0 ? (
           <span className="text-body-sm text-fg-secondary">
             {t('distributionLists.picker.selected', { count: selection.count })}
