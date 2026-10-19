@@ -323,7 +323,8 @@ describe('command line', () => {
 
 describe('the committed budget: Phase B plan 15 plus the owner-approved Phase D growth (T-B-307, XB32)', () => {
   // Owner approvals: Phase B plan 15 (8 KiB) and Phase D, 2026-10-13 (2 KiB of initial JavaScript).
-  const ALLOWANCE = 8 * 1024 + 2 * 1024;
+  // 8 KiB (Phase B) + 2 KiB (Phase D) + 128 B (step D2, the CSV export; owner-approved 2026-10-19).
+  const ALLOWANCE = 8 * 1024 + 2 * 1024 + 128;
   const PHASE_A = {
     initialJsGzipBytes: 237_500,
     entryCssRawBytes: 45_500,
@@ -335,7 +336,7 @@ describe('the committed budget: Phase B plan 15 plus the owner-approved Phase D 
       'bundle-budget.json',
     );
 
-  it('allows the entry JavaScript at most 8 KiB (Phase B) plus 2 KiB (Phase D) gzip over the Phase A budget, and a budget never below the Phase A one for the other two (they cannot ratchet below what the Phase B pages need)', () => {
+  it('allows the entry JavaScript at most 8 KiB (Phase B) plus 2 KiB and 128 B (Phase D) gzip over the Phase A budget, and a budget never below the Phase A one for the other two (they cannot ratchet below what the Phase B pages need)', () => {
     const budget = committed();
     expect(budget.initialJsGzipBytes).toBeLessThanOrEqual(PHASE_A.initialJsGzipBytes + ALLOWANCE);
     expect(budget.initialJsGzipBytes).toBeGreaterThanOrEqual(PHASE_A.initialJsGzipBytes);

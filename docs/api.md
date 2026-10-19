@@ -1,13 +1,14 @@
-# API reference: users and groups (Phase C), distribution lists, contacts and group members (Phase D step D1)
+# API reference: users and groups (Phase C), distribution lists, contacts, group members and the CSV export (Phase D steps D1 and D2)
 
 > Nederlandse versie: zie [Nederlands](#nederlands). The machine-readable contract of every route is the
 > OpenAPI 3.1 document the server generates from its route table, served at `GET /api/v1/openapi.json`; the
 > wire schemas are in `packages/shared/src/schemas/` (`directory.ts` for Phase C; `distribution-lists.ts`,
 > `contacts.ts` and `member-writes.ts` for step D1). This page is the human reading of the seven read-only
 > routes Phase C adds (P33 to P39) and of the fourteen routes of Phase D step D1 (P40 to P45 and P47 to P54,
-> which write). Routes of the earlier phases are in
-> [`specs/002-phase-b/contracts/phase-b-api.md`](../specs/002-phase-b/contracts/phase-b-api.md). Steps D2
-> (export, audit) and D3 (roles, rotation) add their routes later.
+> which write) and of the two routes of the CSV export of step D2 (P46 and P55; `schemas/export.ts`). Routes of
+> the earlier phases are in
+> [`specs/002-phase-b/contracts/phase-b-api.md`](../specs/002-phase-b/contracts/phase-b-api.md). The rest of
+> step D2 (the audit screen) and D3 (roles, rotation) add their routes later.
 
 ## English
 
@@ -204,6 +205,8 @@ OpenAPI tag stays `distributionLists`.
 | P43 `distributionlists.members.add` | `POST /api/v1/distribution-lists/{id}/members` | `distributionlists:members:write` on that list | `dl.member.add` | 200, 403, 404, 409, 422, 503 |
 | P44 `distributionlists.members.remove` | `DELETE /api/v1/distribution-lists/{id}/members` | `distributionlists:members:write` on that list | `dl.member.remove` | 200, 403, 404, 409, 422, 503 |
 | P45 `distributionlists.search` | `GET /api/v1/distribution-lists/{id}/candidates?q=` | `distributionlists:members:write` on that list, plus `users:read` and `contacts:read` for what is offered | denials | 200, 400, 403, 404, 409, 422, 503 |
+| P46 `distributionlists.export.preview` | `POST /api/v1/distribution-lists/{id}/export/preview` | `distributionlists:export` on that list, plus `users:read`, `contacts:read` and `groups:read` for what is shown | denials | 200, 403, 404, 422, 503 |
+| P55 `distributionlists.export` | `POST /api/v1/distribution-lists/{id}/export` | `distributionlists:export` on that list (fresh step-up), plus `users:read`, `contacts:read` and `groups:read` for what is exported | `dl.export` | 200, 403, 404, 422, 429, 503 |
 | P47 `contacts.list` | `GET /api/v1/contacts` | `contacts:read`, scoped | denials | 200, 400, 422, 503 |
 | P48 `contacts.get` | `GET /api/v1/contacts/{id}` | `contacts:read` on that contact | denials | 200, 403, 404, 422, 503 |
 | P49 `contacts.create` | `POST /api/v1/contacts` | `contacts:create`, scoped by the proposed name, alias and address | `contact.create` | 201, 403, 409, 422, 503 |
@@ -243,6 +246,46 @@ on `step_up_required`, opens the sign-in dialog; the write is not replayed on it
   when the member read failed). A user without a mailbox address is not offered. **No cursor is issued**: the
   first page is the answer (the picker asks for 25), and a `cursor` in the request is 400 `cursor_invalid`. A
   dynamic or synchronised list is 409 `read_only_object`.
+
+#### CSV export (P46, P55)
+
+A download of the members of a list for a newsletter service. Both routes are `POST` because they take options;
+the body is the same (`ExportOptions`, strict):
+
+```json
+{ "preset": "laposta" }
+{ "preset": "custom", "columns": ["email", "firstName"], "separator": ";", "bom": true,
+  "dedupe": true, "skipWithoutEmail": true }
+```
+
+- **Presets.** `laposta` is `email`, `first_name`, `last_name` with `;` and a byte order mark; `generic` is all five
+  columns (`email`, `first_name`, `last_name`, `display_name`, `type`) with `,` and no BOM; `custom` takes
+  `columns` (one to five, each once), `separator` (`,` or `;`) and `bom`. For `laposta` and `generic`, sending
+  `columns`, `separator` or `bom` is 422. `dedupe` (default true) keeps one row per address, compared without
+  regard to case; `skipWithoutEmail` (default true) leaves out a member without an address. **The Laposta preset
+  is labelled "check the importer": Laposta's current import format has not been read from its documentation
+  (U91).**
+- **P55** streams `text/csv; charset=utf-8` with `Content-Disposition: attachment` (the list name made safe, and
+  the date), `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`. It needs a **fresh step-up**
+  (403 `step_up_required` otherwise), is class `export` (6 a minute per client address, 429 `rate_limited`) and
+  writes nothing to disk. Rows are written as they are read from Exchange; a client that stops reading stops
+  the read. At most `export.rowsMax` (100,000) rows: a longer list ends the stream as a failed download, audited
+  as `export_too_large`. The first member is read before the answer starts, so an Exchange failure is a 503
+  problem and not a broken file. A dynamic list has no member list for the panel: its file holds the header alone.
+- **Who is in the file.** The members the caller may see: a user, contact or group outside the caller's
+  `users:read`, `contacts:read` or `groups:read` scope is not exported (a file is no way round the scope) and is
+  counted as skipped, as are a repeated address and a member without one. Nested lists are written as one row of
+  type `group`, not expanded.
+- **Formula safety.** A field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets one space in
+  front of it so that Excel, LibreOffice and Google Sheets show it as text; every field is quoted when RFC 4180
+  needs it. Rows end with CRLF ([ADR-0184](adr/0184-csv-formula-safety.md)).
+- **P46** answers `{ csv, rows, skipped, more }`: the header and the first `export.previewRows` (20) rows, made by
+  the same function with the same options (without the BOM), for the preview in the dialog. It needs the
+  permission but no step-up, is class `write`, and is audited only when denied.
+- **Audit.** One `dl.export` entry per export, written when the stream ends: `rows` sent, `skipped`, `preset`,
+  and the NAMES of the `columns` and `options`; never a name or an address. An export that did not complete is
+  outcome `error` with the reason `cancelled`, `export_too_large`, `export_failed` or the problem code of
+  Exchange.
 
 #### Member writes (P43, P44, P53, P54)
 
@@ -438,8 +481,8 @@ verzoek blijft 9.437.184 bytes, en er is geen nieuwe omgevingsvariabele, Compose
 ### Fase D stap D1: distributielijsten, contacten en groepsleden
 
 > **Status:** stap D1 (2026-10-13). Veertien routes: P40 tot en met P45 (distributielijsten), P47 tot en met
-> P52 (mailcontacten) en P53 en P54 (leden van Microsoft 365- en beveiligingsgroepen). P46 (voorbeeld van de
-> export) en alles daarna horen bij de stappen D2 en D3. De schema's staan in
+> P52 (mailcontacten) en P53 en P54 (leden van Microsoft 365- en beveiligingsgroepen). Stap D2 voegt de
+> CSV-export toe: P46 (voorbeeld) en P55 (download). De rest van D2 (auditscherm) en D3 horen er nog niet bij. De schema's staan in
 > `packages/shared/src/schemas/{distribution-lists,contacts,member-writes}.ts`; de routetabel is sectie 6.11.1
 > van `specs/004-phase-d/spec.md`. **Niets hiervan is tegen een echte Microsoft 365-tenant gedraaid**: wat
 > Exchange en Graph antwoorden is de vraag van de eigenaarstest [owner-test-phase-d1.md](owner-test-phase-d1.md).
@@ -502,6 +545,36 @@ waarschuwt vooraf en opent bij die fout het aanmeldvenster; de schrijfactie word
   passen, als `{ kind, id, displayName, mail, alreadyMember }` (`null` als het lezen van de leden mislukte).
   Een gebruiker zonder mailadres wordt niet aangeboden. **Er komt geen cursor**; een meegestuurde `cursor`
   is 400 `cursor_invalid`. Een dynamische of gesynchroniseerde lijst is 409 `read_only_object`.
+
+#### CSV-export (P46, P55)
+
+Een download van de leden van een lijst voor een nieuwsbriefdienst. Beide routes zijn `POST` omdat ze opties
+meekrijgen; de body is dezelfde (`ExportOptions`, streng): `preset` (`laposta`, `generic` of `custom`), bij
+`custom` ook `columns` (een tot vijf, elk één keer: `email`, `firstName`, `lastName`, `displayName`, `type`),
+`separator` (`,` of `;`) en `bom`; verder `dedupe` en `skipWithoutEmail` (beide standaard aan).
+
+- **Presets.** `laposta` is `email`, `first_name`, `last_name` met `;` en een BOM; `generic` is alle vijf de
+  kolommen met `,` en zonder BOM. Bij `laposta` en `generic` is het meesturen van `columns`, `separator` of `bom`
+  een 422. **De Laposta-preset heet "controleer de importeur": het huidige importformaat van Laposta is niet uit
+  hun documentatie gelezen (U91).**
+- **P55** streamt `text/csv` als download (`Content-Disposition: attachment`, `Cache-Control: no-store`). Er is
+  een **verse step-up** nodig, de klasse is `export` (6 per minuut per clientadres, anders 429) en er komt
+  niets op schijf. Rijen worden geschreven zoals ze uit Exchange komen; stopt de browser met lezen, dan stopt
+  ook het lezen bij Exchange. Maximaal `export.rowsMax` (100.000) rijen: een langere lijst beëindigt de stroom
+  als mislukte download, met `export_too_large` in het auditlog. Het eerste lid wordt gelezen vóór het antwoord
+  begint, dus een storing bij Exchange is een 503 en geen kapot bestand. Een dynamische lijst heeft voor het
+  panel geen ledenlijst: het bestand bevat dan alleen de kopregel.
+- **Wie er in het bestand staan.** Alleen leden die de aanvrager mag zien: een gebruiker, contact of groep buiten
+  de scope van `users:read`, `contacts:read` of `groups:read` wordt niet geëxporteerd en telt als overgeslagen,
+  net als een herhaald adres of een lid zonder adres. Geneste lijsten staan als één rij van type `group`.
+- **Formuleveiligheid.** Een veld dat begint met `=`, `+`, `-`, `@`, een tab of een regeleinde krijgt één spatie
+  ervoor, zodat Excel, LibreOffice en Google Sheets het als tekst tonen ([ADR-0184](adr/0184-csv-formula-safety.md)).
+- **P46** antwoordt `{ csv, rows, skipped, more }`: de kopregel en de eerste 20 rijen, gemaakt door dezelfde
+  functie met dezelfde opties, voor het voorbeeld in het dialoogvenster. Geen step-up, klasse `write`, alleen
+  bij weigering in het auditlog.
+- **Audit.** Eén `dl.export`-regel per export: aantal verzonden `rows`, `skipped`, `preset` en de NAMEN van de
+  `columns` en `options`; nooit een naam of adres. Een export die niet af kwam, heeft uitkomst `error` met reden
+  `cancelled`, `export_too_large`, `export_failed` of de probleemcode van Exchange.
 
 #### Ledenwijzigingen (P43, P44, P53, P54)
 

@@ -264,7 +264,7 @@ describe('the Bestuur template over the routes of step D1 (US-D4, SC-D-003, brie
         { members: [bob] },
         403,
       ],
-      ['export', 'POST', `/api/v1/distribution-lists/${mine.guid}/export`, {}, 404],
+      ['export', 'POST', `/api/v1/distribution-lists/${mine.guid}/export`, {}, 403],
       ['settings', 'GET', '/api/v1/connection', undefined, 403],
       ['rbac', 'GET', '/api/v1/rbac/roles', undefined, 403],
     ];
@@ -287,6 +287,7 @@ describe('the Bestuur template over the routes of step D1 (US-D4, SC-D-003, brie
       expect.arrayContaining([
         'distributionlists.members.add',
         'distributionlists.members.remove',
+        'distributionlists.export',
         'contacts.update',
         'contacts.delete',
         'groups.members.add',

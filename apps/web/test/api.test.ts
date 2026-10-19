@@ -217,6 +217,25 @@ describe('reading', () => {
     await expect(client.get('/api/v1/anything')).resolves.toBeUndefined();
   });
 
+  it('answers a CSV download as a Blob with the bytes as they came, byte order mark included', async () => {
+    const csv = '\uFEFFemail;first_name\r\na@example.test;A\r\n';
+    const client = createApiClient({
+      fetch: network(
+        () =>
+          new Response(csv, {
+            status: 200,
+            headers: { 'Content-Type': 'text/csv; charset=utf-8' },
+          }),
+      ).fetch,
+    });
+
+    const answer = await client.request<Blob>('GET', '/api/v1/anything');
+    expect(answer.data).toBeInstanceOf(Blob);
+    const bytes = new Uint8Array(await answer.data.arrayBuffer());
+    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    expect(new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes)).toBe(csv);
+  });
+
   it('runs the response through the schema it is given, and fails loudly when it does not fit', async () => {
     const client = createApiClient({ fetch: network(() => json({ n: 'not a number' })).fetch });
     const schema = {

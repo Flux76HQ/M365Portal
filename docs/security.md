@@ -558,8 +558,15 @@ pattern and a maximum length, switch, boolean, result size, enumerated value) an
   limited today, but the Graph client builds the path in one function, a test fails on a path without `/$ref`, and
   the guard `read-only.test.ts` allows exactly two write methods on the client.
 - **Audit content.** The vocabulary of step D1 has seven actions and nine detail keys (`memberId`, `result`,
-  `summary`, `total`, `added`, `removed`, `already`, `failed`, `fields`); none can hold a name or an address, and a
-  test fails when a detail contains one. The chain and the append-only triggers are unchanged
+  `summary`, `total`, `added`, `removed`, `already`, `failed`, `fields`); step D2 adds `dl.export` and four keys
+  (`skipped`, `preset`, `columns`, `options`, next to the existing `rows`). None can hold a name or an address, and a
+  test fails when a detail contains one.
+- **CSV export.** The file is a way to take addresses out of the panel, so it is held to the rules of the screens:
+  only the members the caller may see are in it, it needs the `distributionlists:export` permission on the list
+  and a fresh step-up, it is limited to 6 a minute, it is never stored on the server (it is streamed and not
+  compressed so that it is not buffered), and every export is one audit entry. A field that a spreadsheet could
+  read as a formula (`=`, `+`, `-`, `@`, tab, carriage return) gets a leading space
+  ([ADR-0184](adr/0184-csv-formula-safety.md)). The chain and the append-only triggers are unchanged
   ([above](#audit-chain)).
 - **Logs.** A distribution list name, a member address or a search text never appears in a log line; a test greps
   the logs of every route for canary names and addresses (`no-pii-in-logs.test.ts`).

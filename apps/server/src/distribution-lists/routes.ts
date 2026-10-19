@@ -6,6 +6,8 @@
 //   P43 distributionlists.members.add    POST   /api/v1/distribution-lists/{id}/members    audit dl.member.add
 //   P44 distributionlists.members.remove DELETE /api/v1/distribution-lists/{id}/members    audit dl.member.remove
 //   P45 distributionlists.search         GET    /api/v1/distribution-lists/{id}/candidates users and contacts to add
+//   P46 distributionlists.export.preview POST   /api/v1/distribution-lists/{id}/export/preview  first rows of the file (step D2)
+//   P55 distributionlists.export         POST   /api/v1/distribution-lists/{id}/export  the CSV, streamed; step-up; audit dl.export
 //
 // The ids are lower case, all six: the id of a route is the `action` of its denial entries, and the audit
 // writer's action grammar has no capital letter (`audit/writer.ts`, `route-table.ts`); the spec spells
@@ -25,6 +27,11 @@ import {
   DistributionListMembersResponseSchema,
 } from '@m365portal/shared/schemas/distribution-lists';
 import {
+  ExportOptionsSchema,
+  ExportPreviewResponseSchema,
+} from '@m365portal/shared/schemas/export';
+import { z } from 'zod';
+import {
   DistributionListMemberWriteRequestSchema,
   DistributionListMemberWriteResponseSchema,
 } from '@m365portal/shared/schemas/member-writes';
@@ -39,7 +46,7 @@ import { listResource } from './mappers.js';
 const TAGS = ['distributionLists'] as const;
 
 export function distributionListsRoutes(context: DistributionListsContext): RouteDefinition[] {
-  const { lists, writes } = context;
+  const { lists, writes, exports } = context;
 
   /** Reads the list, 404 when unknown, then asks whether the caller may do `permission` to this one (403 if not). */
   async function found(id: string): Promise<ExchangeDistributionGroup> {
@@ -53,6 +60,14 @@ export function distributionListsRoutes(context: DistributionListsContext): Rout
     return {
       group,
       authorized: ctx.authorizeResource('distributionlists:read', listResource(group)),
+    };
+  }
+
+  async function authorizedExport(ctx: PolicyContext, id: string) {
+    const group = await found(id);
+    return {
+      group,
+      authorized: ctx.authorizeResource('distributionlists:export', listResource(group)),
     };
   }
 
@@ -267,6 +282,87 @@ export function distributionListsRoutes(context: DistributionListsContext): Rout
           query: input.query,
         });
         return c.json(body, 200);
+      },
+    }),
+
+    defineRoute({
+      id: 'distributionlists.export.preview',
+      method: 'POST',
+      path: '/api/v1/distribution-lists/{id}/export/preview',
+      access: { permission: 'distributionlists:export', scoped: 'distributionList' },
+      rateLimit: 'write',
+      tags: TAGS,
+      summary: 'The first rows of a CSV export',
+      description: `The header and the first ${String(LIMITS.export.previewRows)} rows the export with the same options would send, made by the same function, and the number of members left out so far (not visible to the caller, no address, repeated). Not audited unless denied.`,
+      request: {
+        params: DistributionListIdParamsSchema,
+        body: { required: true, content: { 'application/json': { schema: ExportOptionsSchema } } },
+      },
+      responses: {
+        200: {
+          description: 'The text of the first rows.',
+          content: { 'application/json': { schema: ExportPreviewResponseSchema } },
+        },
+        403: problemAnswer('The list is outside the caller’s scope (permission_denied).'),
+        404: problemAnswer('No such list.'),
+        422: problemAnswer('The options are not valid.'),
+        503: problemAnswer('Exchange is unavailable, throttled, or refused the application.'),
+      },
+      handler: async (c, input, ctx) => {
+        const { group, authorized } = await authorizedExport(ctx, input.params.id);
+        const body = await exports.preview({
+          authorized,
+          group,
+          visibility: memberVisibility(ctx),
+          options: input.body,
+        });
+        return c.json(body, 200);
+      },
+    }),
+
+    defineRoute({
+      id: 'distributionlists.export',
+      method: 'POST',
+      path: '/api/v1/distribution-lists/{id}/export',
+      access: { permission: 'distributionlists:export', scoped: 'distributionList', stepUp: true },
+      rateLimit: 'export',
+      audit: 'dl.export',
+      tags: TAGS,
+      summary: 'Export the members of a distribution list as CSV',
+      description: `A streamed text/csv download of the members the caller may see: the chosen preset (laposta, generic or custom), columns, separator and byte order mark, with a field that a spreadsheet could read as a formula made safe, addresses de-duplicated and members without an address left out when asked. Rows are written as they are read from Exchange; nothing is stored on the server. Needs a fresh step-up and is limited to 6 a minute. At most ${String(LIMITS.export.rowsMax)} rows; a longer list ends the stream as a failed download. One dl.export entry per export holds the rows sent and the members left out, never a name or an address. A dynamic list has no member list for the panel: the file holds the header alone.`,
+      request: {
+        params: DistributionListIdParamsSchema,
+        body: { required: true, content: { 'application/json': { schema: ExportOptionsSchema } } },
+      },
+      responses: {
+        200: {
+          description: 'The file.',
+          content: { 'text/csv': { schema: z.string() } },
+        },
+        403: problemAnswer('Not allowed: permission, scope or step-up.'),
+        404: problemAnswer('No such list.'),
+        422: problemAnswer('The options are not valid.'),
+        429: problemAnswer('More than 6 exports a minute (rate_limited).'),
+        503: problemAnswer('Exchange is unavailable, throttled, or refused the application.'),
+      },
+      handler: async (c, input, ctx) => {
+        const { group, authorized } = await authorizedExport(ctx, input.params.id);
+        const started = await exports.start({
+          authorized,
+          group,
+          visibility: memberVisibility(ctx),
+          options: input.body,
+          audit: memberAuditOf(c),
+        });
+        return new Response(started.stream, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/csv; charset=utf-8',
+            'Content-Disposition': started.contentDisposition,
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+          },
+        });
       },
     }),
   ];

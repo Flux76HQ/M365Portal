@@ -1,14 +1,13 @@
 {
-  "initialJsGzipBytes": 247740,
+  "initialJsGzipBytes": 247868,
   "entryCssRawBytes": 47200,
   "firstLoadBrotliBytes": 280572,
   "note": "Calibrated 2026-10-11 on a real `vite build` of apps/web. Before T-A-173 (D-3 fix included): initial JS 246,245 B gzip, entry CSS 45,548 B raw, first load 274,588 B Brotli (all three over the first calibration, which was 240,000 / 45,500 / 270,000). After T-A-173 (precompiled cn tables, static shell, deferred and staged start, one stale vendor property removed from the CSS): 236,309 / 45,491 / 267,982, each plus about 0.5 percent headroom (the CSS stays at 45,500: it only ratchets down). The deferred start lists its files in the `m365-start` block of the HTML and scripts/bundle-budget.ts reads that block, so the numbers still count every file the first visit loads. The spec targets are 250 KiB (256,000 B) gzip JS, 80 KiB (81,920 B) CSS and 150 KiB (153,600 B) Brotli first load: the first two are met, the third is NOT (about 262 KiB measured); T-A-334 recalibrates on the final build. The budget only ratchets down. PHASE B (T-B-307, 2026-10-12): the Phase B budget is the Phase A budget 237,500 B gzip plus the 8 KiB (8,192 B) of plan 15 = 245,692 B; measured 244,624 B gzip after moving the sign-in, session, showcase, Appearance (appearance, logo, accent, preview), label (role, permission, scope, qualifier, resource, origin), palette and shortcuts catalogues out of the entry into lazy files (a route loader or the dialog's own chunk loads each), against 253,802 B before and 259,854 B at the start of the Phase B pages. Entry CSS 47,182 B raw (Phase A 45,500): Tailwind writes one stylesheet for every class of every route, so the Phase B pages (wizard, connection, access, break-glass) add about 1.7 KB; the budget is 47,200 B. First load Brotli 276,255 B measured, budget 277,500 B (Phase A 269,000 B plus the same catalogues and code; the plan names no separate figure). The budget still only ratchets down. PHASE D (2026-10-13): the owner approved one growth for the whole of Phase D, +2,048 B gzip initial JS and +1,024 B Brotli first load (no CSS growth), for the shared limits, problem codes and their messages that the Phase D contract adds to the entry; every Phase D page and catalogue stays lazy. Budget 247,740 B and 280,572 B (first load raised by a second approval the same day: after the D1 pages the first load was 272 B over, because the opening block lists the lazy files of each route). The budget still only ratchets down after this.",
   "approvedGrowth": {
-    "phase": "D",
+    "phase": "D step D2 (CSV export of a distribution list)",
     "approvedBy": "owner",
-    "approvedOn": "2026-10-13",
-    "reason": "Phase D (Exchange lists and contacts, group members, CSV, roles, audit) adds shared constants and problem messages to the entry: measured +941 B gzip JS and +808 B Brotli for step D1 alone; steps D2 and D3 add more. One growth for the three steps, approved by the owner in the session of 2026-10-13. All Phase D pages and catalogues are lazy. Second approval on 2026-10-13: the first-load Brotli allowance is raised from 1,024 B to 3,072 B for the three steps, after the D1 web pages measured 272 B over the first figure.",
-    "initialJsGzipBytes": 2048,
-    "firstLoadBrotliBytes": 3072
+    "approvedOn": "2026-10-19",
+    "reason": "The CSV export needs the API client to read a text/csv answer as a Blob (about 30 B gzip in lib/api.ts) and two new limits (export.rowsMax, export.previewRows; about 22 B) in the entry. The Phase D allowance of 2,048 B was used up (initial JS was 1 B under budget). The dialog, its form and preview, the schemas and the catalogue are lazy. Approved in the session of 2026-10-19: +128 B.",
+    "initialJsGzipBytes": 128
   }
 }

@@ -517,7 +517,7 @@ const TABLE_RULES: readonly {
         rateLimit: 'read',
       }),
     ],
-    reason: /thing\.make.*write, upload, auth or setup/,
+    reason: /thing\.make.*write, upload, auth, setup or export/,
   },
   {
     name: 'a read route in the upload class',

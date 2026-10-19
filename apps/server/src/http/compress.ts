@@ -5,6 +5,8 @@
 //   - `/api/v1/csrf`: a secret next to attacker-influenced text in one compressed body is the shape
 //     of BREACH. The token endpoint is the only place the application returns a secret in a body.
 //   - images and other binary data: already compressed, and a second pass costs CPU for nothing.
+//   - `text/csv`: an export is streamed row by row and can be long (step D2, FR-D-406); reading it whole to
+//     compress it would hold the file in memory and send nothing until the last row is read.
 //   - an answer to a `Range` request, a 206, a response with `Content-Range`: the bytes are positions
 //     in the identity representation.
 //   - a response marked `no-transform`, and one that already has a `Content-Encoding` (a precompressed
@@ -41,6 +43,7 @@ const NEVER_COMPRESSED: ReadonlySet<string> = new Set(['/api/v1/csrf']);
 export function isCompressibleType(contentType: string | null): boolean {
   if (contentType === null) return false;
   const essence = (contentType.split(';')[0] ?? '').trim().toLowerCase();
+  if (essence === 'text/csv') return false;
   return (
     essence.startsWith('text/') ||
     essence === 'application/json' ||

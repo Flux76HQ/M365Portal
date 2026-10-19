@@ -353,9 +353,11 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     const response = await execute(verb, path, requestOptions);
     if (!response.ok) throw observe(await toApiError(response));
 
-    const isJson = (response.headers.get('Content-Type') ?? '').includes('json');
+    const type = response.headers.get('Content-Type') ?? '';
     let data: unknown;
-    if (isJson && response.status !== 204) {
+    // A CSV is a download: the bytes as they are (`text()` would drop a byte order mark).
+    if (type.startsWith('text/csv')) data = await response.blob();
+    else if (type.includes('json') && response.status !== 204) {
       const text = await response.text();
       if (text.trim() !== '') {
         try {

@@ -24,6 +24,7 @@ import { useMemberSelection } from '../directory/useMemberSelection';
 import { usePagedQuery } from '../directory/usePagedQuery';
 import { usePageHeadingFocus } from '../directory/usePageHeadingFocus';
 import { ListKindBadge } from './ListKindBadge';
+import { ListExport } from './ListExport';
 import { ListMembersTable } from './ListMembersTable';
 import {
   addListMembers,
@@ -54,10 +55,12 @@ function Members({
   id,
   name,
   editable,
+  exportable,
 }: {
   readonly id: string;
   readonly name: string;
   readonly editable: boolean;
+  readonly exportable: boolean;
 }) {
   const { t } = useTranslator();
   const { api, queryClient } = useRouterContext();
@@ -65,6 +68,7 @@ function Members({
   const { query, paging } = usePagedQuery(id, (cursor) => listMembersOptions(api, id, cursor));
   const data = query.data;
   const placeholder = query.isPlaceholderData;
+  const exportButton = exportable ? <ListExport id={id} name={name} /> : null;
 
   let body;
   if (data === undefined && query.isError) {
@@ -107,8 +111,12 @@ function Members({
 
   return (
     <Section heading={t('distributionLists.members.heading')}>
+      {exportable && !(editable && data !== undefined) ? (
+        <div className="flex flex-wrap items-center gap-2">{exportButton}</div>
+      ) : null}
       {editable && data !== undefined ? (
         <MemberActions
+          extra={exportButton}
           targetName={name}
           scope={['distributionLists', id]}
           search={listCandidatesSearch(api, id)}
@@ -136,6 +144,7 @@ export function DistributionListDetail() {
   const { id } = route.useParams();
   const { api } = useRouterContext();
   const canWrite = useCan('distributionlists:members:write');
+  const canExport = useCan('distributionlists:export');
   const valid = isGuid(id);
   const query = useQuery({
     ...listOptions(api, id),
@@ -262,7 +271,13 @@ export function DistributionListDetail() {
           {list.kind === 'dynamic' ? <StateNotice state={{ kind: 'listReadOnlyDynamic' }} /> : null}
           {list.kind === 'synced' ? <StateNotice state={{ kind: 'listReadOnlySynced' }} /> : null}
         </Section>
-        <Members id={id} name={name} editable={canWrite && !readOnly} />
+        <Members
+          id={id}
+          name={name}
+          editable={canWrite && !readOnly}
+          // A dynamic list has no member list for the panel, so there is nothing to export.
+          exportable={canExport && list.kind !== 'dynamic'}
+        />
       </div>
     </>
   );

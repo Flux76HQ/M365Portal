@@ -458,7 +458,10 @@ no request body at all (its seven routes are `GET`), so the largest request stay
 rows `searchMaxChars` to `cursorEntries` below are the limits of the users and groups lists. Phase D step D1
 adds write bodies (a list of at most 200 GUIDs, about 8 KB, and small contact bodies), all far below the
 262,144 bytes of any JSON body, so the largest request is still 9,437,184 bytes; the rows from `RATE_EXPORT`
-to `contacts.addressMaxChars` are the limits of step D1 (the export class is used from step D2).
+to `contacts.addressMaxChars` are the limits of step D1. Step D2 adds the CSV export of a distribution list: its
+request is a small JSON body of options (far below 262,144 bytes), so the largest request is still 9,437,184 bytes;
+the response is streamed and is not limited by the request limits, so whatever sits in front must not buffer the
+response or time out a download before the stream ends (the `export.rowsMax` row below).
 
 | Limit | Value | Enforced by | Constrains |
 |---|---|---|---|
@@ -515,12 +518,13 @@ to `contacts.addressMaxChars` are the limits of step D1 (the export class is use
 | `graphPageSize` | 999 | the app | `$top` of a scoped scan of users or groups (R-C-01) |
 | `scanPagesMax` | 5 pages | the app | Graph pages read per request of a scoped list (FR-C-203) |
 | `cursorTtlSeconds`, `cursorEntries` | 600 seconds and 1,000 entries | the app | list cursors held in memory, least recently used out (FR-C-103) |
-| `RATE_EXPORT` | capacity 6, refill 0.1 per second, per actor | the app | 429 `rate_limited` on the export routes of step D2 (the class exists since step D1; ODD-07) |
+| `RATE_EXPORT` | capacity 6, refill 0.1 per second, per actor | the app | 429 `rate_limited` on the CSV export of a distribution list (P55, step D2; ODD-07) |
 | `exchange.workerMaxCalls`, `exchange.workerMaxAgeSeconds` | 500 calls and 3,600 seconds | the app | unused since ADR-0182 (the worker that was recycled at whichever came first is gone; FR-D-104) |
 | `exchange.callDeadlineSeconds` | 120 seconds | the app | unused since ADR-0182 (the deadline of one cmdlet call of the worker; EC-D1) |
 | `exchange.listBufferMax`, `exchange.lineMaxBytes` | 10,000 rows and 1,048,576 bytes | the app | rows one list read holds per cursor: a larger result answers 422 `narrow_search`; `lineMaxBytes` is unused since ADR-0182 (it limited one line of the worker protocol; FR-D-102) |
 | `exchange.retryMax`, `exchange.retryBackoff` | 3 retries; 1 s doubling to 15 s, full jitter | the app | throttled or transient Exchange calls; `Retry-After` wins when present; then 503 `exchange_throttled` (FR-D-105, numbers ours until U81) |
 | `distributionLists.bulkMax`, `distributionLists.bulkChunk`, `distributionLists.stepUpAbove` | 200, 50 and 20 members | the app | members in one add or remove request, members per chunk, and the size above which a fresh step-up is needed (FR-D-203, FR-D-204) |
+| `export.rowsMax`, `export.previewRows` | 100,000 rows and 20 rows | the app | rows one CSV export of a distribution list sends (the stream ends as a failed download, audited, when the list is longer), and the rows of data in its preview (FR-D-404, FR-D-406) |
 | `groupMembers.bulkMax`, `groupMembers.bulkChunk`, `groupMembers.stepUpAbove` | 200, 20 and 20 members | the app | the same for Microsoft 365 and security groups through Graph (FR-D-353) |
 | `contacts.nameMaxChars`, `contacts.displayNameMaxChars`, `contacts.aliasMaxChars`, `contacts.personNameMaxChars`, `contacts.addressMaxChars` | 64, 256, 64, 64 and 254 characters | the app | fields of a mail contact; the Exchange name is derived from the alias (FR-D-302) |
 | `CLOCK_TOLERANCE_SECONDS` | 60 seconds | the app | `exp`, `nbf`, `iat` of an ID token |

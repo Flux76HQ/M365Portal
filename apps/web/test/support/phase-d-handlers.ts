@@ -20,7 +20,13 @@ import {
   ContactUpdateRequestSchema,
   type ContactDetail,
 } from '@m365portal/shared/schemas/contacts';
+import { EXPORT_HEADERS, resolveExportOptions } from '@m365portal/shared/csv/presets';
+import { CSV_BOM, csvRow } from '@m365portal/shared/csv/write';
 import { PAGE_LIMIT_DEFAULT } from '@m365portal/shared/schemas/common';
+import {
+  ExportOptionsSchema,
+  ExportPreviewResponseSchema,
+} from '@m365portal/shared/schemas/export';
 import {
   DistributionListCandidatesQuerySchema,
   DistributionListCandidatesResponseSchema,
@@ -542,6 +548,77 @@ export function createPhaseDApi(world: PhaseDWorld = emptyPhaseDWorld()): PhaseD
     );
   }
 
+  // --- the export (step D2) ---------------------------------------------------------------------
+  /** The rows the server would write for these members: the visible ones with an address, once each. */
+  function exportOf(list: ListRecord, call: Call) {
+    const options = ExportOptionsSchema.safeParse(call.body);
+    if (!options.success) return issueOf(options.error);
+    const resolved = resolveExportOptions(options.data);
+    const rows: string[][] = [];
+    let skipped = 0;
+    const seen = new Set<string>();
+    for (const member of list.members) {
+      const email = isRestrictedMemberRow(member) ? null : member.primarySmtpAddress;
+      if (isRestrictedMemberRow(member) || email === null) {
+        skipped += 1;
+        continue;
+      }
+      if (resolved.dedupe && seen.has(email.toLowerCase())) {
+        skipped += 1;
+        continue;
+      }
+      seen.add(email.toLowerCase());
+      const values = {
+        email,
+        firstName: '',
+        lastName: '',
+        displayName: member.displayName ?? '',
+        type: member.kind,
+      };
+      rows.push(resolved.columns.map((column) => values[column]));
+    }
+    const header = csvRow(
+      resolved.columns.map((column) => EXPORT_HEADERS[column]),
+      resolved.separator,
+    );
+    return { resolved, header, rows, skipped };
+  }
+
+  function exportPreview(id: string, call: Call): Response {
+    const list = findList(id);
+    if (list instanceof Response) return list;
+    const made = exportOf(list, call);
+    if (made instanceof Response) return made;
+    const shown = made.rows.slice(0, 20);
+    return json(
+      200,
+      ExportPreviewResponseSchema.parse({
+        csv: made.header + shown.map((row) => csvRow(row, made.resolved.separator)).join(''),
+        rows: shown.length,
+        skipped: made.skipped,
+        more: made.rows.length > shown.length,
+      }),
+    );
+  }
+
+  function exportDownload(id: string, call: Call): Response {
+    const list = findList(id);
+    if (list instanceof Response) return list;
+    const made = exportOf(list, call);
+    if (made instanceof Response) return made;
+    const text =
+      (made.resolved.bom ? CSV_BOM : '') +
+      made.header +
+      made.rows.map((row) => csvRow(row, made.resolved.separator)).join('');
+    return new Response(text, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="Sales-2026-10-19.csv"',
+      },
+    });
+  }
+
   // --- routing ----------------------------------------------------------------------------------
   type Handler = (match: RegExpExecArray, call: Call) => Response;
   const ROUTES: readonly (readonly [string, RegExp, Handler])[] = [
@@ -575,6 +652,16 @@ export function createPhaseDApi(world: PhaseDWorld = emptyPhaseDWorld()): PhaseD
       'GET',
       /^\/api\/v1\/distribution-lists\/([^/]+)\/candidates$/,
       (m, call) => listsCandidates(m[1] ?? '', call),
+    ],
+    [
+      'POST',
+      /^\/api\/v1\/distribution-lists\/([^/]+)\/export\/preview$/,
+      (m, call) => exportPreview(m[1] ?? '', call),
+    ],
+    [
+      'POST',
+      /^\/api\/v1\/distribution-lists\/([^/]+)\/export$/,
+      (m, call) => exportDownload(m[1] ?? '', call),
     ],
     ['GET', /^\/api\/v1\/contacts$/, (_m, call) => contactsList(call)],
     ['POST', /^\/api\/v1\/contacts$/, (_m, call) => contactsCreate(call)],

@@ -980,7 +980,7 @@ describe('docs/architecture.md (FR-A-006, FR-A-185)', () => {
 // =============================================================================================
 
 const ADR_PHASE_A_COUNT = 56;
-/** ADR-0001 to 0056 (Phase A), 0101 to 0126 (assumptions B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (Phase C, PC-02), 0180 (Phase D, ODB-01, the runtime base) 0181 (Phase D, FR-D-102, the worker protocol and allow-list) 0182 (Phase D, FR-D-102, Exchange over InvokeCommand without PowerShell) and 0183 (the sixth built-in role, Distribution List Editor). */
+/** ADR-0001 to 0056 (Phase A), 0101 to 0126 (assumptions B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (Phase C, PC-02), 0180 (Phase D, ODB-01, the runtime base) 0181 (Phase D, FR-D-102, the worker protocol and allow-list) 0182 (Phase D, FR-D-102, Exchange over InvokeCommand without PowerShell) 0183 (the sixth built-in role, Distribution List Editor) and 0184 (CSV formula safety). */
 const ADR_NUMBERS: readonly number[] = [
   ...Array.from({ length: ADR_PHASE_A_COUNT }, (_unused, index) => index + 1),
   ...Array.from({ length: 26 }, (_unused, index) => 101 + index),
@@ -990,6 +990,7 @@ const ADR_NUMBERS: readonly number[] = [
   181,
   182,
   183,
+  184,
 ];
 const ADR_COUNT = ADR_NUMBERS.length;
 const ADR_FIELDS = ['Status', 'Context', 'Decision', 'Consequences', 'Evidence'];
@@ -1135,7 +1136,7 @@ describe('docs/adr (FR-A-185)', () => {
       adrDirectory((files) => {
         files.delete('0030-decision.md');
       }),
-      { reason: /has 114 ADRs, expected 115/ },
+      { reason: /has 115 ADRs, expected 116/ },
     );
     expectGuardFails(
       assertAdrDirectory,
@@ -1237,11 +1238,11 @@ describe('docs/adr (FR-A-185)', () => {
       adrDirectory((files) => {
         files.delete('0126-decision.md');
       }),
-      { reason: /has 114 ADRs|ADR-0126: 0 files/ },
+      { reason: /has 115 ADRs|ADR-0126: 0 files/ },
     );
   });
 
-  it('has the template and ADR-0001 to ADR-0056, 0101 to 0126 (B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (PC-02), 0180 (ODB-01), 0181 (FR-D-102), 0182 (FR-D-102) and 0183 (the role Distribution List Editor) with their fields', () => {
+  it('has the template and ADR-0001 to ADR-0056, 0101 to 0126 (B-01 to B-26), 0151 to 0178 (PB-01 to PB-28) 0179 (PC-02), 0180 (ODB-01), 0181 (FR-D-102), 0182 (FR-D-102) 0183 (the role Distribution List Editor) and 0184 (CSV formula safety) with their fields', () => {
     assertAdrDirectory(join(repositoryRoot, 'docs/adr'));
   });
 });
@@ -1680,13 +1681,14 @@ describe('the contract file, the route table and the negative controls (FR-B-709
       phaseB: contractRouteIds(contract()),
       // Phase C has no contract file: its route index is table 6.7.1 of the spec (T-C-024).
       phaseC: contractRouteIds(readFileSync(join(specPhaseC, 'spec.md'), 'utf8')),
-      // Phase D step D1: table 6.11.1 of the spec, P40 to P54 without P46 (the export preview is step D2).
+      // Phase D steps D1 and D2: table 6.11.1 of the spec, P40 to P55 (P46 and P55 are the export of step D2;
+      // P56 to P59, the audit routes, are not built yet).
       phaseD1: [
         ...readFileSync(join(specPhaseD, 'spec.md'), 'utf8').matchAll(
           /^\| P(\d+) \| `([a-z][a-zA-Z0-9.]*)` \|/gm,
         ),
       ]
-        .filter((m) => Number(m[1]) >= 40 && Number(m[1]) <= 54 && m[1] !== '46')
+        .filter((m) => Number(m[1]) >= 40 && Number(m[1]) <= 55)
         .map((m) => m[2] ?? ''),
     };
     expect(input.phaseB).toHaveLength(32);
@@ -1706,6 +1708,7 @@ describe('the contract file, the route table and the negative controls (FR-B-709
       'distributionlists.members.add',
       'distributionlists.members.remove',
       'distributionlists.search',
+      'distributionlists.export.preview',
       'contacts.list',
       'contacts.get',
       'contacts.create',
@@ -1714,6 +1717,7 @@ describe('the contract file, the route table and the negative controls (FR-B-709
       'contacts.memberships',
       'groups.members.add',
       'groups.members.remove',
+      'distributionlists.export',
     ]);
     expect(() => {
       assertRoutesMatchContract(input);
@@ -1901,6 +1905,7 @@ const PHASE_D1_ROUTE_IDS = [
   'distributionlists.members.add',
   'distributionlists.members.remove',
   'distributionlists.search',
+  'distributionlists.export.preview',
   'contacts.list',
   'contacts.get',
   'contacts.create',
@@ -1909,6 +1914,7 @@ const PHASE_D1_ROUTE_IDS = [
   'contacts.memberships',
   'groups.members.add',
   'groups.members.remove',
+  'distributionlists.export',
 ] as const;
 
 const PHASE_D1_CMDLETS = [

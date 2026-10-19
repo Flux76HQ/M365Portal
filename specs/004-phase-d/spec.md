@@ -191,6 +191,16 @@ Each gate ends with a phase report (summary, test results, steps for the owner, 
 | FR-D-405 | MUST | Each export writes `dl.export` with actor, list object id, row count sent, skipped count, options (names only) and result; a cancelled stream writes the rows sent so far with result `cancelled`. A short privacy notice (GDPR) is shown before the first download in a session | `server/distribution-lists/export-audit.test.ts`, `e2e/export.spec.ts` |
 | FR-D-406 | SHOULD | The stream is bounded in memory (rows are written as read) and a request over `LIMITS.export.rowsMax` (100,000) is refused before the stream starts | `server/distribution-lists/export-limits.test.ts` |
 
+**Amendments of 2026-10-19 (the CSV export of a distribution list is built ahead of the rest of step D2, at the owner's request: "an option to export all members as CSV for a newsletter supplier").** What was decided while building it, and what is not built:
+
+- Formula safety (FR-D-403) is **one space in front** of the field, not an apostrophe; ADR-0184. The preview (P46) returns the text of the first rows (`{ csv, rows, skipped, more }`) made by the same function as the download.
+- P46 is rated class `write`, not `read`: the route table refuses a POST in the read class, and a live preview must not spend the 6 a minute of the export class.
+- A cancelled or failed export is outcome `error` with the reason `cancelled`, `export_too_large`, `export_failed` or the problem code, not an outcome `cancelled`: the audit table allows four outcomes (FR-D-405 asked for a result `cancelled`).
+- The row limit (FR-D-406) is enforced while streaming: the first member is read before the response starts (so an Exchange failure is a 503), and a list longer than `export.rowsMax` ends the stream as a failed download. It is not known beforehand without reading the whole list.
+- A member the caller may not see (outside their `users:read`, `contacts:read` or `groups:read` scope) is not exported and is counted as skipped. A dynamic list exports its header alone (FR-D-207). **Not built:** expanding nested lists (the option of FR-D-402); a nested list is one row of type `group`. The Laposta preset stays "check the importer" (U91 is open). `text/csv` is not compressed by `compress.ts`, so that the stream is not buffered.
+- The privacy notice is in the dialog every time it opens (FR-D-405 asked for the first download of a session).
+- Not part of this change: the audit screen and its routes (P56 to P59, FR-D-451 to FR-D-455), the gate notes GD2-0, GD2-server, GD2-web and GD2, and the owner sheet OV-D6.
+
 ### 6.6 Audit screen, retention and denial cap (D2)
 
 | ID | Level | Requirement | Enforced by |
@@ -258,7 +268,7 @@ Each gate ends with a phase report (summary, test results, steps for the owner, 
 | P43 | `distributionlists.members.add` | `POST /api/v1/distribution-lists/{id}/members` | `distributionlists:members:write`, stepUp above threshold | write | `dl.member.add` |
 | P44 | `distributionlists.members.remove` | `DELETE /api/v1/distribution-lists/{id}/members` (body: identities) | `distributionlists:members:write`, stepUp above threshold | write | `dl.member.remove` |
 | P45 | `distributionlists.search` | `GET /api/v1/distribution-lists/{id}/candidates?q=` | `distributionlists:members:write`, `users:read` and `contacts:read` scoped | read | denials only |
-| P46 | `distributionlists.export.preview` | `POST /api/v1/distribution-lists/{id}/export/preview` | `distributionlists:export` | read | denials only |
+| P46 | `distributionlists.export.preview` | `POST /api/v1/distribution-lists/{id}/export/preview` | `distributionlists:export` | write | denials only |
 | P47 | `contacts.list` | `GET /api/v1/contacts` | `contacts:read`, scoped | read | denials only |
 | P48 | `contacts.get` | `GET /api/v1/contacts/{id}` | `contacts:read` on that contact | read | denials only |
 | P49 | `contacts.create` | `POST /api/v1/contacts` | `contacts:create`, scoped by proposed name | write | `contact.create` |

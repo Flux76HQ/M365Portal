@@ -28,6 +28,10 @@
       "types": "./src/schemas/*.ts",
       "default": "./src/schemas/*.ts"
     },
+    "./csv/*": {
+      "types": "./src/csv/*.ts",
+      "default": "./src/csv/*.ts"
+    },
     "./branding/*": {
       "types": "./src/branding/*.ts",
       "default": "./src/branding/*.ts"

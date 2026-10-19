@@ -238,6 +238,8 @@ const SPEC_D_6_11_2: readonly (readonly [constant: string, path: string, value: 
   ['distributionLists.bulkMax', 'distributionLists.bulkMax', 200],
   ['distributionLists.bulkChunk', 'distributionLists.bulkChunk', 50],
   ['distributionLists.stepUpAbove', 'distributionLists.stepUpAbove', 20],
+  ['export.rowsMax', 'export.rowsMax', 100_000],
+  ['export.previewRows', 'export.previewRows', 20],
   ['rateLimit.export (capacity)', 'rateLimit.export.capacity', 6],
   ['rateLimit.export (refill)', 'rateLimit.export.refillIntervalMs', 10_000],
   // Named by the plan or the contract, number chosen here:

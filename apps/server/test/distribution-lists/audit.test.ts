@@ -1,4 +1,5 @@
-// T-D-120, T-D-122, T-D-123, FR-D-205, FR-D-304, FR-D-354: the audit vocabulary of step D1. Seven actions,
+// T-D-120, T-D-122, T-D-123, FR-D-205, FR-D-304, FR-D-354, FR-D-405: the audit vocabulary of step D1 (seven actions)
+// and the `dl.export` of step D2,
 // kept apart from the 19 of Phase B; every write route declares one of them and every action has a route;
 // the detail keys they use are on the allow-list with the types the entries need; a name, an address or a
 // value of a field cannot get into an entry.
@@ -18,8 +19,8 @@ import { READ_LISTS, createListsFixture } from './support.js';
 
 const GUID = '3f2c1a9e-0b5d-4c61-8a77-5d9a2b7c4e10';
 
-describe('the vocabulary of step D1', () => {
-  it('has the seven actions of the spec, none of them in the vocabulary of Phase B', () => {
+describe('the vocabulary of steps D1 and D2', () => {
+  it('has the seven actions of D1 and the export of D2, none of them in the vocabulary of Phase B', () => {
     expect([...AUDIT_ACTION_NAMES_D]).toEqual([
       'dl.member.add',
       'dl.member.remove',
@@ -28,6 +29,7 @@ describe('the vocabulary of step D1', () => {
       'contact.create',
       'contact.update',
       'contact.delete',
+      'dl.export',
     ]);
     for (const name of AUDIT_ACTION_NAMES_D) expect(AUDIT_ACTIONS, name).not.toHaveProperty(name);
     expect(Object.keys(AUDIT_ACTIONS)).toHaveLength(19);
@@ -48,11 +50,15 @@ describe('the vocabulary of step D1', () => {
     expect(Object.keys(AUDIT_DETAIL_KEYS_D).sort()).toEqual([
       'added',
       'already',
+      'columns',
       'failed',
       'fields',
       'memberId',
+      'options',
+      'preset',
       'removed',
       'result',
+      'skipped',
       'summary',
       'total',
     ]);
