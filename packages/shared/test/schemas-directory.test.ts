@@ -22,6 +22,7 @@ import * as contacts from '../src/schemas/contacts.js';
 import * as distributionLists from '../src/schemas/distribution-lists.js';
 import * as memberWrites from '../src/schemas/member-writes.js';
 import * as directory from '../src/schemas/directory.js';
+import * as exportOptions from '../src/schemas/export.js';
 import * as exportImport from '../src/schemas/export-import.js';
 import * as health from '../src/schemas/health.js';
 import * as manifest from '../src/schemas/manifest.js';
@@ -40,6 +41,7 @@ const SCHEMA_MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   contacts,
   directory,
   'distribution-lists': distributionLists,
+  export: exportOptions,
   'export-import': exportImport,
   health,
   manifest,

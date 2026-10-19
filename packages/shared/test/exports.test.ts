@@ -37,6 +37,7 @@ const EXPECTED_TARGETS: Readonly<Record<string, string>> = {
   './problem': './src/problem.ts',
   './routes': './src/routes.ts',
   './schemas/*': './src/schemas/*.ts',
+  './csv/*': './src/csv/*.ts',
   './branding/*': './src/branding/*.ts',
   './rbac/*': './src/rbac/*.ts',
   './auth/*': './src/auth/*.ts',

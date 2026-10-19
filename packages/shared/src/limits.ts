@@ -392,6 +392,14 @@ export const LIMITS = deepFreeze({
     stepUpAbove: 20,
   },
 
+  /** CSV exports of a distribution list (Phase D step D2, FR-D-406). */
+  export: {
+    /** Rows an export sends at most; a longer list ends the stream as a failed download, audited. */
+    rowsMax: 100_000,
+    /** Rows of data in the preview (FR-D-404). */
+    previewRows: 20,
+  },
+
   /** Group member writes through Graph (FR-D-353, FR-D-354). */
   groupMembers: {
     /** Identities in one add or remove request. */

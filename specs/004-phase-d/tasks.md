@@ -289,7 +289,7 @@ The Dockerfile, CI workflows, compose example, Bicep example and seccomp profile
 
 ### 3.1 S-D1 Contract and shared
 
-- [ ] **T-D-201** CSV writer, presets and options schema (FR-D-402, FR-D-403)
+- [x] **T-D-201** CSV writer, presets and options schema (FR-D-402, FR-D-403) (built 2026-10-19; see the amendments in spec 6.5)
   - Files: `packages/shared/src/csv/{write,presets}.ts`, `schemas/export.ts`, `packages/shared/test/csv*.test.ts`
   - Needs: GD1
   - Test first: `shared/csv.property.test.ts` (20,000 cases against an independent parser), `shared/export-options.test.ts`, unit cases for every leading character `= + - @ tab CR`
@@ -301,7 +301,7 @@ The Dockerfile, CI workflows, compose example, Bicep example and seccomp profile
   - Test first: `shared/schemas-audit.test.ts`
   - Done when: filters bounded; no free-text fields rendered as HTML
 
-- [ ] **T-D-203** [P] Limits `export`, `audit`; actions `dl.export`, `audit.export`, `audit.retention`, `audit.denials.capped` (FR-D-405, FR-D-453, FR-D-454)
+- [x] **T-D-203** [P] Limits `export`, `audit`; actions `dl.export`, `audit.export`, `audit.retention`, `audit.denials.capped` (FR-D-405, FR-D-453, FR-D-454) (only `export.*` and `dl.export` so far; the audit rows wait for the audit screen)
   - Files: `limits.ts`, `audit/actions` seam in shared if listed there, i18n fragments
   - Needs: GD1
   - Test first: `shared/limits.test.ts`, `shared/audit-actions.test.ts`
@@ -327,13 +327,13 @@ The Dockerfile, CI workflows, compose example, Bicep example and seccomp profile
   - Test first: `server/migrations.upgrade.test.ts` (D1 volume upgrades with an intact chain and no loss)
   - Done when: `foreign_key_check` empty; chain verifies
 
-- [ ] **T-D-211** Export route and streaming (FR-D-401, FR-D-404 to FR-D-406, EC-D11 to EC-D13)
+- [x] **T-D-211** Export route and streaming (FR-D-401, FR-D-404 to FR-D-406, EC-D11 to EC-D13)
   - Files: `apps/server/src/distribution-lists/{export,export-preview}.ts`, routes P46 and P55
   - Needs: GD2-0, T-D-120
   - Test first: `server/distribution-lists/export.test.ts` (no file, no temp, no cache, headers, step-up, scope), `server/distribution-lists/csv-injection.test.ts` (`=HYPERLINK(...)` member), `server/distribution-lists/export-limits.test.ts`, `server/distribution-lists/export-preview.test.ts` (preview equals download)
   - Done when: memory stays bounded on a 100,000-row stand-in list
 
-- [ ] **T-D-212** Export audit and the privacy notice contract (FR-D-405)
+- [x] **T-D-212** Export audit and the privacy notice contract (FR-D-405)
   - Files: `apps/server/src/distribution-lists/export-audit.ts`
   - Needs: T-D-211
   - Test first: `server/distribution-lists/export-audit.test.ts` (count, skipped, cancelled)
@@ -371,7 +371,7 @@ The Dockerfile, CI workflows, compose example, Bicep example and seccomp profile
 
 ### 3.3 S-D3 Web
 
-- [ ] **T-D-250** Export dialog with preview and privacy notice (FR-D-402, FR-D-404, FR-D-405)
+- [x] **T-D-250** Export dialog with preview and privacy notice (FR-D-402, FR-D-404, FR-D-405)
   - Files: `apps/web/src/features/export/*`
   - Needs: GD2-0
   - Test first: `web/export-dialog.test.tsx`, `web/export-preview.test.tsx`
