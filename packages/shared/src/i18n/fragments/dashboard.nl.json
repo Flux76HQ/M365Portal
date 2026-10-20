@@ -1,5 +1,6 @@
 {
   "dashboard.card.contacts": "E-mailcontacten",
+  "dashboard.card.denied": "Niet beschikbaar voor jouw rol",
   "dashboard.card.distributionLists": "Distributielijsten",
   "dashboard.card.empty": "Nog niet verbonden",
   "dashboard.card.error": "Kon niet worden geladen",

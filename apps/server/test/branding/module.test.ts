@@ -122,9 +122,9 @@ function rows(dataDir: string, sql: string): Record<string, unknown>[] {
 }
 
 describe('the branding module is registered in modules.ts (seam X1)', () => {
-  it('appModules holds the branding factory first, then the Phase B modules in their fixed order, directory (Phase C), then the three modules of Phase D step D1', () => {
+  it('appModules holds the branding factory first, then the Phase B modules in their fixed order, directory (Phase C), then the three modules of Phase D step D1, then the dashboard', () => {
     expect(appModules[0]).toBe(brandingModule);
-    expect(appModules).toHaveLength(10);
+    expect(appModules).toHaveLength(11);
   });
 
   it('the module id is "branding" and it has a shell, a start and a stop hook', async () => {

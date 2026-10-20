@@ -62,14 +62,9 @@ async function start(): Promise<void> {
   registerServiceWorkerWhenLoaded();
 }
 
-// App-feel: no pinch or double-tap zoom, no rubber-band overscroll. Set here and not in app.css (the entry CSS
-// has a byte budget) and not as `user-scalable=no` in the viewport meta: axe (meta-viewport, WCAG 1.4.4) fails
-// every page that carries it. iOS Safari needs the gesture events stopped as well.
-document.documentElement.style.cssText += 'touch-action:pan-x pan-y;overscroll-behavior:none';
-for (const type of ['gesturestart', 'gesturechange']) {
-  document.addEventListener(type, (event) => {
-    event.preventDefault();
-  });
-}
+// App-feel (no pinch zoom, no bounce): its own small chunk, kept out of the entry (initial-JS budget).
+void import('./lib/app-feel').then((module) => {
+  module.installAppFeel();
+});
 
 void start();

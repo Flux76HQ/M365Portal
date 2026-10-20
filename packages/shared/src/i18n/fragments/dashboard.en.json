@@ -1,5 +1,6 @@
 {
   "dashboard.card.contacts": "Mail contacts",
+  "dashboard.card.denied": "Not available for your role",
   "dashboard.card.distributionLists": "Distribution lists",
   "dashboard.card.empty": "Not connected yet",
   "dashboard.card.error": "Could not be loaded",

@@ -19,6 +19,7 @@ import * as branding from '../src/schemas/branding.js';
 import * as common from '../src/schemas/common.js';
 import * as connection from '../src/schemas/connection.js';
 import * as contacts from '../src/schemas/contacts.js';
+import * as dashboard from '../src/schemas/dashboard.js';
 import * as distributionLists from '../src/schemas/distribution-lists.js';
 import * as memberWrites from '../src/schemas/member-writes.js';
 import * as directory from '../src/schemas/directory.js';
@@ -39,6 +40,7 @@ const SCHEMA_MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   common,
   connection,
   contacts,
+  dashboard,
   directory,
   'distribution-lists': distributionLists,
   export: exportOptions,
