@@ -113,10 +113,15 @@ for (const entry of PAGES) {
       'one ultrawide screenshot: the Dashboard',
     );
     await prepare(page, entry.path, app);
+    // The numbers of the dashboard counters are data of the tenant and of the tests that ran before (the
+    // fake Exchange and the directory change from spec to spec), so the picture masks them; the numbers
+    // themselves are checked by dashboard.spec.ts and web/dashboard.test.tsx.
+    const counters =
+      entry.slug === 'dashboard' ? [page.locator('[data-slot="counter-card"] p')] : [];
     await expect(page).toHaveScreenshot(nameOf(entry.slug, testInfo), {
       ...SHOT,
       fullPage: true,
-      mask: MASKS(page),
+      mask: [...MASKS(page), ...counters],
     });
   });
 }
