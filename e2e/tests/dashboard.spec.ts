@@ -22,7 +22,7 @@ async function withoutBootData(page: Page): Promise<void> {
   );
 }
 
-type Counter = { state: 'ok'; count: number; capped: boolean } | { state: string };
+interface Counter { state: string; count?: number }
 
 test('four counters, each a group named after what it counts, each with the number the API gives', async ({
   page,
@@ -41,7 +41,7 @@ test('four counters, each a group named after what it counts, each with the numb
     const counter = api[keys[index] ?? ''];
     expect(counter?.state, name).toBe('ok');
     await expect(card).toHaveAttribute('data-state', 'data');
-    const count = (counter as { count: number }).count;
+    const count = counter?.count ?? -1;
     await expect(card).toContainText(new RegExp(`${String(count)}\\+?$`));
   }
   // Nothing claims that no tenant is connected: there is one.
