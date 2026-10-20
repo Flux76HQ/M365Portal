@@ -45,6 +45,8 @@ const IDS = [
   'groups',
   'distributionlists',
   'contacts',
+  // Phase D (P70): the dashboard counters.
+  'dashboard',
 ] as const;
 
 function fakeDeps(): ModuleDeps {
@@ -65,9 +67,9 @@ function fakeDeps(): ModuleDeps {
 }
 
 describe('appModules (CB2)', () => {
-  it('lists branding first, then secrets, setup, connection, auth and rbac, Phase C appends directory, Phase D groups, distributionlists and contacts', () => {
+  it('lists branding first, then secrets, setup, connection, auth and rbac, Phase C appends directory, Phase D groups, distributionlists and contacts, then the dashboard', () => {
     const deps = fakeDeps();
-    expect(appModules).toHaveLength(10);
+    expect(appModules).toHaveLength(11);
     expect(appModules.map((factory) => factory(deps).id)).toEqual([...IDS]);
   });
 

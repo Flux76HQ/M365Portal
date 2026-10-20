@@ -9,6 +9,8 @@
 // the read-only directory module), distribution lists (`T-D-120`: P40 to P45) and contacts (`T-D-122`: P47
 // to P52).
 //
+// The dashboard module (P70, FR-D-808) comes last: it only reads, through the services of the modules above.
+//
 // Order matters: routes are registered, `start` hooks run and the first `shell` wins in this order,
 // and `stop` hooks run in the reverse order. Secrets come first among the new ones because the others
 // need the sealed certificate; branding stays first because its shell renders for every page.
@@ -16,6 +18,7 @@ import { authModule } from './auth/module.js';
 import { brandingModule } from './branding/index.js';
 import { connectionModule } from './connection/module.js';
 import { contactsModule } from './contacts/module.js';
+import { dashboardModule } from './dashboard/module.js';
 import { directoryModule } from './directory/module.js';
 import { groupsModule } from './groups/module.js';
 import { distributionListsModule } from './distribution-lists/module.js';
@@ -37,4 +40,6 @@ export const appModules: readonly AppModuleFactory[] = [
   groupsModule,
   distributionListsModule,
   contactsModule,
+  // Phase D (P70): the dashboard counters, over the scoped list reads of the modules above.
+  dashboardModule,
 ];

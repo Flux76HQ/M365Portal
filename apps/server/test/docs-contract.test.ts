@@ -1682,13 +1682,13 @@ describe('the contract file, the route table and the negative controls (FR-B-709
       // Phase C has no contract file: its route index is table 6.7.1 of the spec (T-C-024).
       phaseC: contractRouteIds(readFileSync(join(specPhaseC, 'spec.md'), 'utf8')),
       // Phase D steps D1 and D2: table 6.11.1 of the spec, P40 to P55 (P46 and P55 are the export of step D2;
-      // P56 to P59, the audit routes, are not built yet).
+      // P56 to P59, the audit routes, are not built yet) and P70, the dashboard counters.
       phaseD1: [
         ...readFileSync(join(specPhaseD, 'spec.md'), 'utf8').matchAll(
           /^\| P(\d+) \| `([a-z][a-zA-Z0-9.]*)` \|/gm,
         ),
       ]
-        .filter((m) => Number(m[1]) >= 40 && Number(m[1]) <= 55)
+        .filter((m) => (Number(m[1]) >= 40 && Number(m[1]) <= 55) || Number(m[1]) === 70)
         .map((m) => m[2] ?? ''),
     };
     expect(input.phaseB).toHaveLength(32);
@@ -1718,6 +1718,7 @@ describe('the contract file, the route table and the negative controls (FR-B-709
       'groups.members.add',
       'groups.members.remove',
       'distributionlists.export',
+      'dashboard.counters',
     ]);
     expect(() => {
       assertRoutesMatchContract(input);

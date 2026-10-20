@@ -1,5 +1,7 @@
-// The dashboard (FR-A-130, PD-19; US-5): skeletons while `me` is pending, then the honest empty state,
-// and never an invented number. In Phase A there is no tenant and no dashboard endpoint.
+// The dashboard (FR-A-130, FR-D-808, PD-19; US-5): no card is drawn while `me` is pending, then four
+// counters with the numbers of `GET /api/v1/dashboard` for the signed-in owner; never an invented number.
+// The empty state, the denied and the failed counter are unit-tested (web/dashboard.test.tsx) and the
+// scoped counts are tested on the server (server/dashboard/routes.test.ts).
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures.js';
 
@@ -20,49 +22,38 @@ async function withoutBootData(page: Page): Promise<void> {
   );
 }
 
-test('four counters, each a group named after what it counts, none with a number', async ({
+type Counter = { state: 'ok'; count: number; capped: boolean } | { state: string };
+
+test('four counters, each a group named after what it counts, each with the number the API gives', async ({
   page,
   app,
 }) => {
   await app.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
-  const cards = page.locator('[data-slot="counter-card"]');
-  await expect(cards).toHaveCount(4);
-  for (const name of CARDS) {
+  await expect(page.locator('[data-slot="counter-card"]')).toHaveCount(4);
+  const api = await page.evaluate(async () => {
+    const response = await fetch('/api/v1/dashboard');
+    return (await response.json()) as Record<string, Counter>;
+  });
+  const keys = ['users', 'groups', 'distributionLists', 'contacts'];
+  for (const [index, name] of CARDS.entries()) {
     const card = page.getByRole('group', { name, exact: true });
-    await expect(card).toBeVisible();
-    await expect(card).toHaveAttribute('data-state', 'empty');
-    await expect(card).toContainText('Not connected yet');
-    // No number anywhere on the card, not even a zero.
-    expect(await card.innerText()).not.toMatch(/\d/);
+    const counter = api[keys[index] ?? ''];
+    expect(counter?.state, name).toBe('ok');
+    await expect(card).toHaveAttribute('data-state', 'data');
+    const count = (counter as { count: number }).count;
+    await expect(card).toContainText(new RegExp(`${String(count)}\\+?$`));
   }
+  // Nothing claims that no tenant is connected: there is one.
+  await expect(page.getByText('No tenant connected yet')).toHaveCount(0);
 });
 
-test('the honest empty state explains why, and promises no number', async ({ page, app }) => {
-  await app.goto('/');
-  const empty = page.getByRole('heading', { level: 2, name: 'No tenant connected yet' });
-  await expect(empty).toBeVisible();
-  await expect(page.getByText(/shows no numbers rather than made-up ones/)).toBeVisible();
-  await expect(
-    page.locator('main').getByText('arrives in Phase B', { exact: false }),
-  ).toBeVisible();
-});
-
-test('nothing on the page is a made-up figure (no digit in the page body)', async ({
-  page,
-  app,
-}) => {
-  await app.goto('/');
-  const text = await page.locator('main').innerText();
-  expect(text.replaceAll('Microsoft 365', 'Microsoft')).not.toMatch(/\d/);
-});
-
-test('without the embedded data the page waits for `me` and then shows the empty state, never a number', async ({
+test('without the embedded data the page waits for `me` and then shows the counters', async ({
   page,
   app,
 }) => {
   await withoutBootData(page);
-  // Hold `me` back so that the skeleton can be looked at.
+  // Hold `me` back so that the wait can be looked at.
   let release: () => void = () => undefined;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -78,13 +69,10 @@ test('without the embedded data the page waits for `me` and then shows the empty
   await expect(cards).toHaveCount(0);
   release();
   await expect(cards).toHaveCount(4);
-  await expect(
-    page.getByRole('heading', { level: 2, name: 'No tenant connected yet' }),
-  ).toBeVisible();
   for (const name of CARDS) {
     await expect(page.getByRole('group', { name, exact: true })).toHaveAttribute(
       'data-state',
-      'empty',
+      'data',
     );
   }
 });
@@ -107,17 +95,15 @@ test('the skeleton primitive reserves its height, hides itself from assistive te
   );
 });
 
-test('in Dutch the cards and the empty state are Dutch', async ({ page, app }) => {
+test('in Dutch the cards are Dutch and carry numbers', async ({ page, app }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem('m365portal.locale', 'nl');
   });
   await app.goto('/');
   for (const name of ['Gebruikers', 'Groepen', 'Distributielijsten', 'E-mailcontacten']) {
-    await expect(page.getByRole('group', { name, exact: true })).toContainText(
-      'Nog niet verbonden',
-    );
+    const card = page.getByRole('group', { name, exact: true });
+    await expect(card).toHaveAttribute('data-state', 'data');
+    await expect(card).toContainText(/\d/);
   }
-  await expect(
-    page.getByRole('heading', { level: 2, name: 'Nog geen tenant gekoppeld' }),
-  ).toBeVisible();
+  await expect(page.getByText('Nog geen tenant gekoppeld')).toHaveCount(0);
 });

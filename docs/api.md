@@ -215,6 +215,7 @@ OpenAPI tag stays `distributionLists`.
 | P52 `contacts.memberships` | `GET /api/v1/contacts/{id}/lists` | `contacts:read` on that contact and `distributionlists:read` | denials | 200, 400, 403, 404, 422, 503 |
 | P53 `groups.members.add` | `POST /api/v1/groups/{id}/members` | `groups:members:write` on that group | `group.member.add` | 200, 403, 404, 409, 422, 503 |
 | P54 `groups.members.remove` | `DELETE /api/v1/groups/{id}/members` | `groups:members:write` on that group | `group.member.remove` | 200, 403, 404, 409, 422, 503 |
+| P70 `dashboard.counters` | `GET /api/v1/dashboard` | authenticated; each counter follows `users:read`, `groups:read`, `distributionlists:read`, `contacts:read` | denials | 200, 401 |
 
 "Denials" means a success is not audited (ODC-01) and every refusal of an authenticated actor is, under the
 route id. P43, P44, P53 and P54 audit successes too, one entry per member (below). Step-up: a write that
@@ -371,6 +372,18 @@ Request body, the same for all four (`DELETE` carries a body too):
   `display_name_too_long`, `display_name_characters`, `alias_empty`, `alias_too_long`, `alias_characters`,
   `address_invalid`, `address_not_normalised`, `address_too_long`, `person_name_too_long`,
   `nothing_to_change`, `confirm_mismatch`. The pointer is `/<field>`.
+
+#### Dashboard counters (P70)
+
+`GET /api/v1/dashboard`: access `authenticated`, rate class `read`, a success is not audited. The answer is
+`{ users, groups, distributionLists, contacts }`; each counter is `{ state: "ok", count, capped }`,
+`{ state: "denied" }` (the caller holds no read permission for that kind) or `{ state: "unavailable" }` (Graph or
+Exchange could not answer; the other counters still do). A counter is the number of rows the caller's own list
+page would show: it pages through the same scoped list read (`users.list`, `groups.list`,
+`distributionlists.list`, `contacts.list`), 200 rows a page, at most `LIMITS.directory.scanPagesMax` pages. A count
+that reaches that bound is `capped: true` and the card shows "1,000+". Answers are kept for 60 seconds per caller
+and per set of visible scopes (FR-D-808); an answer with an `unavailable` counter is not kept. No new limit and no
+request body.
 
 #### Problem codes added by step D1
 
@@ -636,6 +649,18 @@ per lid een resultaat in de volgorde van het verzoek, een `summary` (`total`, `a
   `display_name_characters`, `alias_empty`, `alias_too_long`, `alias_characters`, `address_invalid`,
   `address_not_normalised`, `address_too_long`, `person_name_too_long`, `nothing_to_change`,
   `confirm_mismatch`.
+
+#### Dashboardtellers (P70)
+
+`GET /api/v1/dashboard`: toegang `authenticated`, ratelimitklasse `read`, een geslaagde aanroep wordt niet
+geaudit. Het antwoord is `{ users, groups, distributionLists, contacts }`; elke teller is
+`{ state: "ok", count, capped }`, `{ state: "denied" }` (de aanvrager mag die soort niet lezen) of
+`{ state: "unavailable" }` (Graph of Exchange kon niet antwoorden; de andere tellers antwoorden wel). Een teller is
+het aantal rijen dat de eigen lijstpagina van de aanvrager zou tonen: hij bladert door dezelfde bereikgebonden
+lijstlezing (`users.list`, `groups.list`, `distributionlists.list`, `contacts.list`), 200 rijen per pagina, hooguit
+`LIMITS.directory.scanPagesMax` pagina's. Een telling die die grens bereikt is `capped: true` en de kaart toont
+"1.000+". Antwoorden worden 60 seconden bewaard per aanvrager en per set zichtbare bereiken (FR-D-808); een
+antwoord met een `unavailable`-teller wordt niet bewaard. Geen nieuwe grens en geen verzoekbody.
 
 #### Foutcodes die stap D1 toevoegt
 
