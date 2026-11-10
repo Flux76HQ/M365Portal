@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -187,7 +187,7 @@ jobs:
           }
 
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Playwright takes about 33 minutes and the Lighthouse runs (about 100 of 12 s each) about 20 more.
     timeout-minutes: 80
     steps:
